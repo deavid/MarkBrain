@@ -1,0 +1,6 @@
+{
+  "name": "MarkBrain - Architectural Spatial Studio",
+  "description": "Mobile-first architectural design system studio with spatial artifact graph, inline chat chapters, context abstraction sliders, and color-coded token budgeting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

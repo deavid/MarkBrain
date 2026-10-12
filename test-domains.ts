@@ -91,4 +91,16 @@ console.log('🧪 Running Domain Driven Design Architectural Unit Tests...');
   console.log('✅ 03-optical-compiler: Depth-of-Field tier degradation assertions passed');
 }
 
+// 5. Test Dialogue Timeline initialization and query methods
+{
+  const timeline = new DialogueTimelineDomain('test-workspace');
+  assert.strictEqual(timeline.count(), 0, 'Initial timeline count is 0 when empty');
+  assert.strictEqual(timeline.getTurns().length, 0, 'Initial getTurns returns empty array');
+
+  const turn = timeline.appendTurn('user', 'Hello system');
+  assert.strictEqual(timeline.count(), 1, 'Timeline count increments to 1 after appendTurn');
+  assert.strictEqual(timeline.getTurns()[0].content, 'Hello system', 'First turn matches appended content');
+  console.log('✅ 01-dialogue-timeline: Initial turn count & query method assertions passed');
+}
+
 console.log('🎉 ALL DOMAIN-DRIVEN DESIGN ARCHITECTURE TESTS PASSED SUCCESSFULLY!');

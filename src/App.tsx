@@ -417,7 +417,7 @@ export default function App() {
     _messageId: string,
     title: string
   ) => {
-    const currentTurnsCount = timeline.listTurns().length;
+    const currentTurnsCount = timeline.count();
     segmentation.declareNewChapter(title, currentTurnsCount, 'User split chapter boundary');
   };
 
@@ -488,7 +488,7 @@ export default function App() {
 
       // 5. If topic shift detected, declare new chapter
       if (parsedTurn.topicShift) {
-        const currentTurnsCount = timeline.listTurns().length;
+        const currentTurnsCount = timeline.count();
         segmentation.declareNewChapter(
           parsedTurn.topicShift.title,
           currentTurnsCount,

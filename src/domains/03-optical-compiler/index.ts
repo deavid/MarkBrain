@@ -1,0 +1,207 @@
+import { ITopologicalGraphDomain } from '../02-topological-graph';
+import { IArtifactDocumentDomain, ResolutionTier } from '../01-artifact-document';
+import { IChapterSegmentationDomain } from '../02-chapter-segmentation';
+import { IDialogueTimelineDomain } from '../01-dialogue-timeline';
+
+export interface OpticalCompilerOptions {
+  focalIds: string[];
+  opticalMode: 'autofocus' | 'manual' | 'myopia';
+  tokenCeiling?: number;
+  tierOverrides?: Record<string, ResolutionTier>;
+}
+
+export interface ContextTelemetry {
+  tokenBreakdown: {
+    systemTokens: number;
+    substrateTokens: number;
+    historyTokens: number;
+    totalTokens: number;
+  };
+  nodeDistribution: {
+    tier3Count: number;
+    tier2Count: number;
+    tier1Count: number;
+    tier0Count: number;
+    culledCount: number;
+  };
+}
+
+export interface CompiledOpticalPayload {
+  compiledPrompt: string;
+  systemInstruction: string;
+  telemetry: ContextTelemetry;
+  nodeTiers: Record<string, { tier: ResolutionTier | 'culled'; distance: number }>;
+}
+
+export interface IOpticalCompilerDomain {
+  compile(options: OpticalCompilerOptions): CompiledOpticalPayload;
+}
+
+export class OpticalCompilerDomain implements IOpticalCompilerDomain {
+  constructor(
+    private graph: ITopologicalGraphDomain,
+    private artifacts: IArtifactDocumentDomain,
+    private segmentation: IChapterSegmentationDomain,
+    private timeline: IDialogueTimelineDomain
+  ) {}
+
+  compile(options: OpticalCompilerOptions): CompiledOpticalPayload {
+    const mode = options.opticalMode || 'autofocus';
+    const ceiling = options.tokenCeiling || 32000;
+    const allArtifacts = this.artifacts.listArtifacts();
+    const allDocIds = allArtifacts.map((a) => a.id);
+
+    // 1. Identify Focal Points
+    const activeChapter = this.segmentation.getActiveChapter();
+    const effectiveFocalIds =
+      options.focalIds.length > 0
+        ? options.focalIds
+        : activeChapter
+        ? [activeChapter.id]
+        : allDocIds.slice(0, 1);
+
+    // 2. Compute Distances
+    const distances = this.graph.computeDistancesFromFocal(effectiveFocalIds, allDocIds);
+
+    // 3. Assign Raw Tiers
+    const nodeTiers: Record<string, { tier: ResolutionTier | 'culled'; distance: number }> = {};
+    const ancestors = new Set<string>();
+    effectiveFocalIds.forEach((fid) => {
+      this.graph.getAncestors(fid).forEach((a) => ancestors.add(a));
+    });
+
+    for (const art of allArtifacts) {
+      const dist = distances[art.id] ?? Infinity;
+
+      // Check manual override
+      if (options.tierOverrides && options.tierOverrides[art.id] !== undefined) {
+        nodeTiers[art.id] = { tier: options.tierOverrides[art.id], distance: dist };
+        continue;
+      }
+
+      if (mode === 'myopia') {
+        if (effectiveFocalIds.includes(art.id)) {
+          nodeTiers[art.id] = { tier: 2, distance: 0 };
+        } else if (dist <= 2) {
+          nodeTiers[art.id] = { tier: 1, distance: dist };
+        } else if (dist === 3) {
+          nodeTiers[art.id] = { tier: 0, distance: dist };
+        } else {
+          nodeTiers[art.id] = { tier: 'culled', distance: dist };
+        }
+        continue;
+      }
+
+      // Standard Optics
+      if (effectiveFocalIds.includes(art.id)) {
+        nodeTiers[art.id] = { tier: 3, distance: 0 };
+      } else if (dist === 1) {
+        nodeTiers[art.id] = { tier: 2, distance: 1 };
+      } else if (dist === 2) {
+        nodeTiers[art.id] = { tier: 1, distance: 2 };
+      } else if (dist === 3) {
+        nodeTiers[art.id] = { tier: 0, distance: 3 };
+      } else {
+        nodeTiers[art.id] = { tier: 'culled', distance: dist };
+      }
+
+      // Ancestor backbone preservation
+      if (ancestors.has(art.id)) {
+        const cur = nodeTiers[art.id].tier;
+        if (cur === 'culled' || cur === 0) {
+          nodeTiers[art.id] = { tier: 1, distance: dist };
+        }
+      }
+    }
+
+    // 4. Build Substrate XML
+    const substrateParts: string[] = [];
+    let substrateTokens = 0;
+
+    for (const art of allArtifacts) {
+      const tInfo = nodeTiers[art.id];
+      if (!tInfo || tInfo.tier === 'culled') continue;
+
+      const isFocal = effectiveFocalIds.includes(art.id);
+      let xml = '';
+      if (tInfo.tier === 3) {
+        xml = `  <artifact id="${art.id}" type="document" tier="3"${isFocal ? ' focus="true"' : ''}>\n    <title>${art.title}</title>\n    <content>\n${art.current.t3_body}\n    </content>\n  </artifact>`;
+      } else if (tInfo.tier === 2) {
+        xml = `  <artifact id="${art.id}" type="document" tier="2" distance="${tInfo.distance}">\n    <title>${art.title}</title>\n    <summary>\n${art.current.t2_summary}\n    </summary>\n  </artifact>`;
+      } else if (tInfo.tier === 1) {
+        xml = `  <artifact id="${art.id}" type="document" tier="1" distance="${tInfo.distance}">\n    <title>${art.title}</title>\n    <abstract>${art.current.t1_abstract}</abstract>\n  </artifact>`;
+      } else {
+        xml = `  <artifact id="${art.id}" type="document" tier="0" title="${art.title}" distance="${tInfo.distance}" />`;
+      }
+
+      substrateParts.push(xml);
+      substrateTokens += Math.ceil(xml.length / 4);
+    }
+
+    // 5. Build Chapters & Timeline XML
+    const chapters = this.segmentation.listChapters();
+    const historyParts: string[] = [];
+    let historyTokens = 0;
+
+    chapters.forEach((chap, cIdx) => {
+      const isLast = cIdx === chapters.length - 1;
+      const isOngoing = chap.status === 'active' || isLast;
+      const turns = this.timeline.getTurnSlice(chap.startIndex, chap.endIndex);
+
+      if (isOngoing) {
+        // Full verbatim turns for active chapter
+        const turnsXml = turns
+          .map((t) => `      <turn role="${t.role}">\n${t.content}\n      </turn>`)
+          .join('\n');
+        const xml = `  <chapter id="${chap.id}" tier="3" status="active">\n    <title>${chap.title}</title>\n    <turns>\n${turnsXml}\n    </turns>\n  </chapter>`;
+        historyParts.push(xml);
+        historyTokens += Math.ceil(xml.length / 4);
+      } else {
+        // Closed chapters compressed to Tier 2 summary
+        const summ = chap.summary || `Recap of ${chap.title}.`;
+        const xml = `  <chapter id="${chap.id}" tier="2" status="completed">\n    <title>${chap.title}</title>\n    <summary>\n${summ}\n    </summary>\n  </chapter>`;
+        historyParts.push(xml);
+        historyTokens += Math.ceil(xml.length / 4);
+      }
+    });
+
+    const substrateBlock = `<knowledge_substrate>\n${substrateParts.join('\n\n')}\n</knowledge_substrate>`;
+    const historyBlock = `<conversation_chapters>\n${historyParts.join('\n\n')}\n</conversation_chapters>`;
+
+    const compiledPrompt = `${substrateBlock}\n\n${historyBlock}`;
+    const systemInstruction = `You are MarkBrain, a principal systems architect.
+Ground your thinking directly in the provided Knowledge Substrate and Conversation Chapters.
+Emit functional XML tags when appropriate:
+- <topic_shift title="New Chapter Title" abstract="1-sentence essence" summary="Key invariant bullets" />
+- <artifact_upsert id="unique_id" title="Artifact Title" type="document"><abstract>...</abstract><summary>...</summary><content>...</content></artifact_upsert>
+- <link source="id1" target="id2" kind="relates_to|refines|parent_of|child_of|born_from" />`;
+
+    const systemTokens = Math.ceil(systemInstruction.length / 4);
+    const totalTokens = systemTokens + substrateTokens + historyTokens;
+
+    // Node distribution calculation
+    const counts = { tier3Count: 0, tier2Count: 0, tier1Count: 0, tier0Count: 0, culledCount: 0 };
+    Object.values(nodeTiers).forEach((t) => {
+      if (t.tier === 3) counts.tier3Count++;
+      else if (t.tier === 2) counts.tier2Count++;
+      else if (t.tier === 1) counts.tier1Count++;
+      else if (t.tier === 0) counts.tier0Count++;
+      else counts.culledCount++;
+    });
+
+    return {
+      compiledPrompt,
+      systemInstruction,
+      telemetry: {
+        tokenBreakdown: {
+          systemTokens,
+          substrateTokens,
+          historyTokens,
+          totalTokens,
+        },
+        nodeDistribution: counts,
+      },
+      nodeTiers,
+    };
+  }
+}

@@ -1,21 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Project, Chapter, ChatMessage, Artifact } from '../types';
+import { Project, ChatMessage, Artifact, Chapter, getMellowPastelColor } from '../types';
 import {
   Send,
-  Sparkles,
+  Loader2,
+  FileCode,
   Volume2,
   VolumeX,
-  FileCode,
-  RefreshCw,
   ChevronDown,
   ChevronUp,
-  Loader2,
-  CornerDownRight,
   BookmarkPlus,
-  Layers,
-  Check,
-  History,
-  Sliders,
   Compass,
 } from 'lucide-react';
 
@@ -30,6 +23,15 @@ interface ChatViewProps {
   onNavigateToGraph: () => void;
 }
 
+// Consistent mellow dark pastel palette for chapters
+const CHAPTER_PASTEL_COLORS = [
+  { border: 'border-[#2d3a4f]', bgHeader: 'bg-[#121a28]', dot: '#7093be', text: 'text-[#8ab1e0]' }, // slate steel blue
+  { border: 'border-[#2b3a36]', bgHeader: 'bg-[#111c18]', dot: '#5da88b', text: 'text-[#7ec2a6]' }, // mellow sage green
+  { border: 'border-[#3a3345]', bgHeader: 'bg-[#1a1523]', dot: '#9d80ba', text: 'text-[#b9a1d4]' }, // dark muted mauve
+  { border: 'border-[#3d3428]', bgHeader: 'bg-[#1c1710]', dot: '#b59765', text: 'text-[#d6be94]' }, // mellow dark amber
+  { border: 'border-[#243745]', bgHeader: 'bg-[#101b24]', dot: '#64a3ba', text: 'text-[#8ac5db]' }, // dark muted teal
+];
+
 export const ChatView: React.FC<ChatViewProps> = ({
   project,
   onSendMessage,
@@ -43,6 +45,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [inputText, setInputText] = useState('');
   const [showPrompts, setShowPrompts] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const prevMessagesCountRef = useRef<number>(0);
 
   // Audio / TTS State
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
@@ -67,10 +70,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setExpandedSummaryIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Auto-scroll on new message
+  // Total messages count across chapters
+  const totalMessagesCount = project.chapters.reduce(
+    (acc, chap) => acc + (chap.messages ? chap.messages.length : 0),
+    0
+  );
+
+  // Auto-scroll ONLY when a new message is appended (NOT on summary toggles or loading state)
+  const isFirstMount = useRef(true);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [project.chapters, isLoading]);
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      prevMessagesCountRef.current = totalMessagesCount;
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      return;
+    }
+    if (totalMessagesCount > prevMessagesCountRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    prevMessagesCountRef.current = totalMessagesCount;
+  }, [totalMessagesCount]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,10 +162,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const fallbackSpeech = (text: string, msgId: string) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(
-        text.replace(/```[\s\S]*?```/g, '').slice(0, 1000)
-      );
-      utterance.rate = 1.0;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05;
       utterance.pitch = 1.0;
       utterance.onend = () => setPlayingMessageId(null);
       utterance.onerror = () => setPlayingMessageId(null);
@@ -175,35 +192,42 @@ export const ChatView: React.FC<ChatViewProps> = ({
           const isLastChapter = chapterIndex === project.chapters.length - 1;
           const isOngoing = chapter.status === 'active' || isLastChapter;
 
+          // Pick mellow dark pastel color for nuance
+          const chapColor = chapter.color || getMellowPastelColor(chapter.id || chapterIndex);
+          const pastel = CHAPTER_PASTEL_COLORS[chapterIndex % CHAPTER_PASTEL_COLORS.length];
+
           return (
             <section
               key={chapter.id}
-              className={`transition-all duration-200 relative ${
+              style={{
+                borderColor: `${chapColor}55`,
+                boxShadow: `0 4px 24px -4px ${chapColor}15`,
+              }}
+              className={`transition-all duration-200 relative border ${
                 isOngoing
-                  ? 'rounded-t-2xl rounded-b-none bg-[#0c1322]/85 border-t border-x border-[#1a293e] border-b-0 overflow-visible mt-2 mb-0'
-                  : 'rounded-2xl bg-[#0c121e]/80 border border-[#162234] overflow-hidden mb-5 shadow-sm'
+                  ? `rounded-t-2xl rounded-b-none bg-[#0c1322]/90 border-b-0 overflow-visible mt-2 mb-0`
+                  : `rounded-2xl bg-[#0c121e]/85 overflow-hidden mb-5 shadow-sm`
               }`}
             >
               {/* Chapter Header Ribbon */}
               <div
-                className={`p-3 sm:p-3.5 border-b flex flex-wrap items-center justify-between gap-2.5 transition-colors ${
-                  isOngoing
-                    ? 'border-[#1a293e] bg-[#10192a]'
-                    : 'border-[#162234] bg-[#0e1626]'
-                }`}
+                style={{
+                  backgroundColor: `${chapColor}18`,
+                  borderBottomColor: `${chapColor}40`,
+                }}
+                className="p-3 sm:p-3.5 border-b flex flex-wrap items-center justify-between gap-2.5 transition-colors"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  {/* Status Indicator */}
-                  {isOngoing ? (
-                    <span className="w-2 h-2 rounded-full bg-[#38bdf8] shrink-0" title="Active Chapter" />
-                  ) : (
-                    <span className="w-2 h-2 rounded-full bg-[#475569] shrink-0" title="Completed Chapter" />
-                  )}
+                  {/* Status Indicator Dot with pastel nuance */}
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
+                    style={{ backgroundColor: chapColor }}
+                    title={isOngoing ? 'Active Chapter' : 'Completed Chapter'}
+                  />
 
                   <span
-                    className={`text-[10px] font-mono uppercase tracking-wider shrink-0 font-semibold ${
-                      isOngoing ? 'text-[#7e95b5]' : 'text-[#64748b]'
-                    }`}
+                    style={{ color: chapColor }}
+                    className="text-[10px] font-mono uppercase tracking-wider shrink-0 font-semibold"
                   >
                     Chapter {chapterIndex + 1}
                   </span>
@@ -226,8 +250,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </span>
 
                   <button
-                    onClick={() => toggleExpandSummary(chapter.id)}
-                    className={`px-2 py-1 rounded-lg text-[10px] font-mono transition-colors border ${
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toggleExpandSummary(chapter.id);
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-mono transition-colors border cursor-pointer ${
                       isSummaryExpanded
                         ? 'bg-[#182337] text-[#8ab1e0] border-[#223552]'
                         : 'bg-[#090d16] text-[#7d93b3] border-[#111929] hover:text-[#eef4fc]'
@@ -238,8 +266,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </button>
 
                   <button
-                    onClick={() => toggleCollapseChapter(chapter.id)}
-                    className="p-1 rounded-lg hover:bg-[#162134] text-[#8ca3c7] transition-colors"
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toggleCollapseChapter(chapter.id);
+                    }}
+                    className="p-1 rounded-lg hover:bg-[#162134] text-[#8ca3c7] transition-colors cursor-pointer"
                     title={isCollapsed ? 'Expand messages' : 'Collapse messages'}
                   >
                     {isCollapsed ? (
@@ -253,7 +285,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
               {/* Collapsible Executive Summary & Resolution Toggle */}
               {isSummaryExpanded && (
-                <div className="p-3 sm:p-4 bg-[#0a0f19] border-b border-[#121b2d] space-y-2">
+                <div className="p-3 sm:p-4 bg-[#0a0f19] border-b border-[#121c2d] space-y-2">
                   {chapter.summary ? (
                     <div className="text-xs text-[#b8cce6] leading-relaxed bg-[#0d1424] p-3 rounded-xl border border-[#141f33]">
                       <div className="font-semibold text-[10px] text-[#8ab1e0] mb-1 font-mono uppercase tracking-wider">
@@ -273,7 +305,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       <span>No summary compiled yet for this node.</span>
                       <button
                         onClick={() => onSummarizeChapter(chapter.id)}
-                        className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-[#18263e] text-[#8ab1e0] hover:bg-[#203252] border border-[#233758] font-medium transition-colors"
+                        className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-[#18263e] text-[#8ab1e0] hover:bg-[#203252] border border-[#233758] font-medium transition-colors cursor-pointer"
                       >
                         Summarize with Gemini
                       </button>
@@ -283,114 +315,149 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {/* Memory Depth Selector */}
                   <div className="flex items-center justify-between text-[10px] font-mono text-[#788fa8] pt-1">
                     <span>Context Ingestion State:</span>
-                    <div className="flex items-center gap-1 bg-[#070b13] p-0.5 rounded-lg border border-[#0f1728]">
-                      {(['summary', 'full', 'dropped'] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          onClick={() => onToggleChapterCompressionMode(chapter.id, mode)}
-                          className={`px-2 py-0.5 rounded-md uppercase font-bold transition-all ${
-                            compression === mode
-                              ? 'bg-[#182338] text-[#8ab1e0] shadow-sm'
-                              : 'text-[#50637f] hover:text-[#8ca3c7]'
-                          }`}
-                        >
-                          {mode}
-                        </button>
-                      ))}
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => onToggleChapterCompressionMode(chapter.id, 'full')}
+                        className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                          compression === 'full'
+                            ? 'bg-[#182338] text-[#8ab1e0] font-semibold border border-[#243552]'
+                            : 'bg-[#090d15] text-[#556985] hover:text-[#9bb0d1]'
+                        }`}
+                      >
+                        Full Verbatim
+                      </button>
+                      <button
+                        onClick={() => onToggleChapterCompressionMode(chapter.id, 'summary')}
+                        className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                          compression === 'summary'
+                            ? 'bg-[#182338] text-[#8ab1e0] font-semibold border border-[#243552]'
+                            : 'bg-[#090d15] text-[#556985] hover:text-[#9bb0d1]'
+                        }`}
+                      >
+                        Summary (T2)
+                      </button>
+                      <button
+                        onClick={() => onToggleChapterCompressionMode(chapter.id, 'dropped')}
+                        className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                          compression === 'dropped'
+                            ? 'bg-[#29171b] text-[#f28894] font-semibold border border-[#4d2229]'
+                            : 'bg-[#090d15] text-[#556985] hover:text-[#9bb0d1]'
+                        }`}
+                      >
+                        Drop
+                      </button>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Messages Enclosure (Subsumed strictly inside this Chapter boundary) */}
+              {/* Messages Container */}
               {!isCollapsed && (
-                <div
-                  className={`p-3 sm:p-5 space-y-4 relative ${
-                    isOngoing ? 'bg-transparent pb-6' : 'bg-[#090e18]/40'
-                  }`}
-                >
-                  {/* Subtle continuous vertical spine connecting turns inside this chapter */}
-                  <div className="absolute top-4 bottom-4 left-6 sm:left-8 w-[1px] bg-gradient-to-b from-transparent via-[#1a253b] to-transparent pointer-events-none" />
+                <div className="p-3 sm:p-5 space-y-4">
                   {chapter.messages.map((message) => {
                     const isUser = message.role === 'user';
                     const isPlaying = playingMessageId === message.id;
-                    const isTTSLoading = ttsLoadingId === message.id;
+                    const isTtsLoading = ttsLoadingId === message.id;
 
                     return (
                       <div
                         key={message.id}
-                        className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} group`}
+                        className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
                       >
-                        <div
-                          className={`max-w-[92%] sm:max-w-[85%] rounded-2xl px-3.5 py-3 text-xs sm:text-sm leading-relaxed border transition-all ${
-                            isUser
-                              ? 'bg-[#162133] border-[#0c1421] text-[#f0f6fc] rounded-br-sm'
-                              : 'bg-[#101623] border-[#090d16] text-[#d6e2f0] rounded-bl-sm'
-                          }`}
-                        >
-                          {/* Message Header */}
-                          <div className="flex items-center justify-between gap-3 mb-1.5 pb-1 border-b border-white/5 text-[10px] font-mono text-[#788fa8]">
-                            <span className="font-semibold uppercase tracking-wider text-[#9bb0d1]">
-                              {isUser ? 'You' : 'MarkBrain Architect'}
-                            </span>
+                        {/* Speaker & Timestamp Header */}
+                        <div className="flex items-center gap-2 mb-1 text-[11px] font-mono text-[#627794]">
+                          <span className={isUser ? 'text-[#8ab1e0]' : 'text-[#e05a66] font-semibold'}>
+                            {isUser ? 'Architect' : 'MarkBrain Engine'}
+                          </span>
+                          <span>•</span>
+                          <span>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
 
-                            <div className="flex items-center gap-2">
-                              {/* Inline Declare Chapter / Subchapter Trigger */}
+                          {/* TTS Audio Button */}
+                          <button
+                            onClick={() => handlePlayTTS(message)}
+                            disabled={isTtsLoading}
+                            className={`p-1 rounded hover:bg-[#141b29] transition-colors cursor-pointer ${
+                              isPlaying ? 'text-[#38bdf8]' : 'text-[#50637f] hover:text-[#9bb0d1]'
+                            }`}
+                            title={isPlaying ? 'Stop playback' : 'Play audio (Kokoro-82M TTS)'}
+                          >
+                            {isTtsLoading ? (
+                              <Loader2 className="w-3 h-3 animate-spin text-[#38bdf8]" />
+                            ) : isPlaying ? (
+                              <VolumeX className="w-3 h-3" />
+                            ) : (
+                              <Volume2 className="w-3 h-3" />
+                            )}
+                          </button>
+
+                          {/* Timeline Split Button (Declare Chapter Boundary) */}
+                          <button
+                            onClick={() => {
+                              setDeclaringMessageId(
+                                declaringMessageId === message.id ? null : message.id
+                              );
+                              setNewChapterTitle('');
+                            }}
+                            className="p-1 rounded hover:bg-[#141b29] text-[#50637f] hover:text-[#8ab1e0] transition-colors opacity-40 group-hover:opacity-100 cursor-pointer"
+                            title="Split into new chapter starting at this message"
+                          >
+                            <BookmarkPlus className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        {/* Inline Timeline Split Form */}
+                        {declaringMessageId === message.id && (
+                          <div className="w-full max-w-lg my-2 p-3 bg-[#0a0f19] border border-[#1a293e] rounded-xl shadow-xl space-y-2 animate-in fade-in duration-150">
+                            <div className="text-[10px] font-mono text-[#38bdf8] uppercase tracking-wider font-semibold">
+                              Declare Chapter Split at this Message
+                            </div>
+                            <input
+                              type="text"
+                              value={newChapterTitle}
+                              onChange={(e) => setNewChapterTitle(e.target.value)}
+                              placeholder="New Chapter Title (e.g. Chapter 4: Combat Roll)"
+                              className="w-full bg-[#080d16] border border-[#162438] rounded-lg px-2.5 py-1.5 text-xs text-[#eef4fc] placeholder-[#556985] focus:outline-none focus:border-[#38bdf8]"
+                            />
+                            <div className="flex items-center justify-end gap-2 pt-1">
                               <button
-                                onClick={() =>
-                                  setDeclaringMessageId(
-                                    declaringMessageId === message.id ? null : message.id
-                                  )
-                                }
-                                className="opacity-60 group-hover:opacity-100 hover:text-[#8ab1e0] transition-opacity flex items-center gap-1"
-                                title="Split timeline: Declare new chapter or subchapter here"
+                                onClick={() => setDeclaringMessageId(null)}
+                                className="px-2.5 py-1 text-xs font-mono text-[#7185a3] hover:text-white cursor-pointer"
                               >
-                                <BookmarkPlus className="w-3 h-3" />
-                                <span className="hidden sm:inline">Split Chapter</span>
+                                Cancel
                               </button>
-
-                              {/* Voice TTS Button */}
-                              {!isUser && (
-                                <button
-                                  onClick={() => handlePlayTTS(message)}
-                                  disabled={isTTSLoading}
-                                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-all ${
-                                    isPlaying
-                                      ? 'bg-[#2563eb] text-white'
-                                      : 'hover:bg-white/10 text-[#8ab1e0]'
-                                  }`}
-                                  title="Listen via voice audio"
-                                >
-                                  {isTTSLoading ? (
-                                    <Loader2 className="w-3 h-3 animate-spin text-[#8ab1e0]" />
-                                  ) : isPlaying ? (
-                                    <VolumeX className="w-3 h-3" />
-                                  ) : (
-                                    <Volume2 className="w-3 h-3" />
-                                  )}
-                                  <span className="text-[9px]">
-                                    {isTTSLoading ? 'Synthesizing...' : isPlaying ? 'Playing' : 'Listen'}
-                                  </span>
-                                </button>
-                              )}
+                              <button
+                                onClick={() => handleDeclareSubmit(message.id)}
+                                disabled={!newChapterTitle.trim()}
+                                className="px-3 py-1 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 text-white rounded-lg text-xs font-mono font-medium shadow-md transition-colors cursor-pointer"
+                              >
+                                Split Chapter
+                              </button>
                             </div>
                           </div>
+                        )}
 
-                          {/* Message Content */}
+                        {/* Bubble Content */}
+                        <div
+                          className={`max-w-[92%] sm:max-w-[85%] rounded-2xl p-3 sm:p-4 text-xs sm:text-sm leading-relaxed shadow-sm ${
+                            isUser
+                              ? 'bg-[#182338] text-[#eef4fc] border border-[#243552]'
+                              : 'bg-[#0f1624] text-[#d6e3f5] border border-[#172235]'
+                          }`}
+                        >
                           <div className="whitespace-pre-wrap font-sans space-y-2">
                             {message.content}
                           </div>
 
-                          {/* Synthesized Artifacts / Updates (Single-File YAML+MD) */}
+                          {/* Synthesized Artifacts */}
                           {message.extractedArtifacts && message.extractedArtifacts.length > 0 && (
                             <div className="mt-3 pt-2.5 border-t border-[#090e18] space-y-2">
                               <div className="text-[10px] font-semibold text-[#8ab1e0] flex items-center justify-between font-mono">
                                 <div className="flex items-center gap-1.5">
                                   <FileCode className="w-3.5 h-3.5 text-[#8ab1e0]" />
-                                  <span>Synthesized YAML Specification</span>
+                                  <span>Synthesized Architectural Specification</span>
                                 </div>
                                 <span className="text-[9px] text-[#4f99a3] bg-[#0c1a20] px-1.5 py-0.2 rounded border border-[#081216]">
-                                  Recorded in History
+                                  Ingested in Knowledge Substrate
                                 </span>
                               </div>
 
@@ -425,6 +492,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                         type: 'document',
                                         created_at: now,
                                         updated_at: now,
+                                        color: '#5d87b8',
                                         current: {
                                           t0_label: title,
                                           t1_abstract: desc,
@@ -451,70 +519,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                           {
                                             version: 1,
                                             timestamp: new Date().toISOString(),
-                                            changeSummary: 'Synthesized from chat brainstorming session',
+                                            changeSummary: 'Manually pinned from chat',
                                             content: body,
                                           },
                                         ],
-                                        tags: ['chat-synthesized', art.type || 'architecture'],
+                                        tags: ['manual-pin'],
                                         createdAt: new Date().toISOString(),
                                         updatedAt: new Date().toISOString(),
                                       };
                                       onAddArtifactToProject(fullArtifact);
                                     }}
-                                    className="px-2.5 py-1 rounded-lg bg-[#e05a66]/20 hover:bg-[#e05a66] text-[#f28894] hover:text-white text-xs font-mono font-medium transition-all shrink-0 flex items-center gap-1"
+                                    className="px-2.5 py-1 rounded-lg bg-[#1a2538] hover:bg-[#23334d] text-xs font-mono text-[#8ab1e0] border border-[#233550] shrink-0 transition-colors cursor-pointer"
                                   >
-                                    <FileCode className="w-3 h-3" />
-                                    <span>Pin into Desk</span>
+                                    Save as Artifact
                                   </button>
                                 </div>
                               ))}
                             </div>
                           )}
                         </div>
-
-                        {/* Inline "Split Chapter" Drawer */}
-                        {declaringMessageId === message.id && (
-                          <div className="w-full max-w-[92%] sm:max-w-[85%] mt-1.5 p-3 rounded-xl bg-[#111724] border border-[#1a293e] space-y-2 animate-in fade-in duration-150">
-                            <div className="flex items-center justify-between text-[11px] font-mono text-[#8ab1e0]">
-                              <span className="font-bold flex items-center gap-1.5 text-[#eef4fc]">
-                                <BookmarkPlus className="w-3.5 h-3.5 text-[#38bdf8]" />
-                                Split into New Chapter Here
-                              </span>
-                              <button
-                                onClick={() => setDeclaringMessageId(null)}
-                                className="text-[#64748b] hover:text-white text-xs cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-
-                            <div className="flex flex-col sm:flex-row gap-2">
-                              <input
-                                type="text"
-                                placeholder="New Chapter Title..."
-                                value={newChapterTitle}
-                                onChange={(e) => setNewChapterTitle(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    handleDeclareSubmit(message.id);
-                                  }
-                                }}
-                                className="flex-1 bg-[#090d15] border border-[#162234] rounded-lg px-2.5 py-1.5 text-xs text-[#eef4fc] placeholder-[#50637f] focus:outline-none focus:border-[#38bdf8]/50"
-                                autoFocus
-                              />
-
-                              <button
-                                type="button"
-                                onClick={() => handleDeclareSubmit(message.id)}
-                                disabled={!newChapterTitle.trim()}
-                                className="px-3.5 py-1.5 rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 text-white text-xs font-mono font-medium cursor-pointer transition-colors"
-                              >
-                                Split Chapter
-                              </button>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     );
                   })}

@@ -1,4 +1,4 @@
-import { Project, ModelOption, Artifact, Chapter, GraphNode, GraphEdge } from '../types';
+import { Project, ModelOption, Artifact, Chapter, GraphNode, GraphEdge, getMellowPastelColor } from '../types';
 import { serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 
 export const AVAILABLE_MODELS: ModelOption[] = [
@@ -43,12 +43,14 @@ function createSeedArtifact(art: any): Artifact {
   const createdAtMs = art.createdAt ? new Date(art.createdAt).getTime() : Date.now();
   const updatedAtMs = art.updatedAt ? new Date(art.updatedAt).getTime() : createdAtMs;
   const wsId = art.workspace_id || art.projectId || 'ws-default';
+  const color = art.color || getMellowPastelColor(art.code || title || art.id);
 
   const fullArt: Artifact = {
     ...art,
     id: art.id,
     workspace_id: wsId,
     type: 'document',
+    color,
     created_at: createdAtMs,
     updated_at: updatedAtMs,
     current: art.current || {
@@ -726,7 +728,10 @@ export const INITIAL_PROJECTS: Project[] = [
     icon: 'Flame',
     boundaryRules: 'Core combat ticks and haunter acoustic models are bounded within the game loop.',
     currentChapterId: 'chap-un-3',
-    chapters: unhaunterChapters,
+    chapters: unhaunterChapters.map((c, idx) => ({
+      ...c,
+      color: c.color || getMellowPastelColor(idx),
+    })),
     artifacts: unhaunterArtifacts,
     nodes: unhaunterNodes,
     edges: unhaunterEdges,
@@ -741,7 +746,10 @@ export const INITIAL_PROJECTS: Project[] = [
     icon: 'Brain',
     boundaryRules: 'Cross-repo linking bridges high-concept architecture specs while detail tokens remain localized.',
     currentChapterId: 'chap-mb-2',
-    chapters: markBrainChapters,
+    chapters: markBrainChapters.map((c, idx) => ({
+      ...c,
+      color: c.color || getMellowPastelColor(idx + 5),
+    })),
     artifacts: markBrainArtifacts,
     nodes: markBrainNodes,
     edges: markBrainEdges,

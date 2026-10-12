@@ -9,6 +9,8 @@ import {
   ModelOption,
   AbstractionLevel,
   ArtifactVersion,
+  ResolutionTier,
+  getMellowPastelColor,
 } from './types';
 import { INITIAL_PROJECTS, AVAILABLE_MODELS } from './data/initialData';
 import { computeTokenBreakdown } from './utils/tokenCalculator';
@@ -109,15 +111,45 @@ export default function App() {
     );
   }, [activeProject, selectedArtifactId]);
 
+  // Pinned Focal Artifacts for Context Focus
+  const [focalArtifactIds, setFocalArtifactIds] = useState<string[]>([]);
+  const [manualTierOverrides, setManualTierOverrides] = useState<Record<string, ResolutionTier>>({});
+
+  const handleToggleFocusArtifact = (artId: string) => {
+    setFocalArtifactIds((prev) =>
+      prev.includes(artId) ? prev.filter((id) => id !== artId) : [...prev, artId]
+    );
+  };
+
+  const handleChangeTierOverride = (artId: string, tier: ResolutionTier | null) => {
+    setManualTierOverrides((prev) => {
+      const next = { ...prev };
+      if (tier === null) {
+        delete next[artId];
+      } else {
+        next[artId] = tier;
+      }
+      return next;
+    });
+  };
+
   // Real Optical Context Engine Compilation
   const compiledContext = useMemo(() => {
+    const focalList = [
+      ...(selectedArtifactId ? [selectedArtifactId] : []),
+      ...focalArtifactIds,
+    ];
     const ws = projectToWorkspaceState(
       activeProject,
       opticalMode,
-      selectedArtifactId ? [selectedArtifactId] : []
+      focalList
     );
+    // Apply manual tier overrides if any
+    if (Object.keys(manualTierOverrides).length > 0) {
+      ws.tier_overrides = { ...ws.tier_overrides, ...manualTierOverrides };
+    }
     return compileOpticalContext(ws, 32000);
-  }, [activeProject, opticalMode, selectedArtifactId]);
+  }, [activeProject, opticalMode, selectedArtifactId, focalArtifactIds, manualTierOverrides]);
 
   // Real Token Footprint & Saturation Breakdown directly from Context Compiler
   const tokenBreakdown = useMemo(() => {
@@ -594,6 +626,10 @@ export default function App() {
 
     try {
       // Compile REAL Optical Context from graph topology and depth-of-field
+      const focalList = [
+        ...(selectedArtifactId ? [selectedArtifactId] : []),
+        ...focalArtifactIds,
+      ];
       const wsWithUserMessage = projectToWorkspaceState(
         {
           ...activeProject,
@@ -604,8 +640,14 @@ export default function App() {
           ),
         },
         opticalMode,
-        selectedArtifactId ? [selectedArtifactId] : []
+        focalList
       );
+      if (Object.keys(manualTierOverrides).length > 0) {
+        wsWithUserMessage.tier_overrides = {
+          ...wsWithUserMessage.tier_overrides,
+          ...manualTierOverrides,
+        };
+      }
 
       const compiled = compileOpticalContext(wsWithUserMessage, 32000);
 
@@ -626,7 +668,8 @@ export default function App() {
 
       const cleanReplyText = parsedTurn.cleanContent || data.reply || 'Synthesized architecture verified.';
 
-      const extractedList = [
+      // Combine artifacts extracted from server API and stream protocol, deduplicating by title/code
+      const rawExtracted = [
         ...(data.artifacts || []),
         ...parsedTurn.artifactUpserts.map((u) => ({
           title: u.title,
@@ -637,6 +680,15 @@ export default function App() {
           highConcept: false,
         })),
       ];
+
+      const seenKeys = new Set<string>();
+      const extractedList: any[] = [];
+      for (const item of rawExtracted) {
+        const key = (item.code || item.title || '').trim().toLowerCase();
+        if (!key || seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        extractedList.push(item);
+      }
 
       const assistantMessage: ChatMessage = {
         id: `m-bot-${Date.now()}`,
@@ -660,9 +712,9 @@ export default function App() {
           let updatedArtifacts = [...proj.artifacts];
           let updatedNodes = [...proj.nodes];
 
-          // No review gate / Approval-Free: Automatically ingest or update synthesized artifacts with history!
-          if (data.artifacts && data.artifacts.length > 0) {
-            data.artifacts.forEach((rawArt: any, idx: number) => {
+          // Auto-ingest or update synthesized artifacts with version history and pastel color coding
+          if (extractedList.length > 0) {
+            extractedList.forEach((rawArt: any, idx: number) => {
               const code =
                 rawArt.code ||
                 rawArt.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
@@ -696,12 +748,13 @@ export default function App() {
                 modifiedArt.yamlDocument = serializeArtifactToYamlDoc(modifiedArt);
                 updatedArtifacts[existingIndex] = modifiedArt;
               } else {
-                // Synthesize new artifact
+                // Synthesize new artifact with mellow dark pastel color
                 const now = Date.now();
                 const artTitle = rawArt.title || 'Synthesized Artifact';
                 const artDesc = rawArt.abstract || 'Synthesized architectural specification.';
-                const artSumm = rawArt.abstract || 'Automated executive summary.';
+                const artSumm = rawArt.summary || rawArt.abstract || 'Automated executive summary.';
                 const artContent = rawArt.content || `# ${artTitle}\n\nSynthesized specification.`;
+                const artColor = rawArt.color || getMellowPastelColor(code || artTitle);
 
                 const newArtifact: Artifact = {
                   id: `art-${now}-${idx}`,
@@ -711,6 +764,7 @@ export default function App() {
                   title: artTitle,
                   type: 'document',
                   category: rawArt.category || 'system-spec',
+                  color: artColor,
                   description: artDesc,
                   summary: artSumm,
                   content: artContent,
@@ -877,6 +931,12 @@ export default function App() {
         onOpenExport={() => setIsExportOpen(true)}
         onOpenImport={() => setIsImportOpen(true)}
         onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
+        onSelectArtifact={(art) => setSelectedArtifactId(art.id)}
+        selectedArtifactId={selectedArtifactId}
+        onToggleFocus={handleToggleFocusArtifact}
+        focalIds={focalArtifactIds}
+        nodeTiers={compiledContext.nodeTiers}
+        onChangeTierOverride={handleChangeTierOverride}
       />
 
       {/* Main Single-Focused Viewport - starts from pixel 0, zero top bar */}
@@ -894,6 +954,10 @@ export default function App() {
                 onAddEdge={handleAddEdge}
                 onUpdateNodePosition={handleUpdateNodePosition}
                 onBatchUpdateNodePositions={handleBatchUpdateNodePositions}
+                focalIds={focalArtifactIds}
+                onToggleFocus={handleToggleFocusArtifact}
+                nodeTiers={compiledContext.nodeTiers}
+                onOpenArtifactTree={() => setIsSidebarOpen(true)}
               />
             </div>
           ) : (

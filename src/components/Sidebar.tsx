@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Project, ModelOption, Artifact } from '../types';
+import { Project, ModelOption, Artifact, ResolutionTier } from '../types';
 import { getTokenColor } from '../utils/tokenCalculator';
 import {
   Brain,
@@ -12,11 +12,9 @@ import {
   FolderTree,
   ChevronDown,
   ChevronUp,
-  Sliders,
+  X,
   ExternalLink,
-  ChevronRight,
   Database,
-  Eye,
 } from 'lucide-react';
 import { ActiveView } from './Header';
 import { ArtifactFolderTree } from './ArtifactFolderTree';
@@ -43,6 +41,8 @@ interface SidebarProps {
   selectedArtifactId?: string | null;
   onToggleFocus?: (artId: string) => void;
   focalIds?: string[];
+  nodeTiers?: Record<string, { tier: ResolutionTier | 'culled'; distance: number }>;
+  onChangeTierOverride?: (artId: string, tier: ResolutionTier | null) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -66,6 +66,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedArtifactId,
   onToggleFocus,
   focalIds = [],
+  nodeTiers = {},
+  onChangeTierOverride,
 }) => {
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
@@ -73,6 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [perspectiveOpen, setPerspectiveOpen] = useState(true);
   const [opticalEngineOpen, setOpticalEngineOpen] = useState(true);
   const [artifactsTreeOpen, setArtifactsTreeOpen] = useState(true);
+  const [isTreeMaximized, setIsTreeMaximized] = useState(false);
   const [ioToolsOpen, setIoToolsOpen] = useState(false);
 
   const colorInfo = getTokenColor(totalTokens);
@@ -80,16 +83,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Floating Toggle: The Brain Icon Itself (Bigger, NO arrow) */}
-      <button
-        onClick={onToggle}
-        aria-label={isOpen ? 'Close sidebar drawer' : 'Open controls & artifacts drawer'}
-        className={`fixed top-3 z-50 flex items-center justify-center w-11 h-11 rounded-2xl bg-[#0c121e]/95 hover:bg-[#131d2e] border border-[#1a283e] text-[#e05a66] hover:text-[#ff6b78] shadow-2xl backdrop-blur-md transition-all duration-200 cursor-pointer group ${
-          isOpen ? 'left-72' : 'left-3'
-        }`}
-        title={isOpen ? 'Close sidebar' : 'Open controls, project & artifact hierarchy'}
-      >
-        <Brain className="w-6 h-6 transition-transform group-hover:scale-110" />
-      </button>
+      {/* When open, make the brain button disappear as requested! */}
+      {!isOpen && (
+        <button
+          onClick={onToggle}
+          aria-label="Open sidebar drawer"
+          className="fixed top-3 left-3 z-50 flex items-center justify-center w-11 h-11 rounded-2xl bg-[#0c121e]/95 hover:bg-[#131d2e] border border-[#1a283e] text-[#e05a66] hover:text-[#ff6b78] shadow-2xl backdrop-blur-md transition-all duration-200 cursor-pointer group"
+          title="Open controls, project & artifact hierarchy"
+        >
+          <Brain className="w-6 h-6 transition-transform group-hover:scale-110" />
+        </button>
+      )}
 
       {/* Backdrop overlay for small screens when open */}
       {isOpen && (
@@ -99,49 +103,75 @@ export const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
 
-      {/* Slide-out Left Sidebar Drawer */}
+      {/* Slide-out Left Sidebar Drawer: SINGLE SCROLLING PANEL (no fixed top part at all) */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 w-72 bg-[#090d16]/98 border-r border-[#121c2d] flex flex-col transition-transform duration-200 ease-in-out text-[#d6e3f5] backdrop-blur-xl ${
+        className={`fixed top-0 bottom-0 left-0 z-40 w-80 bg-[#090d16]/98 border-r border-[#121c2d] flex flex-col transition-transform duration-200 ease-in-out text-[#d6e3f5] backdrop-blur-xl ${
           isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         }`}
       >
-        {/* Top of Sidebar: Current Project Display - Clicking opens Project Selector in new page/modal */}
-        <div className="p-3.5 border-b border-[#121c2d] bg-[#0c1322]">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-[#556985] mb-1 flex items-center justify-between">
-            <span>Current Project</span>
-            <span className="text-[9px] text-[#38bdf8] font-mono">Click to switch</span>
-          </div>
-
-          <button
-            onClick={onOpenProjectLauncher}
-            className="w-full flex items-center justify-between p-2 rounded-xl bg-[#080d16] hover:bg-[#101827] border border-[#162338] text-left transition-colors group cursor-pointer"
-            title="Click to open project selector page"
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span
-                className="w-3 h-3 rounded-full shrink-0 shadow-sm"
-                style={{ backgroundColor: activeProject.color || '#5d87b8' }}
-              />
-              <div className="min-w-0 truncate">
-                <span className="font-bold text-xs sm:text-sm text-[#eef4fc] group-hover:text-white font-mono block truncate">
-                  {activeProject.name}
+        {/* Single Scrolling Panel */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {/* Top Brand Header inside the scrollable flow */}
+          <div className="flex items-center justify-between pb-3 border-b border-[#131d2e]">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-[#131d2d] border border-[#1e2a3e] flex items-center justify-center text-[#e05a66] shadow-sm">
+                <Brain className="w-5 h-5 text-[#e05a66]" />
+              </div>
+              <div>
+                <span className="font-bold text-sm tracking-wider text-[#eef4fc] font-mono block">
+                  MarkBrain
                 </span>
-                <span className="text-[10px] text-[#6b82a3] font-mono block truncate">
-                  {activeProject.chapters.length} chapters • {activeProject.artifacts.length} artifacts
+                <span className="text-[9px] text-[#556985] font-mono block">
+                  Optical Context Engine
                 </span>
               </div>
             </div>
-            <ExternalLink className="w-3.5 h-3.5 text-[#556985] group-hover:text-[#38bdf8] shrink-0 ml-1.5 transition-colors" />
-          </button>
-        </div>
 
-        {/* Scrollable Content with Roll Up / Roll Down Blocks */}
-        <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5">
+            {/* Close Button: [X] inside the sidebar */}
+            <button
+              onClick={onToggle}
+              className="p-1.5 rounded-xl bg-[#0e1626] hover:bg-[#162238] text-[#7185a3] hover:text-white transition-colors cursor-pointer border border-[#162338]"
+              title="Close sidebar"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Current Project Selector Block */}
+          <div className="p-2.5 rounded-xl bg-[#0c1322] border border-[#141f33] space-y-1">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-[#556985] flex items-center justify-between">
+              <span>Current Project</span>
+              <span className="text-[9px] text-[#38bdf8] font-mono">Switch</span>
+            </div>
+
+            <button
+              onClick={onOpenProjectLauncher}
+              className="w-full flex items-center justify-between p-2 rounded-lg bg-[#070b12] hover:bg-[#0f1726] border border-[#142033] text-left transition-colors group cursor-pointer"
+              title="Click to open project selector page"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span
+                  className="w-3 h-3 rounded-full shrink-0 shadow-sm"
+                  style={{ backgroundColor: activeProject.color || '#5d87b8' }}
+                />
+                <div className="min-w-0 truncate">
+                  <span className="font-bold text-xs sm:text-sm text-[#eef4fc] group-hover:text-white font-mono block truncate">
+                    {activeProject.name}
+                  </span>
+                  <span className="text-[10px] text-[#6b82a3] font-mono block truncate">
+                    {activeProject.chapters.length} chapters • {activeProject.artifacts.length} artifacts
+                  </span>
+                </div>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-[#556985] group-hover:text-[#38bdf8] shrink-0 ml-1.5 transition-colors" />
+            </button>
+          </div>
+
           {/* Block 1: Perspective (Chat vs Graph) */}
           <div className="rounded-xl border border-[#131d2e] bg-[#0a0f19] overflow-hidden">
             <button
               onClick={() => setPerspectiveOpen(!perspectiveOpen)}
-              className="w-full flex items-center justify-between p-2.5 bg-[#0e1626] hover:bg-[#121c2e] text-left transition-colors"
+              className="w-full flex items-center justify-between p-2.5 bg-[#0e1626] hover:bg-[#121c2e] text-left transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2">
                 <Layers className="w-3.5 h-3.5 text-[#38bdf8]" />
@@ -186,11 +216,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* Block 2: Artifacts Folder Tree (Requested: Tree of artifacts for regular operations) */}
+          {/* Block 2: Artifacts Folder Tree (with Maximize button!) */}
           <div className="rounded-xl border border-[#131d2e] bg-[#0a0f19] overflow-hidden">
             <button
               onClick={() => setArtifactsTreeOpen(!artifactsTreeOpen)}
-              className="w-full flex items-center justify-between p-2.5 bg-[#0e1626] hover:bg-[#121c2e] text-left transition-colors"
+              className="w-full flex items-center justify-between p-2.5 bg-[#0e1626] hover:bg-[#121c2e] text-left transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2">
                 <FolderTree className="w-3.5 h-3.5 text-[#e0b96c]" />
@@ -206,7 +236,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
 
             {artifactsTreeOpen && (
-              <div className="h-64 border-t border-[#121c2e]">
+              <div
+                className={`border-t border-[#121c2e] transition-all duration-200 ${
+                  isTreeMaximized ? 'h-[520px]' : 'h-80'
+                }`}
+              >
                 <ArtifactFolderTree
                   project={activeProject}
                   selectedArtifactId={selectedArtifactId}
@@ -215,6 +249,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   onToggleFocus={onToggleFocus}
                   focalIds={focalIds}
+                  isMaximized={isTreeMaximized}
+                  onToggleMaximize={() => setIsTreeMaximized(!isTreeMaximized)}
+                  nodeTiers={nodeTiers}
+                  onChangeTierOverride={onChangeTierOverride}
                 />
               </div>
             )}
@@ -224,7 +262,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="rounded-xl border border-[#131d2e] bg-[#0a0f19] overflow-hidden">
             <button
               onClick={() => setOpticalEngineOpen(!opticalEngineOpen)}
-              className="w-full flex items-center justify-between p-2.5 bg-[#0e1626] hover:bg-[#121c2e] text-left transition-colors"
+              className="w-full flex items-center justify-between p-2.5 bg-[#0e1626] hover:bg-[#121c2e] text-left transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2">
                 <Cpu className="w-3.5 h-3.5 text-[#e05a66]" />
@@ -340,11 +378,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* Block 4: Import / Export inside sidebar roll up / roll down panel */}
+          {/* Block 4: Import / Export roll-up panel */}
           <div className="rounded-xl border border-[#131d2e] bg-[#0a0f19] overflow-hidden">
             <button
               onClick={() => setIoToolsOpen(!ioToolsOpen)}
-              className="w-full flex items-center justify-between p-2.5 bg-[#0e1626] hover:bg-[#121c2e] text-left transition-colors"
+              className="w-full flex items-center justify-between p-2.5 bg-[#0e1626] hover:bg-[#121c2e] text-left transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2">
                 <Database className="w-3.5 h-3.5 text-[#8ab1e0]" />

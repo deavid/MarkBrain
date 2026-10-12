@@ -87,25 +87,30 @@ export function parseStreamTurn(rawText: string, currentWorkspaceId: string): Pa
     });
   }
 
-  // 3. Parse <artifact_upsert id="..." title="..." type="...">...</artifact_upsert>
-  const upsertRegex = /<artifact_upsert\s+id=["']([^"']+)["']\s+title=["']([^"']+)["'](?:\s+type=["']([^"']+)["'])?[^>]*>([\s\S]*?)<\/artifact_upsert>/gi;
+  // 3. Parse <artifact_upsert ...> or <artifact ...> (attributes in any order)
+  const upsertRegex = /<(?:artifact_upsert|artifact)\b([^>]*)>([\s\S]*?)<\/(?:artifact_upsert|artifact)>/gi;
   let upsertMatch: RegExpExecArray | null;
   while ((upsertMatch = upsertRegex.exec(clean)) !== null) {
-    const id = upsertMatch[1];
-    const title = upsertMatch[2];
-    const type = (upsertMatch[3] as any) || 'document';
-    const inner = upsertMatch[4];
+    const attrs = upsertMatch[1];
+    const inner = upsertMatch[2];
+    const titleAttr = /title=["']([^"']+)["']/i.exec(attrs);
+    const idAttr = /id=["']([^"']+)["']/i.exec(attrs);
+    const typeAttr = /type=["']([^"']+)["']/i.exec(attrs);
+
+    const title = titleAttr ? titleAttr[1] : (idAttr ? idAttr[1] : 'Synthesized Spec');
+    const id = idAttr ? idAttr[1] : `art-${Date.now()}-${artifactUpserts.length}`;
+    const type = typeAttr ? typeAttr[1] : 'document';
 
     const absMatch = /<abstract>([\s\S]*?)<\/abstract>/i.exec(inner);
     const sumMatch = /<summary>([\s\S]*?)<\/summary>/i.exec(inner);
     const bodyMatch = /<content>([\s\S]*?)<\/content>/i.exec(inner);
 
-    const abstractText = absMatch ? absMatch[1].trim() : title;
+    const abstractText = absMatch ? absMatch[1].trim() : (sumMatch ? sumMatch[1].trim() : title);
     const summaryText = sumMatch ? sumMatch[1].trim() : abstractText;
     const bodyText = bodyMatch ? bodyMatch[1].trim() : inner.trim();
 
     artifactUpserts.push({
-      id: id || `art-${Date.now()}`,
+      id,
       title,
       type: type === 'chapter' ? 'chapter' : 'document',
       content: {
@@ -117,12 +122,46 @@ export function parseStreamTurn(rawText: string, currentWorkspaceId: string): Pa
     });
   }
 
+  // 4. Parse ```artifact ... ``` blocks
+  const codeBlockRegex = /```artifact\s*([\s\S]*?)```/gi;
+  let cbMatch: RegExpExecArray | null;
+  while ((cbMatch = codeBlockRegex.exec(clean)) !== null) {
+    const block = cbMatch[1];
+    const titleMatch = block.match(/title:\s*(.*)/i);
+    const typeMatch = block.match(/type:\s*(.*)/i);
+    const abstractMatch = block.match(/abstract:\s*(.*)/i);
+
+    const bodyText = block
+      .replace(/title:.*\n/i, '')
+      .replace(/type:.*\n/i, '')
+      .replace(/abstract:.*\n/i, '')
+      .replace(/highConcept:.*\n/i, '')
+      .trim();
+
+    const title = titleMatch ? titleMatch[1].trim() : 'Synthesized Artifact';
+    const type = typeMatch ? typeMatch[1].trim() : 'document';
+    const abstractText = abstractMatch ? abstractMatch[1].trim() : 'Synthesized artifact.';
+
+    artifactUpserts.push({
+      id: `art-${Date.now()}-${artifactUpserts.length}`,
+      title,
+      type: type === 'chapter' ? 'chapter' : 'document',
+      content: {
+        t0_label: title,
+        t1_abstract: abstractText,
+        t2_summary: abstractText,
+        t3_body: bodyText || block,
+      },
+    });
+  }
+
   // Strip XML tags cleanly from cleanContent
   clean = clean
     .replace(/<topic_shift[\s\S]*?\/>/gi, '')
     .replace(/```topic_shift[\s\S]*?```/gi, '')
     .replace(/<link[\s\S]*?\/>/gi, '')
-    .replace(/<artifact_upsert[\s\S]*?<\/artifact_upsert>/gi, '')
+    .replace(/<(?:artifact_upsert|artifact)\b[^>]*>[\s\S]*?<\/(?:artifact_upsert|artifact)>/gi, '')
+    .replace(/```artifact\s*[\s\S]*?```/gi, '')
     .trim();
 
   return {

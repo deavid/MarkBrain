@@ -200,19 +200,26 @@ The chapter context and spatial nodes have been verified. You can tweak the toke
       });
     }
 
-    // Extract any XML <artifact_upsert> tags
-    const upsertXmlRegex = /<artifact_upsert\s+id=["']([^"']+)["']\s+title=["']([^"']+)["'](?:\s+type=["']([^"']+)["'])?[^>]*>([\s\S]*?)<\/artifact_upsert>/gi;
+    // Extract any XML <artifact_upsert> or <artifact> tags (with attributes in any order)
+    const xmlArtifactRegex = /<(?:artifact_upsert|artifact)\b([^>]*)>([\s\S]*?)<\/(?:artifact_upsert|artifact)>/gi;
     let upMatch;
-    while ((upMatch = upsertXmlRegex.exec(replyText)) !== null) {
-      const upTitle = upMatch[2];
-      const upType = upMatch[3] || 'document';
-      const inner = upMatch[4];
+    while ((upMatch = xmlArtifactRegex.exec(replyText)) !== null) {
+      const attrs = upMatch[1];
+      const inner = upMatch[2];
+      const titleAttr = /title=["']([^"']+)["']/i.exec(attrs);
+      const typeAttr = /type=["']([^"']+)["']/i.exec(attrs);
+      const idAttr = /id=["']([^"']+)["']/i.exec(attrs);
+
+      const upTitle = titleAttr ? titleAttr[1] : (idAttr ? idAttr[1] : 'Synthesized Spec');
+      const upType = typeAttr ? typeAttr[1] : 'document';
       const absMatch = /<abstract>([\s\S]*?)<\/abstract>/i.exec(inner);
       const contentMatch = /<content>([\s\S]*?)<\/content>/i.exec(inner);
+      const sumMatch = /<summary>([\s\S]*?)<\/summary>/i.exec(inner);
+
       artifacts.push({
         title: upTitle,
         type: upType,
-        abstract: absMatch ? absMatch[1].trim() : upTitle,
+        abstract: absMatch ? absMatch[1].trim() : (sumMatch ? sumMatch[1].trim() : upTitle),
         highConcept: false,
         content: contentMatch ? contentMatch[1].trim() : inner.trim(),
       });
@@ -220,7 +227,7 @@ The chapter context and spatial nodes have been verified. You can tweak the toke
 
     // Extract any topic shift (JSON or XML)
     let topicShift: { shiftDetected: boolean; newChapterTitle: string; reason: string } | null = null;
-    const topicShiftRegex = /```topic_shift\s*([\s\S]*?)```/;
+    const topicShiftRegex = /```topic_shift\s*([\s\S]*?)```/i;
     const topicMatch = replyText.match(topicShiftRegex);
     if (topicMatch) {
       try {
@@ -245,17 +252,19 @@ The chapter context and spatial nodes have been verified. You can tweak the toke
 
     // Clean reply text of artifact/topic_shift raw blocks for display
     const cleanedReply = replyText
-      .replace(/```topic_shift[\s\S]*?```/g, '')
-      .replace(/<topic_shift[\s\S]*?\/>/g, '')
-      .replace(/<artifact_upsert[\s\S]*?<\/artifact_upsert>/g, '')
-      .replace(/<link[\s\S]*?\/>/g, '')
+      .replace(/```topic_shift[\s\S]*?```/gi, '')
+      .replace(/<topic_shift[\s\S]*?\/>/gi, '')
+      .replace(/<(?:artifact_upsert|artifact)\b[^>]*>[\s\S]*?<\/(?:artifact_upsert|artifact)>/gi, '')
+      .replace(/```artifact\s*[\s\S]*?```/gi, '')
+      .replace(/<link[\s\S]*?\/>/gi, '')
       .trim();
 
     const promptTokens = estimateTokens(compiledPrompt);
     const completionTokens = estimateTokens(replyText);
 
     res.json({
-      reply: cleanedReply,
+      reply: cleanedReply || replyText,
+      rawReply: replyText,
       artifacts,
       topicShift,
       usage: {

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Project, GraphNode, GraphEdge, Artifact } from '../types';
+import { Project, GraphNode, GraphEdge, Artifact, ResolutionTier } from '../types';
 import {
   ZoomIn,
   ZoomOut,
@@ -10,6 +10,8 @@ import {
   RotateCcw,
   Link as LinkIcon,
   Plus,
+  Pin,
+  FolderTree,
 } from 'lucide-react';
 
 export interface TentativeLink {
@@ -25,6 +27,10 @@ interface SpatialGraphProps {
   onAddEdge: (edge: GraphEdge) => void;
   onUpdateNodePosition: (nodeId: string, x: number, y: number) => void;
   onBatchUpdateNodePositions: (positions: Array<{ nodeId: string; x: number; y: number }>) => void;
+  focalIds?: string[];
+  onToggleFocus?: (artId: string) => void;
+  nodeTiers?: Record<string, { tier: ResolutionTier | 'culled'; distance: number }>;
+  onOpenArtifactTree?: () => void;
 }
 
 export const SpatialGraph: React.FC<SpatialGraphProps> = ({
@@ -33,6 +39,10 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
   onAddEdge,
   onUpdateNodePosition,
   onBatchUpdateNodePositions,
+  focalIds = [],
+  onToggleFocus,
+  nodeTiers = {},
+  onOpenArtifactTree,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -438,12 +448,22 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         </button>
         <button
           onClick={handleAutoArrange}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#24151a] hover:bg-[#381e26] text-xs font-semibold text-[#f08b98] border border-[#3d161d] shadow-sm transition-all"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#24151a] hover:bg-[#381e26] text-xs font-semibold text-[#f08b98] border border-[#3d161d] shadow-sm transition-all cursor-pointer"
           title="Animate and automatically space nodes using physics forces"
         >
           <Sparkles className="w-3.5 h-3.5 text-[#e65a6c]" />
           <span>Auto-Space</span>
         </button>
+        {onOpenArtifactTree && (
+          <button
+            onClick={onOpenArtifactTree}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#101726] hover:bg-[#182338] text-xs font-medium text-[#e0b96c] border border-[#1e2a3e] transition-colors cursor-pointer"
+            title="Open Artifacts Hierarchy & Outliner Tree"
+          >
+            <FolderTree className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Folder Tree</span>
+          </button>
+        )}
       </div>
 
       {/* Linking status banner */}
@@ -584,28 +604,82 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
           const isSelected = selectedNodeId === node.id;
           const art = project.artifacts.find((a) => a.id === node.artifactId);
           const tags = node.tags || art?.tags || [];
+          const artColor = art?.color || '#5d87b8';
+          const tierInfo = art && nodeTiers ? nodeTiers[art.id] : undefined;
+          const isInContext = tierInfo ? tierInfo.tier !== 'culled' : false;
+          const isFocal = art && focalIds ? focalIds.includes(art.id) : false;
 
           return (
             <div
               key={node.id}
               style={{
                 transform: `translate(${node.x}px, ${node.y}px)`,
-                width: '210px',
+                width: '220px',
+                borderColor: isFocal ? '#38bdf8' : isSelected ? '#e05a66' : `${artColor}44`,
+                boxShadow: isFocal
+                  ? '0 0 16px rgba(56, 189, 248, 0.25)'
+                  : `0 4px 16px -2px ${artColor}15`,
               }}
               onPointerDown={(e) => handleNodePointerDown(e, node)}
-              className={`absolute pointer-events-auto rounded-xl p-3 border backdrop-blur-md cursor-grab active:cursor-grabbing transition-shadow select-none bg-[#131b29]/95 border-[#080d15] hover:border-[#23314a] shadow-lg ${
-                isSelected ? 'ring-2 ring-[#e65a6c] border-[#e65a6c]' : ''
+              className={`absolute pointer-events-auto rounded-xl p-3 border backdrop-blur-md cursor-grab active:cursor-grabbing transition-all select-none bg-[#101726]/95 hover:border-[#2f4368] ${
+                isSelected ? 'ring-2 ring-[#e65a6c]' : ''
               }`}
             >
-              {/* Type Badge */}
-              <div className="flex items-center justify-between text-[10px] font-mono mb-1.5">
-                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-[#1a263b] text-[#8ab1e0] border border-[#090e18]">
-                  {node.type}
-                </span>
+              {/* Type Badge & Context State */}
+              <div className="flex items-center justify-between text-[10px] font-mono mb-1.5 gap-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0 shadow-xs"
+                    style={{ backgroundColor: artColor }}
+                  />
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-[#162134] text-[#8ab1e0] border border-[#1b283e] truncate">
+                    {node.type}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {art && (
+                    <span
+                      className={`px-1.5 py-0.2 rounded text-[9px] font-semibold border ${
+                        isFocal
+                          ? 'bg-[#0c243b] text-[#38bdf8] border-[#1d4d73]'
+                          : isInContext
+                          ? 'bg-[#0f221a] text-[#5ad49b] border-[#1d4533]'
+                          : 'bg-[#1e1316] text-[#e05a66] border-[#3d1921]'
+                      }`}
+                      title={
+                        isFocal
+                          ? 'Focal Point (Sharpest prompt resolution)'
+                          : isInContext
+                          ? `Ingested in prompt at Tier ${tierInfo?.tier}`
+                          : 'Culled (Excluded from prompt window)'
+                      }
+                    >
+                      {isFocal ? 'Focal T3' : isInContext ? `In T${tierInfo?.tier}` : 'Out'}
+                    </span>
+                  )}
+
+                  {onToggleFocus && art && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFocus(art.id);
+                      }}
+                      className={`p-1 rounded transition-colors cursor-pointer ${
+                        isFocal
+                          ? 'text-[#38bdf8] bg-[#0c1f30]'
+                          : 'text-[#4e6382] hover:text-[#9bb0d1]'
+                      }`}
+                      title={isFocal ? 'Release from focal window' : 'Pull into conversation focus'}
+                    >
+                      <Pin className={`w-3 h-3 ${isFocal ? 'fill-current' : ''}`} />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Title */}
-              <div className="font-semibold text-xs text-[#eef4fc] truncate mb-1.5">
+              <div className="font-semibold text-xs text-[#eef4fc] truncate mb-1.5 font-mono">
                 {node.title}
               </div>
 
@@ -615,7 +689,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                   {tags.slice(0, 3).map((t) => (
                     <span
                       key={t}
-                      className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#162030] text-[#7da0cf] border border-[#090e18]"
+                      className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#131d2e] text-[#7da0cf] border border-[#1a283e]"
                     >
                       #{t}
                     </span>
@@ -624,31 +698,50 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
               )}
 
               {/* Actions row */}
-              <div className="flex items-center justify-between text-[10px] text-[#869ab8] pt-1.5 border-t border-[#080d15]">
+              <div className="flex items-center justify-between text-[10px] text-[#869ab8] pt-1.5 border-t border-[#141f33]">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     setLinkingSourceNode(node);
                   }}
-                  className="flex items-center gap-1 p-1 rounded hover:bg-[#1e2a3f] text-[#9bb0d1] transition-colors"
+                  className="flex items-center gap-1 p-1 rounded hover:bg-[#1a263b] text-[#9bb0d1] transition-colors cursor-pointer"
                   title="Connect Edge"
                 >
                   <LinkIcon className="w-3 h-3 text-[#5d87b8]" />
                   <span>Link</span>
                 </button>
 
-                {node.artifactId && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (art) onSelectArtifact(art);
-                    }}
-                    className="px-2 py-0.5 rounded bg-[#24151a] hover:bg-[#381e26] text-[#f08b98] text-[10px] font-medium border border-[#3d161d] transition-colors"
-                    title="Inspect specification"
-                  >
-                    View Spec
-                  </button>
-                )}
+                <div className="flex items-center gap-1">
+                  {onToggleFocus && art && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFocus(art.id);
+                      }}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors cursor-pointer border ${
+                        isFocal
+                          ? 'bg-[#0f2438] text-[#38bdf8] border-[#1d4c73]'
+                          : 'bg-[#121c2d] text-[#7d93b3] hover:text-[#eef4fc] border-[#1a273e]'
+                      }`}
+                      title={isFocal ? 'Release focus' : 'Pull node into context'}
+                    >
+                      {isFocal ? 'Focused' : 'Pull'}
+                    </button>
+                  )}
+
+                  {node.artifactId && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (art) onSelectArtifact(art);
+                      }}
+                      className="px-2 py-0.5 rounded bg-[#1e2a3f] hover:bg-[#283854] text-[#8ab1e0] text-[10px] font-medium border border-[#263752] transition-colors cursor-pointer"
+                      title="Inspect specification"
+                    >
+                      Spec
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           );

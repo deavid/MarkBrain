@@ -301,3 +301,30 @@ export interface TokenGroupBreakdown {
   olderChaptersCount: number;
   estimatedCost: string;
 }
+
+export const MELLOW_DARK_PASTELS = [
+  '#4a3f6b', // Mellow dark lavender/purple
+  '#2d5a6c', // Mellow dark slate teal
+  '#3d6350', // Mellow dark sage/forest
+  '#6e4c38', // Mellow dark warm cedar
+  '#594263', // Mellow dark plum/mauve
+  '#2f5266', // Mellow dark oceanic steel
+  '#634b52', // Mellow dark dusky rose
+  '#425e70', // Mellow dark indigo slate
+  '#545938', // Mellow dark olive brass
+  '#3a5959', // Mellow dark eucalyptus
+  '#5f4359', // Mellow dark amethyst
+  '#4d5366', // Mellow dark dusk navy
+];
+
+export function getMellowPastelColor(seed: string | number): string {
+  if (typeof seed === 'number') {
+    return MELLOW_DARK_PASTELS[Math.abs(seed) % MELLOW_DARK_PASTELS.length];
+  }
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  return MELLOW_DARK_PASTELS[Math.abs(hash) % MELLOW_DARK_PASTELS.length];
+}

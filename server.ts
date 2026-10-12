@@ -43,6 +43,19 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
+// API: Firebase / OAuth client configuration from runtime environment
+app.get('/api/auth/config', (_req: Request, res: Response) => {
+  res.json({
+    projectId: process.env.FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || '',
+    appId: process.env.FIREBASE_APP_ID || '',
+    apiKey: process.env.FIREBASE_API_KEY || '',
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN || (process.env.FIREBASE_PROJECT_ID ? `${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com` : ''),
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || '',
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '',
+    oAuthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID || '',
+  });
+});
+
 // API: Chat with MarkBrain
 app.post('/api/chat', async (req: Request, res: Response) => {
   try {
@@ -53,9 +66,11 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       currentTopic = '',
       chapterSummaries = [],
       projectTitle = 'Design System Core',
+      compiledPrompt: clientCompiledPrompt,
+      systemInstruction: clientSystemInstruction,
     } = req.body;
 
-    const systemInstruction = `You are MarkBrain, a principal systems architect specializing in multi-tier design systems, token topologies, component state machines, and spatial software architectures.
+    const defaultSystemInstruction = `You are MarkBrain, a principal systems architect specializing in multi-tier design systems, token topologies, component state machines, and spatial software architectures.
 You collaborate with engineers to brainstorm, structure, and refine complex system boundaries.
 
 CRITICAL INSTRUCTIONS:
@@ -69,31 +84,39 @@ highConcept: [true | false - set true if it represents a cross-project core prot
 [Markdown artifact specification content here]
 \`\`\`
 3. Keep prose articulate, high-signal, and structured.
-4. If the user's latest query shifts into a substantially new topic/dimension (e.g. from token primitives to build pipeline, or from tokens to runtime state machines), flag it by concluding with a JSON block:
+4. If the user's latest query shifts into a substantially new topic/dimension, declare it via:
+<topic_shift title="New Chapter Title" abstract="1-sentence essence" summary="Key invariant bullets" />
+or conclude with a JSON block:
 \`\`\`topic_shift
 {"shiftDetected": true, "newChapterTitle": "Suggested New Chapter Title", "reason": "Reason for architectural pivot"}
 \`\`\`
 otherwise omit that block.`;
 
-    let compiledPrompt = `Project: ${projectTitle}\nCurrent Focus: ${currentTopic || 'General Architecture'}\n\n`;
+    const systemInstruction = clientSystemInstruction || defaultSystemInstruction;
 
-    if (chapterSummaries && chapterSummaries.length > 0) {
-      compiledPrompt += `--- PREVIOUS CHAPTER SUMMARIES (Compressed Memory) ---\n`;
-      for (const chap of chapterSummaries) {
-        compiledPrompt += `[Chapter: ${chap.title}]\nSummary: ${chap.summary}\nKey Invariants: ${(chap.keyPoints || []).join('; ')}\n\n`;
+    let compiledPrompt = clientCompiledPrompt;
+
+    if (!compiledPrompt) {
+      compiledPrompt = `Project: ${projectTitle}\nCurrent Focus: ${currentTopic || 'General Architecture'}\n\n`;
+
+      if (chapterSummaries && chapterSummaries.length > 0) {
+        compiledPrompt += `--- PREVIOUS CHAPTER SUMMARIES (Compressed Memory) ---\n`;
+        for (const chap of chapterSummaries) {
+          compiledPrompt += `[Chapter: ${chap.title}]\nSummary: ${chap.summary}\nKey Invariants: ${(chap.keyPoints || []).join('; ')}\n\n`;
+        }
       }
-    }
 
-    if (contextPayload && contextPayload.trim().length > 0) {
-      compiledPrompt += `--- ACTIVE IN-MEMORY ARTIFACTS ---\n${contextPayload}\n\n`;
-    }
+      if (contextPayload && contextPayload.trim().length > 0) {
+        compiledPrompt += `--- ACTIVE IN-MEMORY ARTIFACTS ---\n${contextPayload}\n\n`;
+      }
 
-    compiledPrompt += `--- CONVERSATION TRANSCRIPT ---\n`;
-    for (const msg of messages) {
-      compiledPrompt += `${msg.role === 'user' ? 'User' : 'Architect'}: ${msg.content}\n`;
-    }
+      compiledPrompt += `--- CONVERSATION TRANSCRIPT ---\n`;
+      for (const msg of messages) {
+        compiledPrompt += `${msg.role === 'user' ? 'User' : 'Architect'}: ${msg.content}\n`;
+      }
 
-    compiledPrompt += `\nArchitect:`;
+      compiledPrompt += `\nArchitect:`;
+    }
 
     let replyText = '';
 
@@ -177,7 +200,25 @@ The chapter context and spatial nodes have been verified. You can tweak the toke
       });
     }
 
-    // Extract any topic shift
+    // Extract any XML <artifact_upsert> tags
+    const upsertXmlRegex = /<artifact_upsert\s+id=["']([^"']+)["']\s+title=["']([^"']+)["'](?:\s+type=["']([^"']+)["'])?[^>]*>([\s\S]*?)<\/artifact_upsert>/gi;
+    let upMatch;
+    while ((upMatch = upsertXmlRegex.exec(replyText)) !== null) {
+      const upTitle = upMatch[2];
+      const upType = upMatch[3] || 'document';
+      const inner = upMatch[4];
+      const absMatch = /<abstract>([\s\S]*?)<\/abstract>/i.exec(inner);
+      const contentMatch = /<content>([\s\S]*?)<\/content>/i.exec(inner);
+      artifacts.push({
+        title: upTitle,
+        type: upType,
+        abstract: absMatch ? absMatch[1].trim() : upTitle,
+        highConcept: false,
+        content: contentMatch ? contentMatch[1].trim() : inner.trim(),
+      });
+    }
+
+    // Extract any topic shift (JSON or XML)
     let topicShift: { shiftDetected: boolean; newChapterTitle: string; reason: string } | null = null;
     const topicShiftRegex = /```topic_shift\s*([\s\S]*?)```/;
     const topicMatch = replyText.match(topicShiftRegex);
@@ -189,9 +230,25 @@ The chapter context and spatial nodes have been verified. You can tweak the toke
       }
     }
 
-    // Clean reply text of artifact/topic_shift raw blocks for display, or leave them clean
+    const topicShiftXml = /<topic_shift\s+([^>]*?)\/?>/i.exec(replyText);
+    if (topicShiftXml && !topicShift) {
+      const titleM = /title=["']([^"']+)["']/i.exec(topicShiftXml[1]);
+      const summaryM = /summary=["']([^"']+)["']/i.exec(topicShiftXml[1]);
+      if (titleM) {
+        topicShift = {
+          shiftDetected: true,
+          newChapterTitle: titleM[1],
+          reason: summaryM ? summaryM[1] : 'Topic progression',
+        };
+      }
+    }
+
+    // Clean reply text of artifact/topic_shift raw blocks for display
     const cleanedReply = replyText
       .replace(/```topic_shift[\s\S]*?```/g, '')
+      .replace(/<topic_shift[\s\S]*?\/>/g, '')
+      .replace(/<artifact_upsert[\s\S]*?<\/artifact_upsert>/g, '')
+      .replace(/<link[\s\S]*?\/>/g, '')
       .trim();
 
     const promptTokens = estimateTokens(compiledPrompt);

@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
@@ -6,21 +6,55 @@ import {
   onAuthStateChanged,
   User,
   signOut,
+  Auth,
 } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+let appInstance: FirebaseApp | null = null;
+let authInstance: Auth | null = null;
+let providerInstance: GoogleAuthProvider | null = null;
 
-// Request both Google Drive read-only and Google Docs read-only scopes
-const provider = new GoogleAuthProvider();
-provider.addScope('https://www.googleapis.com/auth/drive.readonly');
-provider.addScope('https://www.googleapis.com/auth/documents.readonly');
-// Force consent prompt if user needs to refresh scopes
-provider.setCustomParameters({
-  prompt: 'consent',
-  access_type: 'offline',
-});
+// Helper to initialize Firebase App from server environment config
+async function getOrInitAuth(): Promise<Auth | null> {
+  if (authInstance) return authInstance;
+  try {
+    const res = await fetch('/api/auth/config');
+    if (!res.ok) return null;
+    const config = await res.json();
+    if (!config.apiKey || !config.projectId) {
+      // Configuration not provided in environment
+      return null;
+    }
+    if (getApps().length === 0) {
+      appInstance = initializeApp({
+        apiKey: config.apiKey,
+        authDomain: config.authDomain,
+        projectId: config.projectId,
+        storageBucket: config.storageBucket,
+        messagingSenderId: config.messagingSenderId,
+        appId: config.appId,
+      });
+    } else {
+      appInstance = getApps()[0];
+    }
+    authInstance = getAuth(appInstance);
+    return authInstance;
+  } catch (e) {
+    console.warn('Failed to initialize Firebase Auth from environment config:', e);
+    return null;
+  }
+}
+
+function getProvider(): GoogleAuthProvider {
+  if (providerInstance) return providerInstance;
+  providerInstance = new GoogleAuthProvider();
+  providerInstance.addScope('https://www.googleapis.com/auth/drive.readonly');
+  providerInstance.addScope('https://www.googleapis.com/auth/documents.readonly');
+  providerInstance.setCustomParameters({
+    prompt: 'consent',
+    access_type: 'offline',
+  });
+  return providerInstance;
+}
 
 // In-memory token cache (never stored in localStorage)
 let cachedAccessToken: string | null = null;
@@ -30,19 +64,37 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
-    if (user && cachedAccessToken) {
-      if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-    } else if (!isSigningIn) {
-      cachedAccessToken = null;
+  let unsubscribeFn = () => {};
+  getOrInitAuth().then((auth) => {
+    if (!auth) {
       if (onAuthFailure) onAuthFailure();
+      return;
     }
+    unsubscribeFn = onAuthStateChanged(auth, async (user: User | null) => {
+      if (user && cachedAccessToken) {
+        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+      } else if (!isSigningIn) {
+        cachedAccessToken = null;
+        if (onAuthFailure) onAuthFailure();
+      }
+    });
   });
+
+  return () => {
+    unsubscribeFn();
+  };
 };
 
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
+    const auth = await getOrInitAuth();
+    if (!auth) {
+      throw new Error(
+        'Google Auth is not configured. Please supply the auth configuration via environment variables (FIREBASE_API_KEY, FIREBASE_PROJECT_ID) instead of committing secrets.'
+      );
+    }
+    const provider = getProvider();
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
@@ -64,7 +116,9 @@ export const getAccessToken = async (): Promise<string | null> => {
 };
 
 export const googleSignOut = async () => {
-  await signOut(auth);
+  if (authInstance) {
+    await signOut(authInstance);
+  }
   cachedAccessToken = null;
 };
 

@@ -103,16 +103,35 @@ export function parseYamlArtifactDoc(
             },
           ];
 
+      const now = Date.now();
+      const artDesc = parsedData.description || `Imported specification: ${title}`;
+      const artSumm = parsedData.summary || parsedData.description || 'Imported architectural artifact summary.';
+
       const artifact: Artifact = {
         id,
+        workspace_id: fallbackProjectId,
         projectId: fallbackProjectId,
         code,
         title,
-        type: (parsedData.type as ArtifactType) || 'architecture',
+        type: 'document',
         category: (parsedData.category as ArtifactCategory) || 'system-spec',
-        description: parsedData.description || `Imported specification: ${title}`,
-        summary: parsedData.summary || parsedData.description || 'Imported architectural artifact summary.',
+        description: artDesc,
+        summary: artSumm,
         content: markdownPart,
+        created_at: now,
+        updated_at: now,
+        current: {
+          t0_label: title,
+          t1_abstract: artDesc,
+          t2_summary: artSumm,
+          t3_body: markdownPart,
+        },
+        revisions: [],
+        relations: [],
+        provenance: {
+          origin_chapter_id: 'chap-import',
+          mutation_chapter_ids: [],
+        },
         graph: graphData,
         isHighConcept: graphData.is_high_concept,
         resolution: parsedData.resolution || 'full',
@@ -151,16 +170,35 @@ export function parseYamlArtifactDoc(
   const generatedCode = firstHeading.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
   const firstParagraph = lines.filter((l) => l.trim().length > 0 && !l.startsWith('#'))[0] || 'Specification document';
 
+  const now = Date.now();
+  const desc = firstParagraph.slice(0, 160);
+  const summ = trimmed.slice(0, 400);
+
   const artifact: Artifact = {
-    id: `art-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    id: `art-${now}-${Math.floor(Math.random() * 1000)}`,
+    workspace_id: fallbackProjectId,
     projectId: fallbackProjectId,
     code: generatedCode,
     title: firstHeading,
-    type: 'architecture',
+    type: 'document',
     category: 'system-spec',
-    description: firstParagraph.slice(0, 160),
-    summary: trimmed.slice(0, 400),
+    description: desc,
+    summary: summ,
     content: trimmed,
+    created_at: now,
+    updated_at: now,
+    current: {
+      t0_label: firstHeading,
+      t1_abstract: desc,
+      t2_summary: summ,
+      t3_body: trimmed,
+    },
+    revisions: [],
+    relations: [],
+    provenance: {
+      origin_chapter_id: 'chap-import',
+      mutation_chapter_ids: [],
+    },
     graph: {
       children: [],
       relationships: [],

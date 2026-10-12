@@ -201,10 +201,10 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
       const parsed = parseYamlArtifactDoc(text, project.id);
       if (parsed.hasFrontmatter) {
-        setArtifactTitle(parsed.artifact.title);
-        setArtifactCode(parsed.artifact.code);
-        setArtifactDescription(parsed.artifact.description);
-        setArtifactSummary(parsed.artifact.summary);
+        setArtifactTitle(parsed.artifact.title || '');
+        setArtifactCode(parsed.artifact.code || '');
+        setArtifactDescription(parsed.artifact.description || '');
+        setArtifactSummary(parsed.artifact.summary || '');
         setArtifactType(parsed.artifact.type);
         setArtifactTags(parsed.artifact.tags || []);
         setIsHighConcept(Boolean(parsed.artifact.isHighConcept));
@@ -242,10 +242,10 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       // Check if it already has frontmatter
       const parsed = parseYamlArtifactDoc(markdownContent, project.id);
       if (parsed.hasFrontmatter) {
-        setArtifactTitle(parsed.artifact.title);
-        setArtifactCode(parsed.artifact.code);
-        setArtifactDescription(parsed.artifact.description);
-        setArtifactSummary(parsed.artifact.summary);
+        setArtifactTitle(parsed.artifact.title || '');
+        setArtifactCode(parsed.artifact.code || '');
+        setArtifactDescription(parsed.artifact.description || '');
+        setArtifactSummary(parsed.artifact.summary || '');
         setArtifactType(parsed.artifact.type);
         setArtifactTags(parsed.artifact.tags || []);
         setIsHighConcept(Boolean(parsed.artifact.isHighConcept));
@@ -321,19 +321,38 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       artifactCode.trim() ||
       baseTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
 
+    const now = Date.now();
+    const desc = artifactDescription.trim() || `Imported specification: ${baseTitle}`;
+    const summ =
+      artifactSummary.trim() ||
+      artifactDescription.trim() ||
+      'Comprehensive architectural specification document.';
+
     const fullArtifact: Artifact = {
-      id: `art-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: `art-${now}-${Math.floor(Math.random() * 1000)}`,
+      workspace_id: project.id,
       projectId: project.id,
       code: baseCode,
       title: baseTitle,
-      type: artifactType,
+      type: 'document',
       category: 'system-spec',
-      description: artifactDescription.trim() || `Imported specification: ${baseTitle}`,
-      summary:
-        artifactSummary.trim() ||
-        artifactDescription.trim() ||
-        'Comprehensive architectural specification document.',
+      description: desc,
+      summary: summ,
       content: uploadContent,
+      created_at: now,
+      updated_at: now,
+      current: {
+        t0_label: baseTitle,
+        t1_abstract: desc,
+        t2_summary: summ,
+        t3_body: uploadContent,
+      },
+      revisions: [],
+      relations: [],
+      provenance: {
+        origin_chapter_id: project.currentChapterId,
+        mutation_chapter_ids: [],
+      },
       tags: artifactTags.length > 0 ? artifactTags : ['google-docs', artifactType],
       graph: {
         parent: parentCode.trim() || undefined,
@@ -362,17 +381,37 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   // Compute live YAML preview
   const liveYamlDocPreview = React.useMemo(() => {
     if (!uploadContent) return '';
+    const now = Date.now();
+    const title = artifactTitle || 'Specification Title';
+    const desc = artifactDescription || 'Specification description';
+    const summ = artifactSummary || 'Specification summary';
+
     const tempArt: Artifact = {
       id: `art-preview`,
+      workspace_id: project.id,
       projectId: project.id,
       code: artifactCode || 'sample-spec',
-      title: artifactTitle || 'Specification Title',
-      type: artifactType,
+      title,
+      type: 'document',
       category: 'system-spec',
-      description: artifactDescription,
-      summary: artifactSummary,
+      description: desc,
+      summary: summ,
       tags: artifactTags,
       content: uploadContent,
+      created_at: now,
+      updated_at: now,
+      current: {
+        t0_label: title,
+        t1_abstract: desc,
+        t2_summary: summ,
+        t3_body: uploadContent,
+      },
+      revisions: [],
+      relations: [],
+      provenance: {
+        origin_chapter_id: project.currentChapterId,
+        mutation_chapter_ids: [],
+      },
       graph: {
         parent: parentCode || undefined,
         is_high_concept: isHighConcept,

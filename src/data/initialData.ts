@@ -35,15 +35,40 @@ export const AVAILABLE_MODELS: ModelOption[] = [
 ];
 
 // Helper to seed artifacts with YAML document string & version history
-function createSeedArtifact(art: Omit<Artifact, 'yamlDocument'>): Artifact {
+function createSeedArtifact(art: any): Artifact {
+  const title = art.title || 'Untitled Artifact';
+  const desc = art.description || art.abstract || 'Conceptual abstract.';
+  const summ = art.summary || 'Key parameters and constraints.';
+  const body = art.content || `# ${title}\n\nDocument body.`;
+  const createdAtMs = art.createdAt ? new Date(art.createdAt).getTime() : Date.now();
+  const updatedAtMs = art.updatedAt ? new Date(art.updatedAt).getTime() : createdAtMs;
+  const wsId = art.workspace_id || art.projectId || 'ws-default';
+
   const fullArt: Artifact = {
     ...art,
+    id: art.id,
+    workspace_id: wsId,
+    type: 'document',
+    created_at: createdAtMs,
+    updated_at: updatedAtMs,
+    current: art.current || {
+      t0_label: title,
+      t1_abstract: desc,
+      t2_summary: summ,
+      t3_body: body,
+    },
+    revisions: art.revisions || [],
+    relations: art.relations || [],
+    provenance: art.provenance || {
+      origin_chapter_id: 'chap-init',
+      mutation_chapter_ids: [],
+    },
     history: art.history || [
       {
         version: 1,
-        timestamp: art.createdAt || new Date().toISOString(),
+        timestamp: art.createdAt ? String(art.createdAt) : new Date().toISOString(),
         changeSummary: 'Initial specification baseline',
-        content: art.content,
+        content: body,
       },
     ],
   };
@@ -343,7 +368,6 @@ const unhaunterChapters: Chapter[] = [
   {
     id: 'chap-un-1',
     projectId: 'proj-unhaunter',
-    level: 1,
     title: 'Chapter 1: Real-time Combat Simulation & Tick Alignment',
     summary:
       'Architected the 60Hz deterministic combat tick rate. Established hitstop pause constraints (40ms) and dodge invulnerability window.',
@@ -376,9 +400,7 @@ const unhaunterChapters: Chapter[] = [
   {
     id: 'chap-un-2',
     projectId: 'proj-unhaunter',
-    level: 2,
-    parentId: 'chap-un-1',
-    title: 'Subchapter 1.1: Rage Mechanics & Frenzy Thresholds',
+    title: 'Chapter 2: Rage Mechanics & Frenzy Thresholds',
     summary:
       'Formulated the 4-tier rage momentum accumulator and Frenzy state penalties. Dispatched shader and acoustic triggers.',
     keyPoints: [
@@ -410,8 +432,7 @@ const unhaunterChapters: Chapter[] = [
   {
     id: 'chap-un-3',
     projectId: 'proj-unhaunter',
-    level: 1,
-    title: 'Chapter 2: Haunter Perception & Acoustic Cones',
+    title: 'Chapter 3: Haunter Perception & Acoustic Cones',
     summary:
       'Designing enemy sensory raycasting and auditory vibration detection when the player enters high-rage states.',
     keyPoints: [
@@ -538,19 +559,19 @@ history:
   createSeedArtifact({
     id: 'art-mb-tree-chapters',
     projectId: 'proj-markbrain',
-    code: 'tree-chapters-protocol',
-    title: 'Tree-Form Chapter Timeline & Unified Facade',
+    code: 'chapters-protocol',
+    title: 'Episodic Chapter Timeline & Continuous Canvas',
     type: 'architecture',
     category: 'chat-chapter',
-    description: '3-level hierarchical chat chapters (Chapter -> Subchapter -> Section) with inline summarization.',
+    description: 'Conversational chapters grouping chat blocks with inline summarization and optical depth-of-field.',
     summary:
-      'Chapters unify with the artifact schema. They can be pinned in the spatial graph, summarized at discrete tree depths, and dynamically adjusted without fragmenting the continuous chat stream.',
-    content: `# Tree-Form Chapter Timeline & Unified Facade
+      'Chapters group related blocks of conversation. Past chapters compress into executive summaries while the active chapter flows seamlessly into ongoing ideation.',
+    content: `# Episodic Chapter Timeline & Continuous Canvas
 
-## Tree Form Hierarchy
-- **Level 1 (Chapter):** Major architectural phase (e.g. Combat Loop, Memory Topology).
-- **Level 2 (Subchapter):** Specific subsystem or sub-topic (e.g. Rage State Machine).
-- **Level 3 (Section):** Invariant calibration or boundary edge cases.`,
+## Chapter Structure
+- **Active Chapter:** Ongoing conversation block rendered at full fidelity, with an open bottom boundary connecting directly to live input.
+- **Completed Chapters:** Sealed historical blocks compressed to executive summaries and key invariants to protect the context window.
+- **Dynamic Splitting:** Tactile split points dividing conversation turns without artificial sub-hierarchies.`,
     isHighConcept: false,
     resolution: 'summary',
     graph: {
@@ -561,7 +582,7 @@ history:
       x: 350,
       y: 260,
     },
-    tags: ['tree-chapters', 'timeline', 'unified-facade'],
+    tags: ['chapters', 'timeline', 'continuous-canvas'],
     createdAt: '2026-10-10T03:00:00.000Z',
     updatedAt: '2026-10-10T07:00:00.000Z',
   }),
@@ -596,7 +617,7 @@ const markBrainNodes: GraphNode[] = [
     id: 'node-mb-3',
     artifactId: 'art-mb-tree-chapters',
     projectId: 'proj-markbrain',
-    title: 'Tree-Form Chapter Timeline & Unified Facade',
+    title: 'Episodic Chapter Timeline & Continuous Canvas',
     type: 'architecture',
     isHighConcept: false,
     status: 'active',
@@ -631,7 +652,6 @@ const markBrainChapters: Chapter[] = [
   {
     id: 'chap-mb-1',
     projectId: 'proj-markbrain',
-    level: 1,
     title: 'Chapter 1: The Unified YAML + Markdown Artifact Standard',
     summary:
       'Designed the single-file specification standard combining YAML frontmatter metadata (graph parent/children, relationships, history) with rich Markdown bodies.',
@@ -664,15 +684,13 @@ const markBrainChapters: Chapter[] = [
   {
     id: 'chap-mb-2',
     projectId: 'proj-markbrain',
-    level: 2,
-    parentId: 'chap-mb-1',
-    title: 'Subchapter 1.1: Mobile First Flow & Tree Chapters',
+    title: 'Chapter 2: Mobile First Flow & Conversational Canvas',
     summary:
-      'Established the initial mobile viewport: Projects first ("What project do you want to open?"). From project selection, navigate straight to one continuous chat with 3-level tree chapters.',
+      'Established the initial mobile viewport: Projects first ("What project do you want to open?"). From project selection, navigate straight to one continuous chat with structured chapters.',
     keyPoints: [
       'Mobile entry point displays Project selector with "+ New Project"',
       'Selecting a project immediately opens Chat',
-      'Chapters support 3 hierarchical levels: Chapter, Subchapter, Section',
+      'Chapters group related turns into coherent milestones',
     ],
     isSummarized: false,
     compressionMode: 'full',

@@ -13,15 +13,16 @@ import {
 import { INITIAL_PROJECTS, AVAILABLE_MODELS } from './data/initialData';
 import { computeTokenBreakdown } from './utils/tokenCalculator';
 import { serializeArtifactToYamlDoc } from './utils/yamlArtifactParser';
-import { Header, ActiveView } from './components/Header';
+import { ActiveView } from './components/Header';
+import { Sidebar } from './components/Sidebar';
 import { SpatialGraph } from './components/SpatialGraph';
 import { ChatView } from './components/ChatView';
-import { ArtifactsDesk } from './components/ArtifactsDesk';
-import { ContextInspector } from './components/ContextInspector';
 import { ImportModal } from './components/ImportModal';
 import { ExportModal } from './components/ExportModal';
 import { ProjectLauncher } from './components/ProjectLauncher';
-import { MobileNav } from './components/MobileNav';
+import { useWorkspaceStore } from './store/workspaceStore';
+import { compileOpticalContext, projectToWorkspaceState } from './services/contextCompiler';
+import { parseStreamTurn } from './services/streamProtocol';
 
 const STORAGE_PROJECTS_KEY = 'markbrain_projects_v2';
 const STORAGE_ACTIVE_PROJECT_KEY = 'markbrain_active_project_id_v2';
@@ -54,6 +55,9 @@ const getStoredActiveProjectId = (initialList: Project[]): string => {
 };
 
 export default function App() {
+  const opticalMode = useWorkspaceStore((s) => s.opticalMode);
+  const setOpticalMode = useWorkspaceStore((s) => s.setOpticalMode);
+
   const [projects, setProjects] = useState<Project[]>(getStoredProjects);
   const [activeProjectId, setActiveProjectId] = useState<string>(() =>
     getStoredActiveProjectId(projects)
@@ -82,6 +86,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>('chat');
 
   // Modals & Project Launcher
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProjectLauncherOpen, setIsProjectLauncherOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -104,14 +109,32 @@ export default function App() {
     );
   }, [activeProject, selectedArtifactId]);
 
-  // Total Token Footprint
-  const tokenBreakdown = useMemo(() => {
-    return computeTokenBreakdown(
-      activeProject.artifacts,
-      activeProject.chapters,
-      activeProject.currentChapterId
+  // Real Optical Context Engine Compilation
+  const compiledContext = useMemo(() => {
+    const ws = projectToWorkspaceState(
+      activeProject,
+      opticalMode,
+      selectedArtifactId ? [selectedArtifactId] : []
     );
-  }, [activeProject]);
+    return compileOpticalContext(ws, 32000);
+  }, [activeProject, opticalMode, selectedArtifactId]);
+
+  // Real Token Footprint & Saturation Breakdown directly from Context Compiler
+  const tokenBreakdown = useMemo(() => {
+    const tb = compiledContext.telemetry.token_breakdown;
+    const nd = compiledContext.telemetry.node_distribution;
+    return {
+      artifactsTokens: tb.substrate_tokens,
+      activeChapterTokens: Math.round(tb.history_tokens * 0.7),
+      olderChaptersTokens: Math.round(tb.history_tokens * 0.3),
+      systemPromptTokens: tb.system_tokens,
+      totalTokens: tb.total_tokens,
+      artifactsCount: nd.tier_3_count + nd.tier_2_count + nd.tier_1_count + nd.tier_0_count,
+      activeChaptersCount: 1,
+      olderChaptersCount: Math.max(0, activeProject.chapters.length - 1),
+      estimatedCost: `$${((tb.total_tokens / 1_000_000) * 0.15 * (selectedModel.costMultiplier || 1)).toFixed(5)}`,
+    };
+  }, [compiledContext, activeProject.chapters.length, selectedModel]);
 
   // 1. Select Project & Immediately Go to Chat
   const handleSelectProjectAndLaunchChat = (projId: string) => {
@@ -133,7 +156,6 @@ export default function App() {
     const initialChapter: Chapter = {
       id: initialChapterId,
       projectId: newId,
-      level: 1,
       title: 'Chapter 1: Architectural Foundations',
       summary: `Initial brainstorming kick-off for ${name}.`,
       keyPoints: ['Establish core boundaries and domain invariants'],
@@ -205,15 +227,43 @@ export default function App() {
     );
   };
 
-  // 5. Add Edge
+  // 5. Add Edge - wires topological graph edge and syncs artifact relations
   const handleAddEdge = (edge: GraphEdge) => {
     setProjects((prev) =>
       prev.map((proj) => {
         const targetProjId = edge.sourceProjectId || activeProjectId;
         if (proj.id === targetProjId) {
+          const sNode = proj.nodes.find((n) => n.id === edge.sourceNodeId);
+          const tNode = proj.nodes.find((n) => n.id === edge.targetNodeId);
+          const sArtId = sNode?.artifactId || edge.sourceNodeId;
+          const tArtId = tNode?.artifactId || edge.targetNodeId;
+
+          const updatedArtifacts = proj.artifacts.map((a) => {
+            if (a.id === sArtId && tArtId) {
+              const rels = a.relations || [];
+              if (!rels.some((r) => r.target_artifact_id === tArtId)) {
+                return {
+                  ...a,
+                  relations: [...rels, { target_artifact_id: tArtId, kind: 'relates_to' as const }],
+                };
+              }
+            }
+            if (a.id === tArtId && sArtId) {
+              const rels = a.relations || [];
+              if (!rels.some((r) => r.target_artifact_id === sArtId)) {
+                return {
+                  ...a,
+                  relations: [...rels, { target_artifact_id: sArtId, kind: 'relates_to' as const }],
+                };
+              }
+            }
+            return a;
+          });
+
           return {
             ...proj,
             edges: [...proj.edges, edge],
+            artifacts: updatedArtifacts,
           };
         }
         return proj;
@@ -344,7 +394,7 @@ export default function App() {
       id: `node-${Date.now()}`,
       artifactId: artWithYaml.id,
       projectId: activeProject.id,
-      title: artWithYaml.title,
+      title: artWithYaml.title || artWithYaml.current?.t0_label || 'Untitled',
       type: artWithYaml.type,
       isHighConcept: artWithYaml.isHighConcept,
       x: newX,
@@ -395,11 +445,10 @@ export default function App() {
     setSelectedArtifactId(artWithYaml.id);
   };
 
-  // 11. Declare New Chapter or Subchapter (Timeline Split)
+  // 11. Declare New Chapter (Timeline Split)
   const handleDeclareChapter = (
     messageId: string,
-    title: string,
-    level: 1 | 2 | 3
+    title: string
   ) => {
     setProjects((prev) =>
       prev.map((proj) => {
@@ -427,8 +476,6 @@ export default function App() {
         const newChapter: Chapter = {
           id: newChapterId,
           projectId: proj.id,
-          parentId: level > 1 ? targetChap.id : undefined,
-          level,
           title,
           summary: '',
           keyPoints: [],
@@ -436,13 +483,13 @@ export default function App() {
           messages: movedMessages.map((m) => ({ ...m, chapterId: newChapterId })),
           status: 'active',
           compressionMode: 'full',
-          topicShiftReason: `Declared ${level === 1 ? 'Chapter' : level === 2 ? 'Subchapter' : 'Section'} milestone`,
+          topicShiftReason: 'Split chapter boundary',
           createdAt: new Date().toISOString(),
         };
 
         const updatedChapters = [
           ...proj.chapters.slice(0, foundChapterIndex),
-          { ...targetChap, messages: keptMessages },
+          { ...targetChap, messages: keptMessages, status: 'completed' as const },
           newChapter,
           ...proj.chapters.slice(foundChapterIndex + 1),
         ];
@@ -546,22 +593,21 @@ export default function App() {
     setIsChatLoading(true);
 
     try {
-      // Compile context payload from active artifacts respecting abstraction levels
-      const activeArtifactsText = activeProject.artifacts
-        .filter((a) => a.resolution !== 'excluded')
-        .map((a) => `# ${a.title} (${a.type})\n${a.summary || a.description}`)
-        .join('\n\n');
+      // Compile REAL Optical Context from graph topology and depth-of-field
+      const wsWithUserMessage = projectToWorkspaceState(
+        {
+          ...activeProject,
+          chapters: activeProject.chapters.map((c) =>
+            c.id === currentActiveChapter.id
+              ? { ...c, messages: [...c.messages, userMessage] }
+              : c
+          ),
+        },
+        opticalMode,
+        selectedArtifactId ? [selectedArtifactId] : []
+      );
 
-      // Older chapter summaries respecting compressionMode
-      const olderSummaries = activeProject.chapters
-        .filter((c) => c.id !== currentActiveChapter.id && c.compressionMode !== 'dropped')
-        .map((c) => ({
-          title: c.title,
-          summary: c.summary,
-          keyPoints: c.keyPoints,
-        }));
-
-      const compiledHistory = currentActiveChapter.messages.concat(userMessage);
+      const compiled = compileOpticalContext(wsWithUserMessage, 32000);
 
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -569,22 +615,36 @@ export default function App() {
         body: JSON.stringify({
           model: selectedModel.id,
           projectTitle: activeProject.name,
-          currentTopic: currentActiveChapter.title,
-          messages: compiledHistory,
-          contextPayload: activeArtifactsText,
-          chapterSummaries: olderSummaries,
+          compiledPrompt: compiled.compiledPrompt,
+          systemInstruction: compiled.systemInstruction,
         }),
       });
 
       const data = await res.json();
+      const rawText = data.rawReply || data.reply || '';
+      const parsedTurn = parseStreamTurn(rawText, activeProject.id);
+
+      const cleanReplyText = parsedTurn.cleanContent || data.reply || 'Synthesized architecture verified.';
+
+      const extractedList = [
+        ...(data.artifacts || []),
+        ...parsedTurn.artifactUpserts.map((u) => ({
+          title: u.title,
+          type: u.type,
+          abstract: u.content.t1_abstract,
+          summary: u.content.t2_summary,
+          content: u.content.t3_body,
+          highConcept: false,
+        })),
+      ];
 
       const assistantMessage: ChatMessage = {
         id: `m-bot-${Date.now()}`,
         chapterId: currentActiveChapter.id,
         role: 'assistant',
-        content: data.reply || 'Synthesized architecture verified.',
+        content: cleanReplyText,
         timestamp: new Date().toISOString(),
-        extractedArtifacts: data.artifacts || [],
+        extractedArtifacts: extractedList,
       };
 
       setProjects((prev) =>
@@ -607,7 +667,7 @@ export default function App() {
                 rawArt.code ||
                 rawArt.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
               const existingIndex = updatedArtifacts.findIndex(
-                (a) => a.code === code || a.title.toLowerCase() === rawArt.title.toLowerCase()
+                (a) => a.code === code || (a.title && a.title.toLowerCase() === (rawArt.title || '').toLowerCase())
               );
 
               if (existingIndex !== -1) {
@@ -637,16 +697,39 @@ export default function App() {
                 updatedArtifacts[existingIndex] = modifiedArt;
               } else {
                 // Synthesize new artifact
+                const now = Date.now();
+                const artTitle = rawArt.title || 'Synthesized Artifact';
+                const artDesc = rawArt.abstract || 'Synthesized architectural specification.';
+                const artSumm = rawArt.abstract || 'Automated executive summary.';
+                const artContent = rawArt.content || `# ${artTitle}\n\nSynthesized specification.`;
+
                 const newArtifact: Artifact = {
-                  id: `art-${Date.now()}-${idx}`,
+                  id: `art-${now}-${idx}`,
+                  workspace_id: proj.id,
                   projectId: proj.id,
                   code,
-                  title: rawArt.title,
-                  type: rawArt.type || 'architecture',
+                  title: artTitle,
+                  type: 'document',
                   category: rawArt.category || 'system-spec',
-                  description: rawArt.abstract || 'Synthesized architectural specification.',
-                  summary: rawArt.abstract || 'Automated executive summary.',
-                  content: rawArt.content,
+                  description: artDesc,
+                  summary: artSumm,
+                  content: artContent,
+                  created_at: now,
+                  updated_at: now,
+                  current: {
+                    t0_label: artTitle,
+                    t1_abstract: artDesc,
+                    t2_summary: artSumm,
+                    t3_body: artContent,
+                  },
+                  revisions: [],
+                  relations: [
+                    { target_artifact_id: currentActiveChapter.id, kind: 'born_from' },
+                  ],
+                  provenance: {
+                    origin_chapter_id: currentActiveChapter.id,
+                    mutation_chapter_ids: [],
+                  },
                   graph: {
                     parent: rawArt.parent || undefined,
                     children: [],
@@ -660,7 +743,7 @@ export default function App() {
                       version: 1,
                       timestamp: new Date().toISOString(),
                       changeSummary: 'Initial synthesis from architectural chat session',
-                      content: rawArt.content,
+                      content: artContent,
                     },
                   ],
                   tags: ['chat-synthesized', rawArt.type || 'architecture'],
@@ -670,13 +753,14 @@ export default function App() {
                 newArtifact.yamlDocument = serializeArtifactToYamlDoc(newArtifact);
                 updatedArtifacts.push(newArtifact);
 
-                // Add spatial node
+                // Add spatial node linked to artifact
                 const lastNode = updatedNodes[updatedNodes.length - 1];
+                const newNodeId = `node-${Date.now()}-${idx}`;
                 updatedNodes.push({
-                  id: `node-${Date.now()}-${idx}`,
+                  id: newNodeId,
                   artifactId: newArtifact.id,
                   projectId: proj.id,
-                  title: newArtifact.title,
+                  title: artTitle,
                   type: newArtifact.type,
                   isHighConcept: newArtifact.isHighConcept,
                   x: lastNode ? lastNode.x + 180 : 300,
@@ -687,25 +771,65 @@ export default function App() {
             });
           }
 
-          // If Topic Shift was detected automatically:
-          if (data.topicShift && data.topicShift.shiftDetected) {
+          let updatedEdges = [...proj.edges];
+
+          // Process any extracted links from the model stream
+          if (parsedTurn.links.length > 0) {
+            parsedTurn.links.forEach((link, lIdx) => {
+              const sArt = updatedArtifacts.find((a) => a.id === link.source || a.code === link.source);
+              const tArt = updatedArtifacts.find((a) => a.id === link.target || a.code === link.target);
+              if (sArt && tArt) {
+                if (!sArt.relations.some((r) => r.target_artifact_id === tArt.id)) {
+                  sArt.relations.push({ target_artifact_id: tArt.id, kind: link.kind });
+                }
+                const sNode = updatedNodes.find((n) => n.artifactId === sArt.id);
+                const tNode = updatedNodes.find((n) => n.artifactId === tArt.id);
+                if (sNode && tNode) {
+                  updatedEdges.push({
+                    id: `edge-link-${Date.now()}-${lIdx}`,
+                    sourceNodeId: sNode.id,
+                    targetNodeId: tNode.id,
+                    label: link.kind,
+                  });
+                }
+              }
+            });
+          }
+
+          // If Topic Shift was detected automatically (XML tag or JSON block):
+          const shift = parsedTurn.topicShift || (data.topicShift?.shiftDetected ? data.topicShift : null);
+          if (shift) {
+            const shiftTitle = shift.title || shift.newChapterTitle || `Chapter ${proj.chapters.length + 1}`;
+            const newChapterId = `chap-${Date.now()}`;
             const newChapter: Chapter = {
-              id: `chap-${Date.now()}`,
+              id: newChapterId,
               projectId: proj.id,
-              level: 1,
-              title: data.topicShift.newChapterTitle || `Chapter ${proj.chapters.length + 1}`,
-              summary: '',
-              keyPoints: [],
+              title: shiftTitle,
+              summary: shift.summary || shift.abstract || '',
+              keyPoints: shift.summary ? [shift.summary] : [],
               isSummarized: false,
               messages: [],
               status: 'active',
               compressionMode: 'full',
-              topicShiftReason: data.topicShift.reason || 'Architectural topic pivot detected',
+              topicShiftReason: shift.reason || shift.abstract || 'Topic progression',
               createdAt: new Date().toISOString(),
             };
 
-            handleSummarizeChapter(currentActiveChapter.id);
-            updatedChapters = [...updatedChapters, newChapter];
+            // Mark previous active chapter as completed
+            updatedChapters = updatedChapters.map((c) =>
+              c.id === currentActiveChapter.id ? { ...c, status: 'completed' as const } : c
+            );
+            updatedChapters.push(newChapter);
+
+            return {
+              ...proj,
+              chapters: updatedChapters,
+              artifacts: updatedArtifacts,
+              nodes: updatedNodes,
+              edges: updatedEdges,
+              currentChapterId: newChapterId,
+              lastActivity: new Date().toISOString(),
+            };
           }
 
           return {
@@ -713,6 +837,7 @@ export default function App() {
             chapters: updatedChapters,
             artifacts: updatedArtifacts,
             nodes: updatedNodes,
+            edges: updatedEdges,
             lastActivity: new Date().toISOString(),
           };
         })
@@ -725,9 +850,11 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0d121c] text-[#e3edf7] font-sans">
-      {/* Top Header with Single-Task Switcher */}
-      <Header
+    <div className="flex h-screen w-screen overflow-hidden bg-[#0d121c] text-[#e3edf7] font-sans relative p-0 m-0">
+      {/* Extensible Left Sidebar with Floating Toggle */}
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onToggle={() => setIsSidebarOpen((prev) => !prev)}
         projects={projects}
         activeProject={activeProject}
         onSelectProject={(p) => setActiveProjectId(p.id)}
@@ -735,77 +862,123 @@ export default function App() {
         availableModels={AVAILABLE_MODELS}
         onSelectModel={setSelectedModel}
         totalTokens={tokenBreakdown.totalTokens}
-        activeView={activeView}
-        onChangeView={setActiveView}
+        activeView={activeView === 'graph' ? 'graph' : 'chat'}
+        onChangeView={(v) => setActiveView(v)}
+        opticalMode={opticalMode}
+        onToggleOpticalMode={() => {
+          const next =
+            opticalMode === 'autofocus'
+              ? 'manual'
+              : opticalMode === 'manual'
+              ? 'myopia'
+              : 'autofocus';
+          setOpticalMode(next);
+        }}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenImport={() => setIsImportOpen(true)}
         onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
       />
 
-      {/* Main Single-Focused Viewport */}
-      <main className="flex-1 flex overflow-hidden relative pb-0">
-        {activeView === 'chat' && (
-          <div className="w-full h-full">
-            <ChatView
-              project={activeProject}
-              onSendMessage={handleSendMessage}
-              isLoading={isChatLoading}
-              onAddArtifactToProject={handleAddArtifact}
-              onSummarizeChapter={handleSummarizeChapter}
-              onToggleChapterCompressionMode={handleToggleChapterCompressionMode}
-              onDeclareChapter={handleDeclareChapter}
-              onNavigateToGraph={() => setActiveView('graph')}
-            />
-          </div>
-        )}
+      {/* Main Single-Focused Viewport - starts from pixel 0, zero top bar */}
+      <main className="flex-1 h-full flex overflow-hidden relative p-0 m-0">
+        {/* Layer B: Base Conversation Canvas */}
+        <div className="flex-1 h-full relative overflow-hidden p-0 m-0">
+          {activeView === 'graph' ? (
+            <div className="w-full h-full relative">
+              <SpatialGraph
+                project={activeProject}
+                onSelectArtifact={(art) => {
+                  setSelectedArtifactId(art.id);
+                  setActiveView('chat');
+                }}
+                onAddEdge={handleAddEdge}
+                onUpdateNodePosition={handleUpdateNodePosition}
+                onBatchUpdateNodePositions={handleBatchUpdateNodePositions}
+              />
+            </div>
+          ) : (
+            <div className="w-full h-full">
+              <ChatView
+                project={activeProject}
+                onSendMessage={handleSendMessage}
+                isLoading={isChatLoading}
+                onAddArtifactToProject={handleAddArtifact}
+                onSummarizeChapter={handleSummarizeChapter}
+                onToggleChapterCompressionMode={handleToggleChapterCompressionMode}
+                onDeclareChapter={handleDeclareChapter}
+                onNavigateToGraph={() => setActiveView('graph')}
+              />
+            </div>
+          )}
 
-        {activeView === 'graph' && (
-          <div className="w-full h-full relative">
-            <SpatialGraph
-              project={activeProject}
-              onSelectArtifact={(art) => {
-                setSelectedArtifactId(art.id);
-                setActiveView('artifacts');
-              }}
-              onAddEdge={handleAddEdge}
-              onUpdateNodePosition={handleUpdateNodePosition}
-              onBatchUpdateNodePositions={handleBatchUpdateNodePositions}
+          {/* Layer A: The Floating Token Orb (Top-Right ambient indicator) */}
+          <div
+            className="absolute top-3 right-4 z-30 flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#0d1421]/90 backdrop-blur-md border border-[#080d15] shadow-lg pointer-events-auto cursor-pointer"
+            title={`Optical Token Saturation: ${Math.round(
+              tokenBreakdown.totalTokens
+            ).toLocaleString()} tokens (${opticalMode.toUpperCase()} mode)`}
+            onClick={() => {
+              const next =
+                opticalMode === 'autofocus'
+                  ? 'manual'
+                  : opticalMode === 'manual'
+                  ? 'myopia'
+                  : 'autofocus';
+              setOpticalMode(next);
+            }}
+          >
+            <div
+              className={`w-2.5 h-2.5 rounded-full transition-colors ${
+                tokenBreakdown.totalTokens > 100000
+                  ? 'bg-[#e05a66] shadow-[0_0_6px_#e05a66]'
+                  : tokenBreakdown.totalTokens > 50000
+                  ? 'bg-[#e0b96c] shadow-[0_0_6px_#e0b96c]'
+                  : 'bg-[#5ad49b] shadow-[0_0_6px_#5ad49b]'
+              }`}
             />
+            <span className="text-[10px] font-mono text-[#8ab1e0]">
+              {Math.round(tokenBreakdown.totalTokens / 1000)}k
+            </span>
           </div>
-        )}
+        </div>
 
-        {activeView === 'artifacts' && (
-          <div className="w-full h-full">
-            <ArtifactsDesk
-              project={activeProject}
-              selectedArtifact={selectedArtifact}
-              onSelectArtifact={(art) => setSelectedArtifactId(art.id)}
-              onUpdateArtifactResolution={handleUpdateArtifactResolution}
-              onUpdateArtifactContent={handleUpdateArtifactContent}
-              onRestoreArtifactVersion={handleRestoreArtifactVersion}
-            />
-          </div>
-        )}
-
-        {activeView === 'tokens' && (
-          <div className="w-full h-full">
-            <ContextInspector
-              project={activeProject}
-              onUpdateAllArtifactsResolution={handleUpdateAllArtifactsResolution}
-              onUpdateArtifactResolution={handleUpdateArtifactResolution}
-              onToggleChapterCompression={() => {}}
-            />
-          </div>
-        )}
+        {/* Layer A: 5px Edge Bar on absolute right edge (Zero Footprint Telemetry) */}
+        <div
+          className="w-[5px] h-full shrink-0 flex flex-col bg-[#0b1018] border-l border-[#080d15] z-30"
+          title="Peripheral Ambient Telemetry: Red=Detail/Focus (T3), Yellow=Summary (T2), Blue=Title (T0)"
+        >
+          {/* Red = Detail / Tier 3 (Focus) */}
+          <div
+            className="w-full bg-[#e05a66] transition-all duration-300"
+            style={{
+              height: `${Math.max(
+                10,
+                Math.min(
+                  70,
+                  (tokenBreakdown.activeChapterTokens / (tokenBreakdown.totalTokens || 1)) * 100
+                )
+              )}%`,
+            }}
+          />
+          {/* Yellow = Summary / Tier 2 */}
+          <div
+            className="w-full bg-[#e0b96c] transition-all duration-300"
+            style={{
+              height: `${Math.max(
+                15,
+                Math.min(
+                  60,
+                  (tokenBreakdown.olderChaptersTokens / (tokenBreakdown.totalTokens || 1)) * 100
+                )
+              )}%`,
+            }}
+          />
+          {/* Blue = Title / Tier 0 */}
+          <div
+            className="w-full bg-[#5d87b8] flex-1 transition-all duration-300"
+          />
+        </div>
       </main>
-
-      {/* Mobile Bottom Navigation */}
-      <MobileNav
-        activeView={activeView}
-        onChangeView={setActiveView}
-        totalTokens={tokenBreakdown.totalTokens}
-        onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
-      />
 
       {/* Project Launcher Screen / Modal */}
       {isProjectLauncherOpen && (

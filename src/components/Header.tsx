@@ -15,7 +15,7 @@ import {
   Plus,
 } from 'lucide-react';
 
-export type ActiveView = 'chat' | 'graph' | 'artifacts' | 'tokens';
+export type ActiveView = 'chat' | 'graph';
 
 interface HeaderProps {
   projects: Project[];
@@ -25,8 +25,10 @@ interface HeaderProps {
   availableModels: ModelOption[];
   onSelectModel: (m: ModelOption) => void;
   totalTokens: number;
-  activeView: ActiveView;
-  onChangeView: (view: ActiveView) => void;
+  activeView?: ActiveView;
+  onChangeView?: (view: ActiveView) => void;
+  opticalMode?: 'autofocus' | 'manual' | 'myopia';
+  onToggleOpticalMode?: () => void;
   onOpenExport: () => void;
   onOpenImport: () => void;
   onOpenProjectLauncher: () => void;
@@ -42,6 +44,8 @@ export const Header: React.FC<HeaderProps> = ({
   totalTokens,
   activeView,
   onChangeView,
+  opticalMode = 'autofocus',
+  onToggleOpticalMode,
   onOpenExport,
   onOpenImport,
   onOpenProjectLauncher,
@@ -49,13 +53,6 @@ export const Header: React.FC<HeaderProps> = ({
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const colorInfo = getTokenColor(totalTokens);
-
-  const viewTabs: Array<{ id: ActiveView; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { id: 'chat', label: 'Chat', icon: MessageSquare },
-    { id: 'graph', label: 'Graph', icon: Compass },
-    { id: 'artifacts', label: 'YAML Specs', icon: Layers },
-    { id: 'tokens', label: 'Tokens', icon: Gauge },
-  ];
 
   return (
     <header className="sticky top-0 z-40 bg-[#0f1522]/95 backdrop-blur-md border-b border-[#080d15] px-2.5 py-1.5 sm:px-4">
@@ -152,28 +149,26 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Center: View Switcher */}
-        <nav className="flex items-center gap-0.5 bg-[#0b1018] p-0.5 rounded-lg border border-[#080d15]">
-          {viewTabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeView === tab.id;
-
-            return (
-              <button
-                key={tab.id}
-                onClick={() => onChangeView(tab.id)}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                  isActive
-                    ? 'bg-[#1f1317] text-[#f28894] shadow-sm font-semibold'
-                    : 'text-[#879bb8] hover:text-[#e0ecfc] hover:bg-[#141b27]'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{tab.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+        {/* Center: Optical Depth-of-Field Mode Indicator */}
+        <div className="flex items-center gap-1.5">
+          {onToggleOpticalMode && (
+            <button
+              onClick={onToggleOpticalMode}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono transition-all ${
+                opticalMode === 'autofocus'
+                  ? 'bg-[#131e2b] border-[#1f334a] text-[#8ab1e0]'
+                  : opticalMode === 'manual'
+                  ? 'bg-[#291b1d] border-[#4a242a] text-[#f28894]'
+                  : 'bg-[#2b2413] border-[#4a3b1f] text-[#e0b96c]'
+              }`}
+              title="Click to cycle optical depth-of-field mode (Autofocus -> Manual -> Myopia)"
+            >
+              <span className="text-[10px] uppercase font-bold tracking-wider">
+                {opticalMode === 'autofocus' ? '◎ Autofocus' : opticalMode === 'manual' ? '⦿ Manual Focus' : '◐ Myopia Mode'}
+              </span>
+            </button>
+          )}
+        </div>
 
         {/* Right: Model & Token Footprint Badge */}
         <div className="flex items-center gap-1.5 shrink-0">
@@ -229,9 +224,9 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Token Meter */}
           <button
-            onClick={() => onChangeView('tokens')}
+            onClick={() => onChangeView?.(activeView === 'graph' ? 'chat' : 'graph')}
             className={`flex items-center gap-1 px-2 py-1 rounded-lg border border-[#090e18] text-xs font-mono transition-all ${colorInfo.badgeBg} ${colorInfo.textClass}`}
-            title={`Active Context: ${totalTokens.toLocaleString()} tokens`}
+            title={`Active Context: ${totalTokens.toLocaleString()} tokens. Click to toggle Spatial Graph.`}
           >
             <div
               className="w-1.5 h-1.5 rounded-full"

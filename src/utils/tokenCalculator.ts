@@ -209,9 +209,10 @@ export function getArtifactTextAtDepth(
   if (depth === 'summary') return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]\nSummary: ${artifact.summary || artifact.description}`;
   if (depth === 'children-summaries') {
     let text = `# ${artifact.title} (${artifact.code || artifact.id})\n${artifact.content}`;
-    if (allArtifacts && artifact.relationships?.children) {
+    if (allArtifacts && ((artifact as any).relationships?.children || (artifact as any).relations)) {
       text += '\n\n## Sub-Artifacts (Summaries):\n';
-      for (const childCode of artifact.relationships.children) {
+      const childCodes = (artifact as any).relationships?.children || [];
+      for (const childCode of childCodes) {
         const child = allArtifacts.find((a) => a.code === childCode || a.id === childCode);
         if (child) {
           text += `- **${child.title}** (${child.code || child.id}): ${child.summary || child.description}\n`;

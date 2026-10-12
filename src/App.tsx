@@ -302,8 +302,10 @@ export default function App() {
     const artId = nodeId.replace(/^node-/, '');
     const art = artifactsDomain.getArtifact(artId);
     if (art) {
-      artifactsDomain.updateArtifact({
+      artifactsDomain.upsertArtifact({
         ...art,
+        id: art.id,
+        title: art.title || art.current?.t0_label || 'Untitled',
         graph: {
           ...art.graph,
           x,
@@ -338,8 +340,10 @@ export default function App() {
   ) => {
     const art = artifactsDomain.getArtifact(artifactId);
     if (art) {
-      artifactsDomain.updateArtifact({
+      artifactsDomain.upsertArtifact({
         ...art,
+        id: art.id,
+        title: art.title || art.current?.t0_label || 'Untitled',
         resolution,
       });
     }
@@ -348,8 +352,10 @@ export default function App() {
   const handleUpdateAllArtifactsResolution = (resolution: AbstractionLevel) => {
     const all = artifactsDomain.listArtifacts();
     all.forEach((art) => {
-      artifactsDomain.updateArtifact({
+      artifactsDomain.upsertArtifact({
         ...art,
+        id: art.id,
+        title: art.title || art.current?.t0_label || 'Untitled',
         resolution,
       });
     });
@@ -359,11 +365,13 @@ export default function App() {
   const handleUpdateArtifactContent = (artifactId: string, newContent: string) => {
     const art = artifactsDomain.getArtifact(artifactId);
     if (art) {
-      versioning.recordRevision(art, newContent, 'Direct manual specification edit');
+      versioning.recordRevision(art.id, newContent, 'Direct manual specification edit');
       const updated = artifactsDomain.getArtifact(artifactId);
       if (updated) {
-        artifactsDomain.updateArtifact({
+        artifactsDomain.upsertArtifact({
           ...updated,
+          id: updated.id,
+          title: updated.title || updated.current?.t0_label || 'Untitled',
           yamlDocument: serializeArtifactToYamlDoc(updated),
         });
       }
@@ -377,11 +385,16 @@ export default function App() {
   ) => {
     const art = artifactsDomain.getArtifact(artifactId);
     if (art) {
-      const restored = versioning.rollbackToVersion(art, targetVersion.version);
-      artifactsDomain.updateArtifact({
-        ...restored,
-        yamlDocument: serializeArtifactToYamlDoc(restored),
-      });
+      versioning.rollback(art.id, targetVersion.version);
+      const updated = artifactsDomain.getArtifact(artifactId);
+      if (updated) {
+        artifactsDomain.upsertArtifact({
+          ...updated,
+          id: updated.id,
+          title: updated.title || updated.current?.t0_label || 'Untitled',
+          yamlDocument: serializeArtifactToYamlDoc(updated),
+        });
+      }
     }
   };
 
@@ -391,16 +404,21 @@ export default function App() {
       ...newArt,
       yamlDocument: serializeArtifactToYamlDoc(newArt),
     };
-    artifactsDomain.createArtifact(artWithYaml);
+    artifactsDomain.upsertArtifact({
+      ...artWithYaml,
+      id: artWithYaml.id,
+      title: artWithYaml.title || artWithYaml.current?.t0_label || 'Untitled',
+    });
     setSelectedArtifactId(artWithYaml.id);
   };
 
   // Declare New Chapter
   const handleDeclareChapter = (
-    messageId: string,
+    _messageId: string,
     title: string
   ) => {
-    segmentation.declareNewChapter(title, 'User split chapter boundary', messageId);
+    const currentTurnsCount = timeline.listTurns().length;
+    segmentation.declareNewChapter(title, currentTurnsCount, 'User split chapter boundary');
   };
 
   // Summarize Chapter
@@ -419,7 +437,7 @@ export default function App() {
         }),
       });
       const data = await res.json();
-      segmentation.summarizeChapter(chapterId, data.summary);
+      segmentation.updateSummary(chapterId, data.summary);
     } catch (err) {
       console.error('Failed to summarize chapter:', err);
     }
@@ -470,8 +488,10 @@ export default function App() {
 
       // 5. If topic shift detected, declare new chapter
       if (parsedTurn.topicShift) {
+        const currentTurnsCount = timeline.listTurns().length;
         segmentation.declareNewChapter(
           parsedTurn.topicShift.title,
+          currentTurnsCount,
           parsedTurn.topicShift.abstract
         );
       }
@@ -484,7 +504,7 @@ export default function App() {
 
           if (existing) {
             versioning.recordRevision(
-              existing,
+              existing.id,
               u.content.t3_body,
               `Synthesized update from chat: ${u.content.t1_abstract}`
             );
@@ -545,7 +565,11 @@ export default function App() {
               updatedAt: new Date().toISOString(),
             };
             newArtifact.yamlDocument = serializeArtifactToYamlDoc(newArtifact);
-            artifactsDomain.createArtifact(newArtifact);
+            artifactsDomain.upsertArtifact({
+              ...newArtifact,
+              id: newArtifact.id,
+              title: newArtifact.title,
+            });
           }
         });
       }

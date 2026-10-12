@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Project,
   Artifact,
@@ -12,8 +12,7 @@ import {
   ResolutionTier,
   getMellowPastelColor,
 } from './types';
-import { INITIAL_PROJECTS, AVAILABLE_MODELS } from './data/initialData';
-import { computeTokenBreakdown } from './utils/tokenCalculator';
+import { AVAILABLE_MODELS } from './data/initialData';
 import { serializeArtifactToYamlDoc } from './utils/yamlArtifactParser';
 import { ActiveView } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -22,72 +21,88 @@ import { ChatView } from './components/ChatView';
 import { ImportModal } from './components/ImportModal';
 import { ExportModal } from './components/ExportModal';
 import { ProjectLauncher } from './components/ProjectLauncher';
-import { useWorkspaceStore } from './store/workspaceStore';
-import { compileOpticalContext, projectToWorkspaceState } from './services/contextCompiler';
-import { parseStreamTurn } from './services/streamProtocol';
-
-const STORAGE_PROJECTS_KEY = 'markbrain_projects_v2';
-const STORAGE_ACTIVE_PROJECT_KEY = 'markbrain_active_project_id_v2';
-
-const getStoredProjects = (): Project[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_PROJECTS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.warn('Could not read projects from localStorage:', e);
-  }
-  return INITIAL_PROJECTS;
-};
-
-const getStoredActiveProjectId = (initialList: Project[]): string => {
-  try {
-    const saved = localStorage.getItem(STORAGE_ACTIVE_PROJECT_KEY);
-    if (saved && initialList.some((p) => p.id === saved)) {
-      return saved;
-    }
-  } catch (e) {
-    // fallback
-  }
-  return initialList[0]?.id || INITIAL_PROJECTS[0].id;
-};
+import { useDomains } from './domains/DomainRegistry';
+import { SaturationOrb } from './domains/04-presentation/telemetry/SaturationOrb';
+import { EdgeHeatStrip } from './domains/04-presentation/telemetry/EdgeHeatStrip';
+import { AmbientTelemetryData } from './domains/04-presentation/telemetry/ambientTelemetry';
 
 export default function App() {
-  const opticalMode = useWorkspaceStore((s) => s.opticalMode);
-  const setOpticalMode = useWorkspaceStore((s) => s.setOpticalMode);
+  const {
+    workspace,
+    timeline,
+    artifacts: artifactsDomain,
+    versioning,
+    graph,
+    segmentation,
+    compiler,
+    stream,
+  } = useDomains();
 
-  const [projects, setProjects] = useState<Project[]>(getStoredProjects);
-  const [activeProjectId, setActiveProjectId] = useState<string>(() =>
-    getStoredActiveProjectId(projects)
-  );
+  // Tick state to force re-render on domain events
+  const [, setTick] = useState(0);
+  const triggerReRender = useCallback(() => setTick((t) => t + 1), []);
+
+  // Subscribe to domain event streams for real-time reactivity
+  useEffect(() => {
+    const unsubWorkspace = workspace.subscribe(() => triggerReRender());
+    const unsubTimeline = timeline.subscribe(() => triggerReRender());
+    const unsubArtifacts = artifactsDomain.subscribe(() => triggerReRender());
+    const unsubVersioning = versioning.subscribe(() => triggerReRender());
+    const unsubGraph = graph.subscribe(() => triggerReRender());
+    const unsubSegmentation = segmentation.subscribe(() => triggerReRender());
+
+    return () => {
+      unsubWorkspace();
+      unsubTimeline();
+      unsubArtifacts();
+      unsubVersioning();
+      unsubGraph();
+      unsubSegmentation();
+    };
+  }, [
+    workspace,
+    timeline,
+    artifactsDomain,
+    versioning,
+    graph,
+    segmentation,
+    triggerReRender,
+  ]);
+
+  // Active Project ID from Workspace Domain
+  const activeProjectId = workspace.getActiveProjectId();
+  const currentContainer = workspace.getProject(activeProjectId);
+
+  // Model selection
   const [selectedModel, setSelectedModel] = useState<ModelOption>(AVAILABLE_MODELS[1]); // Gemini 3.8 Flash
 
-  // Persist projects to localStorage whenever changed
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_PROJECTS_KEY, JSON.stringify(projects));
-    } catch (e) {
-      console.warn('Could not persist projects to localStorage:', e);
-    }
-  }, [projects]);
+  // Optical Mode state from current container or default
+  const opticalMode = currentContainer?.opticalMode || 'autofocus';
 
-  // Persist active project selection
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_ACTIVE_PROJECT_KEY, activeProjectId);
-    } catch (e) {
-      // ignore
+  const setOpticalMode = (mode: 'autofocus' | 'manual' | 'myopia') => {
+    if (currentContainer) {
+      workspace.saveContainer({
+        ...currentContainer,
+        opticalMode: mode,
+      });
+      triggerReRender();
     }
-  }, [activeProjectId]);
+  };
 
-  // Single-Task Focused View: 'chat' | 'graph' | 'artifacts' | 'tokens'
+  const cycleOpticalMode = () => {
+    const next =
+      opticalMode === 'autofocus'
+        ? 'manual'
+        : opticalMode === 'manual'
+        ? 'myopia'
+        : 'autofocus';
+    setOpticalMode(next);
+  };
+
+  // Active View: 'chat' | 'graph' | 'artifacts' | 'tokens'
   const [activeView, setActiveView] = useState<ActiveView>('chat');
 
-  // Modals & Project Launcher
+  // Modals & Project Launcher state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProjectLauncherOpen, setIsProjectLauncherOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -97,560 +112,362 @@ export default function App() {
   // Chat loading state
   const [isChatLoading, setIsChatLoading] = useState(false);
 
-  // Active Project Reference
-  const activeProject = useMemo(() => {
-    return projects.find((p) => p.id === activeProjectId) || projects[0];
-  }, [projects, activeProjectId]);
-
-  // Selected Artifact Reference
-  const selectedArtifact = useMemo(() => {
-    return (
-      activeProject.artifacts.find((a) => a.id === selectedArtifactId) ||
-      activeProject.artifacts[0] ||
-      null
-    );
-  }, [activeProject, selectedArtifactId]);
-
-  // Pinned Focal Artifacts for Context Focus
-  const [focalArtifactIds, setFocalArtifactIds] = useState<string[]>([]);
-  const [manualTierOverrides, setManualTierOverrides] = useState<Record<string, ResolutionTier>>({});
+  // Pinned Focal Artifacts & Tier Overrides
+  const focalArtifactIds = currentContainer?.focalArtifactIds || [];
+  const manualTierOverrides = currentContainer?.tierOverrides || {};
 
   const handleToggleFocusArtifact = (artId: string) => {
-    setFocalArtifactIds((prev) =>
-      prev.includes(artId) ? prev.filter((id) => id !== artId) : [...prev, artId]
-    );
+    if (!currentContainer) return;
+    const prev = currentContainer.focalArtifactIds || [];
+    const next = prev.includes(artId) ? prev.filter((id) => id !== artId) : [...prev, artId];
+    workspace.saveContainer({
+      ...currentContainer,
+      focalArtifactIds: next,
+    });
+    triggerReRender();
   };
 
   const handleChangeTierOverride = (artId: string, tier: ResolutionTier | null) => {
-    setManualTierOverrides((prev) => {
-      const next = { ...prev };
-      if (tier === null) {
-        delete next[artId];
-      } else {
-        next[artId] = tier;
-      }
-      return next;
+    if (!currentContainer) return;
+    const nextOverrides = { ...currentContainer.tierOverrides };
+    if (tier === null) {
+      delete nextOverrides[artId];
+    } else {
+      nextOverrides[artId] = tier;
+    }
+    workspace.saveContainer({
+      ...currentContainer,
+      tierOverrides: nextOverrides,
     });
+    triggerReRender();
   };
 
-  // Real Optical Context Engine Compilation
-  const compiledContext = useMemo(() => {
-    const focalList = [
+  // Compile Optical Context through compiler domain
+  const focalList = useMemo(() => {
+    return [
       ...(selectedArtifactId ? [selectedArtifactId] : []),
       ...focalArtifactIds,
     ];
-    const ws = projectToWorkspaceState(
-      activeProject,
+  }, [selectedArtifactId, focalArtifactIds]);
+
+  const compiledContext = useMemo(() => {
+    return compiler.compile({
+      focalIds: focalList,
       opticalMode,
-      focalList
-    );
-    // Apply manual tier overrides if any
-    if (Object.keys(manualTierOverrides).length > 0) {
-      ws.tier_overrides = { ...ws.tier_overrides, ...manualTierOverrides };
-    }
-    return compileOpticalContext(ws, 32000);
-  }, [activeProject, opticalMode, selectedArtifactId, focalArtifactIds, manualTierOverrides]);
+      tokenCeiling: currentContainer?.tokenCeiling || 32000,
+      tierOverrides: manualTierOverrides,
+    });
+  }, [compiler, focalList, opticalMode, currentContainer?.tokenCeiling, manualTierOverrides]);
 
-  // Real Token Footprint & Saturation Breakdown directly from Context Compiler
-  const tokenBreakdown = useMemo(() => {
-    const tb = compiledContext.telemetry.token_breakdown;
-    const nd = compiledContext.telemetry.node_distribution;
+  // Telemetry payload for SaturationOrb and EdgeHeatStrip
+  const ambientTelemetry: AmbientTelemetryData = useMemo(() => {
+    const tb = compiledContext.telemetry.tokenBreakdown;
+    const ceiling = currentContainer?.tokenCeiling || 32000;
     return {
-      artifactsTokens: tb.substrate_tokens,
-      activeChapterTokens: Math.round(tb.history_tokens * 0.7),
-      olderChaptersTokens: Math.round(tb.history_tokens * 0.3),
-      systemPromptTokens: tb.system_tokens,
-      totalTokens: tb.total_tokens,
-      artifactsCount: nd.tier_3_count + nd.tier_2_count + nd.tier_1_count + nd.tier_0_count,
-      activeChaptersCount: 1,
-      olderChaptersCount: Math.max(0, activeProject.chapters.length - 1),
-      estimatedCost: `$${((tb.total_tokens / 1_000_000) * 0.15 * (selectedModel.costMultiplier || 1)).toFixed(5)}`,
+      activeChapterTokens: Math.round(tb.historyTokens * 0.7),
+      olderChaptersTokens: Math.round(tb.historyTokens * 0.3),
+      systemPromptTokens: tb.systemTokens,
+      substrateTokens: tb.substrateTokens,
+      totalTokens: tb.totalTokens,
+      tokenCeiling: ceiling,
+      opticalMode,
+      saturationRatio: Math.min(1.0, tb.totalTokens / ceiling),
     };
-  }, [compiledContext, activeProject.chapters.length, selectedModel]);
+  }, [compiledContext, currentContainer?.tokenCeiling, opticalMode]);
 
-  // 1. Select Project & Immediately Go to Chat
+  // Construct view projection of Projects list for UI components
+  const domainProjectsList = useMemo(() => {
+    return workspace.listProjects().map((meta) => {
+      const container = workspace.getProject(meta.id);
+      return {
+        id: meta.id,
+        name: meta.name,
+        codeName: meta.codeName,
+        description: meta.description,
+        color: meta.color,
+        icon: 'Layers',
+        boundaryRules: 'Cross-repo linking bridges high-concept architecture specs.',
+        currentChapterId: container?.activeChapterId || '',
+        chapters: [],
+        artifacts: [],
+        nodes: [],
+        edges: [],
+      } as Project;
+    });
+  }, [workspace]);
+
+  // Construct active Project model snapshot for child UI components
+  const activeProject: Project = useMemo(() => {
+    const meta = currentContainer?.metadata;
+    const domainArtifacts = artifactsDomain.listArtifacts();
+    const domainChapters = segmentation.listChapters();
+    const domainEdges = graph.listEdges();
+
+    const chapters: Chapter[] = domainChapters.map((c) => {
+      const turns = timeline.getTurnSlice(c.startIndex, c.endIndex);
+      const messages: ChatMessage[] = turns.map((t) => ({
+        id: t.id,
+        chapterId: c.id,
+        role: t.role,
+        content: t.content,
+        timestamp: new Date(t.timestamp).toISOString(),
+      }));
+
+      return {
+        id: c.id,
+        projectId: activeProjectId,
+        title: c.title,
+        summary: c.summary,
+        keyPoints: [],
+        isSummarized: Boolean(c.summary),
+        compressionMode: 'full',
+        status: c.status,
+        createdAt: new Date().toISOString(),
+        messages,
+      };
+    });
+
+    const artifacts: Artifact[] = domainArtifacts;
+
+    const nodes: GraphNode[] = domainArtifacts.map((art, idx) => ({
+      id: `node-${art.id}`,
+      artifactId: art.id,
+      projectId: activeProjectId,
+      title: art.title || art.current?.t0_label || 'Untitled',
+      type: art.type,
+      isHighConcept: art.isHighConcept,
+      x: art.graph?.x ?? 300 + (idx % 5) * 180,
+      y: art.graph?.y ?? 200 + Math.floor(idx / 5) * 120,
+      status: 'active',
+      tags: art.tags,
+    }));
+
+    const edges: GraphEdge[] = domainEdges.map((e) => ({
+      id: e.id,
+      sourceProjectId: activeProjectId,
+      targetProjectId: activeProjectId,
+      sourceNodeId: `node-${e.sourceId}`,
+      targetNodeId: `node-${e.targetId}`,
+      label: e.kind,
+      type: 'dependency',
+      strength: e.weight ?? 0.8,
+    }));
+
+    return {
+      id: activeProjectId,
+      name: meta?.name || 'Workspace',
+      codeName: meta?.codeName || 'workspace',
+      description: meta?.description || '',
+      color: meta?.color || '#be3a49',
+      icon: 'Layers',
+      boundaryRules: 'Cross-repo linking bridges high-concept architecture specs.',
+      currentChapterId: currentContainer?.activeChapterId || chapters[0]?.id || '',
+      chapters,
+      artifacts,
+      nodes,
+      edges,
+      lastActivity: new Date().toISOString(),
+    };
+  }, [
+    activeProjectId,
+    currentContainer,
+    artifactsDomain,
+    segmentation,
+    timeline,
+    graph,
+  ]);
+
+  // Select Project & Launch Chat
   const handleSelectProjectAndLaunchChat = (projId: string) => {
-    setActiveProjectId(projId);
+    workspace.setActiveProject(projId);
     setActiveView('chat');
     setIsProjectLauncherOpen(false);
   };
 
-  // 2. Create Project & Launch Chat
+  // Create Project & Launch Chat
   const handleCreateProject = (
     name: string,
     description: string,
     codeName: string,
     color: string
   ) => {
-    const newId = `proj-${Date.now()}`;
-    const initialChapterId = `chap-${Date.now()}-1`;
-
-    const initialChapter: Chapter = {
-      id: initialChapterId,
-      projectId: newId,
-      title: 'Chapter 1: Architectural Foundations',
-      summary: `Initial brainstorming kick-off for ${name}.`,
-      keyPoints: ['Establish core boundaries and domain invariants'],
-      isSummarized: false,
-      compressionMode: 'full',
-      status: 'active',
-      createdAt: new Date().toISOString(),
-      messages: [
-        {
-          id: `msg-${Date.now()}`,
-          chapterId: initialChapterId,
-          role: 'assistant',
-          content: `Welcome to **${name}**! This project workspace is ready for architectural brainstorming.\n\nAll specifications formulated here will automatically generate single-file YAML+Markdown documents with graph relationships. Where shall we begin?`,
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    };
-
-    const newProject: Project = {
-      id: newId,
-      name,
-      codeName,
-      description,
-      color,
-      icon: 'Layers',
-      boundaryRules: 'Cross-repo linking bridges high-concept architecture specs.',
-      currentChapterId: initialChapterId,
-      chapters: [initialChapter],
-      artifacts: [],
-      nodes: [],
-      edges: [],
-      lastActivity: new Date().toISOString(),
-    };
-
-    setProjects((prev) => [newProject, ...prev]);
-    setActiveProjectId(newId);
+    const meta = workspace.createProject(name, description, color, codeName);
+    workspace.setActiveProject(meta.id);
     setActiveView('chat');
     setIsProjectLauncherOpen(false);
   };
 
-  // 3. Update Node Position
+  // Node position handlers
   const handleUpdateNodePosition = (nodeId: string, x: number, y: number) => {
-    setProjects((prev) =>
-      prev.map((proj) => {
-        const hasNode = proj.nodes.some((n) => n.id === nodeId);
-        if (!hasNode) return proj;
-        return {
-          ...proj,
-          nodes: proj.nodes.map((n) => (n.id === nodeId ? { ...n, x, y } : n)),
-        };
-      })
-    );
+    const artId = nodeId.replace(/^node-/, '');
+    const art = artifactsDomain.getArtifact(artId);
+    if (art) {
+      artifactsDomain.upsertArtifact({
+        ...art,
+        id: art.id,
+        title: art.title || art.current?.t0_label || 'Untitled',
+        graph: {
+          ...art.graph,
+          x,
+          y,
+        },
+      });
+    }
   };
 
-  // 4. Batch Update Node Positions (Auto-Arrange)
   const handleBatchUpdateNodePositions = (
     updates: Array<{ nodeId: string; x: number; y: number }>
   ) => {
-    const updateMap = new Map(updates.map((u) => [u.nodeId, u]));
-
-    setProjects((prev) =>
-      prev.map((proj) => ({
-        ...proj,
-        nodes: proj.nodes.map((n) => {
-          const match = updateMap.get(n.id);
-          return match ? { ...n, x: match.x, y: match.y } : n;
-        }),
-      }))
-    );
+    updates.forEach((u) => {
+      handleUpdateNodePosition(u.nodeId, u.x, u.y);
+    });
   };
 
-  // 5. Add Edge - wires topological graph edge and syncs artifact relations
+  // Add Edge
   const handleAddEdge = (edge: GraphEdge) => {
-    setProjects((prev) =>
-      prev.map((proj) => {
-        const targetProjId = edge.sourceProjectId || activeProjectId;
-        if (proj.id === targetProjId) {
-          const sNode = proj.nodes.find((n) => n.id === edge.sourceNodeId);
-          const tNode = proj.nodes.find((n) => n.id === edge.targetNodeId);
-          const sArtId = sNode?.artifactId || edge.sourceNodeId;
-          const tArtId = tNode?.artifactId || edge.targetNodeId;
+    const sArtId = edge.sourceNodeId ? edge.sourceNodeId.replace(/^node-/, '') : '';
+    const tArtId = edge.targetNodeId ? edge.targetNodeId.replace(/^node-/, '') : '';
 
-          const updatedArtifacts = proj.artifacts.map((a) => {
-            if (a.id === sArtId && tArtId) {
-              const rels = a.relations || [];
-              if (!rels.some((r) => r.target_artifact_id === tArtId)) {
-                return {
-                  ...a,
-                  relations: [...rels, { target_artifact_id: tArtId, kind: 'relates_to' as const }],
-                };
-              }
-            }
-            if (a.id === tArtId && sArtId) {
-              const rels = a.relations || [];
-              if (!rels.some((r) => r.target_artifact_id === sArtId)) {
-                return {
-                  ...a,
-                  relations: [...rels, { target_artifact_id: sArtId, kind: 'relates_to' as const }],
-                };
-              }
-            }
-            return a;
-          });
-
-          return {
-            ...proj,
-            edges: [...proj.edges, edge],
-            artifacts: updatedArtifacts,
-          };
-        }
-        return proj;
-      })
-    );
+    if (sArtId && tArtId) {
+      graph.addEdge(sArtId, tArtId, (edge.label as any) || 'relates_to', edge.strength || 1.0);
+    }
   };
 
-  // 6. Update Artifact Resolution (Slider)
+  // Update Artifact Resolution
   const handleUpdateArtifactResolution = (
     artifactId: string,
     resolution: AbstractionLevel
   ) => {
-    setProjects((prev) =>
-      prev.map((proj) => ({
-        ...proj,
-        artifacts: proj.artifacts.map((a) =>
-          a.id === artifactId ? { ...a, resolution } : a
-        ),
-      }))
-    );
+    const art = artifactsDomain.getArtifact(artifactId);
+    if (art) {
+      artifactsDomain.upsertArtifact({
+        ...art,
+        id: art.id,
+        title: art.title || art.current?.t0_label || 'Untitled',
+        resolution,
+      });
+    }
   };
 
-  // 7. Update All Artifacts Resolution
   const handleUpdateAllArtifactsResolution = (resolution: AbstractionLevel) => {
-    setProjects((prev) =>
-      prev.map((proj) => {
-        if (proj.id !== activeProjectId) return proj;
-        return {
-          ...proj,
-          artifacts: proj.artifacts.map((a) => ({ ...a, resolution })),
-        };
-      })
-    );
+    const all = artifactsDomain.listArtifacts();
+    all.forEach((art) => {
+      artifactsDomain.upsertArtifact({
+        ...art,
+        id: art.id,
+        title: art.title || art.current?.t0_label || 'Untitled',
+        resolution,
+      });
+    });
   };
 
-  // 8. Update Artifact Content (Auto-appends version history)
+  // Update Artifact Content (auto-records version history in domain)
   const handleUpdateArtifactContent = (artifactId: string, newContent: string) => {
-    setProjects((prev) =>
-      prev.map((proj) => {
-        if (proj.id !== activeProjectId) return proj;
-        return {
-          ...proj,
-          artifacts: proj.artifacts.map((a) => {
-            if (a.id !== artifactId) return a;
-            const currentHistory = a.history || [];
-            const newVersionNumber = currentHistory.length + 1;
-            const updatedHistory: ArtifactVersion[] = [
-              ...currentHistory,
-              {
-                version: newVersionNumber,
-                timestamp: new Date().toISOString(),
-                changeSummary: 'Direct manual specification edit',
-                previousContent: a.content,
-                content: newContent,
-              },
-            ];
-
-            const updatedArt: Artifact = {
-              ...a,
-              content: newContent,
-              history: updatedHistory,
-              updatedAt: new Date().toISOString(),
-            };
-
-            return {
-              ...updatedArt,
-              yamlDocument: serializeArtifactToYamlDoc(updatedArt),
-            };
-          }),
-        };
-      })
-    );
+    const art = artifactsDomain.getArtifact(artifactId);
+    if (art) {
+      versioning.recordRevision(art.id, newContent, 'Direct manual specification edit');
+      const updated = artifactsDomain.getArtifact(artifactId);
+      if (updated) {
+        artifactsDomain.upsertArtifact({
+          ...updated,
+          id: updated.id,
+          title: updated.title || updated.current?.t0_label || 'Untitled',
+          yamlDocument: serializeArtifactToYamlDoc(updated),
+        });
+      }
+    }
   };
 
-  // 9. Non-Destructive Version Rollback (Undo)
+  // Non-Destructive Version Rollback
   const handleRestoreArtifactVersion = (
     artifactId: string,
     targetVersion: ArtifactVersion
   ) => {
-    setProjects((prev) =>
-      prev.map((proj) => {
-        if (proj.id !== activeProjectId) return proj;
-        return {
-          ...proj,
-          artifacts: proj.artifacts.map((a) => {
-            if (a.id !== artifactId) return a;
-            const currentHistory = a.history || [];
-            const rollbackHistory: ArtifactVersion[] = [
-              ...currentHistory,
-              {
-                version: currentHistory.length + 1,
-                timestamp: new Date().toISOString(),
-                changeSummary: `Restored to baseline of version ${targetVersion.version}`,
-                previousContent: a.content,
-                content: targetVersion.content,
-              },
-            ];
-
-            const updatedArt: Artifact = {
-              ...a,
-              content: targetVersion.content,
-              history: rollbackHistory,
-              updatedAt: new Date().toISOString(),
-            };
-
-            return {
-              ...updatedArt,
-              yamlDocument: serializeArtifactToYamlDoc(updatedArt),
-            };
-          }),
-        };
-      })
-    );
+    const art = artifactsDomain.getArtifact(artifactId);
+    if (art) {
+      versioning.rollback(art.id, targetVersion.version);
+      const updated = artifactsDomain.getArtifact(artifactId);
+      if (updated) {
+        artifactsDomain.upsertArtifact({
+          ...updated,
+          id: updated.id,
+          title: updated.title || updated.current?.t0_label || 'Untitled',
+          yamlDocument: serializeArtifactToYamlDoc(updated),
+        });
+      }
+    }
   };
 
-  // 10. Add New Artifact (Ensures single-file YAML+MD string & Node)
+  // Add New Artifact
   const handleAddArtifact = (newArt: Artifact) => {
     const artWithYaml: Artifact = {
       ...newArt,
       yamlDocument: serializeArtifactToYamlDoc(newArt),
     };
-
-    const lastNode = activeProject.nodes[activeProject.nodes.length - 1];
-    const newX = lastNode ? lastNode.x + 180 : 300;
-    const newY = lastNode ? lastNode.y + 40 : 200;
-
-    const newNode: GraphNode = {
-      id: `node-${Date.now()}`,
-      artifactId: artWithYaml.id,
-      projectId: activeProject.id,
+    artifactsDomain.upsertArtifact({
+      ...artWithYaml,
+      id: artWithYaml.id,
       title: artWithYaml.title || artWithYaml.current?.t0_label || 'Untitled',
-      type: artWithYaml.type,
-      isHighConcept: artWithYaml.isHighConcept,
-      x: newX,
-      y: newY,
-      status: 'active',
-      tags: artWithYaml.tags,
-    };
-
-    // Auto-link parent edge if specified
-    const parentCodeToMatch = artWithYaml.graph?.parent;
-    const parentArtifact = parentCodeToMatch
-      ? activeProject.artifacts.find(
-          (a) => a.code === parentCodeToMatch || a.id === parentCodeToMatch
-        )
-      : null;
-    const parentNode = parentArtifact
-      ? activeProject.nodes.find((n) => n.artifactId === parentArtifact.id)
-      : null;
-
-    const generatedEdges: GraphEdge[] = [];
-    if (parentNode) {
-      generatedEdges.push({
-        id: `edge-${Date.now()}-parent`,
-        sourceProjectId: activeProject.id,
-        targetProjectId: activeProject.id,
-        sourceNodeId: parentNode.id,
-        targetNodeId: newNode.id,
-        label: 'parent-spec',
-        type: 'dependency',
-        strength: 0.8,
-      });
-    }
-
-    setProjects((prev) =>
-      prev.map((proj) => {
-        if (proj.id === activeProject.id) {
-          return {
-            ...proj,
-            artifacts: [artWithYaml, ...proj.artifacts],
-            nodes: [...proj.nodes, newNode],
-            edges: [...proj.edges, ...generatedEdges],
-          };
-        }
-        return proj;
-      })
-    );
-
+    });
     setSelectedArtifactId(artWithYaml.id);
   };
 
-  // 11. Declare New Chapter (Timeline Split)
+  // Declare New Chapter
   const handleDeclareChapter = (
-    messageId: string,
+    _messageId: string,
     title: string
   ) => {
-    setProjects((prev) =>
-      prev.map((proj) => {
-        if (proj.id !== activeProjectId) return proj;
-
-        // Find which chapter contains this message
-        let foundChapterIndex = -1;
-        let messageIndexInChapter = -1;
-
-        proj.chapters.forEach((chap, cIdx) => {
-          const mIdx = chap.messages.findIndex((m) => m.id === messageId);
-          if (mIdx !== -1) {
-            foundChapterIndex = cIdx;
-            messageIndexInChapter = mIdx;
-          }
-        });
-
-        if (foundChapterIndex === -1) return proj;
-
-        const targetChap = proj.chapters[foundChapterIndex];
-        const keptMessages = targetChap.messages.slice(0, messageIndexInChapter);
-        const movedMessages = targetChap.messages.slice(messageIndexInChapter);
-
-        const newChapterId = `chap-${Date.now()}`;
-        const newChapter: Chapter = {
-          id: newChapterId,
-          projectId: proj.id,
-          title,
-          summary: '',
-          keyPoints: [],
-          isSummarized: false,
-          messages: movedMessages.map((m) => ({ ...m, chapterId: newChapterId })),
-          status: 'active',
-          compressionMode: 'full',
-          topicShiftReason: 'Split chapter boundary',
-          createdAt: new Date().toISOString(),
-        };
-
-        const updatedChapters = [
-          ...proj.chapters.slice(0, foundChapterIndex),
-          { ...targetChap, messages: keptMessages, status: 'completed' as const },
-          newChapter,
-          ...proj.chapters.slice(foundChapterIndex + 1),
-        ];
-
-        return {
-          ...proj,
-          chapters: updatedChapters,
-          currentChapterId: newChapterId,
-        };
-      })
-    );
+    const currentTurnsCount = timeline.count();
+    segmentation.declareNewChapter(title, currentTurnsCount, 'User split chapter boundary');
   };
 
-  // 12. Summarize Chapter
+  // Summarize Chapter
   const handleSummarizeChapter = async (chapterId: string) => {
-    const targetChapter = activeProject.chapters.find((c) => c.id === chapterId);
-    if (!targetChapter) return;
+    const activeChap = segmentation.getActiveChapter();
+    if (!activeChap) return;
 
     try {
+      const turns = timeline.getTurnSlice(activeChap.startIndex, activeChap.endIndex);
       const res = await fetch('/api/summarize-chapter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: targetChapter.title,
-          messages: targetChapter.messages,
+          title: activeChap.title,
+          messages: turns.map((t) => ({ role: t.role, content: t.content })),
         }),
       });
       const data = await res.json();
-
-      setProjects((prev) =>
-        prev.map((proj) => {
-          if (proj.id !== activeProjectId) return proj;
-          return {
-            ...proj,
-            chapters: proj.chapters.map((c) =>
-              c.id === chapterId
-                ? {
-                    ...c,
-                    summary: data.summary,
-                    keyPoints: data.keyPoints || [],
-                    isSummarized: true,
-                    status: 'completed',
-                  }
-                : c
-            ),
-          };
-        })
-      );
+      segmentation.updateSummary(chapterId, data.summary);
     } catch (err) {
       console.error('Failed to summarize chapter:', err);
     }
   };
 
-  // 13. Toggle Chapter Compression Mode
+  // Toggle Chapter Compression
   const handleToggleChapterCompressionMode = (
-    chapterId: string,
-    mode: 'summary' | 'full' | 'dropped'
+    _chapterId: string,
+    _mode: 'summary' | 'full' | 'dropped'
   ) => {
-    setProjects((prev) =>
-      prev.map((proj) => {
-        if (proj.id !== activeProjectId) return proj;
-        return {
-          ...proj,
-          chapters: proj.chapters.map((c) =>
-            c.id === chapterId ? { ...c, compressionMode: mode } : c
-          ),
-        };
-      })
-    );
+    // Retained for component contract compatibility
   };
 
-  // 14. Send Chat Message (With Instant Acceptance of Synthesized Artifacts + Version History)
+  // Handle Send Message via Domain Engine
   const handleSendMessage = async (text: string) => {
-    const currentActiveChapter =
-      activeProject.chapters[activeProject.chapters.length - 1] ||
-      activeProject.chapters[0];
-
-    const userMessage: ChatMessage = {
-      id: `m-${Date.now()}`,
-      chapterId: currentActiveChapter.id,
-      role: 'user',
-      content: text,
-      timestamp: new Date().toISOString(),
-    };
-
-    // Append user message immediately
-    setProjects((prev) =>
-      prev.map((proj) => {
-        if (proj.id !== activeProjectId) return proj;
-        return {
-          ...proj,
-          chapters: proj.chapters.map((c) =>
-            c.id === currentActiveChapter.id
-              ? { ...c, messages: [...c.messages, userMessage] }
-              : c
-          ),
-        };
-      })
-    );
+    // 1. Append User Turn to Timeline
+    timeline.appendTurn('user', text);
 
     setIsChatLoading(true);
 
     try {
-      // Compile REAL Optical Context from graph topology and depth-of-field
-      const focalList = [
-        ...(selectedArtifactId ? [selectedArtifactId] : []),
-        ...focalArtifactIds,
-      ];
-      const wsWithUserMessage = projectToWorkspaceState(
-        {
-          ...activeProject,
-          chapters: activeProject.chapters.map((c) =>
-            c.id === currentActiveChapter.id
-              ? { ...c, messages: [...c.messages, userMessage] }
-              : c
-          ),
-        },
+      // 2. Compile optical context
+      const compiled = compiler.compile({
+        focalIds: focalList,
         opticalMode,
-        focalList
-      );
-      if (Object.keys(manualTierOverrides).length > 0) {
-        wsWithUserMessage.tier_overrides = {
-          ...wsWithUserMessage.tier_overrides,
-          ...manualTierOverrides,
-        };
-      }
+        tokenCeiling: currentContainer?.tokenCeiling || 32000,
+        tierOverrides: manualTierOverrides,
+      });
 
-      const compiled = compileOpticalContext(wsWithUserMessage, 32000);
-
+      // 3. Send POST /api/chat
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -664,238 +481,117 @@ export default function App() {
 
       const data = await res.json();
       const rawText = data.rawReply || data.reply || '';
-      const parsedTurn = parseStreamTurn(rawText, activeProject.id);
 
+      // 4. Demux stream turn using stream protocol domain
+      const parsedTurn = stream.demuxFullTurn(rawText);
       const cleanReplyText = parsedTurn.cleanContent || data.reply || 'Synthesized architecture verified.';
 
-      // Combine artifacts extracted from server API and stream protocol, deduplicating by title/code
-      const rawExtracted = [
-        ...(data.artifacts || []),
-        ...parsedTurn.artifactUpserts.map((u) => ({
-          title: u.title,
-          type: u.type,
-          abstract: u.content.t1_abstract,
-          summary: u.content.t2_summary,
-          content: u.content.t3_body,
-          highConcept: false,
-        })),
-      ];
-
-      const seenKeys = new Set<string>();
-      const extractedList: any[] = [];
-      for (const item of rawExtracted) {
-        const key = (item.code || item.title || '').trim().toLowerCase();
-        if (!key || seenKeys.has(key)) continue;
-        seenKeys.add(key);
-        extractedList.push(item);
+      // 5. If topic shift detected, declare new chapter
+      if (parsedTurn.topicShift) {
+        const currentTurnsCount = timeline.count();
+        segmentation.declareNewChapter(
+          parsedTurn.topicShift.title,
+          currentTurnsCount,
+          parsedTurn.topicShift.abstract
+        );
       }
 
-      const assistantMessage: ChatMessage = {
-        id: `m-bot-${Date.now()}`,
-        chapterId: currentActiveChapter.id,
-        role: 'assistant',
-        content: cleanReplyText,
-        timestamp: new Date().toISOString(),
-        extractedArtifacts: extractedList,
-      };
+      // 6. If artifact upserts present, process upserts in artifacts domain
+      if (parsedTurn.artifactUpserts.length > 0) {
+        parsedTurn.artifactUpserts.forEach((u, idx) => {
+          const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
+          const existing = artifactsDomain.getArtifact(code) || artifactsDomain.getArtifact(u.id);
 
-      setProjects((prev) =>
-        prev.map((proj) => {
-          if (proj.id !== activeProjectId) return proj;
-
-          let updatedChapters = proj.chapters.map((c) =>
-            c.id === currentActiveChapter.id
-              ? { ...c, messages: [...c.messages, assistantMessage] }
-              : c
-          );
-
-          let updatedArtifacts = [...proj.artifacts];
-          let updatedNodes = [...proj.nodes];
-
-          // Auto-ingest or update synthesized artifacts with version history and pastel color coding
-          if (extractedList.length > 0) {
-            extractedList.forEach((rawArt: any, idx: number) => {
-              const code =
-                rawArt.code ||
-                rawArt.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
-              const existingIndex = updatedArtifacts.findIndex(
-                (a) => a.code === code || (a.title && a.title.toLowerCase() === (rawArt.title || '').toLowerCase())
-              );
-
-              if (existingIndex !== -1) {
-                // Update existing artifact and record new version in history
-                const old = updatedArtifacts[existingIndex];
-                const newVersion = (old.history?.length || 1) + 1;
-                const updatedHistory: ArtifactVersion[] = [
-                  ...(old.history || []),
-                  {
-                    version: newVersion,
-                    timestamp: new Date().toISOString(),
-                    changeSummary: `Synthesized update from chat: ${rawArt.abstract || 'refined specification'}`,
-                    previousContent: old.content,
-                    content: rawArt.content,
-                  },
-                ];
-
-                const modifiedArt: Artifact = {
-                  ...old,
-                  content: rawArt.content,
-                  summary: rawArt.abstract || old.summary,
-                  description: rawArt.abstract || old.description,
-                  history: updatedHistory,
-                  updatedAt: new Date().toISOString(),
-                };
-                modifiedArt.yamlDocument = serializeArtifactToYamlDoc(modifiedArt);
-                updatedArtifacts[existingIndex] = modifiedArt;
-              } else {
-                // Synthesize new artifact with mellow dark pastel color
-                const now = Date.now();
-                const artTitle = rawArt.title || 'Synthesized Artifact';
-                const artDesc = rawArt.abstract || 'Synthesized architectural specification.';
-                const artSumm = rawArt.summary || rawArt.abstract || 'Automated executive summary.';
-                const artContent = rawArt.content || `# ${artTitle}\n\nSynthesized specification.`;
-                const artColor = rawArt.color || getMellowPastelColor(code || artTitle);
-
-                const newArtifact: Artifact = {
-                  id: `art-${now}-${idx}`,
-                  workspace_id: proj.id,
-                  projectId: proj.id,
-                  code,
-                  title: artTitle,
-                  type: 'document',
-                  category: rawArt.category || 'system-spec',
-                  color: artColor,
-                  description: artDesc,
-                  summary: artSumm,
-                  content: artContent,
-                  created_at: now,
-                  updated_at: now,
-                  current: {
-                    t0_label: artTitle,
-                    t1_abstract: artDesc,
-                    t2_summary: artSumm,
-                    t3_body: artContent,
-                  },
-                  revisions: [],
-                  relations: [
-                    { target_artifact_id: currentActiveChapter.id, kind: 'born_from' },
-                  ],
-                  provenance: {
-                    origin_chapter_id: currentActiveChapter.id,
-                    mutation_chapter_ids: [],
-                  },
-                  graph: {
-                    parent: rawArt.parent || undefined,
-                    children: [],
-                    relationships: [],
-                    is_high_concept: Boolean(rawArt.highConcept),
-                  },
-                  isHighConcept: Boolean(rawArt.highConcept),
-                  resolution: 'full',
-                  history: [
-                    {
-                      version: 1,
-                      timestamp: new Date().toISOString(),
-                      changeSummary: 'Initial synthesis from architectural chat session',
-                      content: artContent,
-                    },
-                  ],
-                  tags: ['chat-synthesized', rawArt.type || 'architecture'],
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                };
-                newArtifact.yamlDocument = serializeArtifactToYamlDoc(newArtifact);
-                updatedArtifacts.push(newArtifact);
-
-                // Add spatial node linked to artifact
-                const lastNode = updatedNodes[updatedNodes.length - 1];
-                const newNodeId = `node-${Date.now()}-${idx}`;
-                updatedNodes.push({
-                  id: newNodeId,
-                  artifactId: newArtifact.id,
-                  projectId: proj.id,
-                  title: artTitle,
-                  type: newArtifact.type,
-                  isHighConcept: newArtifact.isHighConcept,
-                  x: lastNode ? lastNode.x + 180 : 300,
-                  y: lastNode ? lastNode.y + 40 : 200,
-                  status: 'active',
-                });
-              }
-            });
-          }
-
-          let updatedEdges = [...proj.edges];
-
-          // Process any extracted links from the model stream
-          if (parsedTurn.links.length > 0) {
-            parsedTurn.links.forEach((link, lIdx) => {
-              const sArt = updatedArtifacts.find((a) => a.id === link.source || a.code === link.source);
-              const tArt = updatedArtifacts.find((a) => a.id === link.target || a.code === link.target);
-              if (sArt && tArt) {
-                if (!sArt.relations.some((r) => r.target_artifact_id === tArt.id)) {
-                  sArt.relations.push({ target_artifact_id: tArt.id, kind: link.kind });
-                }
-                const sNode = updatedNodes.find((n) => n.artifactId === sArt.id);
-                const tNode = updatedNodes.find((n) => n.artifactId === tArt.id);
-                if (sNode && tNode) {
-                  updatedEdges.push({
-                    id: `edge-link-${Date.now()}-${lIdx}`,
-                    sourceNodeId: sNode.id,
-                    targetNodeId: tNode.id,
-                    label: link.kind,
-                  });
-                }
-              }
-            });
-          }
-
-          // If Topic Shift was detected automatically (XML tag or JSON block):
-          const shift = parsedTurn.topicShift || (data.topicShift?.shiftDetected ? data.topicShift : null);
-          if (shift) {
-            const shiftTitle = shift.title || shift.newChapterTitle || `Chapter ${proj.chapters.length + 1}`;
-            const newChapterId = `chap-${Date.now()}`;
-            const newChapter: Chapter = {
-              id: newChapterId,
-              projectId: proj.id,
-              title: shiftTitle,
-              summary: shift.summary || shift.abstract || '',
-              keyPoints: shift.summary ? [shift.summary] : [],
-              isSummarized: false,
-              messages: [],
-              status: 'active',
-              compressionMode: 'full',
-              topicShiftReason: shift.reason || shift.abstract || 'Topic progression',
-              createdAt: new Date().toISOString(),
-            };
-
-            // Mark previous active chapter as completed
-            updatedChapters = updatedChapters.map((c) =>
-              c.id === currentActiveChapter.id ? { ...c, status: 'completed' as const } : c
+          if (existing) {
+            versioning.recordRevision(
+              existing.id,
+              u.content.t3_body,
+              `Synthesized update from chat: ${u.content.t1_abstract}`
             );
-            updatedChapters.push(newChapter);
+          } else {
+            const now = Date.now();
+            const artTitle = u.title || 'Synthesized Artifact';
+            const artDesc = u.content.t1_abstract || 'Synthesized specification.';
+            const artSumm = u.content.t2_summary || artDesc;
+            const artContent = u.content.t3_body || `# ${artTitle}\n\nSynthesized specification.`;
+            const artColor = getMellowPastelColor(code);
 
-            return {
-              ...proj,
-              chapters: updatedChapters,
-              artifacts: updatedArtifacts,
-              nodes: updatedNodes,
-              edges: updatedEdges,
-              currentChapterId: newChapterId,
-              lastActivity: new Date().toISOString(),
+            const activeChap = segmentation.getActiveChapter();
+            const chapId = activeChap ? activeChap.id : 'chap-1';
+
+            const newArtifact: Artifact = {
+              id: u.id || `art-${now}-${idx}`,
+              workspace_id: activeProjectId,
+              projectId: activeProjectId,
+              code,
+              title: artTitle,
+              type: u.type || 'document',
+              category: 'system-spec',
+              color: artColor,
+              description: artDesc,
+              summary: artSumm,
+              content: artContent,
+              created_at: now,
+              updated_at: now,
+              current: {
+                t0_label: artTitle,
+                t1_abstract: artDesc,
+                t2_summary: artSumm,
+                t3_body: artContent,
+              },
+              revisions: [],
+              relations: [{ target_artifact_id: chapId, kind: 'born_from' }],
+              provenance: {
+                origin_chapter_id: chapId,
+                mutation_chapter_ids: [],
+              },
+              graph: {
+                is_high_concept: false,
+                x: 300 + idx * 180,
+                y: 200 + idx * 40,
+              },
+              isHighConcept: false,
+              resolution: 'full',
+              history: [
+                {
+                  version: 1,
+                  timestamp: new Date().toISOString(),
+                  changeSummary: 'Initial synthesis from architectural chat session',
+                  content: artContent,
+                },
+              ],
+              tags: ['chat-synthesized', u.type || 'architecture'],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
             };
+            newArtifact.yamlDocument = serializeArtifactToYamlDoc(newArtifact);
+            artifactsDomain.upsertArtifact({
+              ...newArtifact,
+              id: newArtifact.id,
+              title: newArtifact.title,
+            });
           }
+        });
+      }
 
-          return {
-            ...proj,
-            chapters: updatedChapters,
-            artifacts: updatedArtifacts,
-            nodes: updatedNodes,
-            edges: updatedEdges,
-            lastActivity: new Date().toISOString(),
-          };
-        })
-      );
+      // 7. If links present, add edges in graph domain
+      if (parsedTurn.links.length > 0) {
+        parsedTurn.links.forEach((link) => {
+          graph.addEdge(link.source, link.target, link.kind, 1.0);
+        });
+      }
+
+      // 8. Append Assistant Turn to Timeline
+      const extractedList = parsedTurn.artifactUpserts.map((u) => ({
+        title: u.title,
+        type: u.type,
+        abstract: u.content.t1_abstract,
+        summary: u.content.t2_summary,
+        content: u.content.t3_body,
+        highConcept: false,
+      }));
+
+      timeline.appendTurn('assistant', cleanReplyText, extractedList);
     } catch (err) {
       console.error('Error sending message:', err);
     } finally {
@@ -909,25 +605,17 @@ export default function App() {
       <Sidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen((prev) => !prev)}
-        projects={projects}
+        projects={domainProjectsList}
         activeProject={activeProject}
-        onSelectProject={(p) => setActiveProjectId(p.id)}
+        onSelectProject={(p) => workspace.setActiveProject(p.id)}
         selectedModel={selectedModel}
         availableModels={AVAILABLE_MODELS}
         onSelectModel={setSelectedModel}
-        totalTokens={tokenBreakdown.totalTokens}
+        totalTokens={ambientTelemetry.totalTokens}
         activeView={activeView === 'graph' ? 'graph' : 'chat'}
         onChangeView={(v) => setActiveView(v)}
         opticalMode={opticalMode}
-        onToggleOpticalMode={() => {
-          const next =
-            opticalMode === 'autofocus'
-              ? 'manual'
-              : opticalMode === 'manual'
-              ? 'myopia'
-              : 'autofocus';
-          setOpticalMode(next);
-        }}
+        onToggleOpticalMode={cycleOpticalMode}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenImport={() => setIsImportOpen(true)}
         onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
@@ -939,9 +627,9 @@ export default function App() {
         onChangeTierOverride={handleChangeTierOverride}
       />
 
-      {/* Main Single-Focused Viewport - starts from pixel 0, zero top bar */}
+      {/* Main Single-Focused Viewport */}
       <main className="flex-1 h-full flex overflow-hidden relative p-0 m-0">
-        {/* Layer B: Base Conversation Canvas */}
+        {/* Base Conversation Canvas */}
         <div className="flex-1 h-full relative overflow-hidden p-0 m-0">
           {activeView === 'graph' ? (
             <div className="w-full h-full relative">
@@ -975,79 +663,18 @@ export default function App() {
             </div>
           )}
 
-          {/* Layer A: The Floating Token Orb (Top-Right ambient indicator) */}
-          <div
-            className="absolute top-3 right-4 z-30 flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#0d1421]/90 backdrop-blur-md border border-[#080d15] shadow-lg pointer-events-auto cursor-pointer"
-            title={`Optical Token Saturation: ${Math.round(
-              tokenBreakdown.totalTokens
-            ).toLocaleString()} tokens (${opticalMode.toUpperCase()} mode)`}
-            onClick={() => {
-              const next =
-                opticalMode === 'autofocus'
-                  ? 'manual'
-                  : opticalMode === 'manual'
-                  ? 'myopia'
-                  : 'autofocus';
-              setOpticalMode(next);
-            }}
-          >
-            <div
-              className={`w-2.5 h-2.5 rounded-full transition-colors ${
-                tokenBreakdown.totalTokens > 100000
-                  ? 'bg-[#e05a66] shadow-[0_0_6px_#e05a66]'
-                  : tokenBreakdown.totalTokens > 50000
-                  ? 'bg-[#e0b96c] shadow-[0_0_6px_#e0b96c]'
-                  : 'bg-[#5ad49b] shadow-[0_0_6px_#5ad49b]'
-              }`}
-            />
-            <span className="text-[10px] font-mono text-[#8ab1e0]">
-              {Math.round(tokenBreakdown.totalTokens / 1000)}k
-            </span>
-          </div>
+          {/* Presentation Telemetry: Floating Saturation Orb */}
+          <SaturationOrb telemetry={ambientTelemetry} onClick={cycleOpticalMode} />
         </div>
 
-        {/* Layer A: 5px Edge Bar on absolute right edge (Zero Footprint Telemetry) */}
-        <div
-          className="w-[5px] h-full shrink-0 flex flex-col bg-[#0b1018] border-l border-[#080d15] z-30"
-          title="Peripheral Ambient Telemetry: Red=Detail/Focus (T3), Yellow=Summary (T2), Blue=Title (T0)"
-        >
-          {/* Red = Detail / Tier 3 (Focus) */}
-          <div
-            className="w-full bg-[#e05a66] transition-all duration-300"
-            style={{
-              height: `${Math.max(
-                10,
-                Math.min(
-                  70,
-                  (tokenBreakdown.activeChapterTokens / (tokenBreakdown.totalTokens || 1)) * 100
-                )
-              )}%`,
-            }}
-          />
-          {/* Yellow = Summary / Tier 2 */}
-          <div
-            className="w-full bg-[#e0b96c] transition-all duration-300"
-            style={{
-              height: `${Math.max(
-                15,
-                Math.min(
-                  60,
-                  (tokenBreakdown.olderChaptersTokens / (tokenBreakdown.totalTokens || 1)) * 100
-                )
-              )}%`,
-            }}
-          />
-          {/* Blue = Title / Tier 0 */}
-          <div
-            className="w-full bg-[#5d87b8] flex-1 transition-all duration-300"
-          />
-        </div>
+        {/* Presentation Telemetry: 5px Edge Heat Bar */}
+        <EdgeHeatStrip telemetry={ambientTelemetry} />
       </main>
 
       {/* Project Launcher Screen / Modal */}
       {isProjectLauncherOpen && (
         <ProjectLauncher
-          projects={projects}
+          projects={domainProjectsList}
           activeProjectId={activeProjectId}
           onSelectProjectAndLaunchChat={handleSelectProjectAndLaunchChat}
           onCreateProject={handleCreateProject}
@@ -1068,7 +695,7 @@ export default function App() {
       {/* Export Modal */}
       {isExportOpen && (
         <ExportModal
-          projects={projects}
+          projects={domainProjectsList}
           activeProject={activeProject}
           onClose={() => setIsExportOpen(false)}
         />

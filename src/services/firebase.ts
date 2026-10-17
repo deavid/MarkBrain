@@ -18,25 +18,14 @@ import {
 const getClientApiKey = (): string =>
   (import.meta.env.VITE_FIREBASE_API_KEY as string) || '';
 export const firebaseConfig = {
-  projectId:
-    (import.meta.env.VITE_FIREBASE_PROJECT_ID as string) ||
-    'gen-lang-client-0408097994',
-  appId:
-    (import.meta.env.VITE_FIREBASE_APP_ID as string) ||
-    '1:955271166888:web:3963932837d93e33973b9d',
+  // All values come from .env (gitignored) — no hardcoded project fallbacks.
+  projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID as string) || '',
+  appId: (import.meta.env.VITE_FIREBASE_APP_ID as string) || '',
   apiKey: getClientApiKey(),
-  authDomain:
-    (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string) ||
-    'gen-lang-client-0408097994.firebaseapp.com',
-  firestoreDatabaseId:
-    (import.meta.env.VITE_FIRESTORE_DB_ID as string) ||
-    'ai-studio-markbrainarchite-a0ee634f-b8e1-4ef3-9873-5a0c2410dfc2',
-  storageBucket:
-    (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string) ||
-    'gen-lang-client-0408097994.firebasestorage.app',
-  messagingSenderId:
-    (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string) ||
-    '955271166888',
+  authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string) || '',
+  firestoreDatabaseId: (import.meta.env.VITE_FIRESTORE_DB_ID as string) || '',
+  storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string) || '',
+  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string) || '',
 };
 
 // Initialize Firebase App

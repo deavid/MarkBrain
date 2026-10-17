@@ -1,75 +1,21 @@
 import { IWorkspaceDomain } from './interface';
 import { ProjectMetadata, WorkspaceContainer, WorkspaceEvent } from './types';
 
+/**
+ * Workspace registry — IN-MEMORY ONLY.
+ *
+ * Storage is Firebase (see services/persistenceService.ts). This domain used
+ * to mirror itself into localStorage and auto-seed a demo project when empty;
+ * both are gone: projects arrive exclusively from `loadUserProjects()` (cloud),
+ * and an empty workspace is a legitimate state (Project Genesis handles it).
+ */
 export class WorkspaceDomain implements IWorkspaceDomain {
   private projects: Map<string, WorkspaceContainer> = new Map();
   private activeProjectId: string = '';
   private listeners: Set<(event: WorkspaceEvent) => void> = new Set();
-  private storageKey: string;
 
-  constructor(storageKey = 'markbrain_workspace_registry') {
-    this.storageKey = storageKey;
-    this.loadFromStorage();
-  }
-
-  private loadFromStorage() {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = window.localStorage.getItem(this.storageKey);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed.projects)) {
-            parsed.projects.forEach((c: WorkspaceContainer) => this.projects.set(c.metadata.id, c));
-          }
-          if (parsed.activeProjectId && this.projects.has(parsed.activeProjectId)) {
-            this.activeProjectId = parsed.activeProjectId;
-          }
-        }
-      }
-    } catch {
-      // Storage unavailable or disabled
-    }
-
-    if (this.projects.size === 0) {
-      this.initDefaultProject();
-    }
-  }
-
-  private persist() {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const payload = {
-          activeProjectId: this.activeProjectId,
-          projects: Array.from(this.projects.values()),
-        };
-        window.localStorage.setItem(this.storageKey, JSON.stringify(payload));
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  private initDefaultProject() {
-    const defaultMeta: ProjectMetadata = {
-      id: 'proj-unhaunter',
-      name: 'Unhaunter Game Architecture',
-      description: 'Real-time combat loop, tick decoupling, and spectral state machines.',
-      codeName: 'unhaunter',
-      color: '#be3a49',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    const container: WorkspaceContainer = {
-      metadata: defaultMeta,
-      activeChapterId: 'chap-un-3',
-      focalArtifactIds: ['art-combat-loop', 'art-tick-rate'],
-      opticalMode: 'autofocus',
-      tokenCeiling: 32000,
-      tierOverrides: {},
-    };
-    this.projects.set(defaultMeta.id, container);
-    this.activeProjectId = defaultMeta.id;
-    this.persist();
+  constructor() {
+    // intentionally empty — no local persistence, no default project
   }
 
   getActiveProjectId(): string {
@@ -94,7 +40,6 @@ export class WorkspaceDomain implements IWorkspaceDomain {
     if (!this.projects.has(id)) return;
     const prev = this.activeProjectId;
     this.activeProjectId = id;
-    this.persist();
     this.emit({ type: 'activeProjectChanged', previousId: prev, nextId: id });
   }
 
@@ -118,7 +63,6 @@ export class WorkspaceDomain implements IWorkspaceDomain {
       tierOverrides: {},
     };
     this.projects.set(id, container);
-    this.persist();
     this.emit({ type: 'projectCreated', project: meta });
     return meta;
   }
@@ -129,7 +73,6 @@ export class WorkspaceDomain implements IWorkspaceDomain {
       throw new Error('Invalid workspace JSON payload.');
     }
     this.projects.set(parsed.metadata.id, parsed);
-    this.persist();
     this.emit({ type: 'projectCreated', project: parsed.metadata });
     return parsed.metadata;
   }
@@ -138,12 +81,10 @@ export class WorkspaceDomain implements IWorkspaceDomain {
     const container = this.projects.get(id);
     if (!container) return;
     container.metadata = { ...container.metadata, ...partial, updatedAt: Date.now() };
-    this.persist();
   }
 
   saveContainer(container: WorkspaceContainer): void {
     this.projects.set(container.metadata.id, { ...container });
-    this.persist();
   }
 
   loadUserProjects(cloudProjects: any[]): void {
@@ -151,7 +92,6 @@ export class WorkspaceDomain implements IWorkspaceDomain {
     if (cloudProjects.length === 0) {
       const prev = this.activeProjectId;
       this.activeProjectId = '';
-      this.persist();
       this.emit({ type: 'activeProjectChanged', previousId: prev, nextId: '' });
       return;
     }
@@ -181,7 +121,6 @@ export class WorkspaceDomain implements IWorkspaceDomain {
     const firstId = cloudProjects[0].projectId || cloudProjects[0].id;
     const prev = this.activeProjectId;
     this.activeProjectId = firstId;
-    this.persist();
     this.emit({ type: 'activeProjectChanged', previousId: prev, nextId: firstId });
   }
 

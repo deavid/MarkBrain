@@ -13,6 +13,46 @@
   full after every `/compact`), `motivation.md` (ground truth incl. mirror
   principle), `corrections.md` (laws), this file.
 
+## In flight (2026-10-17, late night)
+
+- **AuthGate error UX cleanup — "strip all stupidity from here" (David's ask).**
+  - Verdict on record: the "Enter New API Key" button + localStorage key-override
+    were invented by an earlier AI to appease *"keep the Firebase key secret"* —
+    instead of saying the true thing. `.env` (gitignored) is the deal; that was
+    always the ask. Bundle exposure accepted while building locally.
+  - **No internet deploy until David understands the attack surface** — he finds
+    Google's model (public-by-design keys that can incur costs; spoofable
+    referrer "restrictions"; slow quota alerts) terrible, and he's right to.
+  - Correction to *my* claim: "key gets you nothing" was wrong — it can cost
+    money (quota/billing abuse). Firestore rules only guard *data*, not *wallet*.
+  - Direction decided: error-code-driven gate (domain / key / transient /
+    unknown classes), kill the key-paste UI + `saveCustomApiKey` + hardcoded
+    project IDs (links derive from `VITE_FIREBASE_API_KEY`... project id from
+    `VITE_FIREBASE_PROJECT_ID`). David is adding localhost to Authorized Domains.
+- **"Storage IS Firebase" (David, decided):** extirpate the localStorage mesh
+  (registry + snapshot mirror + api-key override) and ALL demo seeds
+  (`initDefaultProject`, `INITIAL_PROJECTS`, `getStoredSnapshotSync`).
+  persistenceService → pure Firestore. Keep: auth session persistence (David
+  doesn't care → SDK default), `persistentLocalCache()` as the sanctioned
+  offline layer, boot stage until cloud list resolves (approved: no Genesis
+  flash). KILL: Sync Now + synced badge ("kill with fire" — hollow BS sweep).
+  `initialData.ts` dies entirely; `AVAILABLE_MODELS` rehomed to own file.
+  design-docs have NO written position on storage — checked; no conflict.
+- **Headless rig redesign PENDING David's pick** among: network-fulfill
+  (WebChannel format pain), emulator (heavy, future upgrade for sync tests),
+  real-credentials profile (needs one human login; write-capable session —
+  risky as default), **recommended: single labeled fixture + dev-only
+  `?fixture=1` seam** (his "clear test data for agentic access").
+- **Real-data mode (opt-in, designed 23:39):** narrow Firebase refresh token
+  only → `.env`. David explicitly ACCEPTS owner-scope R/W risk (single-user
+  app, not production yet); Google account cookies = hard no ("hell no"),
+  persistent-profile rig = refused. Harvest = from his already-signed-in
+  session (DevTools manual) OR scripted throwaway login — pick when built.
+  `?capture` guard = persistState no-op. Not blocking commits ①②④.
+  No admin/console escalation from a client refresh token (self-account
+  APIs incl. accounts:delete are the only sharp edge — self-harm, not
+  escalation).
+
 ## Genuinely open (design — nobody has answers yet)
 
 - Original meta-questions (`01` §5): graph authoring mechanism (gut: hybrid),

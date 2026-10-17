@@ -12,7 +12,7 @@ import {
   ResolutionTier,
   getMellowPastelColor,
 } from './types';
-import { AVAILABLE_MODELS } from './data/initialData';
+import { AVAILABLE_MODELS } from './data/models';
 import { serializeArtifactToYamlDoc } from './utils/yamlArtifactParser';
 import { Sidebar, ActiveView } from './components/Sidebar';
 import { SpatialGraph } from './components/SpatialGraph';
@@ -45,11 +45,8 @@ export default function App() {
     currentUser,
     authInitialized,
     cloudProjectsCount,
-    isSyncing,
-    isCloudSynced,
     signIn,
     signOut,
-    syncNow,
     createCloudWorkspace,
   } = useDomains();
 
@@ -836,6 +833,21 @@ export default function App() {
     );
   }
 
+  // 2.5 Boot: signed in, cloud project list not resolved yet — hold the
+  // loader so returning users never flash Genesis or an empty studio.
+  if (cloudProjectsCount === null) {
+    return (
+      <div className="flex items-center justify-center h-screen w-screen bg-[#070b12] text-[#8ab1e0] font-sans">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-[#121c2d] border border-[#1e2e47] flex items-center justify-center text-[#e05a66] shadow-sm animate-pulse">
+            <Brain className="w-6 h-6 text-[#e05a66]" />
+          </div>
+          <span className="text-xs font-mono text-[#526e91]">Loading cloud projects...</span>
+        </div>
+      </div>
+    );
+  }
+
   // 3. Project Genesis: If user is authenticated but has zero cloud projects
   if (domainProjectsList.length === 0 || cloudProjectsCount === 0) {
     return (
@@ -881,11 +893,7 @@ export default function App() {
         nodeTiers={compiledContext.nodeTiers}
         onChangeTierOverride={handleChangeTierOverride}
         currentUser={currentUser}
-        isSyncing={isSyncing}
-        isCloudSynced={isCloudSynced}
-        onSignIn={signIn}
         onSignOut={signOut}
-        onSyncNow={syncNow}
       />
 
       {/* Main Single-Focused Viewport - ZERO TOP BAR */}
@@ -938,8 +946,6 @@ export default function App() {
                     logger.action('App', `Chat artifact card selected: ${art.id}`);
                     setSelectedArtifactId(art.id);
                   }}
-                  isCloudSynced={isCloudSynced}
-                  isSyncing={isSyncing}
                 />
               </ChatErrorBoundary>
             </div>

@@ -31,8 +31,7 @@ interface ChatViewProps {
   onDeclareChapter: (messageId: string, title: string) => void;
   onNavigateToGraph: () => void;
   onSelectArtifact?: (artifact: Artifact) => void;
-  isCloudSynced?: boolean;
-  isSyncing?: boolean;
+
 }
 
 // Consistent mellow dark pastel palette for chapters
@@ -57,8 +56,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onDeclareChapter,
   onNavigateToGraph,
   onSelectArtifact,
-  isCloudSynced = false,
-  isSyncing = false,
+
 }) => {
   const [inputText, setInputText] = useState('');
   const [showPrompts, setShowPrompts] = useState(false);

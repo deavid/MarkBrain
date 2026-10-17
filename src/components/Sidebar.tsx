@@ -19,9 +19,9 @@ import {
   Terminal,
   Cloud,
   Check,
-  RefreshCw,
+
   LogOut,
-  LogIn,
+
   User as UserIcon,
   Plus,
   FolderKanban,
@@ -55,13 +55,9 @@ interface SidebarProps {
   focalIds?: string[];
   nodeTiers?: Record<string, { tier: ResolutionTier | 'culled'; distance: number }>;
   onChangeTierOverride?: (artId: string, tier: ResolutionTier | null) => void;
-  // Firebase Auth & Cloud Sync
+  // Firebase Auth & account
   currentUser?: { displayName?: string | null; email?: string | null; photoURL?: string | null } | null;
-  isSyncing?: boolean;
-  isCloudSynced?: boolean;
-  onSignIn?: () => void;
   onSignOut?: () => void;
-  onSyncNow?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -89,11 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   nodeTiers = {},
   onChangeTierOverride,
   currentUser,
-  isSyncing = false,
-  isCloudSynced = false,
-  onSignIn,
   onSignOut,
-  onSyncNow,
 }) => {
   // Inline accordion toggles (all expand inline in document flow, guaranteeing ZERO container clipping)
   const [projectAccordionOpen, setProjectAccordionOpen] = useState(false);
@@ -371,18 +363,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     Cloud Storage & Sync
                   </span>
                   <span className="text-xs font-semibold text-white truncate block">
-                    {currentUser ? currentUser.displayName || 'Google Account' : 'Local Storage Only'}
+                    {currentUser ? currentUser.displayName || 'Google Account' : 'Not signed in'}
                   </span>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                {isSyncing ? (
-                  <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                ) : isCloudSynced ? (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-xs" title="Firestore Connected" />
-                ) : (
-                  <span className="w-2 h-2 rounded-full bg-[#556985]" title="Local resilience active" />
-                )}
+
                 {cloudAccordionOpen ? <ChevronUp className="w-3.5 h-3.5 text-[#556985]" /> : <ChevronDown className="w-3.5 h-3.5 text-[#556985]" />}
               </div>
             </button>
@@ -390,7 +376,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Inline Accordion Body */}
             {cloudAccordionOpen && (
               <div className="p-2.5 border-t border-[#131e33] bg-[#070b12] space-y-2 animate-in fade-in duration-100">
-                {currentUser ? (
+                {currentUser && (
                   <div className="space-y-2">
                     <div className="p-2 rounded-lg bg-[#0e1726] border border-[#18263e] flex items-center gap-2.5">
                       {currentUser.photoURL ? (
@@ -414,53 +400,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-lg">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                        <span>Firestore Synchronized</span>
-                      </div>
-                      <span>Safe</span>
-                    </div>
 
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <button
-                        onClick={() => {
-                          logger.action('Sidebar', 'Trigger manual sync to Firestore');
-                          onSyncNow?.();
-                        }}
-                        disabled={isSyncing}
-                        className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#141d2d] hover:bg-[#1a273d] text-xs font-mono text-[#8ab1e0] transition-colors border border-[#1d2d47] cursor-pointer"
-                      >
-                        <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
-                        <span>{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          logger.action('Sidebar', 'Sign out of Firebase');
-                          onSignOut?.();
-                        }}
-                        className="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#241417] hover:bg-[#331a20] text-xs font-mono text-[#f28894] transition-colors border border-[#3d1f25] cursor-pointer"
-                      >
-                        <LogOut className="w-3 h-3" />
-                        <span>Sign Out</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-[11px] text-[#7187a5] leading-relaxed">
-                      Sync chats, artifacts, and spatial graphs to your Firebase Firestore cloud database.
-                    </p>
                     <button
                       onClick={() => {
-                        logger.action('Sidebar', 'Trigger Google Sign In for Firestore');
-                        onSignIn?.();
+                        logger.action('Sidebar', 'Sign out of Firebase');
+                        onSignOut?.();
                       }}
-                      className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-[#162740] hover:bg-[#1d3557] text-xs font-mono text-[#38bdf8] transition-colors border border-[#23426e] cursor-pointer shadow-sm font-semibold"
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#241417] hover:bg-[#331a20] text-xs font-mono text-[#f28894] transition-colors border border-[#3d1f25] cursor-pointer"
                     >
-                      <LogIn className="w-3.5 h-3.5" />
-                      <span>Sign In with Google</span>
+                      <LogOut className="w-3 h-3" />
+                      <span>Sign Out</span>
                     </button>
                   </div>
                 )}

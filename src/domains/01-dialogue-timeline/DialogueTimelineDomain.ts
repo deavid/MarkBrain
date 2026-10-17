@@ -1,5 +1,6 @@
 import { IDialogueTimelineDomain } from './interface';
 import { Turn, TimelineEvent } from './types';
+import { logger } from '../../utils/logger';
 
 export class DialogueTimelineDomain implements IDialogueTimelineDomain {
   private turns: Turn[] = [];
@@ -9,6 +10,7 @@ export class DialogueTimelineDomain implements IDialogueTimelineDomain {
   constructor(workspaceId: string, initialTurns: Turn[] = []) {
     this.workspaceId = workspaceId;
     this.turns = [...initialTurns];
+    logger.info('Timeline', `Initialized timeline for workspace ${workspaceId} with ${this.turns.length} turns`);
   }
 
   getTurns(): Turn[] {
@@ -30,7 +32,8 @@ export class DialogueTimelineDomain implements IDialogueTimelineDomain {
   appendTurn(
     role: 'user' | 'assistant' | 'system',
     content: string,
-    extractedArtifacts?: any[]
+    extractedArtifacts?: any[],
+    meta?: any
   ): Turn {
     const turn: Turn = {
       id: `turn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -38,14 +41,29 @@ export class DialogueTimelineDomain implements IDialogueTimelineDomain {
       content,
       timestamp: Date.now(),
       extractedArtifacts,
+      meta,
     };
     this.turns.push(turn);
+    logger.action('Timeline', `Appended turn [${role}] #${this.turns.length}`, { id: turn.id, role, length: content.length, meta });
     this.emit({ type: 'turnAppended', turn });
     return turn;
   }
 
+  updateTurn(id: string, partial: Partial<Turn>): void {
+    const idx = this.turns.findIndex((t) => t.id === id);
+    if (idx !== -1) {
+      this.turns[idx] = { ...this.turns[idx], ...partial };
+      logger.action('Timeline', `Updated turn ${id}`, { partialKeys: Object.keys(partial), interrupted: (partial.meta as any)?.interrupted });
+      this.emit({ type: 'turnUpdated', turn: this.turns[idx] });
+    } else {
+      logger.warn('Timeline', `Attempted to update non-existent turn: ${id}`);
+    }
+  }
+
   loadTurns(turns: Turn[]): void {
     this.turns = [...turns];
+    logger.info('Timeline', `Loaded ${this.turns.length} turns into workspace ${this.workspaceId}`);
+    this.emit({ type: 'timelineLoaded', workspaceId: this.workspaceId });
   }
 
   clear(): void {

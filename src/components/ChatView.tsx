@@ -10,17 +10,29 @@ import {
   ChevronUp,
   BookmarkPlus,
   Compass,
+  Square,
+  Terminal,
+  AlertCircle,
+  Cloud,
+  Brain,
 } from 'lucide-react';
+import { logger } from '../utils/logger';
 
 interface ChatViewProps {
   project: Project;
   onSendMessage: (text: string) => Promise<void>;
   isLoading: boolean;
+  streamingStatus?: string | null;
+  onStopGeneration?: () => void;
+  onOpenServerLogs?: () => void;
   onAddArtifactToProject: (artifact: Artifact) => void;
   onSummarizeChapter: (chapterId: string) => Promise<void>;
   onToggleChapterCompressionMode: (chapterId: string, mode: 'summary' | 'full' | 'dropped') => void;
   onDeclareChapter: (messageId: string, title: string) => void;
   onNavigateToGraph: () => void;
+  onSelectArtifact?: (artifact: Artifact) => void;
+  isCloudSynced?: boolean;
+  isSyncing?: boolean;
 }
 
 // Consistent mellow dark pastel palette for chapters
@@ -36,16 +48,53 @@ export const ChatView: React.FC<ChatViewProps> = ({
   project,
   onSendMessage,
   isLoading,
+  streamingStatus,
+  onStopGeneration,
+  onOpenServerLogs,
   onAddArtifactToProject,
   onSummarizeChapter,
   onToggleChapterCompressionMode,
   onDeclareChapter,
   onNavigateToGraph,
+  onSelectArtifact,
+  isCloudSynced = false,
+  isSyncing = false,
 }) => {
   const [inputText, setInputText] = useState('');
   const [showPrompts, setShowPrompts] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const heroInputRef = useRef<HTMLTextAreaElement>(null);
   const prevMessagesCountRef = useRef<number>(0);
+
+  // Total messages count across chapters (safe navigation against undefined)
+  const totalMessagesCount = (project.chapters || []).reduce(
+    (acc, chap) => acc + (chap.messages ? chap.messages.length : 0),
+    0
+  );
+
+  // Auto-focus hero input on fresh workspace
+  useEffect(() => {
+    if (totalMessagesCount === 0 && heroInputRef.current) {
+      heroInputRef.current.focus();
+    }
+  }, [totalMessagesCount]);
+
+  // Live timer while request is running
+  useEffect(() => {
+    let timer: any = null;
+    if (isLoading) {
+      setElapsedSeconds(0);
+      timer = setInterval(() => {
+        setElapsedSeconds((s) => s + 1);
+      }, 1000);
+    } else {
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isLoading]);
 
   // Audio / TTS State
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
@@ -70,12 +119,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setExpandedSummaryIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Total messages count across chapters
-  const totalMessagesCount = project.chapters.reduce(
-    (acc, chap) => acc + (chap.messages ? chap.messages.length : 0),
-    0
-  );
-
   // Auto-scroll ONLY when a new message is appended (NOT on summary toggles or loading state)
   const isFirstMount = useRef(true);
   useEffect(() => {
@@ -93,8 +136,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || isLoading) return;
+    if (!inputText.trim()) {
+      logger.warn('ChatView', 'Ignored empty submission attempt');
+      return;
+    }
+    if (isLoading) {
+      logger.warn('ChatView', 'Ignored submission while reasoning stream is active');
+      return;
+    }
     const msg = inputText;
+    logger.action('ChatView', 'User sent message', { length: msg.length, snippet: msg.substring(0, 80) });
     setInputText('');
     setShowPrompts(false);
     onSendMessage(msg);
@@ -102,6 +153,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // TTS Handler with explicit waiting indicator
   const handlePlayTTS = async (message: ChatMessage) => {
+    logger.action('ChatView', 'Toggle TTS Audio playback', { messageId: message.id });
     if (playingMessageId === message.id) {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -145,6 +197,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           audioRef.current = null;
         };
         audio.onerror = () => {
+          logger.warn('ChatView', 'Kokoro-82M audio playback failed, falling back to speech synthesis');
           fallbackSpeech(data.cleanSpokenText || message.content, message.id);
         };
         await audio.play();
@@ -152,7 +205,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
       } else {
         fallbackSpeech(data.cleanSpokenText || message.content, message.id);
       }
-    } catch {
+    } catch (err) {
+      logger.warn('ChatView', 'Kokoro-82M API request failed, falling back to web speech', err);
       fallbackSpeech(message.content, message.id);
     } finally {
       setTtsLoadingId(null);
@@ -176,16 +230,103 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const handleDeclareSubmit = (msgId: string) => {
     if (!newChapterTitle.trim()) return;
+    logger.action('ChatView', 'Declare new chapter boundary split', { messageId: msgId, newChapterTitle: newChapterTitle.trim() });
     onDeclareChapter(msgId, newChapterTitle.trim());
     setDeclaringMessageId(null);
     setNewChapterTitle('');
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0d121c] text-[#e3edf7] select-text overflow-hidden pt-0 mt-0">
-      {/* Unified Vertical Chat Feed with Episodic Chapters */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 sm:px-6 sm:py-3 space-y-4">
-        {project.chapters.map((chapter, chapterIndex) => {
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 w-full h-full bg-[#0d121c] text-[#e3edf7] select-text overflow-hidden pt-0 mt-0">
+      {/* If project has zero messages, render the Centered Hero Input Composer */}
+      {totalMessagesCount === 0 ? (
+        <div className="flex-1 min-h-[400px] flex flex-col items-center justify-center p-4 sm:p-8 overflow-y-auto">
+          <div className="w-full max-w-2xl space-y-6 my-auto transition-opacity duration-300">
+            {/* Project Brand & Architectural Scope */}
+            <div className="text-center space-y-3">
+              <div
+                style={{ borderColor: `${project.color || '#3b82f6'}55` }}
+                className="w-16 h-16 rounded-2xl bg-[#111928] border mx-auto flex items-center justify-center shadow-xl"
+              >
+                <Brain className="w-8 h-8" style={{ color: project.color || '#3b82f6' }} />
+              </div>
+
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight font-mono">
+                  {project.name || 'Architectural Workspace'}
+                </h1>
+                <div className="flex items-center justify-center gap-2 text-xs text-[#6e85a6] font-mono mt-1">
+                  <span>{project.codeName || 'CORE'}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Optical Dialogue Substrate</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Zero-Leakage Memory</span>
+                </div>
+              </div>
+
+              {project.description && (
+                <p className="text-xs sm:text-sm text-[#8299ba] max-w-lg mx-auto leading-relaxed">
+                  {project.description}
+                </p>
+              )}
+            </div>
+
+            {/* Elevated Hero Input Card */}
+            <form
+              onSubmit={handleSubmit}
+              className="bg-[#0b101a] border border-[#162234] focus-within:border-[#3b82f6]/70 rounded-2xl p-4 shadow-2xl transition-all space-y-3"
+            >
+              <textarea
+                ref={heroInputRef}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (inputText.trim() && !isLoading) {
+                      handleSubmit(e);
+                    }
+                  }
+                }}
+                placeholder="What architectural invariants, system specifications, or domain state machines are we designing today?"
+                rows={3}
+                disabled={isLoading}
+                autoFocus
+                className="w-full bg-transparent text-xs sm:text-sm text-[#eef4fc] placeholder-[#50637f] focus:outline-none resize-none leading-relaxed font-sans"
+              />
+
+              <div className="flex items-center justify-between pt-2 border-t border-[#131d2e] text-xs">
+                <div className="flex items-center gap-2 text-[11px] font-mono text-[#5b7394]">
+                  <span>Enter to send</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Shift+Enter for newline</span>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={!inputText.trim() || isLoading}
+                  className="px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-white font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Synthesizing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Start Dialogue</span>
+                      <Send className="w-3.5 h-3.5" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : (
+        /* Unified Vertical Chat Feed with Episodic Chapters - ZERO TOP BAR */
+        <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4 space-y-4">
+          {project.chapters.map((chapter, chapterIndex) => {
           const isCollapsed = collapsedChapterIds[chapter.id] ?? false;
           const isSummaryExpanded = expandedSummaryIds[chapter.id] ?? false;
           const compression = chapter.compressionMode || (chapter.isSummarized ? 'summary' : 'full');
@@ -445,7 +586,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           }`}
                         >
                           <div className="whitespace-pre-wrap font-sans space-y-2">
-                            {message.content}
+                            {message.content ? (
+                              message.content
+                            ) : (
+                              <div className="flex items-center gap-2 text-xs font-mono text-[#38bdf8] py-1 animate-pulse">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#38bdf8]" />
+                                <span>Thinking & synthesizing architectural invariants...</span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Synthesized Artifacts */}
@@ -478,63 +626,110 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                     </div>
                                   </div>
 
-                                  <button
-                                    onClick={() => {
-                                      const now = Date.now();
-                                      const title = art.title || 'Synthesized Artifact';
-                                      const desc = art.description || art.abstract || 'Generated artifact spec.';
-                                      const summ = art.summary || art.abstract || 'Synthesized architectural summary.';
-                                      const body = art.content || `# ${title}\n\nGenerated specification document.`;
-                                      const fullArtifact: Artifact = {
-                                        id: `art-${now}-${idx}`,
-                                        workspace_id: project.id,
-                                        projectId: project.id,
-                                        type: 'document',
-                                        created_at: now,
-                                        updated_at: now,
-                                        color: '#5d87b8',
-                                        current: {
-                                          t0_label: title,
-                                          t1_abstract: desc,
-                                          t2_summary: summ,
-                                          t3_body: body,
-                                        },
-                                        revisions: [],
-                                        relations: [],
-                                        provenance: {
-                                          origin_chapter_id: project.currentChapterId,
-                                          mutation_chapter_ids: [],
-                                        },
-                                        code:
-                                          art.code ||
-                                          title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-                                        title,
-                                        category: (art.category as Artifact['category']) || 'system-spec',
-                                        isHighConcept: Boolean(art.isHighConcept),
-                                        description: desc,
-                                        summary: summ,
-                                        content: body,
-                                        resolution: 'full',
-                                        history: [
-                                          {
-                                            version: 1,
-                                            timestamp: new Date().toISOString(),
-                                            changeSummary: 'Manually pinned from chat',
-                                            content: body,
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {onSelectArtifact && (
+                                      <button
+                                        onClick={() => onSelectArtifact(art)}
+                                        className="px-2 py-1 rounded-lg bg-[#0e1726] hover:bg-[#162338] text-[11px] font-mono text-[#7eb4ed] border border-[#1b2b42] transition-colors cursor-pointer"
+                                        title="Inspect fields and details full-screen"
+                                      >
+                                        Inspect
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => {
+                                        const now = Date.now();
+                                        const title = art.title || 'Synthesized Artifact';
+                                        const desc = art.description || art.abstract || 'Generated artifact spec.';
+                                        const summ = art.summary || art.abstract || 'Synthesized architectural summary.';
+                                        const body = art.content || `# ${title}\n\nGenerated specification document.`;
+                                        const fullArtifact: Artifact = {
+                                          id: `art-${now}-${idx}`,
+                                          workspace_id: project.id,
+                                          projectId: project.id,
+                                          type: 'document',
+                                          created_at: now,
+                                          updated_at: now,
+                                          color: '#5d87b8',
+                                          current: {
+                                            t0_label: title,
+                                            t1_abstract: desc,
+                                            t2_summary: summ,
+                                            t3_body: body,
                                           },
-                                        ],
-                                        tags: ['manual-pin'],
-                                        createdAt: new Date().toISOString(),
-                                        updatedAt: new Date().toISOString(),
-                                      };
-                                      onAddArtifactToProject(fullArtifact);
-                                    }}
-                                    className="px-2.5 py-1 rounded-lg bg-[#1a2538] hover:bg-[#23334d] text-xs font-mono text-[#8ab1e0] border border-[#233550] shrink-0 transition-colors cursor-pointer"
-                                  >
-                                    Save as Artifact
-                                  </button>
+                                          revisions: [],
+                                          relations: [],
+                                          provenance: {
+                                            origin_chapter_id: project.currentChapterId,
+                                            mutation_chapter_ids: [],
+                                          },
+                                          code:
+                                            art.code ||
+                                            title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                                          title,
+                                          category: (art.category as Artifact['category']) || 'system-spec',
+                                          isHighConcept: Boolean(art.isHighConcept),
+                                          description: desc,
+                                          summary: summ,
+                                          content: body,
+                                          resolution: 'full',
+                                          history: [
+                                            {
+                                              version: 1,
+                                              timestamp: new Date().toISOString(),
+                                              changeSummary: 'Manually pinned from chat',
+                                              content: body,
+                                            },
+                                          ],
+                                          tags: ['manual-pin'],
+                                          createdAt: new Date().toISOString(),
+                                          updatedAt: new Date().toISOString(),
+                                        };
+                                        onAddArtifactToProject(fullArtifact);
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-[#1a2538] hover:bg-[#23334d] text-xs font-mono text-[#8ab1e0] border border-[#233550] transition-colors cursor-pointer"
+                                    >
+                                      Save as Artifact
+                                    </button>
+                                  </div>
                                 </div>
                               ))}
+                            </div>
+                          )}
+
+                          {/* Real 1:1 Gemini API Usage & Telemetry */}
+                          {message.meta && !isUser && (
+                            <div className="mt-2.5 pt-2 border-t border-[#141f30] flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-[#637894]">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[#38bdf8] font-semibold">{message.meta.model || 'Gemini 3.8 Flash'}</span>
+                                <span>•</span>
+                                <span className="tabular-nums">{message.meta.inputTokens ?? 0} in</span>
+                                <span>•</span>
+                                <span className="tabular-nums">{message.meta.outputTokens ?? 0} out</span>
+                                <span>•</span>
+                                <span className="text-[#a4bddf] font-semibold tabular-nums">{message.meta.totalTokens ?? 0} total tok</span>
+                              </div>
+                              {message.meta.latencyMs && (
+                                <span className="text-[#556985] tabular-nums">
+                                  {(message.meta.latencyMs / 1000).toFixed(2)}s
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Live Streaming State Feedback */}
+                          {message.meta?.isStreaming && (
+                            <div className="mt-2 flex items-center gap-2 text-[11px] font-mono text-[#38bdf8] animate-pulse">
+                              <Loader2 className="w-3 h-3 animate-spin text-[#38bdf8]" />
+                              <span className="capitalize">{message.meta.streamState || 'writing'}...</span>
+                            </div>
+                          )}
+
+                          {/* Interrupted Response Badge */}
+                          {Boolean(message.meta?.interrupted || message.meta?.streamState === 'interrupted') && (
+                            <div className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/35 text-[10px] font-mono shadow-xs">
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span className="font-semibold tracking-wider uppercase text-[10px]">Response Interrupted</span>
                             </div>
                           )}
                         </div>
@@ -548,37 +743,89 @@ export const ChatView: React.FC<ChatViewProps> = ({
         })}
 
         {isLoading && (
-          <div className="flex items-center gap-2 text-xs font-mono text-[#8ab1e0] bg-[#101623] p-3 rounded-xl border border-[#1a293e] w-fit">
-            <Loader2 className="w-4 h-4 animate-spin text-[#38bdf8]" />
-            <span>MarkBrain synthesizing architectural invariants...</span>
+          <div className="flex items-center justify-between gap-3 text-xs font-mono text-[#8ab1e0] bg-[#101623] p-3 rounded-xl border border-[#1a293e] max-w-xl shadow-lg animate-in fade-in">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Loader2 className="w-4 h-4 animate-spin text-[#38bdf8] shrink-0" />
+              <span className="truncate">{streamingStatus || 'MarkBrain synthesizing architectural invariants...'}</span>
+              <span className="text-[10px] text-[#567295] font-mono px-1.5 py-0.5 rounded bg-[#090d16] border border-[#141e2e] shrink-0">
+                {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')}s
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {onOpenServerLogs && (
+                <button
+                  type="button"
+                  onClick={onOpenServerLogs}
+                  className="px-2 py-1 rounded-lg bg-[#0e1726] hover:bg-[#162338] text-[10px] text-[#8ab1e0] border border-[#1c2d47] transition-colors cursor-pointer"
+                  title="View live server logs"
+                >
+                  Logs
+                </button>
+              )}
+              {onStopGeneration && (
+                <button
+                  type="button"
+                  onClick={onStopGeneration}
+                  className="px-2.5 py-1 rounded-lg bg-[#3b1219] hover:bg-[#521720] text-[#f87171] border border-[#6b212b] text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Stop generating"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                  <span>Stop</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 
         <div ref={messagesEndRef} />
       </div>
+      )}
 
-      {/* Chat Input Bar */}
-      <div className="p-2.5 sm:p-3 bg-[#0d121c] border-t border-[#121c2c] shrink-0">
-        <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder={`Brainstorm on ${project.name} (artifacts auto-extracted)...`}
-            disabled={isLoading}
-            className="flex-1 bg-[#090d15] border border-[#162234] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-[#eef4fc] placeholder-[#50637f] focus:outline-none focus:border-[#3b82f6]/50 transition-colors"
-          />
+      {/* Bottom Pinned Chat Input Bar - Active once messages exist */}
+      {totalMessagesCount > 0 && (
+        <div className="p-2.5 sm:p-3 bg-[#0d121c] border-t border-[#121c2c] shrink-0">
+          <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
+            <textarea
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (inputText.trim() && !isLoading) {
+                    handleSubmit(e);
+                  }
+                }
+              }}
+              placeholder={`Brainstorm on ${project.name} (artifacts auto-extracted)...`}
+              disabled={isLoading}
+              rows={1}
+              className="flex-1 bg-[#090d15] border border-[#162234] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-[#eef4fc] placeholder-[#50637f] focus:outline-none focus:border-[#3b82f6]/50 transition-colors resize-none leading-relaxed max-h-32"
+            />
 
-          <button
-            type="submit"
-            disabled={!inputText.trim() || isLoading}
-            className="px-4 py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 disabled:hover:bg-[#2563eb] text-white transition-all shadow-md shadow-blue-900/25 flex items-center justify-center cursor-pointer"
-            title="Send architectural query"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </form>
-      </div>
+            {isLoading && onStopGeneration ? (
+              <button
+                type="button"
+                onClick={onStopGeneration}
+                className="px-4 py-2.5 rounded-xl bg-[#dc2626] hover:bg-[#b91c1c] text-white transition-all shadow-md shadow-red-900/30 flex items-center gap-1.5 cursor-pointer font-mono text-xs font-semibold shrink-0"
+                title="Stop generation"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                <span>Stop</span>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!inputText.trim()}
+                className="px-4 py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 disabled:hover:bg-[#2563eb] text-white transition-all shadow-md shadow-blue-900/25 flex items-center justify-center cursor-pointer shrink-0"
+                title="Send architectural query"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            )}
+          </form>
+        </div>
+      )}
     </div>
   );
 };

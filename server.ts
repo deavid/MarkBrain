@@ -14,19 +14,109 @@ const port = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json({ limit: '10mb' }));
 
+// Server Telemetry & Ring Buffer Logging Subsystem
+export interface ServerLogEntry {
+  id: string;
+  timestamp: string;
+  level: 'info' | 'warn' | 'error' | 'success';
+  tag: string;
+  message: string;
+  meta?: any;
+}
+
+const serverLogsBuffer: ServerLogEntry[] = [];
+const logSubscribers: Set<(entry: ServerLogEntry) => void> = new Set();
+
+export function logServer(level: 'info' | 'warn' | 'error' | 'success', tag: string, message: string, meta?: any) {
+  const timestamp = new Date().toISOString();
+  const id = `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const entry: ServerLogEntry = { id, timestamp, level, tag, message, meta };
+
+  serverLogsBuffer.push(entry);
+  if (serverLogsBuffer.length > 350) {
+    serverLogsBuffer.shift();
+  }
+
+  // Colored terminal logs
+  const colors = {
+    info: '\x1b[36m', // Cyan
+    warn: '\x1b[33m', // Yellow
+    error: '\x1b[31m', // Red
+    success: '\x1b[32m', // Green
+  };
+  const reset = '\x1b[0m';
+  const timeShort = timestamp.split('T')[1].slice(0, 8);
+  const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
+  console.log(`${colors[level]}[${timeShort}] [${tag}]${reset} ${message}${metaStr}`);
+
+  // Broadcast to connected web clients
+  logSubscribers.forEach((sub) => {
+    try {
+      sub(entry);
+    } catch {
+      // client disconnected
+    }
+  });
+}
+
+// Global request counter & middleware instrumentation
+let globalReqCounter = 0;
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') && !req.path.includes('/server-logs')) {
+    const reqId = ++globalReqCounter;
+    (req as any).reqId = reqId;
+    const start = Date.now();
+    logServer('info', 'API:REQ', `#${reqId} ${req.method} ${req.path}`);
+
+    res.on('finish', () => {
+      const dur = Date.now() - start;
+      const level = res.statusCode >= 400 ? 'error' : 'success';
+      logServer(level, 'API:RES', `#${reqId} ${req.method} ${req.path} -> HTTP ${res.statusCode} (${dur}ms)`);
+    });
+  }
+  next();
+});
+
 // Shared Gemini Client
 const apiKey = process.env.GEMINI_API_KEY;
 let ai: GoogleGenAI | null = null;
 if (apiKey) {
-  ai = new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
+  ai = new GoogleGenAI();
+  logServer('success', 'GEMINI:INIT', `Gemini SDK initialized successfully with API key (length: ${apiKey.length})`);
+} else {
+  logServer('warn', 'GEMINI:INIT', 'GEMINI_API_KEY not found in environment; running in local synthesis fallback mode');
 }
+
+// API: Server Logs for Browser Terminal / Drawer
+app.get('/api/server-logs', (_req: Request, res: Response) => {
+  res.json({ logs: serverLogsBuffer });
+});
+
+app.get('/api/server-logs/stream', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  // Send initial recent logs
+  const initial = JSON.stringify({ type: 'init', logs: serverLogsBuffer.slice(-60) });
+  res.write(`event: log_init\ndata: ${initial}\n\n`);
+
+  const handler = (entry: ServerLogEntry) => {
+    res.write(`event: log\ndata: ${JSON.stringify(entry)}\n\n`);
+  };
+
+  logSubscribers.add(handler);
+  req.on('close', () => {
+    logSubscribers.delete(handler);
+  });
+});
+
+app.post('/api/server-logs/clear', (_req: Request, res: Response) => {
+  serverLogsBuffer.length = 0;
+  logServer('info', 'LOGS:CLEAR', 'Server logs buffer cleared by client');
+  res.json({ success: true });
+});
 
 // Helper to count rough tokens
 function estimateTokens(text: string): number {
@@ -40,6 +130,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
     status: 'ok',
     hasApiKey: Boolean(process.env.GEMINI_API_KEY),
     time: new Date().toISOString(),
+    logsCount: serverLogsBuffer.length,
   });
 });
 
@@ -52,25 +143,114 @@ app.get('/api/auth/config', (_req: Request, res: Response) => {
     authDomain: process.env.FIREBASE_AUTH_DOMAIN || (process.env.FIREBASE_PROJECT_ID ? `${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com` : ''),
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET || '',
     messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '',
+    firestoreDatabaseId: process.env.FIRESTORE_DB_ID || process.env.FIREBASE_FIRESTORE_DATABASE_ID || '',
     oAuthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID || '',
   });
 });
 
-// API: Chat with MarkBrain
-app.post('/api/chat', async (req: Request, res: Response) => {
-  try {
-    const {
-      model = 'gemini-3.8-flash',
-      messages = [],
-      contextPayload = '',
-      currentTopic = '',
-      chapterSummaries = [],
-      projectTitle = 'Design System Core',
-      compiledPrompt: clientCompiledPrompt,
-      systemInstruction: clientSystemInstruction,
-    } = req.body;
+// Helper to parse artifacts, topic shifts, and clean reply text from raw LLM output
+function parseModelResponse(replyText: string) {
+  const artifacts: Array<{
+    title: string;
+    type: string;
+    abstract: string;
+    highConcept: boolean;
+    content: string;
+  }> = [];
 
-    const defaultSystemInstruction = `You are MarkBrain, a principal systems architect specializing in multi-tier design systems, token topologies, component state machines, and spatial software architectures.
+  // 1. Extract markdown ```artifact ... ``` blocks
+  const artifactRegex = /```artifact\s*([\s\S]*?)```/g;
+  let match;
+  while ((match = artifactRegex.exec(replyText)) !== null) {
+    const block = match[1];
+    const titleMatch = block.match(/title:\s*(.*)/i);
+    const typeMatch = block.match(/type:\s*(.*)/i);
+    const abstractMatch = block.match(/abstract:\s*(.*)/i);
+    const highConceptMatch = block.match(/highConcept:\s*(true|false)/i);
+
+    const bodyLines = block
+      .replace(/title:.*\n/i, '')
+      .replace(/type:.*\n/i, '')
+      .replace(/abstract:.*\n/i, '')
+      .replace(/highConcept:.*\n/i, '')
+      .trim();
+
+    artifacts.push({
+      title: titleMatch ? titleMatch[1].trim() : 'Synthesized Artifact',
+      type: typeMatch ? typeMatch[1].trim() : 'architecture',
+      abstract: abstractMatch ? abstractMatch[1].trim() : 'Generated architectural artifact.',
+      highConcept: highConceptMatch ? highConceptMatch[1].toLowerCase() === 'true' : false,
+      content: bodyLines || block,
+    });
+  }
+
+  // 2. Extract XML <artifact_upsert> or <artifact> tags (attributes in any order)
+  const xmlArtifactRegex = /<(?:artifact_upsert|artifact)\b([^>]*)>([\s\S]*?)<\/(?:artifact_upsert|artifact)>/gi;
+  let upMatch;
+  while ((upMatch = xmlArtifactRegex.exec(replyText)) !== null) {
+    const attrs = upMatch[1];
+    const inner = upMatch[2];
+    const titleAttr = /title=["']([^"']+)["']/i.exec(attrs);
+    const typeAttr = /type=["']([^"']+)["']/i.exec(attrs);
+    const idAttr = /id=["']([^"']+)["']/i.exec(attrs);
+
+    const upTitle = titleAttr ? titleAttr[1] : (idAttr ? idAttr[1] : 'Synthesized Spec');
+    const upType = typeAttr ? typeAttr[1] : 'document';
+    const absMatch = /<abstract>([\s\S]*?)<\/abstract>/i.exec(inner);
+    const contentMatch = /<content>([\s\S]*?)<\/content>/i.exec(inner);
+    const sumMatch = /<summary>([\s\S]*?)<\/summary>/i.exec(inner);
+
+    artifacts.push({
+      title: upTitle,
+      type: upType,
+      abstract: absMatch ? absMatch[1].trim() : (sumMatch ? sumMatch[1].trim() : upTitle),
+      highConcept: false,
+      content: contentMatch ? contentMatch[1].trim() : inner.trim(),
+    });
+  }
+
+  // 3. Extract topic shifts (JSON or XML)
+  let topicShift: { shiftDetected: boolean; newChapterTitle: string; reason: string } | null = null;
+  const topicShiftRegex = /```topic_shift\s*([\s\S]*?)```/i;
+  const topicMatch = replyText.match(topicShiftRegex);
+  if (topicMatch) {
+    try {
+      topicShift = JSON.parse(topicMatch[1].trim());
+    } catch {
+      // ignore parse error
+    }
+  }
+
+  const topicShiftXml = /<topic_shift\s+([^>]*?)\/?>/i.exec(replyText);
+  if (topicShiftXml && !topicShift) {
+    const titleM = /title=["']([^"']+)["']/i.exec(topicShiftXml[1]);
+    const summaryM = /summary=["']([^"']+)["']/i.exec(topicShiftXml[1]);
+    if (titleM) {
+      topicShift = {
+        shiftDetected: true,
+        newChapterTitle: titleM[1],
+        reason: summaryM ? summaryM[1] : 'Topic progression',
+      };
+    }
+  }
+
+  // Clean reply text of artifact/topic_shift raw blocks for display
+  const cleanedReply = replyText
+    .replace(/```topic_shift[\s\S]*?```/gi, '')
+    .replace(/<topic_shift[\s\S]*?\/>/gi, '')
+    .replace(/<(?:artifact_upsert|artifact)\b[^>]*>[\s\S]*?<\/(?:artifact_upsert|artifact)>/gi, '')
+    .replace(/```artifact\s*[\s\S]*?```/gi, '')
+    .replace(/<link[\s\S]*?\/>/gi, '')
+    .trim();
+
+  return {
+    cleanedReply,
+    artifacts,
+    topicShift,
+  };
+}
+
+const DEFAULT_SYSTEM_INSTRUCTION = `You are MarkBrain, a principal systems architect specializing in multi-tier design systems, token topologies, component state machines, and spatial software architectures.
 You collaborate with engineers to brainstorm, structure, and refine complex system boundaries.
 
 CRITICAL INSTRUCTIONS:
@@ -92,39 +272,60 @@ or conclude with a JSON block:
 \`\`\`
 otherwise omit that block.`;
 
-    const systemInstruction = clientSystemInstruction || defaultSystemInstruction;
+function buildCompiledPrompt(payload: any): string {
+  const {
+    compiledPrompt: clientCompiledPrompt,
+    projectTitle = 'Design System Core',
+    currentTopic = '',
+    chapterSummaries = [],
+    contextPayload = '',
+    messages = [],
+  } = payload;
 
-    let compiledPrompt = clientCompiledPrompt;
+  if (clientCompiledPrompt) return clientCompiledPrompt;
 
-    if (!compiledPrompt) {
-      compiledPrompt = `Project: ${projectTitle}\nCurrent Focus: ${currentTopic || 'General Architecture'}\n\n`;
+  let prompt = `Project: ${projectTitle}\nCurrent Focus: ${currentTopic || 'General Architecture'}\n\n`;
 
-      if (chapterSummaries && chapterSummaries.length > 0) {
-        compiledPrompt += `--- PREVIOUS CHAPTER SUMMARIES (Compressed Memory) ---\n`;
-        for (const chap of chapterSummaries) {
-          compiledPrompt += `[Chapter: ${chap.title}]\nSummary: ${chap.summary}\nKey Invariants: ${(chap.keyPoints || []).join('; ')}\n\n`;
-        }
-      }
-
-      if (contextPayload && contextPayload.trim().length > 0) {
-        compiledPrompt += `--- ACTIVE IN-MEMORY ARTIFACTS ---\n${contextPayload}\n\n`;
-      }
-
-      compiledPrompt += `--- CONVERSATION TRANSCRIPT ---\n`;
-      for (const msg of messages) {
-        compiledPrompt += `${msg.role === 'user' ? 'User' : 'Architect'}: ${msg.content}\n`;
-      }
-
-      compiledPrompt += `\nArchitect:`;
+  if (chapterSummaries && chapterSummaries.length > 0) {
+    prompt += `--- PREVIOUS CHAPTER SUMMARIES (Compressed Memory) ---\n`;
+    for (const chap of chapterSummaries) {
+      prompt += `[Chapter: ${chap.title}]\nSummary: ${chap.summary}\nKey Invariants: ${(chap.keyPoints || []).join('; ')}\n\n`;
     }
+  }
+
+  if (contextPayload && contextPayload.trim().length > 0) {
+    prompt += `--- ACTIVE IN-MEMORY ARTIFACTS ---\n${contextPayload}\n\n`;
+  }
+
+  prompt += `--- CONVERSATION TRANSCRIPT ---\n`;
+  for (const msg of messages) {
+    prompt += `${msg.role === 'user' ? 'User' : 'Architect'}: ${msg.content}\n`;
+  }
+
+  prompt += `\nArchitect:`;
+  return prompt;
+}
+
+// API: Standard Chat Endpoint (non-streaming with 1:1 API telemetry)
+app.post('/api/chat', async (req: Request, res: Response) => {
+  const reqId = (req as any).reqId || Math.floor(Math.random() * 10000);
+  const startTime = Date.now();
+  try {
+    const {
+      model = 'gemini-3.8-flash',
+      projectTitle = 'Design System Core',
+      systemInstruction: clientSystemInstruction,
+    } = req.body;
+
+    const systemInstruction = clientSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
+    const compiledPrompt = buildCompiledPrompt(req.body);
 
     let replyText = '';
+    let usageMetadata: any = null;
+    const validModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
+    const targetModel = validModels.includes(model) ? model : 'gemini-3.8-flash';
 
     if (ai) {
-      // Pick model from supported list
-      const validModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
-      const targetModel = validModels.includes(model) ? model : 'gemini-3.8-flash';
-
       const response = await ai.models.generateContent({
         model: targetModel,
         contents: compiledPrompt,
@@ -135,11 +336,11 @@ otherwise omit that block.`;
       });
 
       replyText = response.text || '';
+      usageMetadata = response.usageMetadata || null;
     } else {
-      // High-fidelity fallback when API key is not yet set in environment
       replyText = `### Architectural Synthesis: ${projectTitle}
 
-We are examining the active memory state with your configured abstraction layers. 
+We are examining the active memory state with your configured abstraction layers.
 
 \`\`\`artifact
 title: Dynamic Token Boundary Spec
@@ -165,102 +366,21 @@ highConcept: true
 The chapter context and spatial nodes have been verified. You can tweak the token compression slider to test different footprint budgets.`;
     }
 
-    // Extract any artifacts generated
-    const artifacts: Array<{
-      title: string;
-      type: string;
-      abstract: string;
-      highConcept: boolean;
-      content: string;
-    }> = [];
+    const { cleanedReply, artifacts, topicShift } = parseModelResponse(replyText);
 
-    const artifactRegex = /```artifact\s*([\s\S]*?)```/g;
-    let match;
-    while ((match = artifactRegex.exec(replyText)) !== null) {
-      const block = match[1];
-      const titleMatch = block.match(/title:\s*(.*)/i);
-      const typeMatch = block.match(/type:\s*(.*)/i);
-      const abstractMatch = block.match(/abstract:\s*(.*)/i);
-      const highConceptMatch = block.match(/highConcept:\s*(true|false)/i);
+    // Exact 1:1 Gemini API token usage (fallback to character estimate only if API metadata omitted)
+    const promptTokens = usageMetadata?.promptTokenCount ?? estimateTokens(compiledPrompt);
+    const completionTokens = usageMetadata?.candidatesTokenCount ?? estimateTokens(replyText);
+    const totalTokens = usageMetadata?.totalTokenCount ?? (promptTokens + completionTokens);
+    const durationMs = Date.now() - startTime;
 
-      // Remove the header lines to leave the markdown body
-      const bodyLines = block
-        .replace(/title:.*\n/i, '')
-        .replace(/type:.*\n/i, '')
-        .replace(/abstract:.*\n/i, '')
-        .replace(/highConcept:.*\n/i, '')
-        .trim();
-
-      artifacts.push({
-        title: titleMatch ? titleMatch[1].trim() : 'Synthesized Artifact',
-        type: typeMatch ? typeMatch[1].trim() : 'architecture',
-        abstract: abstractMatch ? abstractMatch[1].trim() : 'Generated architectural artifact.',
-        highConcept: highConceptMatch ? highConceptMatch[1].toLowerCase() === 'true' : false,
-        content: bodyLines || block,
-      });
-    }
-
-    // Extract any XML <artifact_upsert> or <artifact> tags (with attributes in any order)
-    const xmlArtifactRegex = /<(?:artifact_upsert|artifact)\b([^>]*)>([\s\S]*?)<\/(?:artifact_upsert|artifact)>/gi;
-    let upMatch;
-    while ((upMatch = xmlArtifactRegex.exec(replyText)) !== null) {
-      const attrs = upMatch[1];
-      const inner = upMatch[2];
-      const titleAttr = /title=["']([^"']+)["']/i.exec(attrs);
-      const typeAttr = /type=["']([^"']+)["']/i.exec(attrs);
-      const idAttr = /id=["']([^"']+)["']/i.exec(attrs);
-
-      const upTitle = titleAttr ? titleAttr[1] : (idAttr ? idAttr[1] : 'Synthesized Spec');
-      const upType = typeAttr ? typeAttr[1] : 'document';
-      const absMatch = /<abstract>([\s\S]*?)<\/abstract>/i.exec(inner);
-      const contentMatch = /<content>([\s\S]*?)<\/content>/i.exec(inner);
-      const sumMatch = /<summary>([\s\S]*?)<\/summary>/i.exec(inner);
-
-      artifacts.push({
-        title: upTitle,
-        type: upType,
-        abstract: absMatch ? absMatch[1].trim() : (sumMatch ? sumMatch[1].trim() : upTitle),
-        highConcept: false,
-        content: contentMatch ? contentMatch[1].trim() : inner.trim(),
-      });
-    }
-
-    // Extract any topic shift (JSON or XML)
-    let topicShift: { shiftDetected: boolean; newChapterTitle: string; reason: string } | null = null;
-    const topicShiftRegex = /```topic_shift\s*([\s\S]*?)```/i;
-    const topicMatch = replyText.match(topicShiftRegex);
-    if (topicMatch) {
-      try {
-        topicShift = JSON.parse(topicMatch[1].trim());
-      } catch {
-        // ignore parse error
-      }
-    }
-
-    const topicShiftXml = /<topic_shift\s+([^>]*?)\/?>/i.exec(replyText);
-    if (topicShiftXml && !topicShift) {
-      const titleM = /title=["']([^"']+)["']/i.exec(topicShiftXml[1]);
-      const summaryM = /summary=["']([^"']+)["']/i.exec(topicShiftXml[1]);
-      if (titleM) {
-        topicShift = {
-          shiftDetected: true,
-          newChapterTitle: titleM[1],
-          reason: summaryM ? summaryM[1] : 'Topic progression',
-        };
-      }
-    }
-
-    // Clean reply text of artifact/topic_shift raw blocks for display
-    const cleanedReply = replyText
-      .replace(/```topic_shift[\s\S]*?```/gi, '')
-      .replace(/<topic_shift[\s\S]*?\/>/gi, '')
-      .replace(/<(?:artifact_upsert|artifact)\b[^>]*>[\s\S]*?<\/(?:artifact_upsert|artifact)>/gi, '')
-      .replace(/```artifact\s*[\s\S]*?```/gi, '')
-      .replace(/<link[\s\S]*?\/>/gi, '')
-      .trim();
-
-    const promptTokens = estimateTokens(compiledPrompt);
-    const completionTokens = estimateTokens(replyText);
+    logServer('success', 'CHAT:DONE', `#${reqId} Chat completed in ${durationMs}ms`, {
+      model: targetModel,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      artifactsCount: artifacts.length,
+    });
 
     res.json({
       reply: cleanedReply || replyText,
@@ -270,13 +390,309 @@ The chapter context and spatial nodes have been verified. You can tweak the toke
       usage: {
         promptTokens,
         completionTokens,
-        totalTokens: promptTokens + completionTokens,
+        totalTokens,
+      },
+      telemetry: {
+        model: targetModel,
+        promptTokens,
+        candidatesTokens: completionTokens,
+        totalTokens,
+        durationMs,
+        rawMetadata: usageMetadata,
+        isFallback: !ai,
       },
     });
   } catch (err: unknown) {
-    console.error('Error in /api/chat:', err);
     const errorMessage = err instanceof Error ? err.message : 'Internal Server Error';
+    logServer('error', 'CHAT:ERROR', `#${reqId} Error: ${errorMessage}`);
     res.status(500).json({ error: errorMessage });
+  }
+});
+
+// API: Explicit Chat Cancellation
+app.post('/api/chat/cancel', (req: Request, res: Response) => {
+  const { reason = 'User pressed stop' } = req.body;
+  logServer('warn', 'CHAT:CANCEL', `Client canceled operation: ${reason}`);
+  res.json({ success: true, message: 'Stream canceled' });
+});
+
+// API: Real-Time Server-Sent Events (SSE) Streaming Endpoint
+app.post('/api/chat/stream', async (req: Request, res: Response) => {
+  const reqId = (req as any).reqId || Math.floor(Math.random() * 10000);
+  const startTime = Date.now();
+  let isClientAborted = false;
+
+  // Setup SSE Headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  // Detect premature client disconnect (socket closed before response ended)
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      isClientAborted = true;
+      logServer('warn', 'STREAM:CLIENT_ABORT', `#${reqId} Client connection closed prematurely / aborted`);
+    }
+  });
+
+  const sendSSE = (event: string, data: any) => {
+    if (isClientAborted) return;
+    try {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch (e) {
+      logServer('error', 'STREAM:WRITE_ERR', `#${reqId} Failed to write SSE event: ${event}`);
+    }
+  };
+
+  try {
+    const {
+      model = 'gemini-3.1-flash-lite',
+      projectTitle = 'Design System Core',
+      systemInstruction: clientSystemInstruction,
+    } = req.body;
+
+    const systemInstruction = clientSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
+    const compiledPrompt = buildCompiledPrompt(req.body);
+
+    const validModels = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-3.1-pro-preview'];
+    let targetModel = validModels.includes(model) ? model : 'gemini-3.1-flash-lite';
+
+    logServer('info', 'STREAM:INIT', `#${reqId} Initiating stream for project="${projectTitle}", model=${targetModel}, promptChars=${compiledPrompt.length}`);
+
+    // Step 1: Connecting Status
+    sendSSE('status', {
+      state: 'connecting',
+      message: `Connecting to ${targetModel}...`,
+      timestamp: Date.now(),
+      model: targetModel,
+    });
+
+    if (ai) {
+      sendSSE('status', {
+        state: 'thinking',
+        message: `Analyzing context substrate with ${targetModel}...`,
+        timestamp: Date.now(),
+        model: targetModel,
+      });
+
+      // Helper function to stream from a given model
+      const streamFromModel = async (modelName: string) => {
+        logServer('info', 'GEMINI:STREAM_CALL', `#${reqId} Calling ai.models.generateContentStream(${modelName})`);
+        return await ai!.models.generateContentStream({
+          model: modelName,
+          contents: compiledPrompt,
+          config: {
+            systemInstruction,
+            temperature: 0.7,
+          },
+        });
+      };
+
+      let responseStream: any = null;
+      let usedModel = targetModel;
+
+      // Smart watchdog: if non-lite model is requested, race with a 9-second watchdog
+      if (targetModel !== 'gemini-3.1-flash-lite') {
+        try {
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('FIRST_CHUNK_TIMEOUT_9S')), 9000)
+          );
+          responseStream = await Promise.race([streamFromModel(targetModel), timeoutPromise]);
+        } catch (streamErr: any) {
+          logServer('warn', 'STREAM:WATCHDOG', `#${reqId} Upstream model ${targetModel} delayed (${streamErr?.message || 'timeout'}). Failing over to gemini-3.1-flash-lite.`);
+          sendSSE('status', {
+            state: 'thinking',
+            message: `Optimizing latency: routed to Gemini 3.1 Flash Lite...`,
+            timestamp: Date.now(),
+            model: 'gemini-3.1-flash-lite',
+          });
+          usedModel = 'gemini-3.1-flash-lite';
+          responseStream = await streamFromModel('gemini-3.1-flash-lite');
+        }
+      } else {
+        responseStream = await streamFromModel(targetModel);
+      }
+
+      let fullText = '';
+      let chunkCount = 0;
+      let timeToFirstChunkMs: number | null = null;
+      let lastStatusTick = Date.now();
+      let lastLogTick = Date.now();
+      let usageMetadata: any = null;
+
+      for await (const chunk of responseStream) {
+        if (isClientAborted) {
+          logServer('warn', 'STREAM:BREAK', `#${reqId} Generator loop exited due to client abort.`);
+          break;
+        }
+
+        if (timeToFirstChunkMs === null) {
+          timeToFirstChunkMs = Date.now() - startTime;
+          logServer('success', 'STREAM:TTFC', `#${reqId} First chunk received in ${timeToFirstChunkMs}ms from ${usedModel}`);
+          sendSSE('status', {
+            state: 'writing',
+            message: `Writing response with ${usedModel}...`,
+            timestamp: Date.now(),
+            timeToFirstChunkMs,
+            model: usedModel,
+          });
+        }
+
+        const chunkText = chunk.text || '';
+        if (chunkText) {
+          fullText += chunkText;
+          chunkCount++;
+
+          sendSSE('chunk', {
+            delta: chunkText,
+            accumulatedLength: fullText.length,
+            timestamp: Date.now(),
+          });
+
+          const now = Date.now();
+          // Client status tick every ~900ms
+          if (now - lastStatusTick >= 900) {
+            lastStatusTick = now;
+            sendSSE('status', {
+              state: 'writing',
+              message: `Writing response (${chunkCount} chunks, ${fullText.length} chars)...`,
+              bytesReceived: fullText.length,
+              chunks: chunkCount,
+              elapsedMs: now - startTime,
+              timestamp: now,
+              model: usedModel,
+            });
+          }
+
+          // Server console log every ~2.5s to avoid flood while maintaining high observability
+          if (now - lastLogTick >= 2500) {
+            lastLogTick = now;
+            logServer('info', 'STREAM:PROGRESS', `#${reqId} Chunk #${chunkCount}, totalChars=${fullText.length}, elapsed=${now - startTime}ms`);
+          }
+        }
+
+        if (chunk.usageMetadata) {
+          usageMetadata = chunk.usageMetadata;
+        }
+      }
+
+      if (isClientAborted) {
+        res.end();
+        return;
+      }
+
+      // Step 3: Indexing and extracting artifacts from the complete stream
+      sendSSE('status', {
+        state: 'indexing',
+        message: 'Parsing architectural invariants and extracted artifacts...',
+        timestamp: Date.now(),
+      });
+
+      const { cleanedReply, artifacts, topicShift } = parseModelResponse(fullText);
+
+      // Raw 1:1 Gemini API token usage
+      const promptTokens = usageMetadata?.promptTokenCount ?? estimateTokens(compiledPrompt);
+      const candidatesTokens = usageMetadata?.candidatesTokenCount ?? estimateTokens(fullText);
+      const totalTokens = usageMetadata?.totalTokenCount ?? (promptTokens + candidatesTokens);
+      const durationMs = Date.now() - startTime;
+
+      logServer('success', 'STREAM:DONE', `#${reqId} Completed in ${durationMs}ms`, {
+        model: usedModel,
+        promptTokens,
+        candidatesTokens,
+        totalTokens,
+        artifactsExtracted: artifacts.length,
+        topicShiftDetected: Boolean(topicShift),
+      });
+
+      const telemetry = {
+        model: usedModel,
+        promptTokens,
+        candidatesTokens,
+        totalTokens,
+        durationMs,
+        timeToFirstChunkMs: timeToFirstChunkMs ?? durationMs,
+        rawMetadata: usageMetadata,
+        isFallback: false,
+      };
+
+      sendSSE('complete', {
+        reply: cleanedReply || fullText,
+        rawReply: fullText,
+        artifacts,
+        topicShift,
+        telemetry,
+      });
+
+      sendSSE('done', { success: true });
+      res.end();
+    } else {
+      // High-fidelity fallback streaming simulation when GEMINI_API_KEY is not set
+      logServer('info', 'STREAM:FALLBACK', `#${reqId} Running in local simulation fallback`);
+      sendSSE('status', {
+        state: 'thinking',
+        message: 'Analyzing project context in local engine...',
+        timestamp: Date.now(),
+      });
+
+      await new Promise((r) => setTimeout(r, 350));
+
+      sendSSE('status', {
+        state: 'writing',
+        message: 'Synthesizing specification document...',
+        timestamp: Date.now(),
+      });
+
+      const sampleChunks = [
+        `### Architectural Synthesis: ${projectTitle}\n\nWe are examining the active memory state with your configured abstraction layers.\n\n`,
+        `\`\`\`artifact\ntitle: Dynamic Token Boundary Spec\ntype: token-spec\nabstract: Unified semantic token resolution matrix bridging core foundations with component aliases\nhighConcept: true\n# Dynamic Token Boundary Spec v2.1\n\n## Topology\n\`\`\`\n[Global Primitives] (e.g. color.cyan.500)\n       ↓\n[Semantic Aliases] (e.g. color.surface.accent)\n       ↓\n[Component Overrides] (e.g. button.primary.fill)\n\`\`\`\n\n## Invariants\n1. Cross-repo boundaries must reference **Semantic Aliases** only. Detail overrides remain repo-scoped.\n2. Abstraction resolution preserves 40% context budget across multi-chapter sessions.\n\`\`\`\n\n`,
+        `The chapter context and spatial nodes have been verified. You can tweak the token compression slider to test different footprint budgets.`,
+      ];
+
+      let accumulated = '';
+      for (const c of sampleChunks) {
+        if (isClientAborted) break;
+        accumulated += c;
+        sendSSE('chunk', {
+          delta: c,
+          accumulatedLength: accumulated.length,
+          timestamp: Date.now(),
+        });
+        await new Promise((r) => setTimeout(r, 250));
+      }
+
+      const { cleanedReply, artifacts, topicShift } = parseModelResponse(accumulated);
+      const promptTokens = estimateTokens(compiledPrompt);
+      const candidatesTokens = estimateTokens(accumulated);
+
+      const telemetry = {
+        model: targetModel,
+        promptTokens,
+        candidatesTokens,
+        totalTokens: promptTokens + candidatesTokens,
+        durationMs: Date.now() - startTime,
+        timeToFirstChunkMs: 350,
+        rawMetadata: null,
+        isFallback: true,
+      };
+
+      sendSSE('complete', {
+        reply: cleanedReply || accumulated,
+        rawReply: accumulated,
+        artifacts,
+        topicShift,
+        telemetry,
+      });
+
+      sendSSE('done', { success: true });
+      res.end();
+    }
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : 'Internal Server Error';
+    logServer('error', 'STREAM:FAIL', `#${reqId} Fatal streaming error: ${errorMessage}`);
+    sendSSE('error', { error: errorMessage });
+    res.end();
   }
 });
 

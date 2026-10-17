@@ -146,6 +146,45 @@ export class WorkspaceDomain implements IWorkspaceDomain {
     this.persist();
   }
 
+  loadUserProjects(cloudProjects: any[]): void {
+    this.projects.clear();
+    if (cloudProjects.length === 0) {
+      const prev = this.activeProjectId;
+      this.activeProjectId = '';
+      this.persist();
+      this.emit({ type: 'activeProjectChanged', previousId: prev, nextId: '' });
+      return;
+    }
+
+    cloudProjects.forEach((snap) => {
+      const id = snap.projectId || snap.id;
+      const meta: ProjectMetadata = {
+        id,
+        name: snap.name || id,
+        codeName: snap.codeName || id.slice(0, 4).toUpperCase(),
+        description: snap.description || '',
+        color: snap.color || '#3b82f6',
+        createdAt: snap.updatedAt || Date.now(),
+        updatedAt: snap.updatedAt || Date.now(),
+      };
+      const container: WorkspaceContainer = {
+        metadata: meta,
+        activeChapterId: snap.chapters?.[0]?.id || `chap-${id}-1`,
+        focalArtifactIds: [],
+        opticalMode: 'autofocus',
+        tokenCeiling: 32000,
+        tierOverrides: {},
+      };
+      this.projects.set(id, container);
+    });
+
+    const firstId = cloudProjects[0].projectId || cloudProjects[0].id;
+    const prev = this.activeProjectId;
+    this.activeProjectId = firstId;
+    this.persist();
+    this.emit({ type: 'activeProjectChanged', previousId: prev, nextId: firstId });
+  }
+
   subscribe(callback: (event: WorkspaceEvent) => void): () => void {
     this.listeners.add(callback);
     return () => this.listeners.delete(callback);

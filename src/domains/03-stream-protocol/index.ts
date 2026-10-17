@@ -1,4 +1,12 @@
-import { StreamProtocolEvents, ExtractedTopicShift, ExtractedArtifactUpsert, ExtractedLink } from './types';
+import {
+  StreamProtocolEvents,
+  ExtractedTopicShift,
+  ExtractedArtifactUpsert,
+  ExtractedLink,
+  StreamStatusPayload,
+  BackendTelemetry,
+  StreamTurnResult,
+} from './types';
 import { RelationKind } from '../02-topological-graph';
 
 export interface IStreamProtocolDomain {
@@ -9,6 +17,26 @@ export interface IStreamProtocolDomain {
     artifactUpserts: ExtractedArtifactUpsert[];
     links: ExtractedLink[];
   };
+  executeStreamingTurn(
+    payload: {
+      model?: string;
+      messages?: any[];
+      contextPayload?: string;
+      currentTopic?: string;
+      chapterSummaries?: any[];
+      projectTitle?: string;
+      compiledPrompt?: string;
+      systemInstruction?: string;
+    },
+    callbacks?: {
+      signal?: AbortSignal;
+      onStatus?: (status: StreamStatusPayload) => void;
+      onChunk?: (cleanDelta: string, accumulatedClean: string) => void;
+      onArtifact?: (artifact: ExtractedArtifactUpsert) => void;
+      onTopicShift?: (shift: ExtractedTopicShift) => void;
+      onTelemetry?: (telemetry: BackendTelemetry) => void;
+    }
+  ): Promise<StreamTurnResult>;
   subscribe<K extends keyof StreamProtocolEvents>(event: K, handler: StreamProtocolEvents[K]): () => void;
 }
 
@@ -179,6 +207,140 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       artifactUpserts,
       links,
     };
+  }
+
+  async executeStreamingTurn(
+    payload: {
+      model?: string;
+      messages?: any[];
+      contextPayload?: string;
+      currentTopic?: string;
+      chapterSummaries?: any[];
+      projectTitle?: string;
+      compiledPrompt?: string;
+      systemInstruction?: string;
+    },
+    callbacks: {
+      signal?: AbortSignal;
+      onStatus?: (status: StreamStatusPayload) => void;
+      onChunk?: (cleanDelta: string, accumulatedClean: string) => void;
+      onArtifact?: (artifact: ExtractedArtifactUpsert) => void;
+      onTopicShift?: (shift: ExtractedTopicShift) => void;
+      onTelemetry?: (telemetry: BackendTelemetry) => void;
+    } = {}
+  ): Promise<StreamTurnResult> {
+    let accumulatedRaw = '';
+    let accumulatedClean = '';
+    let finalResult: StreamTurnResult | null = null;
+
+    try {
+      const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: callbacks.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      if (!response.body) {
+        throw new Error('ReadableStream not supported on this platform');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() || '';
+
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        const eventMatch = /^event:\s*(.+)$/m.exec(block);
+        const dataMatch = /^data:\s*(.+)$/m.exec(block);
+        const eventName = eventMatch ? eventMatch[1].trim() : 'message';
+        const rawData = dataMatch ? dataMatch[1].trim() : '';
+
+        try {
+          const data = rawData ? JSON.parse(rawData) : {};
+          if (eventName === 'status') {
+            callbacks.onStatus?.(data);
+            this.handlers.onStatusChanged?.forEach((fn) => fn(data));
+          } else if (eventName === 'chunk') {
+            accumulatedRaw += data.delta || '';
+            const cleanDelta = this.demuxChunk(data.delta || '');
+            if (cleanDelta) {
+              accumulatedClean += cleanDelta;
+              callbacks.onChunk?.(cleanDelta, accumulatedClean);
+            }
+          } else if (eventName === 'complete') {
+            const parsed = this.demuxFullTurn(data.rawReply || accumulatedRaw);
+            finalResult = {
+              cleanReply: data.reply || parsed.cleanText,
+              rawReply: data.rawReply || accumulatedRaw,
+              artifacts: parsed.artifactUpserts.length > 0 ? parsed.artifactUpserts : (data.artifacts || []),
+              topicShift: parsed.topicShift || data.topicShift,
+              telemetry: data.telemetry,
+            };
+
+            if (finalResult.telemetry) {
+              callbacks.onTelemetry?.(finalResult.telemetry);
+              this.handlers.onTelemetryReceived?.forEach((fn) => fn(finalResult!.telemetry!));
+            }
+            if (finalResult.topicShift) {
+              callbacks.onTopicShift?.(finalResult.topicShift);
+            }
+            finalResult.artifacts.forEach((art) => callbacks.onArtifact?.(art));
+          } else if (eventName === 'error') {
+            throw new Error(data.error || 'Stream error from server');
+          }
+        } catch (err) {
+          console.warn('Error processing SSE chunk:', err);
+        }
+      }
+    }
+
+    if (finalResult) {
+      return finalResult;
+    }
+
+    const demuxed = this.demuxFullTurn(accumulatedRaw);
+    return {
+      cleanReply: demuxed.cleanText,
+      rawReply: accumulatedRaw,
+      artifacts: demuxed.artifactUpserts,
+      topicShift: demuxed.topicShift,
+    };
+    } catch (err: any) {
+      if (err.name === 'AbortError' || callbacks.signal?.aborted) {
+        const demuxed = this.demuxFullTurn(accumulatedRaw);
+        const estPrompt = Math.max(1, Math.ceil((payload.compiledPrompt?.length || 0) / 4));
+        const estCand = Math.max(1, Math.ceil((accumulatedRaw.length || 0) / 4));
+        return {
+          cleanReply: accumulatedClean || demuxed.cleanText,
+          rawReply: accumulatedRaw,
+          artifacts: demuxed.artifactUpserts,
+          topicShift: demuxed.topicShift,
+          telemetry: {
+            model: payload.model || 'gemini-3.1-flash-lite',
+            promptTokens: estPrompt,
+            candidatesTokens: estCand,
+            totalTokens: estPrompt + estCand,
+            durationMs: 0,
+            isFallback: false,
+          },
+        };
+      }
+      throw err;
+    }
   }
 }
 

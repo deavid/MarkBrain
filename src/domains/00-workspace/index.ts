@@ -8,6 +8,7 @@ export interface IWorkspaceDomain {
   importWorkspaceJson(jsonStr: string): any;
   updateMetadata(id: string, partial: any): void;
   saveContainer(container: any): void;
+  loadUserProjects(cloudProjects: any[]): void;
   subscribe(callback: (event: any) => void): () => void;
 }
 

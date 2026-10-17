@@ -36,7 +36,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   onChangeTierOverride,
 }) => {
   const [activeTab, setActiveTab] = useState<'content' | 'metadata' | 'history'>('content');
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(true);
 
   // Close on Escape key
   useEffect(() => {
@@ -62,14 +62,14 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   };
 
   const modalNode = (
-    <div className={`fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center select-text ${
+    <div className={`fixed inset-0 z-[9999] bg-black/90 backdrop-blur-md flex items-center justify-center select-text w-screen h-screen ${
       isFullscreen ? 'p-0' : 'p-2 sm:p-4 md:p-6'
     }`}>
       <div
-        className={`bg-[#0b1019] border border-[#1a283e] flex flex-col shadow-2xl overflow-hidden font-sans transition-all duration-200 ${
+        className={`bg-[#0b1019] flex flex-col shadow-2xl overflow-hidden font-sans transition-all duration-200 ${
           isFullscreen
-            ? 'w-full h-full rounded-none border-none'
-            : 'w-full max-w-5xl h-[92vh] max-h-[92vh] rounded-2xl'
+            ? 'w-screen h-screen rounded-none border-none'
+            : 'w-full max-w-6xl h-[94vh] max-h-[94vh] rounded-2xl border border-[#1a283e]'
         }`}
       >
         {/* Header */}

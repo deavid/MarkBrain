@@ -8,7 +8,8 @@ export interface IDialogueTimelineDomain {
   count(): number;
 
   // Commands
-  appendTurn(role: 'user' | 'assistant' | 'system', content: string, extractedArtifacts?: any[]): Turn;
+  appendTurn(role: 'user' | 'assistant' | 'system', content: string, extractedArtifacts?: any[], meta?: any): Turn;
+  updateTurn(id: string, partial: Partial<Turn>): void;
   loadTurns(turns: Turn[]): void;
   clear(): void;
 

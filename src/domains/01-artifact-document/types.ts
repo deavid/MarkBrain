@@ -20,9 +20,13 @@ export interface UniversalArtifactDocument {
   tags: string[];
   createdAt: number;
   updatedAt: number;
+  graph?: { x?: number; y?: number; is_high_concept?: boolean };
+  resolution?: any;
+  yamlDocument?: string;
 }
 
 export type ArtifactDocumentEvent =
   | { type: 'artifactCreated'; artifact: UniversalArtifactDocument }
   | { type: 'artifactUpdated'; artifact: UniversalArtifactDocument }
+  | { type: 'artifactsLoaded'; artifacts: UniversalArtifactDocument[] }
   | { type: 'artifactDeleted'; artifactId: string };

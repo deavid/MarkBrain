@@ -16,4 +16,5 @@ export type SegmentationEvent =
   | { type: 'chapterDeclared'; chapter: ChapterPartition }
   | { type: 'chapterSplit'; oldChapterId: string; newChapter: ChapterPartition }
   | { type: 'boundaryShifted'; chapterId: string; newStartIndex: number }
-  | { type: 'chapterSummaryUpdated'; chapterId: string; summary: string; keyPoints?: string[] };
+  | { type: 'chapterSummaryUpdated'; chapterId: string; summary: string; keyPoints?: string[] }
+  | { type: 'chaptersLoaded'; chapters: ChapterPartition[] };

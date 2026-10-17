@@ -42,6 +42,7 @@ export class TopologicalGraphDomain implements ITopologicalGraphDomain {
   loadEdges(edges: SemanticEdge[]): void {
     this.edges.clear();
     edges.forEach((e) => this.edges.set(e.id, e));
+    this.emit({ type: 'edgesLoaded', edges: Array.from(this.edges.values()) });
   }
 
   getNeighbors(nodeId: string): string[] {

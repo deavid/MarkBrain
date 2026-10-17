@@ -13,6 +13,7 @@ export interface IWorkspaceDomain {
   importWorkspaceJson(jsonStr: string): ProjectMetadata;
   updateMetadata(id: string, partial: Partial<ProjectMetadata>): void;
   saveContainer(container: WorkspaceContainer): void;
+  loadUserProjects(cloudProjects: any[]): void;
 
   // Subscriptions
   subscribe(callback: (event: WorkspaceEvent) => void): () => void;

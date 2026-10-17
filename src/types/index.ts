@@ -242,6 +242,10 @@ export interface MessageMeta {
   totalTokens?: number;
   costEstimate?: string;
   latencyMs?: number;
+  isStreaming?: boolean;
+  streamState?: string;
+  interrupted?: boolean;
+  rawMetadata?: any;
 }
 export interface ChatMessage {
   id: string;

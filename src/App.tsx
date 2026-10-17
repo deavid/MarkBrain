@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Project,
   Artifact,
@@ -14,13 +14,19 @@ import {
 } from './types';
 import { AVAILABLE_MODELS } from './data/initialData';
 import { serializeArtifactToYamlDoc } from './utils/yamlArtifactParser';
-import { ActiveView } from './components/Header';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, ActiveView } from './components/Sidebar';
 import { SpatialGraph } from './components/SpatialGraph';
 import { ChatView } from './components/ChatView';
+import { ChatErrorBoundary } from './components/ChatErrorBoundary';
+import { AuthGate } from './components/AuthGate';
+import { ProjectGenesis } from './components/ProjectGenesis';
+import { Brain } from 'lucide-react';
+import { logger } from './utils/logger';
+import { ArtifactDetailModal } from './components/ArtifactDetailModal';
 import { ImportModal } from './components/ImportModal';
 import { ExportModal } from './components/ExportModal';
 import { ProjectLauncher } from './components/ProjectLauncher';
+import { ServerLogsModal } from './components/ServerLogsModal';
 import { useDomains } from './domains/DomainRegistry';
 import { SaturationOrb } from './domains/04-presentation/telemetry/SaturationOrb';
 import { EdgeHeatStrip } from './domains/04-presentation/telemetry/EdgeHeatStrip';
@@ -36,10 +42,19 @@ export default function App() {
     segmentation,
     compiler,
     stream,
+    currentUser,
+    authInitialized,
+    cloudProjectsCount,
+    isSyncing,
+    isCloudSynced,
+    signIn,
+    signOut,
+    syncNow,
+    createCloudWorkspace,
   } = useDomains();
 
   // Tick state to force re-render on domain events
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   const triggerReRender = useCallback(() => setTick((t) => t + 1), []);
 
   // Subscribe to domain event streams for real-time reactivity
@@ -73,8 +88,8 @@ export default function App() {
   const activeProjectId = workspace.getActiveProjectId();
   const currentContainer = workspace.getProject(activeProjectId);
 
-  // Model selection
-  const [selectedModel, setSelectedModel] = useState<ModelOption>(AVAILABLE_MODELS[1]); // Gemini 3.8 Flash
+  // Model selection (default to fast Gemini 3.1 Flash Lite)
+  const [selectedModel, setSelectedModel] = useState<ModelOption>(AVAILABLE_MODELS[0]);
 
   // Optical Mode state from current container or default
   const opticalMode = currentContainer?.opticalMode || 'autofocus';
@@ -103,14 +118,33 @@ export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>('chat');
 
   // Modals & Project Launcher state
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isProjectLauncherOpen, setIsProjectLauncherOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
 
-  // Chat loading state
+  // Chat loading & live streaming status state
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [streamingStatus, setStreamingStatus] = useState<string | null>(null);
+
+  // Active AbortController ref for canceling in-flight streams
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleStopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsChatLoading(false);
+    setStreamingStatus(null);
+    fetch('/api/chat/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'Stop button pressed by user' }),
+    }).catch(() => {});
+  }, []);
 
   // Pinned Focal Artifacts & Tier Overrides
   const focalArtifactIds = currentContainer?.focalArtifactIds || [];
@@ -119,7 +153,7 @@ export default function App() {
   const handleToggleFocusArtifact = (artId: string) => {
     if (!currentContainer) return;
     const prev = currentContainer.focalArtifactIds || [];
-    const next = prev.includes(artId) ? prev.filter((id) => id !== artId) : [...prev, artId];
+    const next = prev.includes(artId) ? prev.filter((id: string) => id !== artId) : [...prev, artId];
     workspace.saveContainer({
       ...currentContainer,
       focalArtifactIds: next,
@@ -169,7 +203,7 @@ export default function App() {
       systemPromptTokens: tb.systemTokens,
       substrateTokens: tb.substrateTokens,
       totalTokens: tb.totalTokens,
-      tokenCeiling: ceiling,
+      ceiling,
       opticalMode,
       saturationRatio: Math.min(1.0, tb.totalTokens / ceiling),
     };
@@ -194,7 +228,7 @@ export default function App() {
         edges: [],
       } as Project;
     });
-  }, [workspace]);
+  }, [workspace, tick]);
 
   // Construct active Project model snapshot for child UI components
   const activeProject: Project = useMemo(() => {
@@ -203,14 +237,32 @@ export default function App() {
     const domainChapters = segmentation.listChapters();
     const domainEdges = graph.listEdges();
 
-    const chapters: Chapter[] = domainChapters.map((c) => {
-      const turns = timeline.getTurnSlice(c.startIndex, c.endIndex);
+    const chapters: Chapter[] = domainChapters.map((c, cIdx) => {
+      // Ensure active/ongoing or last chapter captures all latest appended turns
+      const isLastChapter = cIdx === domainChapters.length - 1;
+      const isOngoing = c.status === 'active' || isLastChapter;
+      const sliceEnd = isOngoing ? undefined : c.endIndex;
+      const turns = timeline.getTurnSlice(c.startIndex, sliceEnd);
       const messages: ChatMessage[] = turns.map((t) => ({
         id: t.id,
         chapterId: c.id,
         role: t.role,
         content: t.content,
         timestamp: new Date(t.timestamp).toISOString(),
+        extractedArtifacts: t.extractedArtifacts,
+        meta: t.meta
+          ? {
+              model: t.meta.model || selectedModel.name,
+              inputTokens: t.meta.promptTokens ?? t.meta.inputTokens ?? 0,
+              outputTokens: t.meta.candidatesTokens ?? t.meta.outputTokens ?? 0,
+              totalTokens: t.meta.totalTokens ?? 0,
+              latencyMs: t.meta.durationMs ?? t.meta.latencyMs,
+              interrupted: Boolean(t.meta.interrupted || t.meta.streamState === 'interrupted'),
+              isStreaming: t.meta.isStreaming,
+              streamState: t.meta.streamState,
+              ...(t.meta as any),
+            }
+          : undefined,
       }));
 
       return {
@@ -227,7 +279,38 @@ export default function App() {
       };
     });
 
-    const artifacts: Artifact[] = domainArtifacts;
+    const artifacts: Artifact[] = domainArtifacts.map((art) => ({
+      id: art.id,
+      workspace_id: art.workspaceId,
+      projectId: art.workspaceId,
+      code: art.code,
+      title: art.title,
+      type: art.type,
+      category: art.category,
+      isHighConcept: art.isHighConcept,
+      color: art.color,
+      description: art.current?.t1_abstract || '',
+      summary: art.current?.t2_summary || '',
+      content: art.current?.t3_body || '',
+      current: art.current,
+      tags: art.tags || [],
+      created_at: art.createdAt,
+      updated_at: art.updatedAt,
+      createdAt: new Date(art.createdAt).toISOString(),
+      updatedAt: new Date(art.updatedAt).toISOString(),
+      revisions: [],
+      relations: [],
+      provenance: {
+        origin_chapter_id: '',
+        mutation_chapter_ids: [],
+      },
+      graph: art.graph || {
+        is_high_concept: art.isHighConcept,
+        x: 300,
+        y: 200,
+      },
+      resolution: 'full',
+    }));
 
     const nodes: GraphNode[] = domainArtifacts.map((art, idx) => ({
       id: `node-${art.id}`,
@@ -253,16 +336,58 @@ export default function App() {
       strength: e.weight ?? 0.8,
     }));
 
+    // Ensure chat interface is never hidden due to empty chapters array
+    let finalChapters: Chapter[] = chapters;
+    if (finalChapters.length === 0) {
+      logger.info('App', 'No chapters registered in domain; synthesizing Genesis chapter to guarantee chat interface visibility');
+      const allTurns = timeline.getTurnSlice(0, undefined);
+      finalChapters = [
+        {
+          id: 'chap-genesis',
+          projectId: activeProjectId,
+          title: 'Genesis Chapter',
+          summary: '',
+          keyPoints: [],
+          isSummarized: false,
+          compressionMode: 'full',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          messages: allTurns.map((t) => ({
+            id: t.id,
+            chapterId: 'chap-genesis',
+            role: t.role,
+            content: t.content,
+            timestamp: new Date(t.timestamp).toISOString(),
+            extractedArtifacts: t.extractedArtifacts,
+            meta: t.meta
+              ? {
+                  model: t.meta.model || selectedModel.name,
+                  inputTokens: t.meta.promptTokens ?? t.meta.inputTokens ?? 0,
+                  outputTokens: t.meta.candidatesTokens ?? t.meta.outputTokens ?? 0,
+                  totalTokens: t.meta.totalTokens ?? 0,
+                  latencyMs: t.meta.durationMs ?? t.meta.latencyMs,
+                  interrupted: Boolean(t.meta.interrupted || t.meta.streamState === 'interrupted'),
+                  isStreaming: t.meta.isStreaming,
+                  streamState: t.meta.streamState,
+                  ...(t.meta as any),
+                }
+              : undefined,
+          })),
+        },
+      ];
+    }
+
+    const fallbackId = activeProjectId || currentContainer?.metadata?.id || 'default-workspace';
     return {
-      id: activeProjectId,
-      name: meta?.name || 'Workspace',
-      codeName: meta?.codeName || 'workspace',
-      description: meta?.description || '',
-      color: meta?.color || '#be3a49',
+      id: fallbackId,
+      name: meta?.name || 'Architectural Workspace',
+      codeName: meta?.codeName || 'CORE',
+      description: meta?.description || 'Optical dialogue substrate initialized.',
+      color: meta?.color || '#3b82f6',
       icon: 'Layers',
       boundaryRules: 'Cross-repo linking bridges high-concept architecture specs.',
-      currentChapterId: currentContainer?.activeChapterId || chapters[0]?.id || '',
-      chapters,
+      currentChapterId: currentContainer?.activeChapterId || finalChapters[0]?.id || 'chap-genesis',
+      chapters: finalChapters,
       artifacts,
       nodes,
       edges,
@@ -275,6 +400,7 @@ export default function App() {
     segmentation,
     timeline,
     graph,
+    tick,
   ]);
 
   // Select Project & Launch Chat
@@ -343,7 +469,7 @@ export default function App() {
       artifactsDomain.upsertArtifact({
         ...art,
         id: art.id,
-        title: art.title || art.current?.t0_label || 'Untitled',
+        title: art.title,
         resolution,
       });
     }
@@ -355,7 +481,7 @@ export default function App() {
       artifactsDomain.upsertArtifact({
         ...art,
         id: art.id,
-        title: art.title || art.current?.t0_label || 'Untitled',
+        title: art.title,
         resolution,
       });
     });
@@ -366,15 +492,7 @@ export default function App() {
     const art = artifactsDomain.getArtifact(artifactId);
     if (art) {
       versioning.recordRevision(art.id, newContent, 'Direct manual specification edit');
-      const updated = artifactsDomain.getArtifact(artifactId);
-      if (updated) {
-        artifactsDomain.upsertArtifact({
-          ...updated,
-          id: updated.id,
-          title: updated.title || updated.current?.t0_label || 'Untitled',
-          yamlDocument: serializeArtifactToYamlDoc(updated),
-        });
-      }
+      artifactsDomain.updateTiers(art.id, { t3_body: newContent });
     }
   };
 
@@ -386,30 +504,34 @@ export default function App() {
     const art = artifactsDomain.getArtifact(artifactId);
     if (art) {
       versioning.rollback(art.id, targetVersion.version);
-      const updated = artifactsDomain.getArtifact(artifactId);
-      if (updated) {
-        artifactsDomain.upsertArtifact({
-          ...updated,
-          id: updated.id,
-          title: updated.title || updated.current?.t0_label || 'Untitled',
-          yamlDocument: serializeArtifactToYamlDoc(updated),
-        });
-      }
+      artifactsDomain.updateTiers(art.id, { t3_body: targetVersion.content });
     }
   };
 
   // Add New Artifact
   const handleAddArtifact = (newArt: Artifact) => {
-    const artWithYaml: Artifact = {
-      ...newArt,
-      yamlDocument: serializeArtifactToYamlDoc(newArt),
-    };
     artifactsDomain.upsertArtifact({
-      ...artWithYaml,
-      id: artWithYaml.id,
-      title: artWithYaml.title || artWithYaml.current?.t0_label || 'Untitled',
+      id: newArt.id,
+      title: newArt.title || newArt.current?.t0_label || 'Untitled',
+      workspaceId: activeProjectId,
+      code: newArt.code || newArt.id,
+      type: newArt.type === 'chapter' ? 'chapter' : 'document',
+      category: newArt.category || 'system-spec',
+      isHighConcept: Boolean(newArt.isHighConcept),
+      color: newArt.color,
+      current: newArt.current || {
+        t0_label: newArt.title || 'Untitled',
+        t1_abstract: newArt.description || '',
+        t2_summary: newArt.summary || '',
+        t3_body: newArt.content || '',
+      },
+      tags: newArt.tags || [],
+      createdAt: typeof newArt.created_at === 'number' ? newArt.created_at : Date.now(),
+      updatedAt: typeof newArt.updated_at === 'number' ? newArt.updated_at : Date.now(),
+      graph: newArt.graph ? { x: newArt.graph.x, y: newArt.graph.y, is_high_concept: newArt.isHighConcept } : undefined,
+      resolution: newArt.resolution,
     });
-    setSelectedArtifactId(artWithYaml.id);
+    setSelectedArtifactId(newArt.id);
   };
 
   // Declare New Chapter
@@ -451,15 +573,29 @@ export default function App() {
     // Retained for component contract compatibility
   };
 
-  // Handle Send Message via Domain Engine
+  // Handle Send Message via Domain Engine with Live SSE Streaming & Cancellation
   const handleSendMessage = async (text: string) => {
-    // 1. Append User Turn to Timeline
+    // 1. Append User Turn to Timeline & immediately trigger re-render so it never disappears
     timeline.appendTurn('user', text);
+    triggerReRender();
 
     setIsChatLoading(true);
+    setStreamingStatus(`Connecting to ${selectedModel.name}...`);
+
+    // 2. Append in-flight Assistant Turn to Timeline & force immediate render
+    const assistantTurn = timeline.appendTurn('assistant', '', [], {
+      model: selectedModel.name,
+      isStreaming: true,
+      streamState: 'connecting',
+    });
+    triggerReRender();
+
+    // Setup fresh AbortController for cancelability
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
-      // 2. Compile optical context
+      // 3. Compile optical context from domains
       const compiled = compiler.compile({
         focalIds: focalList,
         opticalMode,
@@ -467,122 +603,139 @@ export default function App() {
         tierOverrides: manualTierOverrides,
       });
 
-      // 3. Send POST /api/chat
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      // 4. Stream chat turn via Stream Protocol Domain with abort signal
+      const result = await stream.executeStreamingTurn(
+        {
           model: selectedModel.id,
           projectTitle: activeProject.name,
           compiledPrompt: compiled.compiledPrompt,
           systemInstruction: compiled.systemInstruction,
-        }),
-      });
-
-      const data = await res.json();
-      const rawText = data.rawReply || data.reply || '';
-
-      // 4. Demux stream turn using stream protocol domain
-      const parsedTurn = stream.demuxFullTurn(rawText);
-      const cleanReplyText = parsedTurn.cleanContent || data.reply || 'Synthesized architecture verified.';
-
-      // 5. If topic shift detected, declare new chapter
-      if (parsedTurn.topicShift) {
-        const currentTurnsCount = timeline.count();
-        segmentation.declareNewChapter(
-          parsedTurn.topicShift.title,
-          currentTurnsCount,
-          parsedTurn.topicShift.abstract
-        );
-      }
-
-      // 6. If artifact upserts present, process upserts in artifacts domain
-      if (parsedTurn.artifactUpserts.length > 0) {
-        parsedTurn.artifactUpserts.forEach((u, idx) => {
-          const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
-          const existing = artifactsDomain.getArtifact(code) || artifactsDomain.getArtifact(u.id);
-
-          if (existing) {
-            versioning.recordRevision(
-              existing.id,
-              u.content.t3_body,
-              `Synthesized update from chat: ${u.content.t1_abstract}`
-            );
-          } else {
-            const now = Date.now();
-            const artTitle = u.title || 'Synthesized Artifact';
-            const artDesc = u.content.t1_abstract || 'Synthesized specification.';
-            const artSumm = u.content.t2_summary || artDesc;
-            const artContent = u.content.t3_body || `# ${artTitle}\n\nSynthesized specification.`;
-            const artColor = getMellowPastelColor(code);
-
-            const activeChap = segmentation.getActiveChapter();
-            const chapId = activeChap ? activeChap.id : 'chap-1';
-
-            const newArtifact: Artifact = {
-              id: u.id || `art-${now}-${idx}`,
-              workspace_id: activeProjectId,
-              projectId: activeProjectId,
-              code,
-              title: artTitle,
-              type: u.type || 'document',
-              category: 'system-spec',
-              color: artColor,
-              description: artDesc,
-              summary: artSumm,
-              content: artContent,
-              created_at: now,
-              updated_at: now,
-              current: {
-                t0_label: artTitle,
-                t1_abstract: artDesc,
-                t2_summary: artSumm,
-                t3_body: artContent,
+        },
+        {
+          signal: controller.signal,
+          onStatus: (status) => {
+            setStreamingStatus(status.message);
+            timeline.updateTurn(assistantTurn.id, {
+              meta: {
+                model: status.model || selectedModel.name,
+                isStreaming: true,
+                streamState: status.state,
+                durationMs: status.elapsedMs,
               },
-              revisions: [],
-              relations: [{ target_artifact_id: chapId, kind: 'born_from' }],
-              provenance: {
-                origin_chapter_id: chapId,
-                mutation_chapter_ids: [],
-              },
-              graph: {
-                is_high_concept: false,
-                x: 300 + idx * 180,
-                y: 200 + idx * 40,
-              },
-              isHighConcept: false,
-              resolution: 'full',
-              history: [
-                {
-                  version: 1,
-                  timestamp: new Date().toISOString(),
-                  changeSummary: 'Initial synthesis from architectural chat session',
-                  content: artContent,
-                },
-              ],
-              tags: ['chat-synthesized', u.type || 'architecture'],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            };
-            newArtifact.yamlDocument = serializeArtifactToYamlDoc(newArtifact);
-            artifactsDomain.upsertArtifact({
-              ...newArtifact,
-              id: newArtifact.id,
-              title: newArtifact.title,
             });
-          }
-        });
-      }
+            triggerReRender();
+          },
+          onChunk: (_cleanDelta, accumulatedClean) => {
+            timeline.updateTurn(assistantTurn.id, {
+              content: accumulatedClean,
+              meta: {
+                model: selectedModel.name,
+                isStreaming: true,
+                streamState: 'writing',
+              },
+            });
+            triggerReRender();
+          },
+          onTopicShift: (shift) => {
+            const currentTurnsCount = timeline.count();
+            segmentation.declareNewChapter(
+              shift.title,
+              currentTurnsCount,
+              shift.abstract
+            );
+            triggerReRender();
+          },
+          onArtifact: (u) => {
+            const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
+            const existing = artifactsDomain.getArtifact(code) || artifactsDomain.getArtifact(u.id);
 
-      // 7. If links present, add edges in graph domain
-      if (parsedTurn.links.length > 0) {
-        parsedTurn.links.forEach((link) => {
-          graph.addEdge(link.source, link.target, link.kind, 1.0);
-        });
-      }
+            if (existing) {
+              versioning.recordRevision(
+                existing.id,
+                u.content.t3_body,
+                `Synthesized update from chat: ${u.content.t1_abstract}`
+              );
+            } else {
+              const now = Date.now();
+              const artTitle = u.title || 'Synthesized Artifact';
+              const artDesc = u.content.t1_abstract || 'Synthesized specification.';
+              const artSumm = u.content.t2_summary || artDesc;
+              const artContent = u.content.t3_body || `# ${artTitle}\n\nSynthesized specification.`;
+              const artColor = getMellowPastelColor(code);
 
-      // 8. Append Assistant Turn to Timeline
-      const extractedList = parsedTurn.artifactUpserts.map((u) => ({
+              const activeChap = segmentation.getActiveChapter();
+              const chapId = activeChap ? activeChap.id : 'chap-1';
+
+              const newArtifact: Artifact = {
+                id: u.id || `art-${now}`,
+                workspace_id: activeProjectId,
+                projectId: activeProjectId,
+                code,
+                title: artTitle,
+                type: u.type || 'document',
+                category: 'system-spec',
+                color: artColor,
+                description: artDesc,
+                summary: artSumm,
+                content: artContent,
+                created_at: now,
+                updated_at: now,
+                current: {
+                  t0_label: artTitle,
+                  t1_abstract: artDesc,
+                  t2_summary: artSumm,
+                  t3_body: artContent,
+                },
+                revisions: [],
+                relations: [{ target_artifact_id: chapId, kind: 'born_from' }],
+                provenance: {
+                  origin_chapter_id: chapId,
+                  mutation_chapter_ids: [],
+                },
+                graph: {
+                  is_high_concept: false,
+                  x: 300,
+                  y: 200,
+                },
+                isHighConcept: false,
+                resolution: 'full',
+                history: [
+                  {
+                    version: 1,
+                    timestamp: new Date().toISOString(),
+                    changeSummary: 'Initial synthesis from architectural chat session',
+                    content: artContent,
+                  },
+                ],
+                tags: ['chat-synthesized', u.type || 'architecture'],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              };
+              artifactsDomain.upsertArtifact({
+                id: newArtifact.id,
+                title: newArtifact.title || artTitle,
+                workspaceId: activeProjectId,
+                code: newArtifact.code || code,
+                type: 'document',
+                category: newArtifact.category || 'system-spec',
+                isHighConcept: Boolean(newArtifact.isHighConcept),
+                color: newArtifact.color,
+                current: newArtifact.current,
+                tags: newArtifact.tags || [],
+                createdAt: now,
+                updatedAt: now,
+                graph: { x: 300, y: 200, is_high_concept: false },
+                resolution: 'full',
+                yamlDocument: serializeArtifactToYamlDoc(newArtifact),
+              });
+            }
+            triggerReRender();
+          },
+        }
+      );
+
+      // 5. Finalize assistant turn with clean reply, extracted artifacts, and real Gemini API telemetry
+      const extractedList = result.artifacts.map((u) => ({
         title: u.title,
         type: u.type,
         abstract: u.content.t1_abstract,
@@ -591,13 +744,114 @@ export default function App() {
         highConcept: false,
       }));
 
-      timeline.appendTurn('assistant', cleanReplyText, extractedList);
-    } catch (err) {
-      console.error('Error sending message:', err);
+      const isInterrupted = controller.signal.aborted;
+      const estPrompt = result.telemetry?.promptTokens ?? Math.max(1, Math.ceil((compiled.compiledPrompt?.length || 0) / 4));
+      const estCand = result.telemetry?.candidatesTokens ?? Math.max(1, Math.ceil(((result.cleanReply || assistantTurn.content)?.length || 0) / 4));
+      const totalTok = result.telemetry?.totalTokens ?? (estPrompt + estCand);
+
+      timeline.updateTurn(assistantTurn.id, {
+        content: result.cleanReply || assistantTurn.content || (isInterrupted ? '' : 'Synthesized architecture verified.'),
+        extractedArtifacts: extractedList,
+        meta: {
+          model: result.telemetry?.model || selectedModel.name,
+          promptTokens: estPrompt,
+          candidatesTokens: estCand,
+          totalTokens: totalTok,
+          inputTokens: estPrompt,
+          outputTokens: estCand,
+          durationMs: result.telemetry?.durationMs,
+          timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
+          rawMetadata: result.telemetry?.rawMetadata,
+          isStreaming: false,
+          streamState: isInterrupted ? 'interrupted' : 'completed',
+          interrupted: isInterrupted,
+        },
+      });
+      triggerReRender();
+    } catch (err: any) {
+      if (err.name === 'AbortError' || controller.signal.aborted) {
+        const estPrompt = Math.max(1, Math.ceil((compiledContext.telemetry.tokenBreakdown.totalTokens || 120)));
+        const estCand = Math.max(1, Math.ceil((assistantTurn.content?.length || 0) / 4));
+        timeline.updateTurn(assistantTurn.id, {
+          content: assistantTurn.content || '',
+          meta: {
+            model: selectedModel.name,
+            isStreaming: false,
+            streamState: 'interrupted',
+            interrupted: true,
+            promptTokens: estPrompt,
+            candidatesTokens: estCand,
+            totalTokens: estPrompt + estCand,
+            inputTokens: estPrompt,
+            outputTokens: estCand,
+          },
+        });
+      } else {
+        console.error('Error in streaming turn:', err);
+        timeline.updateTurn(assistantTurn.id, {
+          content: assistantTurn.content || 'Error communicating with reasoning engine. Please try again.',
+          meta: {
+            model: selectedModel.name,
+            isStreaming: false,
+            streamState: 'error',
+          },
+        });
+      }
+      triggerReRender();
     } finally {
       setIsChatLoading(false);
+      setStreamingStatus(null);
+      abortControllerRef.current = null;
+      triggerReRender();
     }
   };
+
+  // 1. Pre-flight Auth Gate: Loading State during initial auth probe
+  if (!authInitialized) {
+    return (
+      <div className="flex items-center justify-center h-screen w-screen bg-[#070b12] text-[#8ab1e0] font-sans">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-[#121c2d] border border-[#1e2e47] flex items-center justify-center text-[#e05a66] shadow-sm animate-pulse">
+            <Brain className="w-6 h-6 text-[#e05a66]" />
+          </div>
+          <span className="text-xs font-mono text-[#526e91]">Connecting to MarkBrain Substrate...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Pre-flight Auth Gate: If user is not authenticated
+  if (!currentUser) {
+    return (
+      <>
+        <AuthGate
+          onSignIn={signIn}
+          onOpenServerLogs={() => setIsServerLogsOpen(true)}
+        />
+        <ServerLogsModal
+          isOpen={isServerLogsOpen}
+          onClose={() => setIsServerLogsOpen(false)}
+        />
+      </>
+    );
+  }
+
+  // 3. Project Genesis: If user is authenticated but has zero cloud projects
+  if (domainProjectsList.length === 0 || cloudProjectsCount === 0) {
+    return (
+      <>
+        <ProjectGenesis
+          user={currentUser}
+          onCreateProject={createCloudWorkspace}
+          onSignOut={signOut}
+        />
+        <ServerLogsModal
+          isOpen={isServerLogsOpen}
+          onClose={() => setIsServerLogsOpen(false)}
+        />
+      </>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#0d121c] text-[#e3edf7] font-sans relative p-0 m-0">
@@ -619,23 +873,31 @@ export default function App() {
         onOpenExport={() => setIsExportOpen(true)}
         onOpenImport={() => setIsImportOpen(true)}
         onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
+        onOpenServerLogs={() => setIsServerLogsOpen(true)}
         onSelectArtifact={(art) => setSelectedArtifactId(art.id)}
         selectedArtifactId={selectedArtifactId}
         onToggleFocus={handleToggleFocusArtifact}
         focalIds={focalArtifactIds}
         nodeTiers={compiledContext.nodeTiers}
         onChangeTierOverride={handleChangeTierOverride}
+        currentUser={currentUser}
+        isSyncing={isSyncing}
+        isCloudSynced={isCloudSynced}
+        onSignIn={signIn}
+        onSignOut={signOut}
+        onSyncNow={syncNow}
       />
 
-      {/* Main Single-Focused Viewport */}
-      <main className="flex-1 h-full flex overflow-hidden relative p-0 m-0">
-        {/* Base Conversation Canvas */}
-        <div className="flex-1 h-full relative overflow-hidden p-0 m-0">
+      {/* Main Single-Focused Viewport - ZERO TOP BAR */}
+      <main className="flex-1 h-full min-h-0 min-w-0 flex flex-col overflow-hidden relative p-0 m-0">
+        {/* Base Conversation & Graph Canvas (Takes 100% of vertical height) */}
+        <div className="flex-1 h-full min-h-0 min-w-0 flex flex-col relative overflow-hidden p-0 m-0">
           {activeView === 'graph' ? (
-            <div className="w-full h-full relative">
+            <div className="w-full h-full min-h-0 flex-1 relative flex flex-col">
               <SpatialGraph
                 project={activeProject}
                 onSelectArtifact={(art) => {
+                  logger.action('App', `Spatial graph artifact selected: ${art.id}`);
                   setSelectedArtifactId(art.id);
                   setActiveView('chat');
                 }}
@@ -649,17 +911,37 @@ export default function App() {
               />
             </div>
           ) : (
-            <div className="w-full h-full">
-              <ChatView
-                project={activeProject}
-                onSendMessage={handleSendMessage}
-                isLoading={isChatLoading}
-                onAddArtifactToProject={handleAddArtifact}
-                onSummarizeChapter={handleSummarizeChapter}
-                onToggleChapterCompressionMode={handleToggleChapterCompressionMode}
-                onDeclareChapter={handleDeclareChapter}
-                onNavigateToGraph={() => setActiveView('graph')}
-              />
+            <div className="w-full h-full min-h-0 flex-1 flex flex-col">
+              <ChatErrorBoundary
+                onReset={() => {
+                  logger.action('App', 'Chat error boundary reset triggered');
+                  triggerReRender();
+                }}
+                onOpenServerLogs={() => setIsServerLogsOpen(true)}
+              >
+                <ChatView
+                  project={activeProject}
+                  onSendMessage={handleSendMessage}
+                  isLoading={isChatLoading}
+                  streamingStatus={streamingStatus}
+                  onStopGeneration={handleStopGeneration}
+                  onOpenServerLogs={() => setIsServerLogsOpen(true)}
+                  onAddArtifactToProject={handleAddArtifact}
+                  onSummarizeChapter={handleSummarizeChapter}
+                  onToggleChapterCompressionMode={handleToggleChapterCompressionMode}
+                  onDeclareChapter={handleDeclareChapter}
+                  onNavigateToGraph={() => {
+                    logger.action('App', 'Navigate from chat to graph view');
+                    setActiveView('graph');
+                  }}
+                  onSelectArtifact={(art) => {
+                    logger.action('App', `Chat artifact card selected: ${art.id}`);
+                    setSelectedArtifactId(art.id);
+                  }}
+                  isCloudSynced={isCloudSynced}
+                  isSyncing={isSyncing}
+                />
+              </ChatErrorBoundary>
             </div>
           )}
 
@@ -670,6 +952,12 @@ export default function App() {
         {/* Presentation Telemetry: 5px Edge Heat Bar */}
         <EdgeHeatStrip telemetry={ambientTelemetry} />
       </main>
+
+      {/* Live Server Telemetry & Logs Modal */}
+      <ServerLogsModal
+        isOpen={isServerLogsOpen}
+        onClose={() => setIsServerLogsOpen(false)}
+      />
 
       {/* Project Launcher Screen / Modal */}
       {isProjectLauncherOpen && (
@@ -699,6 +987,24 @@ export default function App() {
           activeProject={activeProject}
           onClose={() => setIsExportOpen(false)}
         />
+      )}
+
+      {/* Full-Screen Artifact Detail Modal */}
+      {selectedArtifactId && (
+        (() => {
+          const art = activeProject.artifacts.find((a) => a.id === selectedArtifactId);
+          if (!art) return null;
+          return (
+            <ArtifactDetailModal
+              artifact={art}
+              onClose={() => setSelectedArtifactId(null)}
+              isInContext={focalArtifactIds.includes(art.id)}
+              contextTier={compiledContext.nodeTiers[art.id]?.tier ?? 'culled'}
+              onToggleInContext={handleToggleFocusArtifact}
+              onChangeTierOverride={handleChangeTierOverride}
+            />
+          );
+        })()
       )}
     </div>
   );

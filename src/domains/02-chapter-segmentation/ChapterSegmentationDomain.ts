@@ -1,5 +1,6 @@
 import { IChapterSegmentationDomain } from './interface';
 import { ChapterPartition, SegmentationEvent } from './types';
+import { logger } from '../../utils/logger';
 
 export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
   private chapters: ChapterPartition[] = [];
@@ -9,6 +10,7 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
   constructor(workspaceId: string, initialChapters: ChapterPartition[] = []) {
     this.workspaceId = workspaceId;
     this.chapters = [...initialChapters];
+    logger.info('Segmentation', `Initialized chapter segmentation for ${workspaceId} with ${this.chapters.length} chapters`);
   }
 
   listChapters(): ChapterPartition[] {
@@ -24,6 +26,7 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
   }
 
   declareNewChapter(title: string, startIndex: number, reason?: string, color?: string): ChapterPartition {
+    logger.action('Segmentation', `Declare new chapter "${title}" at turn #${startIndex}`, { reason, color });
     // Close existing active chapter
     this.chapters.forEach((c) => {
       if (c.status === 'active') {
@@ -94,6 +97,7 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
 
   loadChapters(chapters: ChapterPartition[]): void {
     this.chapters = [...chapters];
+    this.emit({ type: 'chaptersLoaded', chapters: this.chapters });
   }
 
   subscribe(callback: (event: SegmentationEvent) => void): () => void {

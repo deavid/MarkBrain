@@ -409,7 +409,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       onPointerDown={handlePointerDownBg}
       onPointerMove={handlePointerMoveBg}
       onPointerUp={handlePointerUpBg}
-      className="relative w-full h-full min-h-[300px] overflow-hidden bg-[#0d121c] select-none touch-none cursor-grab active:cursor-grabbing"
+      className="relative w-full h-full min-h-0 flex-1 overflow-hidden bg-[#0d121c] select-none touch-none cursor-grab active:cursor-grabbing"
     >
       {/* Bluer shadow background grid */}
       <div

@@ -91,6 +91,7 @@ export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
 
   loadArtifacts(docs: UniversalArtifactDocument[]): void {
     docs.forEach((d) => this.artifacts.set(d.id, d));
+    this.emit({ type: 'artifactsLoaded', artifacts: Array.from(this.artifacts.values()) });
   }
 
   subscribe(callback: (event: ArtifactDocumentEvent) => void): () => void {

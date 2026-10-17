@@ -15,4 +15,5 @@ export interface SemanticEdge {
 
 export type GraphEvent =
   | { type: 'edgeAdded'; edge: SemanticEdge }
-  | { type: 'edgeRemoved'; edgeId: string };
+  | { type: 'edgeRemoved'; edgeId: string }
+  | { type: 'edgesLoaded'; edges: SemanticEdge[] };

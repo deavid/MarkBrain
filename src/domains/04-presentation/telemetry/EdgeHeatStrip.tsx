@@ -10,9 +10,12 @@ export const EdgeHeatStrip: React.FC<EdgeHeatStripProps> = ({ telemetry }) => {
   const activePct = Math.max(10, Math.min(70, (telemetry.activeChapterTokens / total) * 100));
   const olderPct = Math.max(15, Math.min(60, (telemetry.olderChaptersTokens / total) * 100));
 
+  // Zero-footprint peripheral layer (design-docs/02_UI_REFACTOR_PLAN.md Layer A):
+  // absolute right edge, must never participate in the main flex layout —
+  // an in-flow h-full sibling here collapses the chat viewport to 0px.
   return (
     <div
-      className="w-[5px] h-full shrink-0 flex flex-col bg-[#0b1018] border-l border-[#080d15] z-30"
+      className="absolute right-0 top-0 w-[5px] h-full flex flex-col bg-[#0b1018] border-l border-[#080d15] z-30"
       title="Peripheral Ambient Telemetry: Red=Detail/Focus (T3), Yellow=Summary (T2), Blue=Title (T0)"
     >
       {/* Red = Detail / Tier 3 (Focus) */}

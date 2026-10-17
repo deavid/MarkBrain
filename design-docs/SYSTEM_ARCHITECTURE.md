@@ -2,7 +2,7 @@
 
 ---
 
-## 1. Architectural Philosophy: The Optical Workspace
+## 1. Architectural Overview: The Workspace Graph
 
 The system treats conversation, knowledge management, and LLM context not as an append-only linear transcript, but as an **organic, multi-resolution knowledge graph**.
 
@@ -30,11 +30,23 @@ The system treats conversation, knowledge management, and LLM context not as an 
               (Extracts talk, splits chapters, updates revisions)
 ```
 
-### Core Tenets
-1. **Universal Artifact Primitive:** There is only one fundamental data entity: the **Artifact**. Documents, design specs, blueprints, and blocks of conversation (**Chapters**) are all Artifacts sharing the same unified schema.
-2. **Multi-Resolution Pre-computation:** Every artifact contains pre-computed representations at four progressive fidelity tiers (Tier 0 to Tier 3). Context compaction is instantaneous because resolutions exist prior to assembly.
-3. **Strict Single-Turn Protocol:** Exactly one user action triggers one LLM API call. Tool-calling loops, multi-agent swarms, and hidden chained requests are strictly prohibited.
-4. **Topological Optics:** Prompt context is dynamically assembled based on the graph distance from the active **Focal Point**, applying an optical depth-of-field blur (progressive down-sampling of resolution tiers) to non-focused nodes.
+### Principles (from `00_core_philosophy_soul.md` — the load-bearing ones)
+1. **The user controls the context.** Every mechanism below exists to serve
+   that; none of them may take control away from the user.
+2. **Reject agentic platforms.** One user action → one API call. No tool-calling
+   loops, no multi-agent swarms, no hidden chained requests, no generic shell
+   for the model. (Spirit-level commitment; exact edges may be refined
+   deliberately, never drifted.)
+
+### Current design decisions (reversible — not tenets)
+1. **Universal Artifact:** documents, specs, and conversation **Chapters** share
+   one schema. *A simplification we arrived at* — right until it isn't.
+2. **Multi-Resolution Pre-computation:** every artifact stores four fidelity
+   tiers (T0–T3) ahead of time, so context assembly is cheap.
+3. **Distance-graded assembly:** prompt context is compiled from graph distance
+   to the active focal point — near nodes sharp, far nodes summarized or
+   dropped. (Called the "optical" compiler for historical reasons; the analogy
+   is explained once, in `00_core_philosophy_soul.md` §5, and nowhere else.)
 
 ---
 
@@ -95,12 +107,16 @@ export interface Artifact {
 Artifacts link to one another to establish topological distance for the Context Compiler.
 
 ```typescript
-export type RelationKind = 
-  | 'parent_of'       // Hierarchical abstraction (Parent is more abstract)
-  | 'child_of'        // Hierarchical concretization (Child is more detailed)
-  | 'relates_to'      // Lateral associative link
+export type RelationKind =
+  | 'parent_of'       // Hierarchical abstraction (parent is more abstract)
+  | 'child_of'        // Hierarchical concretization (child is more detailed)
+  | 'relates_to'      // Lateral associative link / fallback for unknown kinds
   | 'refines'         // Direct evolutionary update
   | 'born_from';      // Derived from a specific Chapter
+// INTENT: edges are GENERIC — any relationship type. The kinds above are what
+// the code knows today: a starting set, not a closed enum (David, 2026-10-17).
+// Future kinds (e.g. 'contradicts', 'depends_on') are welcome; unknown kinds
+// fall back to 'relates_to' in the stream parser.
 
 export interface ArtifactRelation {
   target_artifact_id: string;
@@ -184,12 +200,12 @@ export interface ChapterArtifact extends Artifact {
 * Enforces single-turn semantics: sends payload, streams response, finishes turn.
 * Disallows multi-agent recursive loops and autonomous secondary API dispatches.
 
-#### 4. Streaming XML Engine (Detailed in `STREAM_PROTOCOL.md`)
+#### 4. Streaming XML Engine (Detailed in `STREAM_PROTOCOL.md` — **draft, pending David's LGTM**)
 * Consumes the chunked response stream from the LLM Gateway.
 * Strips functional XML tags from conversational chat text in real time so the user experiences zero visual clutter on mobile.
 * Detects `<topic_shift>`, `<artifact_upsert>`, and `<link>` tags, executing atomic state updates inside the Graph Store upon completion of the turn.
 
-#### 5. Mobile-First Adaptive Interface (Detailed in `MOBILE_UX_SPEC.md`)
+#### 5. Mobile-First Adaptive Interface (Detailed in `MOBILE_UX_SPEC.md` — **draft, pending David's LGTM**)
 * Renders a clean conversational timeline optimized for handheld screens.
 * Houses the Context HUD (showing live aperture, focal targets, and token budget).
 * Employs slide-over sheets for Artifact inspection, side-channel recalibration popups, and the tactile chapter-boundary slider.

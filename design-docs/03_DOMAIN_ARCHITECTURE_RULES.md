@@ -1,14 +1,17 @@
 # DOMAIN-DRIVEN ARCHITECTURAL GOVERNANCE & INVARIANTS (`03_DOMAIN_ARCHITECTURE_RULES.md`)
 
-## 1. Absolute Directives for AI Agents
-Any AI coding agent modifying this codebase MUST comply with the following non-negotiable architectural invariants. Violations of these rules represent immediate architectural failure.
+## 1. Directives for AI Agents
+
+Rules 1–5 are **decided architecture** (the codebase is built on them) — treat
+them as non-negotiable. Rule 6 is a **current decision**, stated more weakly on
+purpose: it may be revisited.
 
 1. **NO HORIZONTAL TIERS / NO MVC:** Code is organized strictly by **Vertical Business Domains** located in `src/domains/<domain-name>/`. Placing code in generic "controllers", "models", or monolithic "utils" is strictly prohibited.
 2. **STRICT HIERARCHICAL DEPENDENCIES:** Dependencies flow strictly downward according to the Level Hierarchy defined in Section 3. Level $N$ may NEVER import from Level $\ge N$. Circular dependencies will fail compilation.
 3. **100% UNIT TESTABLE VIA DEPENDENCY INJECTION:** Every domain must export a TypeScript interface (`I<DomainName>Domain`). Domains must accept dependencies via constructor or factory parameters so they can be tested in isolation using lightweight in-memory mocks without DOM or network access.
-4. **NO GOD COMPONENTS:** `App.tsx` and UI views may NEVER contain business logic, parsing regexes, graph calculations, or direct API transport calls. UI components are dumb projections that dispatch commands to domain interfaces.
+4. **NO GOD COMPONENTS:** `App.tsx` and UI views may NEVER contain business logic, parsing regexes, graph calculations, or direct API transport calls. UI components are projections that dispatch commands to domain interfaces.
 5. **EVENT-DRIVEN INGESTION:** The LLM stream protocol parser may NEVER mutate UI state or database persistence directly. It emits typed domain events (`onProseChunk`, `onTopicShiftDetected`, `onArtifactUpsertDetected`, `onLinkDetected`).
-6. **SINGLE DATA MODEL (UNIVERSAL ARTIFACT):** The legacy `Project` vs `WorkspaceState` division is permanently abolished. All persistent thought units (documents and conversation chapters) conform to the Universal Artifact Schema with pre-computed multi-resolution tiers (T0-T3).
+6. **SINGLE DATA MODEL (UNIVERSAL ARTIFACT) — current decision:** The legacy `Project` vs `WorkspaceState` division is abolished *for now*; persistent thought units conform to the Universal Artifact Schema with pre-computed tiers (T0–T3). Honest note: David has said the Universal Artifact is *a simplification we arrived at, possibly right, possibly wrong* — if that decision is reversed, this rule changes with it. Don't treat it as sacred; do treat it as in-force.
 
 ---
 

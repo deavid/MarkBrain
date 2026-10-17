@@ -1,4 +1,10 @@
-# THE OPTICAL CONTEXT COMPILER SPECIFICATION (`CONTEXT_COMPILER.md`)
+# CONTEXT COMPILER SPECIFICATION (`CONTEXT_COMPILER.md`)
+
+> Reframed 2026-10-17: this is an **implementation spec** for the current
+> compiler (code: `src/domains/03-optical-compiler/`). The algorithm is a
+> current choice, not doctrine. "Optical" is a historical codename matching the
+> directory; the camera analogy is explained exactly once, in
+> `00_core_philosophy_soul.md` §5 — don't extend it.
 
 ---
 
@@ -16,7 +22,7 @@ Traditional context assemblers use sliding windows (truncate oldest) or semantic
 [ MAXIMUM BLUR ] <-------------------------------------------------------------------> [ SHARP FOCUS ]
 ```
 
-### Optical Modes
+### Focus Modes (UI-named "Optical Modes" — code: `03-optical-compiler`)
 1. **Autofocus (Default):** The active conversation chapter is locked as the Focal Point. Depth-of-field expands topologically outward through direct artifact references and parent hierarchies.
 2. **Manual Focus:** The user explicitly selects one or more artifacts or historical chapters as the Focal Points (e.g., pinning a core architecture document).
 3. **Macro / Myopia Mode (The Forest View):** Globally clamps the maximum resolution of *all* background nodes to Tier 1 (Abstract) or Tier 0 (Title), and compresses conversational history to Tier 2 (Summary). This removes implementation weeds entirely, forcing the model to synthesize high-level patterns and identify conceptual voids.
@@ -133,7 +139,7 @@ The output of the compiler is fed directly to the Gemini API as a single string 
 
 ```xml
 <system_instructions>
-You are the optical sparring partner and systems architect.
+You are MarkBrain, a thinking partner and systems architect.
 You must adhere to the following protocol rules:
 1. Ground your thinking in the provided Knowledge Graph context.
 2. Maintain clean separation between high-level architectural constraints and implementation detail.

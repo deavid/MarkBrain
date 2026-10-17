@@ -1,5 +1,16 @@
 # UI TEARDOWN & REFACTOR PLAN (The "No Gimmicks" Layered UI)
 
+## 0. Hard Rules (David, 2026-10-17 — these override any tool habit)
+
+- **NO top bars. NO sticky headers.** They waste precious vertical space on
+  phone and keep getting re-added by AI tools that assume "apps have headers."
+  This has been re-laid-down 15–20 times; it is banned unless David approves
+  an exception explicitly.
+- **Mobile-first, desktop-second.** If a decision improves the phone and makes
+  desktop look sparse — take it. Desktop looking a bit empty is accepted.
+- **Capture flow is sacred:** open → dump thought → send → leave. Nothing in
+  the UI may slow that path (dialogs, onboarding, auto-expanding panels).
+
 ## 1. The Core UI Pivot
 The current prototype is built like a traditional dashboard with tabs (Chat, Graph, Specs, Tokens). This destroys the cognitive flow. We are moving to a **Single-Canvas Layered Architecture**. 
 You will rip out the tabs and replace them with contextual slide-overs and ambient telemetry.

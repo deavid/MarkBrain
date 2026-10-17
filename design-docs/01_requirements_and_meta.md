@@ -1,73 +1,189 @@
-### 1. What kind of tool is this?
-It is a **Cognitive Workbench with Variable-Resolution Context Management** (or an **Optical Ideation Engine**).
+# REQUIREMENTS & META (`01_requirements_and_meta.md`)
 
-* It is **not** a traditional chat assistant (which treats history as a dumb linear log).
-* It is **not** a standard PKM/wiki like Obsidian or Notion (which requires manual filing and lacks conversational co-creation).
-* It is **not** an IDE or an agentic terminal like Antigravity/Devin (which focus on tool loops and autonomous code generation).
-* It is an **interactive ideation and design environment** where conversation acts as the furnace, living artifacts act as the output, and an "optical" context compiler continuously shapes what the AI can see at varying degrees of abstraction (sharp vs. blurred).
+> Rewritten 2026-10-17. §3 now leads with the actual motivation (from David,
+> verbatim-checked against `scratch/motivation.md`); problems describe the
+> failure *before* naming any solution; solutions are labeled as current
+> thinking, not destiny.
+
+---
+
+### 1. What kind of tool is this?
+
+A **cognitive workbench for collecting, organizing, and exploring your own
+thinking** with an LLM — with the user firmly in control of what the LLM sees.
+
+* It is **not** a traditional chat assistant (which treats history as a dumb
+  linear log).
+* It is **not** a standard PKM/wiki like Obsidian or Notion (which requires
+  manual filing and lacks conversational co-creation).
+* It is **not** an IDE or agentic terminal like Antigravity/Devin (which focus
+  on tool loops and autonomous execution).
+
+Conversation is the furnace; artifacts are the output; a compiler shapes what
+the AI can see at each level of detail. (Principles in
+`00_core_philosophy_soul.md`.)
 
 ---
 
 ### 2. For who is this tool?
-* **Deep Systems Thinkers & Complex Project Designers:** People who design massive, multi-dimensional systems (game designers, software architects, worldbuilders, product strategists, researchers) whose projects are both *deep* (hundreds of technical details) and *wide* (dozens of interconnected conceptual branches).
-* **High-Volume Conversational Thinkers:** People who use LLMs not to get quick answers, but as a sparring partner over conversations that routinely scale into the hundreds of thousands or millions of tokens.
-* **Mobile-First Ideators:** People who do their best high-level steering, conceptual brainstorming, and reading on their phone while away from their desk, but need desktop-grade rigor.
+
+Honest answer first: **it's for David.** A personal tool built because he
+needed it. If it turns out others think like this, bonus.
+
+The general shape of that person:
+
+* **High-volume conversational thinkers** — people who use LLMs as a sparring
+  partner over conversations that scale into hundreds of thousands of tokens,
+  who write many thoughts per message.
+* **Deep systems thinkers** — projects that are *deep* (hundreds of technical
+  details) and *wide* (dozens of interconnected branches): software
+  architects, worldbuilders, researchers, designers.
+* **Mobile-first ideators** — people who do their high-level steering and
+  capture on their phone while away from the desk.
 
 ---
 
 ### 3. What problems does it solve? Why does it exist?
 
-#### Problem 1: "Context Blindness" (The Depth-vs-Breadth Trap)
-* *The Failure:* In long chat sessions, the moment you deep-dive into the minutiae of one feature (50 turns of detail), the LLM gets stuck in the weeds. When you ask for new high-level ideas, it hallucinates or loops tightly around the last thing you discussed because the context is flooded with high-frequency noise.
-* *The Solution:* **Myopia Mode and Depth of Field.** You can intentionally blur or hide the weeds, forcing the model back to the conceptual canopy to think wide again.
+#### The root need: an overflowing brain
 
-#### Problem 2: The Linear Chat Graveyard
-* *The Failure:* Brilliant ideas, architectural decisions, and trade-off debates get buried in the middle of a 1,000-turn chat log. Manual copy-pasting into docs breaks the flow and loses the context of *why* the decision was made.
-* *The Solution:* **Unified Artifacts with Provenance.** Everything of value crystallizes into living, revision-controlled artifacts. Every artifact retains an audit link back to the exact discussion chapter that birthed it.
+David talks a lot; his brain overflows with ideas and concepts and he needs to
+pour them somewhere before they evaporate. MarkBrain is meant to be:
 
-#### Problem 3: The Expense and Chaos of Agent Swarms
-* *The Failure:* Industrial agent environments (like Antigravity) are powerful, but their tool-calling loops and background swarms burn exorbitant tokens and API credits for personal ideation, while introducing high latency and unpredictability.
-* *The Solution:* **Single-Turn Structured Protocol (1 Enter = 1 API Call).** The conversation model handles chat, artifact generation, and structural signaling simultaneously in one clean stream.
+1. **The collector** of those ideas.
+2. **The auto-organizer** (mechanism currently undefined — see open questions).
+3. **The forest-viewer** — helping visualize the whole, so you can go abstract
+   or drill into depth *without losing the high-level picture.*
 
-#### Problem 4: The Static Taxonomy Trap
-* *The Failure:* Trying to force a complex, evolving project into rigid folders or 20 coarse taxonomy buckets fails immediately because early-stage ideas cross boundaries and defy neat categorization.
-* *The Solution:* **Organic Associative Graph.** Ideas sit in a fluid network connected by topological relationships, where proximity dictates context inclusion rather than rigid folder paths.
+Existing tools technically do pieces of this (Antigravity's artifacts/memories;
+a plain markdown repo managed from an agentic chat). Two problems make that
+approach unsatisfying — which seed the problems below.
+
+#### Problem 1: Capture dies on the way (mobile)
+
+*The Failure:* You're on the go, an idea hits, and you need to open something,
+dump the thought *now*, and close the phone — maybe send it to chat and check
+the reply 10 minutes later while still walking. Desktop-first agent platforms
+are windows into a computer; running them from a phone doesn't work, and
+bridging through external chat (tried at work — sidecar to Matrix/Google Chat)
+works but costs ~3 calls per message.
+
+*Current thinking:* one mobile-first webapp (usable on desktop too, even if it
+looks sparse there), tolerant of email-grade latency — send, leave, come back.
+
+#### Problem 2: Context blindness (the depth-vs-breadth trap)
+
+*The Failure:* After 50 turns in the weeds of one feature, the LLM gets stuck
+down there. Ask for high-level ideas and it hallucinates or loops around the
+last thing discussed, because the context is flooded with low-level noise.
+
+*Current thinking:* let the user blur or hide the weeds deliberately (forest
+view), and assemble context by graph distance — near = detailed, far = labels
+only. Details in `CONTEXT_COMPILER.md`.
+
+#### Problem 3: The linear chat graveyard
+
+*The Failure:* Good ideas, decisions, and trade-off debates get buried mid-log
+in a 1,000-turn chat. Copy-pasting into docs breaks flow and loses the *why*
+(decisions detach from the discussion that produced them).
+
+*Current thinking:* everything of value crystallizes into revision-controlled
+artifacts, each keeping provenance back to the chapter and turns that birthed
+it.
+
+#### Problem 4: Agent swarms are expensive — money *and* time
+
+*The Failure:* Agentic platforms run many calls per action: context fills with
+crap, costs balloon, and latency compounds — cheap models are slow or flaky,
+and in an agentic loop "you could be sitting an entire day and doing nothing."
+Personal ideation doesn't need a swarm.
+
+*Current thinking:* strict one-turn discipline (1 Enter = 1 API call) — see
+Principle 2 in `00_core_philosophy_soul.md`. Secondary ideas, not yet
+committed: routing to free/cheap models (OpenRouter has free tiers that rotate)
+with smart retry, so the tool could run at near-zero cost; multi-chat per
+project as a *low-priority* nice-to-have (continuity of a single chat matters
+more, but parallel threads could help absorb slow models).
+
+#### Problem 5: The static taxonomy trap
+
+*The Failure:* Early-stage ideas cross boundaries and defy folders or 20 coarse
+buckets. Forced categorization fails immediately.
+
+*Current thinking:* a fluid graph of nodes and generic edges, where proximity
+(not folder path) drives what enters context. Who draws the edges: probably
+hybrid (inferred + hand-authored) — see §5.
 
 ---
 
 ### 4. What are the core requirements?
 
 #### Architectural & Cost Requirements
-1. **Strict 1-Turn API Discipline:** One user input must result in exactly one LLM API roundtrip. No hidden multi-step agent loops.
-2. **Deterministic Context Compiler:** An engine that reads the knowledge graph, calculates topological distance from the focal point, and compiles the prompt payload with appropriate resolution tiers (Title $\rightarrow$ Abstract $\rightarrow$ Summary $\rightarrow$ Verbatim).
-3. **Multi-Model / Multi-Tier Support:** Fast preset switching (e.g., Gemini Flash for quick ideation, Gemini Pro for deep architectural synthesis).
+
+1. **Strict 1-Turn API Discipline:** One user input results in exactly one LLM
+   API roundtrip. No hidden multi-step agent loops. *(Principle-level — see §2
+   of the philosophy doc; definition may be refined deliberately, never
+   drifted.)*
+2. **Deterministic Context Compiler:** Reads the knowledge graph, calculates
+   distance from the focal point, compiles the payload with resolution tiers
+   (Label → Abstract → Summary → Verbatim). *Current implementation choice.*
+3. **Multi-Model / Multi-Tier Support:** Fast preset switching (e.g., Gemini
+   Flash for quick turns, Pro for deep synthesis).
+4. **Cost target: as close to zero as practical.** Prefer cheap/free models
+   where quality allows; smart routing and auto-retry are in scope to explore.
+   Email-grade latency is acceptable — this is thinking work, not transactional.
 
 #### Data Model Requirements
-4. **Universal Artifact Schema:** Every chapter and document must support multi-resolution metadata (YAML frontmatter containing Tier 0 label, Tier 1 abstract, Tier 2 summary) and a body (Tier 3 verbatim).
-5. **Revision Control:** Artifacts must track revisions across time, with the UI defaulting to the latest version while keeping historical versions intact.
-6. **Provenance Tracking:** Document artifacts must store references to the conversation chapters and turn ranges that generated or updated them.
+
+5. **Universal Artifact Schema (current decision, reversible):** chapters and
+   documents share one schema with multi-resolution tiers (T0 label, T1
+   abstract, T2 summary, T3 body).
+6. **Revision Control:** artifacts track revisions; UI defaults to latest,
+   history intact.
+7. **Provenance Tracking:** artifacts store references to the chapters/turn
+   ranges that generated or updated them.
+8. **Generic graph edges:** nodes and edges where the edge type is open — any
+   relationship — with the currently-known kinds as a starting set only.
 
 #### UX & Interaction Requirements
-7. **Mobile-First Responsive Layout:** Full, friction-free usability on mobile screens (using slide-out drawers, bottom sheets, and minimal clutter) that expands smoothly into a multi-pane workspace on desktop.
-8. **Context HUD (Aperture Meter):** A transparent, glanceable interface showing the user exactly what the LLM currently sees (what is sharp, what is blurred, and total token footprint).
-9. **Tactile Chapter Splitting:** 
-   * LLM emits inline markers to declare topic shifts.
-   * User can slide the split line up/down between turns.
-   * User can undo/remerge splits with confirmation.
-   * Side-channel / isolated prompt channel to recalibrate a chapter's summary without polluting main context.
-10. **Manual Optical Controls:** 1-click toggles for "Autofocus" (follow active thread), "Manual Focus" (pin specific nodes as sharp), and "Macro/Myopia" (blur everything to force forest-level thinking).
+
+9. **Mobile-First, period:** full friction-free usability on phone screens
+   (drawers, bottom sheets, minimal clutter). Desktop may look sparse; that's
+   accepted. **No top bars, no sticky headers** unless explicitly approved —
+   they waste vertical space and keep getting re-added by tools that "know
+   better." Spec: `MOBILE_UX_SPEC.md` *(draft — awaiting David's LGTM)*.
+10. **Capture flow:** open → dump thought → send → close phone → reply waits
+    for you. Works even if the model hasn't answered before you leave.
+11. **Context HUD (aperture meter):** glanceable view of what the LLM currently
+    sees — sharp / blurred / out of frame, plus token footprint.
+12. **Tactile chapter splitting:** LLM proposes shifts inline; user drags the
+    boundary, can re-merge, and can recalibrate a chapter's summary via an
+    isolated side-channel call that doesn't pollute the main timeline.
+13. **Manual context controls:** pin/mute nodes, focus modes — because the user
+    is in control (Principle 1).
 
 ---
 
-### 5. Meta-Questions to Address
+### 5. Meta-Questions (genuinely open)
 
-Here are four questions that define how this system behaves when it hits edge cases:
+These are real, not decorative. Answered so far only with gut feelings:
 
-1. **The Graph Authoring Burden:**
-   * Who draws the links? If you have 100 artifacts, does the system ask the LLM during single-turn output to emit link tags (e.g., `relates_to: [id]`), do links form automatically from the active context, or do you want to manually wire them on a visual canvas?
-2. **The "Out-of-Frame" Boundary:**
-   * When the knowledge graph grows to 500+ artifacts, even sending Tier 0 (titles only) for everything will bloat the context window. What is the rule for cutting an artifact out of the prompt entirely? (e.g., max graph distance of $N$ hops, or an explicit active/inactive toggle)?
-3. **Chapter Lifecycle – When does a Chapter close?**
-   * If a chapter auto-splits, does the previous chapter automatically collapse into Tier 2 (Summary) in the prompt on the very next turn, or does it stay sharp for a grace period of 2–3 turns while the transition settles?
-4. **Export & Portability:**
-   * This is your thinking workbench, but where does the final output go? Do you need a 1-click "Compile Project Spec" that flattens selected Tier 3 artifacts into a clean Markdown/PDF export, or does the data live permanently inside this tool?
+1. **The Graph Authoring Burden:** Who draws the links? LLM-emitted link tags
+   during its single shot, automatic formation from active context, manual
+   wiring on a canvas, or (gut answer) **hybrid**? Mechanism undefined.
+2. **The "Out-of-Frame" Boundary:** At 500+ artifacts, even labels-only bloats
+   the window. What's the culling rule — max hops, explicit active/inactive,
+   something else? (Compiler currently specifies a 3-hop radius, but that's a
+   number we chose, not a law of nature.)
+3. **Chapter Lifecycle — when does a chapter close?** On auto-split, does the
+   previous chapter collapse to summary next turn, or stay sharp for a 2–3 turn
+   grace period?
+4. **Export & Portability:** does thinking stay in the tool, or is there a
+   1-click "compile project spec" flattening selected artifacts to
+   Markdown/PDF?
+5. **LLM data-requests:** if the model may emit a recognized "please pull X"
+   format that the user accepts (or auto-accepts with undo) — how does that
+   coexist with 1-turn discipline? Mechanism and default TBD.
+6. **Auto-organization:** currently a manual loop (LLM classifies → human
+   approves → human files). Plan→agree→execute→rollback is the spirit. Full
+   auto is *not* the goal; the mechanism is undefined.

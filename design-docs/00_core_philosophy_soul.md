@@ -1,109 +1,113 @@
-# 1. The Core Philosophy (The Soul)
+# THE CORE PHILOSOPHY (THE SOUL)
 
-### 1.1 The Photographic Context Model (Cognitive Optics)
-Traditional LLM interfaces treat conversation memory as an append-only paper scroll: either something is in the context window (100% sharp) or it is truncated/forgotten (0% sharp). RAG systems attempt to fix this with keyword/vector chunking, but they pull out disjointed snippets without narrative context.
-
-This system treats LLM working memory as an **optical field with adjustable depth of field**:
-* **The Focal Plane:** The exact idea, artifact, or discussion thread you are actively working on. It is rendered at 100% optical clarity (verbatim text, full detail).
-* **Progressive Blur (Depth of Field):** Concepts topographically adjacent to the focus remain visible, but progressively lose detail the further away they sit. Instead of falling out of memory completely, they soften into rich summaries, then one-liners, then semantic labels/titles, then disappear beyond the horizon.
-* **Myopia Mode (Forced Defocus / Forest View):** The deliberate, global suppression of all high-frequency detail. By pulling the focus entirely out of the weeds, the model is barred from looking at implementation minutiae. This forces the LLM to think purely in architectural patterns, conceptual gaps, and strategic breath.
-
-### 1.2 The Unified Artifact Paradigm ("Everything is an Artifact")
-There is no hard boundary between "chat history" and "produced documents." Both are artifacts:
-* A working deliverable (spec, design doc, architecture draft) is an artifact.
-* A historical burst of conversation around a specific topic is also an artifact (a **Chapter**).
-* Because both share the same universal structure, both participate equally in the graph, both have revisions, and both can be compressed or expanded along the optical spectrum.
+> Rewritten 2026-10-17 against David's corrected principles. Motivation lives in
+> `01_requirements_and_meta.md` §3 — this file is about what we believe and what
+> we've merely decided.
 
 ---
 
-# 2. Structural & Data Architecture
+## 1. What this is
 
-```
-                          [ WORKSPACE / PROJECT ]
-                                     |
-               +---------------------+---------------------+
-               |                                           |
-       [ KNOWLEDGE GRAPH ]                        [ CONVERSATION TIMELINE ]
-               |                                           |
-    +----------+----------+                         +------+------+
-    |                     |                         |             |
-[DOC ARTIFACTS]    [CHAPTER ARTIFACTS]         [PAST CHAPTERS] [ACTIVE CHAPTER]
-    |                     |                         |             |
-    +----------+----------+                         (Compressed)  (Full Sharpness)
-               |
-     [ MULTI-RESOLUTION DATA ]
-       - Title (Label)
-       - Abstract (Low Sharpness)
-       - Summary (Mid Sharpness)
-       - Body / Raw (Hi-Fi)
-       - Provenance / Lineage
-```
+MarkBrain is a personal cognitive workbench for thinking out loud with an LLM
+without losing the forest. You pour ideas in; the tool collects, organizes, and
+lets you zoom between the high-level view and the deep detail. (Why it exists —
+the brain-overflow problem, the cost problem, the mobile problem — is written
+up honestly in the requirements doc.)
 
-### 2.1 The Universal Artifact Node
-Every unit of thought in the workspace contains multi-resolution tiers pre-computed at generation time:
-* **Resolution Tier 0 (Label):** Title and semantic tags. (Zero-cost contextual awareness).
-* **Resolution Tier 1 (Abstract / Silhouette):** A 1–2 sentence essence of what this entity is and why it exists.
-* **Resolution Tier 2 (Detailed Synopsis):** A multi-bullet structured breakdown of decisions, parameters, and constraints.
-* **Resolution Tier 3 (Full Fidelity / Verbatim):** The raw markdown document or verbatim conversation log.
-* **Metadata & Provenance:** Revision history, parent/child links, associative graph edges, and backward pointers to the exact conversation turn(s) that birthed or revised it.
+What it is *not*:
 
-### 2.2 The Knowledge Graph (Topological Space)
-Ideas are not locked into a rigid filesystem hierarchy. They live in an organic, associative web:
-* **Nodes:** Document artifacts and conversation chapter artifacts.
-* **Edges:** Direct semantic relationships (e.g., `implements`, `refines`, `contradicts`, `depends_on`, `born_from`).
-* **Distance Metric:** The topological distance (number of hops along the graph) directly governs the default degree of optical blur when compiling context.
+* **Not a chat assistant** that treats history as a dumb linear log.
+* **Not a PKM/wiki** (Obsidian, Notion) that makes you file everything by hand.
+* **Not an agentic IDE/terminal** (Antigravity, Devin) built around tool loops
+  and autonomous execution.
 
 ---
 
-# 3. Dynamic Context Assembly & Compilation
+## 2. What we believe (the principles)
 
-When you press Enter, the system compiles a tailored prompt payload before dispatching it to the LLM. It does not just dump chat history; it renders a scene.
+These are the two things that actually hold the design up. Everything else is
+up for grabs; these aren't — at least not without a real fight.
 
-### 3.1 Separation of Cognitive Semantics
-The LLM must understand the difference between *what we are doing right now* and *what reference material exists*:
-1. **The Conversational Thread (Temporal Flow):** The immediate, sequential back-and-forth dialogue leading up to the current turn.
-2. **The Reference Substrate (Exhibits & Context):** The connected graph of artifacts, pulled in at varying resolutions based on their distance from the focal point.
+### Principle 1: The user controls the context.
 
-### 3.2 The Optical Compiler Pipeline
-1. **Identify the Focal Target:** By default, the active chapter. If manually overridden, a user-selected set of artifacts/nodes.
-2. **Calculate Distance & Aperture:** 
-   * Node is at focus $\rightarrow$ Tier 3 (Verbatim).
-   * Node is 1 hop away $\rightarrow$ Tier 2 (Detailed Summary).
-   * Node is 2 hops away $\rightarrow$ Tier 1 (Abstract).
-   * Node is $>2$ hops away $\rightarrow$ Tier 0 (Title only) or omitted.
-   * Recency decay adds a subtle weight to keep the immediately preceding chapter sharper than older ones.
-3. **Assemble the Payload:** Pack the prompt deterministically into designated markdown/declarative blocks.
+The whole design language is **context control and context manipulation**:
+giving the user easy control over what the LLM sees. We provide tools and
+information — the HUD, focus pins, chapter cards, provenance — so the user can
+decide what to pull into context, but **the user is the one in control.** Not
+the model, not the auto-features. If a feature ever takes that control away
+from the user, it's wrong, regardless of how clever it is.
 
----
+### Principle 2: Reject agentic platforms.
 
-# 4. Interaction & Orchestration (The Single-Turn Protocol)
+We are not building an agentic platform. In practice that means:
 
-### 4.1 Strict Single-Turn Execution (Cost & Latency Discipline)
-Multi-agent swarms with autonomous tool ping-pong loops are expensive, erratic, and slow. 
-* **1 User Turn = 1 API Call.**
-* The conversation model performs cognitive work and structure manipulation simultaneously in a single stream.
-* The frontend parses structured delimiters in the LLM's response in real time to update client state, split chapters, or spawn artifact revisions without triggering secondary tool loops.
+* **One turn does everything.** One user action, one API call. No multi-turn
+  agent loops where the model keeps going until *it* decides to hand back.
+* **Specific tools, not generic rip.** The model doesn't get bash/shell access
+  and license to do whatever it wants. Any capability we expose is specific and
+  deliberate.
+* **The model doesn't steer the app.** It can't modify settings or go fetch
+  data on its own authority. (At most it can emit a recognized request that
+  the user accepts — mechanism TBD.)
 
-### 4.2 Chapter Lifecycle & Boundary Control
-As conversation naturally meanders, topics drift. Instead of letting context rot:
-* **Inline Shift Detection:** The model signals a topic migration within its response stream (e.g., via a declarative marker), specifying what just concluded and what new topic is opening.
-* **Tactile User Overrides:**
-  * **Boundary Sliding:** You can drag the chapter split line up or down the message stack if the model split too early or too late.
-  * **Ad-Hoc Steering ("Local Recalibration"):** You can open a side channel on a specific past chapter to say: *"Your summary is wrong; this chapter was actually about X."* An isolated single-shot call updates the YAML resolutions for that chapter without pulling it into the main chat context.
-  * **Undo / Re-Merge:** Collapse an erroneous split back into the active chapter with confirmation.
+This is partly taste and partly economics: agentic workflows burn money *and*
+time — many calls, slow steps, "sitting an entire day and doing nothing." One
+turn is cheap and fast, and cheap-and-fast is a feature, not a compromise.
 
-### 4.3 Provenance & Negatives (The "Audit Trail")
-When inspecting an artifact, you have instant access to its "film negative":
-* An artifact links back to the specific Chapter and Turn range where it was authored.
-* Clicking into provenance opens a lightweight pop-up reader showing the raw discussion that led to that specific text, keeping you grounded in *why* a decision was made without forcing that raw transcript into the LLM's active working memory.
+*Honest note:* this is the spirit. The exact definition may need pushing later —
+"we'll see if we need to push this definition." We'd rather tighten or loosen
+this deliberately than drift into agentic-ness by accident.
 
 ---
 
-# 5. Form Factor & Ergonomics
+## 3. What we've decided (reversible)
 
-### 5.1 Mobile-First Spatial Management
-Thinking, ideation, and conversational steering frequently happen on a phone while on the move.
-* **Primary Surface (Single Column):** A focused, clean conversational canvas.
-* **Context Trays / Drawers:** Graph nodes, artifact viewers, and context inspectors live in slide-over drawers or bottom sheets on mobile, expanding into a multi-pane command desk only on wide desktop viewports.
-* **Context HUD (Heads-Up Display):** A minimal, visual token/aperture bar that communicates at a glance what the model can see right now (e.g., color-coded chips indicating what is sharp, what is blurred, and what is out of frame).
+These are choices, not commandments. Each might be the wrong one.
 
+* **Universal Artifact** — chat chapters and documents share one schema. This
+  is *a simplification we arrived at*, possibly right, possibly wrong. It buys
+  us uniform graph participation, revisions, and compression; it costs us
+  schema purity. Revisitable.
+* **Multi-resolution tiers (T0–T3)** — every artifact is stored at four
+  fidelities: label → abstract → summary → verbatim. Pre-computed so context
+  assembly is cheap. A good idea so far, but it's still an idea.
+* **A graph, generically** — nodes and edges where the edge can be *any*
+  relationship type. Known kinds in the code today (`parent_of`, `relates_to`,
+  `refines`, `born_from`, `child_of`) are a starting set, not a closed truth.
+* **A deterministic client-side compiler** that assembles the prompt from the
+  graph before each call. That's an implementation choice (see
+  `CONTEXT_COMPILER.md`), not doctrine — it could be replaced if something
+  better shows up.
+
+---
+
+## 4. What we're not sure of
+
+David's honest position, which the docs used to hide: *"I don't know what I
+want. I know I need it. It's for me."* This is an exploratory personal tool.
+The open design questions are listed in `01_requirements_and_meta.md` §5, and
+they're genuinely open. Anyone (human or AI) writing new docs here should keep
+this uncertainty visible instead of manufacturing confidence.
+
+---
+
+## 5. The analogy (optional): a camera lens
+
+*This section is illustrative only. It is not the architecture, not the design
+language, and not a source of terminology for new docs. The actual design
+language is Principle 1: context control.*
+
+One way to picture the tier system: LLM context works like a lens with
+adjustable depth of field.
+
+* **The focal plane** — what you're actively working on: sharp, verbatim.
+* **Progressive blur** — neighboring ideas stay visible but soften with
+  distance: rich summaries, then one-liners, then just labels, then out of
+  frame entirely.
+* **Forest view** — deliberately pulling focus out of the weeds so only the
+  high-level shapes remain, which is useful when you want the model thinking
+  about the canopy instead of the leaves.
+
+That's it. The tiers do the work; the camera is just a way to remember how they
+fit together. The photography metaphor is David's — used once, here, on
+purpose.

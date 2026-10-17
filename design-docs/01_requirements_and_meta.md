@@ -148,18 +148,30 @@ hybrid (inferred + hand-authored) — see §5.
 #### UX & Interaction Requirements
 
 9. **Mobile-First, period:** full friction-free usability on phone screens
-   (drawers, bottom sheets, minimal clutter). Desktop may look sparse; that's
+   (drawers, minimal clutter — note: bottom sheets **rejected** 2026-10-17;
+   artifact view stays the existing modal). Desktop may look sparse; that's
    accepted. **No top bars, no sticky headers** unless explicitly approved —
    they waste vertical space and keep getting re-added by tools that "know
-   better." Spec: `MOBILE_UX_SPEC.md` *(draft — awaiting David's LGTM)*.
+   better." Spec: `MOBILE_UX_SPEC.md` *(LGTM'd 2026-10-17)*.
 10. **Capture flow:** open → dump thought → send → close phone → reply waits
     for you. Works even if the model hasn't answered before you leave.
-11. **Context HUD (aperture meter):** glanceable view of what the LLM currently
-    sees — sharp / blurred / out of frame, plus token footprint.
-12. **Tactile chapter splitting:** LLM proposes shifts inline; user drags the
-    boundary, can re-merge, and can recalibrate a chapter's summary via an
-    isolated side-channel call that doesn't pollute the main timeline.
-13. **Manual context controls:** pin/mute nodes, focus modes — because the user
+11. **The mirror (approved 2026-10-17 — the big one):** the chat interface must
+    be almost **1:1 with what the tool sends the LLM** — same order, same
+    contents. Compacted material is shown summarized *to the user too*; tokens
+    visible per chapter; where the expensive part is, visible. Fine-tuning
+    (ordering, detail level, injection) = wanted, low priority. Without the
+    mirror, Principle 1 has no observable. See `MOBILE_UX_SPEC.md` §5.
+12. **Context visibility seed:** tap the orb → popup with useful stats (cheap,
+    explicitly wanted). The old "aperture-meter HUD" is AI-vibed — not a
+    commitment.
+13. **Chapter boundaries — KISS toolkit:** three operations over the last 1–2
+    chapters — move seam one turn up/down, split last chapter in two, merge
+    last two — behind a dropdown mode; plus recalibrate a chapter's summary
+    via an isolated side-channel call that doesn't pollute the main timeline.
+    The drag-handle design was rejected. See `MOBILE_UX_SPEC.md` §6.
+14. **Manual context controls:** pin/mute, and compaction **presets over the
+    mirror** (autofocus/forest-style — shape TBD, experiment after the mirror
+    exists; the current implementation is a nonworking husk). Because the user
     is in control (Principle 1).
 
 ---
@@ -187,3 +199,6 @@ These are real, not decorative. Answered so far only with gut feelings:
 6. **Auto-organization:** currently a manual loop (LLM classifies → human
    approves → human files). Plan→agree→execute→rollback is the spirit. Full
    auto is *not* the goal; the mechanism is undefined.
+7. **Compaction preset shape:** what exactly the auto-compaction setting is —
+   granularity, defaults, overrides — unspecified *by design*; experiment after
+   the mirror exists. Tracked in `MOBILE_UX_SPEC.md` §9.

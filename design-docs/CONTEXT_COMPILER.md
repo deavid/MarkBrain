@@ -8,24 +8,40 @@
 
 ---
 
-## 1. Conceptual Mechanics: The Depth-of-Field Engine
+## 1. Conceptual Mechanics: Distance-Graded Resolution
 
-The Context Compiler is responsible for converting a multi-dimensional, non-linear knowledge graph into a clean, single-turn prompt payload for the LLM. 
+The Context Compiler is responsible for converting a multi-dimensional, non-linear knowledge graph into a clean, single-turn prompt payload for the LLM.
 
-Traditional context assemblers use sliding windows (truncate oldest) or semantic search/RAG (pull top-K chunks without structural context). The Optical Compiler behaves like a camera lens:
+Traditional context assemblers use sliding windows (truncate oldest) or semantic search/RAG (pull top-K chunks without structural context). This compiler instead assigns resolution by graph distance — near = sharp, far = degraded:
 
-```
-[OUT OF FRAME]      [TIER 0: TITLE]      [TIER 1: ABSTRACT]      [TIER 2: SUMMARY]      [TIER 3: VERBATIM]
-(Clipped/Omitted)     (Label Only)       (Silhouette / Essence)    (Structured Bullets)   (Full Hi-Fi Body)
-  > 3 Hops away         3 Hops away            2 Hops away              1 Hop away           FOCAL POINT
--------------------------------------------------------------------------------------------------------->
-[ MAXIMUM BLUR ] <-------------------------------------------------------------------> [ SHARP FOCUS ]
-```
+| Distance from focal point | Tier | What the LLM gets |
+|---|---|---|
+| Focal point | **T3** | verbatim body |
+| 1 hop | **T2** | detailed summary |
+| 2 hops | **T1** | abstract |
+| 3 hops | **T0** | label/tags only |
+| > 3 hops | **culled** | omitted entirely |
 
-### Focus Modes (UI-named "Optical Modes" — code: `03-optical-compiler`)
-1. **Autofocus (Default):** The active conversation chapter is locked as the Focal Point. Depth-of-field expands topologically outward through direct artifact references and parent hierarchies.
-2. **Manual Focus:** The user explicitly selects one or more artifacts or historical chapters as the Focal Points (e.g., pinning a core architecture document).
-3. **Macro / Myopia Mode (The Forest View):** Globally clamps the maximum resolution of *all* background nodes to Tier 1 (Abstract) or Tier 0 (Title), and compresses conversational history to Tier 2 (Summary). This removes implementation weeds entirely, forcing the model to synthesize high-level patterns and identify conceptual voids.
+*(The camera-lens analogy for this lives once, in `00_core_philosophy_soul.md` §5 — not here.)*
+
+### Modes — reconceived as presets over the mirror (read this before trusting anything below)
+
+Honest status (David + Goose, 2026-10-17): the mode code in `03-optical-compiler`
+**does not work** — David's words: *"empty husk shell… it doesn't work at all,"*
+the feature was *"entirely vibecoded — from vibes, from poorly understood
+stuff."* What modes are *meant to be*, once the mirror exists: **auto-compaction
+presets** — one simple setting deciding at what resolution each chapter and
+artifact enters the payload, with manual overrides on top. Autofocus / manual /
+forest-style names, *if they survive*, are just named presets of that setting.
+Shape is TBD by design; experiment after the mirror ships
+(`MOBILE_UX_SPEC.md` §7, §9). The historical descriptions below are *intent*,
+not current behavior:
+
+1. **Autofocus (intended default):** the active conversation chapter is the
+   focal point; detail extends outward through direct references and parents.
+2. **Manual focus (intended):** the user pins artifacts/chapters as focal.
+3. **Forest / Myopia (intended):** clamp background nodes to T1/T0 and history
+   to T2 — force canopy-level thinking.
 
 ---
 
@@ -45,7 +61,7 @@ The compiler runs deterministically on the client device before every single API
       - Traverse lateral edges out to Radius = 3 hops
                  |
                  v
-      [ Assign Raw Optical Tiers ]
+      [ Assign Resolution Tiers ]
       - Focal Point(s)        -> Tier 3 (Verbatim)
       - Distance = 1 hop      -> Tier 2 (Detailed Summary)
       - Distance = 2 hops     -> Tier 1 (Abstract)
@@ -57,10 +73,10 @@ The compiler runs deterministically on the client device before every single API
       - Chapter immediately prior to active -> Boost to Tier 2 (if degraded)
                  |
                  v
-      [ Token Budget & Dynamic Blurring ]
+      [ Token Budget & Dynamic Degradation ]
       - Calculate total projected tokens
       - IF Total > Token Budget Ceiling:
-          Progressively blur furthest nodes first (T2 -> T1 -> T0 -> Cull)
+          Progressively degrade furthest nodes first (T2 -> T1 -> T0 -> Cull)
                  |
                  v
       [ Assemble Structured Payload ]
@@ -72,10 +88,10 @@ The compiler runs deterministically on the client device before every single API
 
 ### 2.1 Distance & Hierarchy Rules
 1. **The Ancestor Backbone:** Any artifact that is an ancestor (`parent_of` path leading up to root concepts) of the focal node is never culled. It is kept at a minimum of **Tier 1 (Abstract)** to anchor the model to first principles.
-2. **Topological Radius:** Any node with a shortest-path distance $> 3$ hops from the focal point is placed outside the depth of field and completely culled from the context.
+2. **Topological Radius:** Any node with a shortest-path distance $> 3$ hops from the focal point is outside the radius and completely culled from the context.
 3. **Temporal Recency Bias:** The conversation chapter immediately preceding the active chapter is guaranteed at least **Tier 2 (Summary)** to maintain immediate dialogue continuity, regardless of graph distance.
 
-### 2.2 Budget-Driven Dynamic Blurring
+### 2.2 Budget-Driven Dynamic Degradation
 When the compiled context exceeds the defined token budget (configured by the model preset, e.g., 32k for fast turns, 128k+ for deep turns):
 1. Nodes at Distance 3 (Tier 0) are culled first.
 2. Nodes at Distance 2 (Tier 1) are degraded to Tier 0.
@@ -185,9 +201,12 @@ You must adhere to the following protocol rules:
 
 ---
 
-## 5. Mobile HUD Telemetry
+## 5. Context Telemetry (data behind the mirror & orb popup)
 
-During compilation, the compiler generates a metadata report exported directly to the user interface. This drives the **Context HUD** so the user has immediate visual feedback on what the LLM can perceive:
+During compilation, the compiler generates a metadata report exported to the
+UI. This is the data behind the tap-orb stats popup and, eventually, the
+mirror's per-chapter token visibility (`MOBILE_UX_SPEC.md` §5) — *not* a
+committed "HUD" surface:
 
 ```typescript
 export interface ContextTelemetry {

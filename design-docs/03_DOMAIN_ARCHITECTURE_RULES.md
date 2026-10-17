@@ -25,17 +25,17 @@ src/domains/
 ├── 01-dialogue-timeline/         # Level 1: Conversational turns (active buffer)
 ├── 01-artifact-document/         # Level 1: Multi-resolution living specs (T0-T3)
 ├── 01-artifact-versioning/       # Level 1: Append-only revision history & diffs
-├── 02-chapter-segmentation/      # Level 2: Boundary slicing, merging, tactile drag
+├── 02-chapter-segmentation/      # Level 2: Boundary ops (KISS toolkit), chapter slicing/merging
 ├── 02-provenance-tracking/       # Level 2: Bidirectional Artifact <-> Turn index
 ├── 02-topological-graph/         # Level 2: Semantic edge matrix & BFS pathing
 ├── 02-recursive-grouping/        # Level 2: Super-Chapters & hierarchical clustering
 ├── 03-stream-protocol/           # Level 3: 1-Turn transport & XML chunk demuxer
 ├── 03-chapter-recalibration/     # Level 3: Side-channel summary steering (Flash)
-├── 03-optical-compiler/          # Level 3: Depth-of-Field prompt compiler & telemetry
+├── 03-optical-compiler/          # Level 3: Context prompt compiler & telemetry (codename: optical)
 └── 04-presentation/              # Level 4: UI Surfaces & Ambient Telemetry
     ├── canvas/                   # Chat timeline, cards, boundary handle
     ├── telemetry/                # 5px heat-strip, floating saturation orb
-    ├── inspector/                # Bottom sheet for markdown & revisions
+    ├── inspector/                # Artifact inspector (modal): markdown & revisions
     └── cartography/              # Sidebar tree & Macro Forest Map
 ```
 

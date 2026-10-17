@@ -23,7 +23,8 @@ The system treats conversation, knowledge management, and LLM context not as an 
                                       |
                                       v
                              [ 1-TURN API CALL ]
-                                (Gemini Pro/Flash)
+                            (Model Provider — Gemini today;
+                              OpenRouter desired)
                                       |
                                       v
                           [ STREAMING XML PARSER ]
@@ -164,15 +165,15 @@ export interface ChapterArtifact extends Artifact {
 ```
 +---------------------------------------------------------------------------------+
 |                                USER INTERFACE                                   |
-|   (Mobile-First: Adaptive Drawers, Focus Selector, Timeline, Context HUD)       |
+|   (Mobile-First: Chat Canvas, Sidebar, Telemetry orb/strip — see MOBILE_UX_SPEC)  |
 +---------------------------------------------------------------------------------+
           |                                                              ^
           | (1 User Action / Enter)                                      | (State Update)
           v                                                              |
 +----------------------+      +----------------------+      +---------------------+
 |   CONTEXT COMPILER   | ---> |     LLM GATEWAY      | ---> | STREAMING XML ENGINE|
-| Calculates Aperture, |      | (Single 1-Turn Call: |      | Parses inline tags, |
-| Assembles Prompt     |      |  Gemini Pro / Flash) |      | updates Graph/Nodes |
+| Compiles Context     |      | (Single 1-Turn Call: |      | Parses inline tags, |
+| Tiers, Assembles     |      |  Model Provider)     |      | updates Graph/Nodes |
 +----------------------+      +----------------------+      +---------------------+
           ^                                                              |
           |                                                              v
@@ -192,7 +193,7 @@ export interface ChapterArtifact extends Artifact {
 #### 2. The Context Compiler (Detailed in `CONTEXT_COMPILER.md`)
 * Runs entirely client-side right before firing the API request.
 * Reads the current Focal Point (active chapter or user-pinned node).
-* Applies the optical depth-of-field rules: resolves nodes to Tier 3, Tier 2, Tier 1, Tier 0, or drops them beyond the clipping boundary.
+* Applies distance-tier rules (the "optical" codename is historical): resolves nodes to Tier 3, Tier 2, Tier 1, Tier 0, or drops them beyond the radius.
 * Emits a strictly formatted prompt payload split into `<system_instructions>`, `<knowledge_graph_context>`, and `<conversation_history>`.
 
 #### 3. LLM Gateway
@@ -200,15 +201,15 @@ export interface ChapterArtifact extends Artifact {
 * Enforces single-turn semantics: sends payload, streams response, finishes turn.
 * Disallows multi-agent recursive loops and autonomous secondary API dispatches.
 
-#### 4. Streaming XML Engine (Detailed in `STREAM_PROTOCOL.md` — **draft, pending David's LGTM**)
+#### 4. Streaming XML Engine (Detailed in `STREAM_PROTOCOL.md` — **approved 2026-10-17**)
 * Consumes the chunked response stream from the LLM Gateway.
 * Strips functional XML tags from conversational chat text in real time so the user experiences zero visual clutter on mobile.
 * Detects `<topic_shift>`, `<artifact_upsert>`, and `<link>` tags, executing atomic state updates inside the Graph Store upon completion of the turn.
 
-#### 5. Mobile-First Adaptive Interface (Detailed in `MOBILE_UX_SPEC.md` — **draft, pending David's LGTM**)
-* Renders a clean conversational timeline optimized for handheld screens.
-* Houses the Context HUD (showing live aperture, focal targets, and token budget).
-* Employs slide-over sheets for Artifact inspection, side-channel recalibration popups, and the tactile chapter-boundary slider.
+#### 5. Mobile-First Adaptive Interface (Detailed in `MOBILE_UX_SPEC.md` — **approved 2026-10-17**)
+* Renders a clean conversational timeline optimized for handheld screens (no top bars, no sticky headers).
+* Mirrors what the LLM sees (the mirror principle — `MOBILE_UX_SPEC.md` §5); seed UI = tap-orb stats popup; telemetry = orb + 5px edge strip.
+* Artifact inspection = the existing modal (bottom sheet **rejected**); chapter boundaries = KISS three-button toolkit (`MOBILE_UX_SPEC.md` §6); recalibration via an isolated side-channel panel.
 
 ---
 
@@ -229,11 +230,11 @@ export interface ChapterArtifact extends Artifact {
    * If `<topic_shift>` was detected: Active chapter is closed, its YAML multi-resolution frontmatter is recorded, and a new Active Chapter is instantiated.
    * If `<artifact_upsert>` was detected: A new artifact or revision is stamped with provenance pointing directly to the current chapter and turn index.
    * Graph edges are updated.
-   * Context HUD recalculates based on new state.
+   * Context/telemetry state recalculates based on new state.
 
 ### 4.2 Chapter Recalibration State Flow (Side-Channel)
 When a user challenges an existing chapter's summary:
-1. User taps Chapter card $\rightarrow$ opens Recalibration Sheet.
+1. User taps Chapter card $\rightarrow$ opens the Recalibration panel.
 2. User enters feedback: *"This chapter was about player velocity, not terrain bounds."*
 3. Isolated API Call: System sends *only* the chapter's raw Tier 3 dialogue plus the user feedback to a fast model (Gemini Flash).
 4. Model returns updated `t0_label`, `t1_abstract`, and `t2_summary`.

@@ -32,8 +32,8 @@ up for grabs; these aren't — at least not without a real fight.
 
 The whole design language is **context control and context manipulation**:
 giving the user easy control over what the LLM sees. We provide tools and
-information — the HUD, focus pins, chapter cards, provenance — so the user can
-decide what to pull into context, but **the user is the one in control.** Not
+information — the mirror (showing what the model gets), telemetry, focus pins,
+chapter cards, provenance — so the user can decide what to pull into context, but **the user is the one in control.** Not
 the model, not the auto-features. If a feature ever takes that control away
 from the user, it's wrong, regardless of how clever it is.
 

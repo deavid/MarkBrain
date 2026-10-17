@@ -20,6 +20,12 @@ import { ChatView } from './components/ChatView';
 import { ChatErrorBoundary } from './components/ChatErrorBoundary';
 import { AuthGate } from './components/AuthGate';
 import { ProjectGenesis } from './components/ProjectGenesis';
+import {
+  exportDatabase,
+  serializeDatabase,
+  parseDatabaseExport,
+  importDatabase,
+} from './services/persistenceService';
 import { Brain } from 'lucide-react';
 import { logger } from './utils/logger';
 import { ArtifactDetailModal } from './components/ArtifactDetailModal';
@@ -46,6 +52,7 @@ export default function App() {
     authInitialized,
     cloudProjectsCount,
     signIn,
+    continueLocal,
     signOut,
     createCloudWorkspace,
   } = useDomains();
@@ -121,6 +128,60 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
+
+  // Full-database backup / restore (canonical format lives in persistenceService).
+  const importDbFileRef = useRef<HTMLInputElement | null>(null);
+
+  const handleExportDatabase = useCallback(async () => {
+    try {
+      const data = await exportDatabase();
+      const blob = new Blob([serializeDatabase(data)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `markbrain-db-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      logger.info('App', `Database backup downloaded (${data.projects.length} projects)`);
+    } catch (err: any) {
+      logger.error('App', `Database export failed: ${err?.message || err}`, err);
+    }
+  }, []);
+
+  const handleImportDatabaseFile = useCallback(async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = parseDatabaseExport(text);
+      const n = await importDatabase(parsed);
+      logger.info('App', `Database restore OK — ${n} project(s) imported. Reloading…`);
+      // Fresh boot is the honest way to show restored data: the boot path
+      // (gate → project list → snapshot load) is the one already exercised
+      // by every session, fixture, and real-data run.
+      window.location.reload();
+    } catch (err: any) {
+      logger.error('App', `Database import failed: ${err?.message || err}`, err);
+      alert(`Import failed: ${err?.message || err}`);
+    }
+  }, []);
+
+  // Mounted on BOTH the Genesis screen and the main studio (exclusive early
+  // returns) — a fresh browser must be able to restore with zero projects,
+  // which means the trigger has to exist where the Sidebar doesn't.
+  const dbImportInput = (
+    <input
+      ref={importDbFileRef}
+      type="file"
+      accept="application/json,.json"
+      className="hidden"
+      onChange={(e) => {
+        const f = e.target.files?.[0];
+        if (f) handleImportDatabaseFile(f);
+        e.target.value = '';
+      }}
+    />
+  );
 
   // Chat loading & live streaming status state
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -823,6 +884,7 @@ export default function App() {
       <>
         <AuthGate
           onSignIn={signIn}
+          onContinueLocal={continueLocal}
           onOpenServerLogs={() => setIsServerLogsOpen(true)}
         />
         <ServerLogsModal
@@ -856,7 +918,9 @@ export default function App() {
           user={currentUser}
           onCreateProject={createCloudWorkspace}
           onSignOut={signOut}
+          onImportDatabase={() => importDbFileRef.current?.click()}
         />
+        {dbImportInput}
         <ServerLogsModal
           isOpen={isServerLogsOpen}
           onClose={() => setIsServerLogsOpen(false)}
@@ -884,6 +948,8 @@ export default function App() {
         onToggleOpticalMode={cycleOpticalMode}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenImport={() => setIsImportOpen(true)}
+        onExportDatabase={handleExportDatabase}
+        onImportDatabase={() => importDbFileRef.current?.click()}
         onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
         onOpenServerLogs={() => setIsServerLogsOpen(true)}
         onSelectArtifact={(art) => setSelectedArtifactId(art.id)}
@@ -1012,6 +1078,9 @@ export default function App() {
           );
         })()
       )}
+
+      {/* Hidden trigger for full-database restore (Sidebar → Restore DB) */}
+      {dbImportInput}
     </div>
   );
 }

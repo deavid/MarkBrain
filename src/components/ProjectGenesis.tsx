@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Brain, Plus, Sparkles, LogOut, RefreshCw, FolderPlus } from 'lucide-react';
+import { Brain, Plus, Sparkles, LogOut, RefreshCw, FolderPlus, RotateCcw } from 'lucide-react';
 import { logger } from '../utils/logger';
 
 interface ProjectGenesisProps {
@@ -16,6 +16,9 @@ interface ProjectGenesisProps {
     color: string;
   }) => Promise<void>;
   onSignOut: () => Promise<void>;
+  /** Full-database restore trigger — a fresh store must be restorable
+   *  from this screen, where the Sidebar I/O tools don't exist yet. */
+  onImportDatabase?: () => void;
 }
 
 const PALETTE = [
@@ -31,6 +34,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
   user,
   onCreateProject,
   onSignOut,
+  onImportDatabase,
 }) => {
   const [name, setName] = useState('');
   const [codeName, setCodeName] = useState('');
@@ -209,6 +213,18 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
             )}
           </button>
         </form>
+
+        {onImportDatabase && (
+          <button
+            type="button"
+            onClick={onImportDatabase}
+            className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-transparent hover:bg-[#0f182a] text-[#6e88a8] hover:text-[#8ab1e0] text-[11px] font-mono transition-colors cursor-pointer border border-transparent hover:border-[#162238]"
+            title="Restore a MarkBrain database backup file (JSON) into this browser"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Restore from a database backup instead</span>
+          </button>
+        )}
       </div>
     </div>
   );

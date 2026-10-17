@@ -15,6 +15,33 @@
 
 ## In flight (2026-10-17, late night)
 
+- **Local branch + full-database backup/restore — BUILT, VERIFIED (2026-10-18
+  00:34).** David greenlit after the eradication ("go for it"): the rule was
+  never "localStorage is evil" — it was ONE source of truth per session, no
+  dual-write mirror. Shape (branching enclosed per David's constraint):
+  - `persistenceService.ts` = the ONLY module that knows >1 backend exists
+    (getBackend/setBackend via meta-key `markbrain:backend` — meta-use, not
+    data). Dispatches the 4 CRUD functions: `firestore` (default) | `local`.
+  - `localBackend.ts` = private IndexedDB adapter (DB `markbrain-local`,
+    store `projects`, keyPath `projectId`, canonical ProjectSnapshot —
+    IndexedDB not localStorage: 5MB quota dies on artifacts+turns+graph).
+  - Session branch in DomainRegistry only: Local mode presents display-only
+    LOCAL_USER pseudo (uid `local`, "Local Space") so App/Sidebar/Genesis
+    stay backend-agnostic; Firebase observer null in local mode does NOT
+    knock the session to the gate.
+  - AuthGate second button "Continue locally"; Genesis gets "Restore from a
+    database backup instead" (fresh browser must restore with NO sidebar);
+    Sidebar I/O accordion gets Backup DB / Restore DB (canonical
+    `markbrain-database` v1 JSON — export format IS the architecture;
+    export works on Firestore too).
+  - Fixed latent bug in the port: createCloudProject returned bare snapshot
+    (no meta) → WorkspaceDomain fell back to displaying the raw ID. Both
+    branches now return meta-merged records.
+  - Acceptance test `scripts/roundtrip-test.cjs` (serial, one Chromium):
+    A: local → create → Backup DB → canonical JSON; B: fresh context →
+    local → restore → same UI. **ROUNDTRIP PASS.** tsc clean (pre-existing
+    vitest gap only). Fixture capture green. David tests the Firestore side,
+    agent tested the local side.
 - **AuthGate error UX cleanup — "strip all stupidity from here" (David's ask).**
   - Verdict on record: the "Enter New API Key" button + localStorage key-override
     were invented by an earlier AI to appease *"keep the Firebase key secret"* —

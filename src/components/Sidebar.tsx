@@ -25,6 +25,8 @@ import {
   User as UserIcon,
   Plus,
   FolderKanban,
+  Save,
+  RotateCcw,
 } from 'lucide-react';
 import { ArtifactFolderTree } from './ArtifactFolderTree';
 
@@ -46,6 +48,9 @@ interface SidebarProps {
   onToggleOpticalMode?: () => void;
   onOpenExport: () => void;
   onOpenImport: () => void;
+  // Full-database backup / restore (canonical format — works on any backend)
+  onExportDatabase: () => void;
+  onImportDatabase: () => void;
   onOpenProjectLauncher: () => void;
   onOpenServerLogs?: () => void;
   // Artifact Tree & Focus capabilities
@@ -76,6 +81,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleOpticalMode,
   onOpenExport,
   onOpenImport,
+  onExportDatabase,
+  onImportDatabase,
   onOpenProjectLauncher,
   onOpenServerLogs,
   onSelectArtifact,
@@ -598,6 +605,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <Download className="w-3.5 h-3.5 text-[#5ad49b]" />
                     <span>Export</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      logger.action('Sidebar', 'Export full database backup');
+                      onExportDatabase();
+                    }}
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-[#0f1726] hover:bg-[#162238] border border-[#141f33] text-xs font-mono text-[#5ad49b] transition-colors cursor-pointer col-span-1"
+                    title="Download every project (turns, chapters, artifacts, graph) as one JSON file"
+                  >
+                    <Save className="w-3.5 h-3.5 text-[#5ad49b]" />
+                    <span>Backup DB</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      logger.action('Sidebar', 'Restore database from file');
+                      onImportDatabase();
+                    }}
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-[#0f1726] hover:bg-[#162238] border border-[#141f33] text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer col-span-1"
+                    title="Restore a MarkBrain database backup file into the active backend"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-[#38bdf8]" />
+                    <span>Restore DB</span>
                   </button>
                 </div>
               </div>

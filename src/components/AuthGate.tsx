@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { Brain, LogIn, AlertCircle, RefreshCw, Terminal, CheckCircle2, ExternalLink } from 'lucide-react';
+import { Brain, LogIn, AlertCircle, RefreshCw, Terminal, CheckCircle2, ExternalLink, HardDrive } from 'lucide-react';
 import { logger } from '../utils/logger';
 import { classifyAuthError } from '../utils/authErrors';
 
 interface AuthGateProps {
   onSignIn: () => Promise<any>;
+  onContinueLocal?: () => Promise<void>;
   onOpenServerLogs?: () => void;
 }
 
-export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onOpenServerLogs }) => {
+export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, onOpenServerLogs }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -77,7 +78,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onOpenServerLogs }
             Personal Database Access Gate
           </p>
           <p className="text-[11px] text-[#6b82a3]">
-            To read your architectural chapters, topological graphs, and dialogue turns, sign in with your Google account. Your data is isolated strictly to your user profile.
+            Sign in with Google for cloud storage, or continue locally — your data stays in this
+            browser (IndexedDB), portable anytime via database backup/restore.
           </p>
         </div>
 
@@ -158,7 +160,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onOpenServerLogs }
           </div>
         )}
 
-        {/* Action Button: Sign In with Google */}
+        {/* Action Buttons: two branches — Google (cloud) / Local (IndexedDB) */}
         <div className="space-y-2 pt-1">
           <button
             type="button"
@@ -178,6 +180,21 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onOpenServerLogs }
               </>
             )}
           </button>
+
+          {onContinueLocal && (
+            <button
+              type="button"
+              onClick={() => {
+                logger.action('AuthGate', 'User chose Continue locally (Local space)');
+                onContinueLocal();
+              }}
+              disabled={isLoading}
+              className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl bg-[#0e1626] hover:bg-[#162238] active:bg-[#0b1220] disabled:opacity-50 text-[#8ab1e0] text-xs font-medium tracking-wide transition-all cursor-pointer border border-[#1c2e47]"
+            >
+              <HardDrive className="w-4 h-4 text-[#5ad49b]" />
+              <span>Continue locally</span>
+            </button>
+          )}
         </div>
 
         {/* Footer Security Guarantee */}

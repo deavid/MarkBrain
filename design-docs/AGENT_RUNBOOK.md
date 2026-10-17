@@ -186,6 +186,28 @@ node scripts/headless-capture.cjs --real     # or MARKBRAIN_CAPTURE_MODE=real
   stacked 40+ Chromiums and systemd-oomd killed the whole agent scope
   (2026-10-18 00:01). Always `browser.close()` in `finally`; never batch.
 
+### 3.6 Local branch + database backup/restore
+
+Two gate branches: **Continue with Google** (Firestore) / **Continue locally**
+(IndexedDB, no account). Only `persistenceService.ts` knows both exist —
+`getBackend()` reads meta-key `markbrain:backend`, dispatches the four CRUD
+functions; `localBackend.ts` is its private adapter. Everything else (App,
+Sidebar, Genesis) sees a `currentUser` and stays agnostic.
+
+- **Backup / Restore** (Sidebar → Import/Export I/O → Backup DB / Restore DB;
+  Genesis → "Restore from a database backup instead"): canonical
+  `markbrain-database` v1 JSON — export format IS the architecture, works on
+  either backend, restore into a different backend than it was exported from.
+  Local restore = full replace (one IDB transaction); Firestore restore =
+  upsert (never deletes remote docs missing from the file).
+- **Round-trip acceptance test** (serial, one Chromium, exit 0/1):
+
+```bash
+node scripts/roundtrip-test.cjs
+# A: Continue locally → create → Backup DB (schema-validated JSON)
+# B: fresh context → Continue locally → Restore → same UI
+```
+
 ## 5. Screenshots without any mock (loader / gate states)
 
 ```bash

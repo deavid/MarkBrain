@@ -8,7 +8,7 @@
  * Full mechanics + caveats: design-docs/AGENT_RUNBOOK.md
  *
  * Usage:
- *   node scripts/headless-capture.cjs
+ *   node scripts/headless-capture.cjs   (opens /?fixture=1 — dev fixture seam)
  *
  * Env overrides:
  *   MARKBRAIN_URL    default http://localhost:${PORT from .env || 3030}
@@ -211,8 +211,9 @@ async function main() {
     log('📸', file);
   };
 
-  log('navigating →', APP);
-  await page.goto(APP, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  const startUrl = APP + (APP.includes('?') ? '&' : '?') + 'fixture=1';
+  log('navigating →', startUrl);
+  await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
   // Detect which screen rendered: main app (textarea) vs auth gate.
   const mainApp = page.locator('textarea').first();

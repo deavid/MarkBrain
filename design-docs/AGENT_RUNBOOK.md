@@ -86,19 +86,32 @@ So: route that URL and fulfill `200` with
 as a belt-and-braces fallback; far-future expiration should mean it never
 fires.
 
-### 3.3 HOLD Firestore (never fulfill)
+### 3.3 HOLD Firestore (belt-and-braces — data comes from the fixture now)
 
-Route `firestore.googleapis.com` and just… don't respond. Effects, all
-desirable for capture:
+Route `firestore.googleapis.com` and just… don't respond. Project data under
+`?fixture=1` arrives via the fixture seam (§3.4) without touching the SDK, so
+the hold is defense-in-depth: `testConnection` and any stray write can't
+escape. Effects:
 
 - `listUserProjects()` (`persistenceService.ts`) stays pending →
   `cloudProjectsCount` stays `null` → note `null === 0` is **false**, so the
   `ProjectGenesis` branch doesn't trigger → main app renders with the local
   default workspace (`proj-unhaunter`) + demo data from `src/data/initialData.ts`.
-- The sidebar shows a permanent **"Syncing…"** — that's the held request, not
-  a bug.
-- **Zero cloud reads/writes.** Screenshots can't touch real user data, and
-  fire-and-forget `setDoc` saves can't escape either.
+- The old permanent **"Syncing…"** badge is gone (sync chrome extirpated
+  2026-10-17); a Firestore offline warning in console from the held request is
+  expected, harmless.
+
+### 3.4 The fixture seam (data layer)
+
+`src/data/headlessFixture.ts` — ONE typed `ProjectSnapshot` (same shape
+Firestore holds), loaded only when `?fixture=1` is present **and** the build
+is dev (`import.meta.env.DEV`, tree-shaken in prod). `listUserProjects` and
+`loadProjectSnapshot` return it; `saveProjectSnapshot` no-ops (`isCaptureMode`
+covers `?fixture` and `?capture`). It replaced the old three-layer seed chain
+(localStorage registry → static `INITIAL_PROJECTS` → cloud overlay), which was
+extirpated in the "Storage IS Firebase" refactor (scratch/pending.md).
+- **Zero cloud reads/writes.** The fixture seam serves data before the SDK;
+  the hold ensures nothing real can be touched either.
 
 (If instead Firestore *resolves* with `[]`, you land on `ProjectGenesis` —
 also a capturable screen. And note `Create & Launch Workspace` calls `setDoc`,

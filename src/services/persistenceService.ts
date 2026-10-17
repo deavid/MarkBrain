@@ -1,6 +1,7 @@
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
 import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
 import { logger } from '../utils/logger';
+import { HEADLESS_FIXTURE } from '../data/headlessFixture';
 
 export interface ProjectSnapshot {
   projectId: string;
@@ -84,6 +85,9 @@ export async function saveProjectSnapshot(
 export async function loadProjectSnapshot(
   projectId: string
 ): Promise<ProjectSnapshot | null> {
+  if (isFixtureMode()) {
+    return projectId === HEADLESS_FIXTURE.projectId ? HEADLESS_FIXTURE : null;
+  }
   const currentUser = auth.currentUser;
   if (!currentUser) return null;
 
@@ -108,6 +112,7 @@ export async function loadProjectSnapshot(
  * List all projects belonging to the authenticated user.
  */
 export async function listUserProjects(userId: string): Promise<ProjectSnapshot[]> {
+  if (isFixtureMode()) return [HEADLESS_FIXTURE];
   try {
     const projectsCol = collection(db, 'users', userId, 'projects');
     const snap = await getDocs(projectsCol);

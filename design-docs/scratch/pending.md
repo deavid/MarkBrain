@@ -31,7 +31,9 @@
 ## Repo housekeeping (not urgent)
 
 - `package.json` still named `"react-example"` (AI Studio scaffold leftover).
-- No README — optional; David didn't opt in when offered.
+- README: **added 2026-10-17** (root `README.md`; front door only — docs stay
+  source of truth). Same session added `design-docs/AGENT_RUNBOOK.md` +
+  `scripts/headless-capture.cjs` (headless run/mock/screenshot rig, David's ask).
 - OpenRouter / free-model routing — explore when touching the gateway
   (provider-adapter shape flagged in `STREAM_PROTOCOL.md` §2).
 - Email integration — **PARKED. Do not deepen until David reopens it.**

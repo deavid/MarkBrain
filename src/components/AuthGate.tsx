@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Brain, LogIn, AlertCircle, RefreshCw, Terminal, CheckCircle2, Key, ExternalLink } from 'lucide-react';
+import { Brain, LogIn, AlertCircle, RefreshCw, Terminal, CheckCircle2, ExternalLink } from 'lucide-react';
 import { logger } from '../utils/logger';
-import { saveCustomApiKey } from '../services/firebase';
+import { classifyAuthError } from '../utils/authErrors';
 
 interface AuthGateProps {
   onSignIn: () => Promise<any>;
@@ -11,43 +11,36 @@ interface AuthGateProps {
 export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onOpenServerLogs }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showKeyInput, setShowKeyInput] = useState(false);
-  const [customKey, setCustomKey] = useState('');
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   const handleSignIn = async () => {
     setIsLoading(true);
     setErrorMessage(null);
-    logger.action('AuthGate', 'User clicked Sign in with Google from pre-flight gate');
+    setErrorCode(null);
+    logger.action('AuthGate', 'User clicked Continue with Google from pre-flight gate');
 
     try {
       await onSignIn();
       logger.info('AuthGate', 'Sign in resolved successfully');
     } catch (err: any) {
-      const msg = err?.message || 'Authentication failed. Please check your connection and popup permissions.';
-      logger.error('AuthGate', 'Google sign-in attempt failed', err);
-      setErrorMessage(msg);
-      if (
-        msg.includes('api-key-expired') ||
-        msg.includes('API key expired') ||
-        msg.includes('invalid-api-key') ||
-        msg.includes('API_KEY_INVALID')
-      ) {
-        setShowKeyInput(true);
-      }
+      const code = typeof err?.code === 'string' ? err.code : 'auth/unknown';
+      setErrorCode(code);
+      setErrorMessage(
+        err?.message || 'Authentication failed. Check popups and network, then try again.'
+      );
+      logger.error('AuthGate', `Sign-in failed (${code})`, err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSaveKey = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customKey.trim()) return;
-    logger.action('AuthGate', 'Saved updated Firebase Web API Key in browser localStorage');
-    saveCustomApiKey(customKey.trim());
-  };
+  const errorClass = classifyAuthError(errorCode);
+  const projectId = (import.meta.env.VITE_FIREBASE_PROJECT_ID as string) || '';
+  const authDomainUrl = `https://console.firebase.google.com/project/${projectId}/authentication/settings`;
+  const credentialsUrl = `https://console.cloud.google.com/apis/credentials?project=${projectId}`;
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen w-screen bg-[#070b12] text-[#d6e3f5] p-4 select-none relative overflow-hidden font-sans">
+    <div className="flex items-center justify-center min-h-screen w-screen bg-[#070b12] text-[#d6e3f5] p-4 select-none relative overflow-hidden font-sans">
       {/* Background ambient architectural grid lines */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a15_1px,transparent_1px),linear-gradient(to_bottom,#0f172a15_1px,transparent_1px)] bg-[size:48px_48px] pointer-events-none" />
 
@@ -88,7 +81,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onOpenServerLogs }
           </p>
         </div>
 
-        {/* Error Alert if sign-in fails */}
+        {/* Error Alert — actions chosen by error CLASS, not offered blindly */}
         {errorMessage && (
           <div className="p-3.5 rounded-xl bg-red-950/30 border border-red-500/30 space-y-2 text-xs text-red-300 animate-in fade-in duration-200">
             <div className="flex items-start gap-2">
@@ -96,17 +89,47 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onOpenServerLogs }
               <div className="space-y-1">
                 <span className="font-semibold text-red-200 block">Sign-In Interrupted</span>
                 <p className="text-[11px] text-red-300/90 leading-normal">{errorMessage}</p>
+                {errorCode && (
+                  <p className="text-[10px] font-mono text-red-400/60">code: {errorCode}</p>
+                )}
               </div>
             </div>
 
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleSignIn}
-                className="px-2.5 py-1 rounded-lg bg-red-900/40 hover:bg-red-900/60 text-red-200 text-[11px] font-mono border border-red-700/40 transition-colors cursor-pointer"
-              >
-                Try Again
-              </button>
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
+              {(errorClass === 'transient' || errorClass === 'unknown') && (
+                <button
+                  type="button"
+                  onClick={handleSignIn}
+                  className="px-2.5 py-1 rounded-lg bg-red-900/40 hover:bg-red-900/60 text-red-200 text-[11px] font-mono border border-red-700/40 transition-colors cursor-pointer"
+                >
+                  Try Again
+                </button>
+              )}
+
+              {errorClass === 'domain' && (
+                <a
+                  href={authDomainUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-[#0e1626] hover:bg-[#162238] text-[11px] font-mono text-[#38bdf8] border border-[#1c2e47] transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span>Open Authorized Domains</span>
+                </a>
+              )}
+
+              {errorClass === 'key' && (
+                <a
+                  href={credentialsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-[#0e1626] hover:bg-[#162238] text-[11px] font-mono text-[#38bdf8] border border-[#1c2e47] transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span>Open Cloud Credentials</span>
+                </a>
+              )}
+
               {onOpenServerLogs && (
                 <button
                   type="button"
@@ -117,59 +140,22 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onOpenServerLogs }
                   <span>Inspect Logs</span>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setShowKeyInput(true)}
-                className="px-2.5 py-1 rounded-lg bg-[#0e1626] hover:bg-[#162238] text-[11px] font-mono text-[#38bdf8] border border-[#1c2e47] transition-colors cursor-pointer flex items-center gap-1"
-              >
-                <Key className="w-3 h-3" />
-                <span>Enter New API Key</span>
-              </button>
             </div>
+
+            {errorClass === 'domain' && (
+              <p className="text-[10px] text-red-400/70 leading-relaxed">
+                Fix: Firebase Console → Authentication → Settings → Authorized Domains → add{' '}
+                <code className="text-red-300">{window.location.hostname}</code>. Retrying won&apos;t
+                help until then.
+              </p>
+            )}
+            {errorClass === 'key' && (
+              <p className="text-[10px] text-red-400/70 leading-relaxed">
+                Fix: update <code className="text-red-300">FIREBASE_API_KEY</code> in your local{' '}
+                <code className="text-red-300">.env</code> and restart the dev server.
+              </p>
+            )}
           </div>
-        )}
-
-        {/* Web API Key Renewal Panel */}
-        {showKeyInput && (
-          <form onSubmit={handleSaveKey} className="p-3.5 rounded-xl bg-[#0e1626] border border-[#1e324d] space-y-2.5 animate-in fade-in duration-200">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#8ab1e0]">
-                <Key className="w-3.5 h-3.5 text-[#38bdf8]" />
-                <span>Renew Firebase Web API Key</span>
-              </div>
-              <a
-                href="https://console.cloud.google.com/apis/credentials?project=gen-lang-client-0408097994"
-                target="_blank"
-                rel="noreferrer"
-                className="text-[10px] text-[#38bdf8] hover:underline flex items-center gap-1"
-              >
-                <span>Google Cloud Credentials</span>
-                <ExternalLink className="w-2.5 h-2.5" />
-              </a>
-            </div>
-
-            <p className="text-[11px] text-[#7893b8] leading-relaxed">
-              If the initial key was deleted, paste your new Web API Key for project <code className="text-[#38bdf8]">gen-lang-client-0408097994</code> below. Stored exclusively in your browser&apos;s LocalStorage and never committed to Git.
-            </p>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={customKey}
-                onChange={(e) => setCustomKey(e.target.value)}
-                placeholder="AIzaSy..."
-                className="flex-1 bg-[#070b12] border border-[#1e3047] rounded-lg px-2.5 py-1.5 text-xs font-mono text-white placeholder-[#475b75] focus:outline-none focus:border-[#38bdf8]"
-                required
-              />
-              <button
-                type="submit"
-                disabled={!customKey.trim()}
-                className="px-3 py-1.5 rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 text-white text-xs font-mono font-medium transition-colors cursor-pointer shrink-0"
-              >
-                Save & Reload
-              </button>
-            </div>
-          </form>
         )}
 
         {/* Action Button: Sign In with Google */}
@@ -192,19 +178,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onOpenServerLogs }
               </>
             )}
           </button>
-
-          {!showKeyInput && (
-            <div className="flex items-center justify-center pt-1">
-              <button
-                type="button"
-                onClick={() => setShowKeyInput(true)}
-                className="text-[10px] font-mono text-[#4b607d] hover:text-[#7893b8] transition-colors cursor-pointer flex items-center gap-1"
-              >
-                <Key className="w-3 h-3" />
-                <span>Configure / Renew Firebase API Key</span>
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Footer Security Guarantee */}

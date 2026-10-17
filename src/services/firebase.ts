@@ -12,16 +12,11 @@ import {
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
-const getClientApiKey = (): string => {
-  if (typeof window !== 'undefined') {
-    const custom = window.localStorage.getItem('markbrain_firebase_api_key');
-    if (custom && custom.trim()) return custom.trim();
-  }
-  return (import.meta.env.VITE_FIREBASE_API_KEY as string) || '';
-};
-
-// Resolve credentials strictly from runtime environment variables or client localStorage
-// Zero hardcoded keys or static json files in the codebase
+// The web API key comes from .env only (gitignored — the real boundary: keeping
+// it out of git history). It still reaches the client bundle by design; that's
+// Firebase's model, not a leak we can close from here.
+const getClientApiKey = (): string =>
+  (import.meta.env.VITE_FIREBASE_API_KEY as string) || '';
 export const firebaseConfig = {
   projectId:
     (import.meta.env.VITE_FIREBASE_PROJECT_ID as string) ||
@@ -44,19 +39,15 @@ export const firebaseConfig = {
     '955271166888',
 };
 
-export function saveCustomApiKey(newKey: string): void {
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem('markbrain_firebase_api_key', newKey.trim());
-    window.location.reload();
-  }
-}
-
 // Initialize Firebase App
 export const app = initializeApp(firebaseConfig);
 
 // Initialize Auth
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+// Always show the account chooser — sign-out must actually reset the journey
+// (otherwise Google silently re-grants the cached session in the popup).
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 // Initialize Firestore with specific database ID if configured
 export const db = firebaseConfig.firestoreDatabaseId
@@ -137,14 +128,28 @@ export async function signInWithGoogle(): Promise<User> {
     return result.user;
   } catch (error: any) {
     console.error('[MarkBrain:Auth] Google Sign-In error:', error?.code, error?.message);
+    // Preserve the error CODE on every path — AuthGate classifies on codes,
+    // never on message strings (the old string-matching was load-bearing
+    // rot caused by exactly this function throwing bare Errors).
+    const withCode = (code: string, message: string): Error & { code: string } => {
+      const e = new Error(message) as Error & { code: string };
+      e.code = code;
+      return e;
+    };
     if (error?.code === 'auth/popup-blocked') {
-      throw new Error('Sign-in popup was blocked by your browser. Please allow popups for this site and try again.');
+      throw withCode('auth/popup-blocked', 'Sign-in popup was blocked by your browser. Allow popups for this site and try again.');
     }
-    if (error?.code === 'auth/popup-closed-by-user') {
-      throw new Error('Sign-in popup was closed before completing authorization.');
+    if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
+      throw withCode(error.code, 'Sign-in was cancelled before completing authorization.');
     }
     if (error?.code === 'auth/unauthorized-domain') {
-      throw new Error(`Domain (${window.location.hostname}) is not authorized in Firebase Console -> Authentication -> Settings -> Authorized Domains.`);
+      throw withCode('auth/unauthorized-domain', `Domain (${window.location.hostname}) is not authorized in Firebase Console → Authentication → Settings → Authorized Domains.`);
+    }
+    if (error?.code === 'auth/network-request-failed') {
+      throw withCode('auth/network-request-failed', 'Network error while reaching Google sign-in.');
+    }
+    if (error instanceof Error && typeof (error as any).code !== 'string') {
+      (error as any).code = 'auth/unknown';
     }
     throw error;
   }

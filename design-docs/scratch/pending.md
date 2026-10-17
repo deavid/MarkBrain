@@ -43,15 +43,25 @@
   real-credentials profile (needs one human login; write-capable session —
   risky as default), **recommended: single labeled fixture + dev-only
   `?fixture=1` seam** (his "clear test data for agentic access").
-- **Real-data mode (opt-in, designed 23:39):** narrow Firebase refresh token
-  only → `.env`. David explicitly ACCEPTS owner-scope R/W risk (single-user
-  app, not production yet); Google account cookies = hard no ("hell no"),
-  persistent-profile rig = refused. Harvest = from his already-signed-in
-  session (DevTools manual) OR scripted throwaway login — pick when built.
-  `?capture` guard = persistState no-op. Not blocking commits ①②④.
-  No admin/console escalation from a client refresh token (self-account
-  APIs incl. accounts:delete are the only sharp edge — self-harm, not
-  escalation).
+- **Real-data mode — DESIGNED, BUILT, AND VERIFIED (2026-10-18 00:18).**
+  `node scripts/headless-capture.cjs --real` → `screen: main`, screenshots show
+  real Unhaunter + real artifacts; live `accounts:lookup` 200; writes no-op via
+  `?capture=1`. Requires `HEADLESS_AUTH_USER_B64` (+ `HEADLESS_REFRESH_TOKEN`
+  canary) in `.env` (gitignored; verified 503-char token, never committed).
+  The real gotcha (supersedes the earlier "minimal record rejected" theory):
+  the `{fbase_key, value}` envelope is the **IndexedDB** record shape —
+  `getAuth` prefers IndexedDB persistence, and localStorage wants the **bare
+  user object**; seeding the envelope into localStorage makes `_fromJSON` throw
+  (no top-level uid) and the SDK evicts the key silently (diagnosed by reading
+  `@firebase/auth` dist: `PersistenceUserManager.create` scans all persistences
+  and migrates a bare user object into IndexedDB). Fix = unwrap the envelope,
+  zero mutation. Runbook §3.1/§3.5 updated. Fixture mode re-verified green;
+  `tsc` clean except pre-existing vitest gap.
+- **OOM incident (2026-10-18 00:01) — LAW: capture runs are strictly serial.**
+  A duplicated verification loop spawned 40+ Chromiums in parallel → memory
+  thrash → systemd-oomd SIGKILLed the Goose scope (4.5G RSS + 15.7G swap peak).
+  One Chromium at a time, always `browser.close()`, never batch. Recorded in
+  runbook §3.5 + §4.
 
 ## Genuinely open (design — nobody has answers yet)
 

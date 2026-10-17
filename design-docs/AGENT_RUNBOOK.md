@@ -11,7 +11,7 @@
 ## TL;DR
 
 ```bash
-npm run dev                      # app: http://localhost:${PORT:-3030}  (check if already up first)
+bun run dev                     # app: http://localhost:${PORT:-3030}  (check if already up first)
 npm i --prefix /tmp/pw playwright-core   # one-time capture dependency
 node scripts/headless-capture.cjs        # → chat/graph/mobile PNGs in $TMPDIR/markbrain-shots
 ```
@@ -23,7 +23,7 @@ Screenshots of the **loader/auth-gate** states need no mock at all — plain
 
 ## 1. Running the app
 
-- **Command:** `npm run dev` (= `tsx server.ts`). There is no separate Vite
+- **Command:** `bun run dev` (= `tsx server.ts`). There is no separate Vite
   process — `server.ts` mounts Vite as Express middleware in dev mode and
   serves `dist/` when `NODE_ENV=production`.
 - **Port:** from `.env` (`PORT`, currently `3030`). Before starting anything,
@@ -64,13 +64,28 @@ key:   firebase:authUser:<FIREBASE_API_KEY>:[DEFAULT]
 value: JSON User object (uid, email, providerData, apiKey, stsTokenManager, …)
 ```
 
-Gotchas, each learned the hard way:
+Gotchas, each learned the hard way (ground truth read out of `@firebase/auth`
+dist — `getAuth` → `PersistenceUserManager.create`):
 
+- **Storage shape depends on which persistence you're writing.** `getAuth()`
+  initializes with `[indexedDBLocalPersistence, browserLocalPersistence,
+  browserSessionPersistence]` — **IndexedDB wins** when available. The IndexedDB
+  record is the envelope `{fbase_key: 'firebase:authUser:…', value: userObject}`
+  (DB `firebaseLocalStorageDb`, store `firebaseLocalStorage`, keyPath
+  `fbase_key`). `browserLocalPersistence` stores the **bare user object** as
+  JSON. On boot, `create()` scans *every* persistence and **migrates** a
+  parseable bare user object from localStorage into IndexedDB. So seeding
+  localStorage = write `JSON.stringify(userObject)` (bare). Seeding the envelope
+  into localStorage makes `UserImpl._fromJSON` throw (no top-level `uid`) and
+  the SDK silently **evicts** the key — signed out, zero network, no error.
 - `apiKey` inside the JSON **must equal** the client config key (the
   `FIREBASE_API_KEY` from `.env`) — hydration silently discards mismatches.
 - `stsTokenManager.expirationTime` = **far-future ms epoch**. If it looks
   expired, Auth tries to refresh with the garbage refresh token before the
   auth observer ever fires, and you stall on the loader.
+- Don't "helpfully" mutate the record (`accessToken = ''` etc.) — any
+  hand-edited shape can trip the same silent eviction. Seed what the SDK's own
+  persistence layer wrote.
 - Seeding alone is **not enough** (next section).
 
 ### 3.2 Fulfill `accounts:lookup` (the part that bit us)
@@ -121,7 +136,8 @@ cloud CRUD.)
 ## 4. Capture script
 
 ```bash
-node scripts/headless-capture.cjs
+node scripts/headless-capture.cjs           # fixture mode (default, offline)
+node scripts/headless-capture.cjs --real    # real-data mode (§3.5, needs .env token)
 ```
 
 - **Dependency:** `playwright-core` (bootstrap: `npm i --prefix /tmp/pw playwright-core`,
@@ -136,6 +152,39 @@ node scripts/headless-capture.cjs
   before trusting a run. If it exits on `screen: unknown`, it dumps
   `localStorage` keys and body text as a debug breadcrumb.
 - The `.cjs` extension is load-bearing: `package.json` has `"type": "module"`.
+
+### 3.5 Real-data mode (`--real`) — David's own data, read-only
+
+```bash
+node scripts/headless-capture.cjs --real     # or MARKBRAIN_CAPTURE_MODE=real
+```
+
+- **Requires** `HEADLESS_AUTH_USER_B64` in `.env` (gitignored) — the verbatim
+  storage record harvested from David's own signed-in localhost session (the
+  `{fbase_key, value}` envelope; base64). `HEADLESS_REFRESH_TOKEN` is kept as a
+  cross-check canary. No Google cookies are ever stored or sent.
+- **How it authenticates:** the envelope is unwrapped and `value` (the bare user
+  object) is seeded into localStorage **with zero field mutation** — the SDK's
+  own migration path hydrates it into IndexedDB, then verifies it live via
+  `accounts:lookup` (seen: `→ 200 identitytoolkit.googleapis.com/v1/accounts:lookup`).
+  If the captured accessToken has expired by run time, the SDK does a genuine
+  `securetoken.googleapis.com` refresh on its own; if still valid the session
+  just boots. No intercepts — auth and Firestore WebChannel hit Google live.
+- **Why it can't write:** navigates to `/?capture=1`, which flips
+  `isCaptureMode()` in `persistenceService.ts` — every `saveProjectSnapshot`
+  is a no-op **before** it reaches the SDK. Reads are real (David's
+  `users/{uid}/projects/**` via `isOwner` rules); writes die in app code.
+- **What you see:** the real project list and real project snapshots (turns,
+  artifacts, graph) instead of `Fixture Substrate`. Verified 2026-10-18 00:18 —
+  `screen: main`, Unhaunter + real artifacts in the screenshots.
+- **Trust boundary:** the refresh token is owner-scope R/W on David's own
+  Firestore subtree only — no Firebase console, no admin APIs. The sharp edge
+  David acknowledged: the same token can call self-service Identity Toolkit
+  endpoints (e.g. `accounts:delete`). `.env` stays gitignored; never log it.
+- Fixture mode (default) remains the safe path: zero cloud traffic.
+- **Capture runs are strictly SERIAL — one Chromium at a time.** Parallel runs
+  stacked 40+ Chromiums and systemd-oomd killed the whole agent scope
+  (2026-10-18 00:01). Always `browser.close()` in `finally`; never batch.
 
 ## 5. Screenshots without any mock (loader / gate states)
 

@@ -26,12 +26,12 @@ artifact graph, and a token-budgeted context compiler, so you always control
 ```bash
 npm install
 cp .env.example .env        # fill in secrets (a populated .env may already exist locally)
-npm run dev                 # → http://localhost:$PORT  (PORT from .env, default 3030)
+bun run dev                # → http://localhost:$PORT  (PORT from .env, default 3030)
 ```
 
 | Script | Does |
 |---|---|
-| `npm run dev` / `start` | `tsx server.ts` — API + Vite middleware on one port |
+| `bun run dev` / `start` | `tsx server.ts` — API + Vite middleware on one port |
 | `npm run build` | `vite build` → `dist/` |
 | `npm run preview` | serve `dist/` |
 | `npm run lint` | `tsc --noEmit` |

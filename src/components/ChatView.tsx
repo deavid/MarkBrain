@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronUp,
   BookmarkPlus,
+  Check,
   Compass,
   Square,
   Terminal,
@@ -33,6 +34,9 @@ interface ChatViewProps {
   onSelectArtifact?: (artifact: Artifact) => void;
 
 }
+
+// Prebuilt TTS voices supported by the Gemini TTS endpoint (/api/tts)
+const TTS_VOICES = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'] as const;
 
 // Consistent mellow dark pastel palette for chapters
 const CHAPTER_PASTEL_COLORS = [
@@ -100,6 +104,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [chosenVoice, setChosenVoice] = useState('Kore');
   const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // Close the voice picker when clicking outside it
+  useEffect(() => {
+    if (!voiceDropdownOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (voiceDropdownRef.current && !voiceDropdownRef.current.contains(e.target as Node)) {
+        setVoiceDropdownOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [voiceDropdownOpen]);
 
   // Accordion state for chapter folding
   const [collapsedChapterIds, setCollapsedChapterIds] = useState<Record<string, boolean>>({});
@@ -518,7 +535,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             className={`p-1 rounded hover:bg-[#141b29] transition-colors cursor-pointer ${
                               isPlaying ? 'text-[#38bdf8]' : 'text-[#50637f] hover:text-[#9bb0d1]'
                             }`}
-                            title={isPlaying ? 'Stop playback' : 'Play audio (TTS)'}
+                            title={isPlaying ? 'Stop playback' : `Play audio (TTS) — voice: ${chosenVoice}`}
                           >
                             {isTtsLoading ? (
                               <Loader2 className="w-3 h-3 animate-spin text-[#38bdf8]" />
@@ -679,7 +696,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           {message.meta && !isUser && (
                             <div className="mt-2.5 pt-2 border-t border-[#141f30] flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-[#637894]">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[#38bdf8] font-semibold">{message.meta.model || 'Gemini 3.8 Flash'}</span>
+                                <span className="text-[#38bdf8] font-semibold">{message.meta.model || 'Google: Gemini 3.5 Flash Lite'}</span>
                                 <span>•</span>
                                 <span className="tabular-nums">{message.meta.inputTokens ?? 0} in</span>
                                 <span>•</span>
@@ -764,6 +781,57 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {totalMessagesCount > 0 && (
         <div className="p-2.5 sm:p-3 bg-[#0d121c] border-t border-[#121c2c] shrink-0">
           <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
+            {/* TTS voice picker */}
+            <div className="relative shrink-0" ref={voiceDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setVoiceDropdownOpen((v) => !v)}
+                className="h-full px-2.5 py-2.5 rounded-xl bg-[#090d15] border border-[#162234] hover:border-[#3b82f6]/40 text-[#8ab1e0] hover:text-[#eef4fc] transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-[10px] sm:text-xs"
+                title="Choose read-aloud voice"
+                aria-haspopup="listbox"
+                aria-expanded={voiceDropdownOpen}
+              >
+                <Volume2 className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">{chosenVoice}</span>
+                {voiceDropdownOpen ? (
+                  <ChevronUp className="w-3 h-3 shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3 h-3 shrink-0" />
+                )}
+              </button>
+              {voiceDropdownOpen && (
+                <div
+                  role="listbox"
+                  aria-label="TTS voice"
+                  className="absolute bottom-full mb-2 left-0 z-50 min-w-36 p-1.5 bg-[#0a0f19] border border-[#1a293e] rounded-xl shadow-xl animate-in fade-in duration-150"
+                >
+                  {TTS_VOICES.map((v) => {
+                    const isSelected = v === chosenVoice;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={() => {
+                          setChosenVoice(v);
+                          setVoiceDropdownOpen(false);
+                          logger.action('ChatView', 'Selected TTS voice', { voice: v });
+                        }}
+                        className={`w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono transition-colors cursor-pointer flex items-center justify-between gap-2 ${
+                          isSelected
+                            ? 'bg-[#142338] text-[#eef4fc]'
+                            : 'text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white'
+                        }`}
+                      >
+                        <span>{v}</span>
+                        {isSelected && <Check className="w-3 h-3 text-[#38bdf8] shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}

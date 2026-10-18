@@ -606,11 +606,11 @@ app.post('/api/tts', async (req: Request, res: Response) => {
         },
       });
 
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (base64Audio) {
+      const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+      if (inlineData?.data) {
         return res.json({
-          audioData: base64Audio,
-          mimeType: 'audio/wav',
+          audioData: inlineData.data,
+          mimeType: inlineData.mimeType || 'audio/wav',
           cleanSpokenText,
         });
       }

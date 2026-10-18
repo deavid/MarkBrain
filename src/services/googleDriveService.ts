@@ -14,14 +14,36 @@ let appInstance: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
 let providerInstance: GoogleAuthProvider | null = null;
 
+interface AuthConfig {
+  apiKey?: string;
+  projectId?: string;
+  authDomain?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+  appId?: string;
+  pickerApiKey?: string;
+}
+
+let cachedAuthConfig: AuthConfig | null = null;
+
+async function fetchAppConfig(): Promise<AuthConfig | null> {
+  if (cachedAuthConfig) return cachedAuthConfig;
+  try {
+    const res = await fetch('/api/auth/config');
+    if (!res.ok) return null;
+    cachedAuthConfig = (await res.json()) as AuthConfig;
+    return cachedAuthConfig;
+  } catch {
+    return null;
+  }
+}
+
 // Helper to initialize Firebase App from server environment config
 async function getOrInitAuth(): Promise<Auth | null> {
   if (authInstance) return authInstance;
   try {
-    const res = await fetch('/api/auth/config');
-    if (!res.ok) return null;
-    const config = await res.json();
-    if (!config.apiKey || !config.projectId) {
+    const config = await fetchAppConfig();
+    if (!config || !config.apiKey || !config.projectId) {
       // Configuration not provided in environment
       return null;
     }
@@ -123,6 +145,53 @@ export const googleSignOut = async () => {
   cachedAccessToken = null;
 };
 
+/**
+ * Full disconnect + fresh sign-in. Used to recover from "insufficient
+ * authentication scopes": Google reused an older, narrower grant for this
+ * app (e.g. the basic AuthGate login) and never offered the Drive consent.
+ */
+export const googleReconnect = async (): Promise<{ user: User; accessToken: string } | null> => {
+  await googleSignOut();
+  return googleSignIn();
+};
+
+// drive.readonly covers list/download/export; documents.readonly only upgrades
+// the optional Docs-API AST fallback path, so it's not gated on here.
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+
+export interface ScopeVerification {
+  /** true when the access token actually carries Drive read access */
+  granted: boolean;
+  /** all scopes the token carries (empty when not checked) */
+  scopes: string[];
+  /** false when the check itself failed (offline etc.) — stay optimistic */
+  checked: boolean;
+}
+
+/**
+ * Verifies the granted scopes of a Google access token via the tokeninfo
+ * endpoint. Prevents the confusing UX where we show "Connected" but every
+ * Drive call 403s with "Request had insufficient authentication scopes".
+ */
+export async function verifyDriveScopes(accessToken: string): Promise<ScopeVerification> {
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${encodeURIComponent(accessToken)}`
+    );
+    if (!res.ok) {
+      // Invalid/expired token — reconnect is the correct remedy either way.
+      return { granted: false, scopes: [], checked: true };
+    }
+    const data = await res.json().catch(() => ({}) as { scope?: string });
+    const scopes = typeof data.scope === 'string' ? data.scope.split(/\s+/).filter(Boolean) : [];
+    // Drive list/download/export all need drive.readonly; documents.readonly
+    // only upgrades the (optional) Docs-API AST fallback path.
+    return { granted: scopes.includes(DRIVE_SCOPE), scopes, checked: true };
+  } catch {
+    return { granted: true, scopes: [], checked: false };
+  }
+}
+
 export interface DriveFileItem {
   id: string;
   name: string;
@@ -131,8 +200,6 @@ export interface DriveFileItem {
   size?: string;
   isGoogleDoc?: boolean;
 }
-
-export type DriveFilterType = 'all' | 'docs' | 'markdown';
 
 /**
  * Extracts Google Document ID from a shared URL or raw ID string
@@ -157,96 +224,169 @@ export function extractGoogleDocIdFromUrl(input: string): string | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Google Picker — Google's own hosted file-selection dialog.
+// Replaces the hand-rolled in-app Drive file list: the user browses/searches
+// inside a real Google popup, picks a file, and we get the id back here.
+// ---------------------------------------------------------------------------
+
+declare global {
+  interface Window {
+    gapi?: any;
+    google?: any;
+  }
+}
+
+export interface PickedDriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+}
+
 /**
- * Lists files from Google Drive, prioritizing Google Docs and Markdown/Text files
- * Features resilient query fallbacks and client-side filtering
+ * Feature flag: the Google Picker path is shelved for now (developer-key
+ * issues on localhost; paste-a-link import is the working path). Opt in with
+ * VITE_GOOGLE_PICKER_ENABLED=true in .env and a server restart.
  */
-export async function listDriveFiles(
-  accessToken: string,
-  query: string = '',
-  filter: DriveFilterType = 'all'
-): Promise<DriveFileItem[]> {
-  try {
-    // Build compliant Google Drive API v3 query
-    let mimeFilter = "(mimeType = 'application/vnd.google-apps.document' or mimeType = 'text/plain' or mimeType = 'text/markdown')";
-    if (filter === 'docs') {
-      mimeFilter = "mimeType = 'application/vnd.google-apps.document'";
-    } else if (filter === 'markdown') {
-      mimeFilter = "(mimeType = 'text/plain' or mimeType = 'text/markdown')";
-    }
+export const isGooglePickerEnabled = (): boolean =>
+  (import.meta.env.VITE_GOOGLE_PICKER_ENABLED as string | undefined) === 'true';
 
-    let q = `trashed = false and ${mimeFilter}`;
-    // Sanitize query string - Drive API 'name contains' only supports alphanumeric words
-    const cleanWord = query.trim().replace(/[^a-zA-Z0-9_-]/g, '').trim();
-    if (cleanWord) {
-      q += ` and name contains '${cleanWord}'`;
-    }
+let pickerLoadPromise: Promise<void> | null = null;
 
-    const fetchFiles = async (queryString: string) => {
-      const url = new URL('https://www.googleapis.com/drive/v3/files');
-      url.searchParams.set('q', queryString);
-      url.searchParams.set('fields', 'files(id, name, mimeType, modifiedTime, size)');
-      url.searchParams.set('orderBy', 'modifiedTime desc');
-      url.searchParams.set('pageSize', '40');
+function loadGooglePickerApi(): Promise<void> {
+  if (pickerLoadPromise) return pickerLoadPromise;
 
-      return await fetch(url.toString(), {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+  pickerLoadPromise = new Promise<void>((resolve, reject) => {
+    const startGapiLoad = () => {
+      const gapi = window.gapi;
+      if (!gapi) {
+        reject(new Error('Google API script loaded but gapi is missing'));
+        return;
+      }
+      gapi.load('picker', {
+        callback: () => resolve(),
+        ontimeout: () => reject(new Error('Google Picker failed to initialize (timeout)')),
+        timeout: 15000,
       });
     };
 
-    let res = await fetchFiles(q);
-
-    // If query failed with 400 (e.g. strict query syntax restriction on user account), retry with simple query
-    if (!res.ok && res.status === 400) {
-      logger.warn('Drive', 'Drive query with mimeType returned 400 — falling back to simple trashed=false query');
-      res = await fetchFiles('trashed = false');
+    if (window.gapi) {
+      startGapiLoad();
+      return;
     }
 
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => null);
-      const detail = errBody?.error?.message || res.statusText || 'Unknown Drive API error';
-      if (res.status === 401) {
-        cachedAccessToken = null;
-        throw new Error('Your Google authorization has expired. Please sign in again.');
-      }
-      if (res.status === 403) {
-        throw new Error(`Google Drive access error: ${detail}`);
-      }
-      throw new Error(`Google Drive API error (${res.status}): ${detail}`);
-    }
+    const script = document.createElement('script');
+    script.src = 'https://apis.google.com/js/api.js';
+    script.async = true;
+    script.onload = startGapiLoad;
+    script.onerror = () =>
+      reject(
+        new Error(
+          'Failed to load https://apis.google.com/js/api.js — check your network or content blocker.'
+        )
+      );
+    document.head.appendChild(script);
+  });
 
-    const data = await res.json();
-    const rawFiles: any[] = data.files || [];
+  // Allow a retry after a failed load attempt.
+  pickerLoadPromise.catch(() => {
+    pickerLoadPromise = null;
+  });
 
-    // Client-side filtering & annotation
-    const files: DriveFileItem[] = rawFiles
-      .filter((f) => {
-        const isDoc = f.mimeType === 'application/vnd.google-apps.document';
-        const isMd =
-          f.mimeType === 'text/markdown' ||
-          f.mimeType === 'text/plain' ||
-          (f.name && (f.name.endsWith('.md') || f.name.endsWith('.txt') || f.name.endsWith('.markdown')));
+  return pickerLoadPromise;
+}
 
-        if (filter === 'docs') return isDoc;
-        if (filter === 'markdown') return isMd;
-        return isDoc || isMd;
-      })
-      .map((f) => ({
-        id: f.id,
-        name: f.name || 'Untitled Document',
-        mimeType: f.mimeType,
-        modifiedTime: f.modifiedTime,
-        size: f.size,
-        isGoogleDoc: f.mimeType === 'application/vnd.google-apps.document',
-      }));
+async function getPickerApiKey(): Promise<string> {
+  const fromEnv = (import.meta.env.VITE_GOOGLE_PICKER_API_KEY as string) || '';
+  if (fromEnv) return fromEnv;
+  const config = await fetchAppConfig();
+  return config?.pickerApiKey || '';
+}
 
-    return files;
-  } catch (err) {
-    logger.error('Drive', 'Failed to list Drive files', err);
-    throw err;
+/**
+ * Opens Google's hosted file picker and resolves with the chosen file,
+ * or null if the user cancelled.
+ *
+ * Requires an access token carrying `drive.readonly` (verify with
+ * verifyDriveScopes first) and a Picker API key (GOOGLE_PICKER_API_KEY).
+ */
+export async function openGooglePicker(accessToken: string): Promise<PickedDriveFile | null> {
+  if (!isGooglePickerEnabled()) {
+    throw new Error('Google Picker is disabled in this build (unfinished feature). Paste a Google Doc link instead.');
   }
+  await loadGooglePickerApi();
+
+  const apiKey = await getPickerApiKey();
+  if (!apiKey) {
+    throw new Error(
+      "Google Picker isn't configured: set GOOGLE_PICKER_API_KEY in the server environment " +
+        '(Google Cloud Console → APIs & Services → Credentials → API key, restricted to this site’s referrer) ' +
+        'and restart the server. Until then, you can paste a Google Doc link below.'
+    );
+  }
+
+  // The picker module registers itself on the `google` global
+  // (google.picker.PickerBuilder …); `gapi` is only the loader. Some builds
+  // also expose a (possibly partial) gapi.picker — accept either, then
+  // verify the members we need actually exist before touching them.
+  const ns: any = window.google?.picker ?? window.gapi?.picker;
+  if (!ns?.PickerBuilder || !ns?.ViewId?.DOCS || !ns?.DocsView) {
+    throw new Error(
+      'Google Picker loaded but its API namespace is incomplete (expected google.picker with ' +
+        'PickerBuilder/ViewId/DocsView). Try again — if it persists, check that ' +
+        'apis.google.com/js/api.js and the picker module are not blocked by an extension.'
+    );
+  }
+
+  return new Promise<PickedDriveFile | null>((resolve, reject) => {
+    try {
+      const docsView = new ns.DocsView(ns.ViewId.DOCS)
+        .setMimeTypes('application/vnd.google-apps.document,text/markdown,text/plain')
+        .setMode(ns.DocsViewMode.LIST);
+
+      const builder = new ns.PickerBuilder()
+        .setTitle('Select a Google Doc or Markdown file')
+        .addView(docsView)
+        .setOAuthToken(accessToken)
+        .setDeveloperKey(apiKey)
+        .setOrigin(window.location.origin)
+        .setCallback((data: { action?: string; docs?: Array<Record<string, string>>; errorMessage?: string }) => {
+          switch (data?.action) {
+            case ns.Action.PICKED: {
+              const doc = data.docs?.[0];
+              if (doc?.id) {
+                resolve({
+                  id: doc.id,
+                  name: doc.name || 'Untitled document',
+                  mimeType: doc.mimeType || '',
+                });
+              } else {
+                resolve(null);
+              }
+              break;
+            }
+            case ns.Action.CANCEL:
+              resolve(null);
+              break;
+            case ns.Action.LOADED:
+            case 'loading':
+              break;
+            default:
+              // Error/unknown actions — dismiss rather than hang the caller.
+              if (data?.errorMessage) {
+                reject(new Error(`Google Picker error: ${data.errorMessage}`));
+              } else {
+                resolve(null);
+              }
+              break;
+          }
+        });
+
+      builder.build().setVisible(true);
+    } catch (e) {
+      reject(e instanceof Error ? e : new Error('Failed to open Google Picker'));
+    }
+  });
 }
 
 /**

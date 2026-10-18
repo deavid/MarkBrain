@@ -4,25 +4,25 @@ import { logger } from '../utils/logger';
 import {
   googleSignIn,
   googleSignOut,
+  googleReconnect,
   initAuth,
-  listDriveFiles,
+  verifyDriveScopes,
+  openGooglePicker,
+  isGooglePickerEnabled,
   fetchDriveFileContent,
   fetchGoogleDocById,
   extractGoogleDocIdFromUrl,
   DriveFileItem,
-  DriveFilterType,
 } from '../services/googleDriveService';
 import { User } from 'firebase/auth';
 import { parseYamlArtifactDoc, serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 import { estimateTokens } from '../utils/tokenCalculator';
 import {
   Upload,
-  FileText,
   FileCode,
   CheckCircle2,
   AlertCircle,
   X,
-  Search,
   RefreshCw,
   FolderOpen,
   Sparkles,
@@ -31,9 +31,6 @@ import {
   Tag,
   Plus,
   BookOpen,
-  ExternalLink,
-  Code2,
-  Sliders,
 } from 'lucide-react';
 
 interface ImportModalProps {
@@ -69,10 +66,10 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
-  const [driveFiles, setDriveFiles] = useState<DriveFileItem[]>([]);
-  const [driveFilter, setDriveFilter] = useState<DriveFilterType>('docs');
+  // 'checking' → verifying scopes, 'missing' → Google granted only basic
+  // permissions (the insufficient-scopes trap), 'ok' → Drive access confirmed.
+  const [scopeStatus, setScopeStatus] = useState<'unknown' | 'checking' | 'ok' | 'missing'>('unknown');
   const [isDriveLoading, setIsDriveLoading] = useState(false);
-  const [driveSearch, setDriveSearch] = useState('');
   const [selectedDriveFile, setSelectedDriveFile] = useState<DriveFileItem | null>(null);
   const [conversionStatus, setConversionStatus] = useState<string | null>(null);
   const [driveError, setDriveError] = useState<string | null>(null);
@@ -94,26 +91,23 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     return () => unsubscribe();
   }, []);
 
+  // Verify the token actually carries Drive scopes BEFORE any Drive call,
+  // so we can offer a Reconnect instead of Google's raw 403 error.
   useEffect(() => {
-    if (accessToken && activeTab === 'drive') {
-      loadDriveFiles();
+    if (!accessToken) {
+      setScopeStatus('unknown');
+      return;
     }
-  }, [accessToken, activeTab, driveFilter]);
-
-  const loadDriveFiles = async () => {
-    if (!accessToken) return;
-    setIsDriveLoading(true);
-    setDriveError(null);
-    try {
-      const files = await listDriveFiles(accessToken, driveSearch, driveFilter);
-      setDriveFiles(files);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to query Google Drive files';
-      setDriveError(msg);
-    } finally {
-      setIsDriveLoading(false);
-    }
-  };
+    let cancelled = false;
+    setScopeStatus('checking');
+    verifyDriveScopes(accessToken).then((result) => {
+      if (cancelled) return;
+      setScopeStatus(result.granted ? 'ok' : 'missing');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
 
   const handleSignIn = async () => {
     setIsAuthLoading(true);
@@ -136,10 +130,51 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     await googleSignOut();
     setUser(null);
     setAccessToken(null);
-    setDriveFiles([]);
     setSelectedDriveFile(null);
     setUploadContent('');
     setConversionStatus(null);
+  };
+
+  // Disconnect + fresh consent — fixes "Connected but every Drive call 403s
+  // with insufficient authentication scopes" (stale, narrower Google grant).
+  const handleReconnect = async () => {
+    setIsAuthLoading(true);
+    setDriveError(null);
+    try {
+      const res = await googleReconnect();
+      if (res) {
+        setUser(res.user);
+        setAccessToken(res.accessToken);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Google re-authorization failed';
+      setDriveError(msg);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  // Clear the loaded source so the user can pick a different file.
+  // Locked while extraction/fetch is in flight: a second triggerAIExtraction
+  // racing the first would clobber fields with whichever response lands last.
+  const handleResetSource = () => {
+    if (sourceBusy) return;
+    setSelectedDriveFile(null);
+    setUploadContent('');
+    setUploadFileName('');
+    setArtifactTitle('');
+    setArtifactCode('');
+    setArtifactDescription('');
+    setArtifactSummary('');
+    setArtifactTags([]);
+    setArtifactType('architecture');
+    setIsHighConcept(false);
+    setParentCode('');
+    setNewTagInput('');
+    setConversionStatus(null);
+    setExtractedSuccess(false);
+    setDriveError(null);
+    setDirectDocUrl('');
   };
 
   // Perform LLM extraction to generate YAML frontmatter + tentative tags
@@ -270,6 +305,29 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to download and export file';
+      setDriveError(msg);
+    } finally {
+      setIsDriveLoading(false);
+    }
+  };
+
+  // Open Google's hosted file picker, then import the chosen file
+  const handleOpenPicker = async () => {
+    if (!accessToken) return;
+    setDriveError(null);
+    setIsDriveLoading(true);
+    try {
+      const picked = await openGooglePicker(accessToken);
+      if (picked) {
+        await handleSelectDriveFile({
+          id: picked.id,
+          name: picked.name,
+          mimeType: picked.mimeType,
+          isGoogleDoc: picked.mimeType === 'application/vnd.google-apps.document',
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to open Google Picker';
       setDriveError(msg);
     } finally {
       setIsDriveLoading(false);
@@ -413,6 +471,13 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     isHighConcept,
   ]);
 
+  // Source-selection lock: while a file is loaded (or being fetched /
+  // extracted) the Browse/Fetch controls are replaced by a source bar —
+  // clicking them mid-decomposition would race the extraction response.
+  const sourceBusy = isExtractingWithAI || isDriveLoading || isFetchingDirectDoc;
+  const sourceLocked = Boolean(uploadContent || selectedDriveFile) || sourceBusy;
+  const pickerEnabled = isGooglePickerEnabled();
+
   return (
     <div className="fixed inset-0 z-50 bg-[#0a0e17]/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
       <div className="bg-[#101724] border border-[#080d15] rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col shadow-2xl text-[#e3edf7] overflow-hidden">
@@ -515,56 +580,37 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     </button>
                   </div>
 
-                  {/* Filter Pills & Search */}
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <div className="flex items-center gap-1 bg-[#0b0f17] p-1 rounded-xl border border-[#080d15] text-[11px] font-mono shrink-0">
-                      <button
-                        onClick={() => setDriveFilter('docs')}
-                        className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
-                          driveFilter === 'docs'
-                            ? 'bg-[#4285F4] text-white font-semibold'
-                            : 'text-[#7d93b3] hover:text-white'
-                        }`}
-                      >
-                        <BookOpen className="w-3.5 h-3.5" />
-                        <span>Google Docs</span>
-                      </button>
+                  {/* Scope verification — offer Reconnect instead of raw 403s */}
+                  {scopeStatus === 'checking' && (
+                    <div className="p-2.5 bg-[#0d121c] border border-[#080d15] rounded-xl text-xs font-mono text-[#8ab1e0] flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Verifying Google Drive permissions…</span>
+                    </div>
+                  )}
 
+                  {scopeStatus === 'missing' && (
+                    <div className="p-3 bg-[#2a1f0d] border border-[#4a3a16] rounded-xl flex items-center justify-between gap-3 text-xs text-[#f0c674]">
+                      <span className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>
+                          Signed in <strong>without</strong> Google Drive access — Google reused an older,
+                          narrower grant for this app. Reconnect to approve Drive &amp; Docs.
+                        </span>
+                      </span>
                       <button
-                        onClick={() => setDriveFilter('all')}
-                        className={`px-3 py-1.5 rounded-lg transition-colors ${
-                          driveFilter === 'all'
-                            ? 'bg-[#1e2a3f] text-white font-semibold'
-                            : 'text-[#7d93b3] hover:text-white'
-                        }`}
+                        onClick={handleReconnect}
+                        disabled={isAuthLoading}
+                        className="px-3 py-1.5 rounded-lg bg-[#e05a66] hover:bg-[#be3a49] text-white font-mono text-[11px] shrink-0 disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
                       >
-                        <span>All Files</span>
-                      </button>
-
-                      <button
-                        onClick={() => setDriveFilter('markdown')}
-                        className={`px-3 py-1.5 rounded-lg transition-colors ${
-                          driveFilter === 'markdown'
-                            ? 'bg-[#1e2a3f] text-white font-semibold'
-                            : 'text-[#7d93b3] hover:text-white'
-                        }`}
-                      >
-                        <span>Markdown</span>
+                        {isAuthLoading ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        )}
+                        <span>Reconnect</span>
                       </button>
                     </div>
-
-                    <div className="relative flex-1">
-                      <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[#52657e]" />
-                      <input
-                        type="text"
-                        placeholder="Search Google Docs & Drive..."
-                        value={driveSearch}
-                        onChange={(e) => setDriveSearch(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && loadDriveFiles()}
-                        className="w-full bg-[#0d121c] border border-[#080d15] rounded-xl pl-8 pr-3 py-1.5 text-xs text-[#eef4fc] focus:outline-none focus:border-[#e05a66]/50"
-                      />
-                    </div>
-                  </div>
+                  )}
 
                   {driveError && (
                     <div className="p-3 bg-[#261317] border border-[#3d161d] rounded-xl text-xs text-[#f7aab3] flex items-center gap-2">
@@ -573,53 +619,83 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     </div>
                   )}
 
-                  {/* Drive Files List */}
-                  {isDriveLoading ? (
-                    <div className="p-6 text-center text-xs font-mono text-[#8ab1e0]">
-                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-[#e05a66]" />
-                      Querying Google Drive documents...
+                  {sourceLocked ? (
+                    <div className="p-3 bg-[#0d121c] border border-[#080d15] rounded-xl flex items-center justify-between gap-3">
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="text-[10px] font-mono text-[#788fa8] uppercase">Source</div>
+                        <div className="text-xs text-[#eef4fc] font-mono truncate">
+                          {uploadFileName || selectedDriveFile?.name || 'document'}
+                        </div>
+                        {isExtractingWithAI && (
+                          <div className="text-[10px] text-[#8ab1e0]">
+                            Gemini is still extracting — changing source unlocks when it finishes.
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={handleResetSource}
+                        disabled={sourceBusy}
+                        className="px-3 py-1.5 rounded-lg bg-[#1e2a3f] hover:bg-[#2a3b58] disabled:opacity-40 text-[#8ab1e0] text-[11px] font-mono shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Choose different</span>
+                      </button>
                     </div>
                   ) : (
-                    <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
-                      {driveFiles.length === 0 ? (
-                        <div className="p-6 text-center text-xs text-[#677b94] font-mono">
-                          No {driveFilter === 'docs' ? 'Google Docs' : 'documents'} found.
-                        </div>
-                      ) : (
-                        driveFiles.map((file) => (
-                          <div
-                            key={file.id}
-                            onClick={() => handleSelectDriveFile(file)}
-                            className={`p-2.5 rounded-xl border text-xs cursor-pointer flex items-center justify-between transition-colors ${
-                              selectedDriveFile?.id === file.id
-                                ? 'bg-[#182338] border-[#e05a66]'
-                                : 'bg-[#0d121c] border-[#080d15] hover:border-[#1d293d]'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 truncate">
-                              {file.isGoogleDoc ? (
-                                <span className="p-1 rounded bg-[#4285F4]/20 text-[#4285F4] shrink-0">
-                                  <BookOpen className="w-3.5 h-3.5" />
-                                </span>
-                              ) : (
-                                <span className="p-1 rounded bg-[#1e2a3f] text-[#8ab1e0] shrink-0">
-                                  <FileText className="w-3.5 h-3.5" />
-                                </span>
-                              )}
-                              <span className="truncate text-[#eef4fc] font-medium">{file.name}</span>
-                              {file.isGoogleDoc && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#4285F4]/15 text-[#6ba4fc] border border-[#4285F4]/30 font-mono shrink-0">
-                                  Google Doc
-                                </span>
-                              )}
-                            </div>
+                    <>
+                      {/* Google Picker — Google's own hosted file browser */}
+                      <div className="space-y-1.5">
+                        <button
+                          onClick={handleOpenPicker}
+                          disabled={!pickerEnabled || scopeStatus !== 'ok' || sourceBusy || isAuthLoading}
+                          title={
+                            pickerEnabled
+                              ? undefined
+                              : 'Unfinished — Google Picker is disabled for now. Paste a Google Doc link below to import instead.'
+                          }
+                          className="w-full px-4 py-2.5 rounded-xl bg-[#4285F4] hover:bg-[#3367d6] disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-medium transition-all inline-flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          <FolderOpen className="w-4 h-4" />
+                          <span>Browse Google Drive…</span>
+                        </button>
+                        <p className="text-[10px] text-[#627794] text-center">
+                          {pickerEnabled
+                            ? "Opens Google's file picker to choose a Google Doc or Markdown file."
+                            : 'Unfinished feature — disabled for now. Paste a Google Doc link below instead.'}
+                        </p>
+                      </div>
 
-                            <span className="text-[10px] font-mono text-[#52657e] shrink-0 ml-2">
-                              {file.modifiedTime ? new Date(file.modifiedTime).toLocaleDateString() : ''}
-                            </span>
-                          </div>
-                        ))
-                      )}
+                      {/* Paste a link instead (Google Doc / Drive URL) */}
+                      <div className="space-y-1.5 pt-3 border-t border-[#080d15]">
+                        <label className="block text-[10px] font-mono text-[#788fa8]">
+                          …or paste a Google Docs / Drive link
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={directDocUrl}
+                            onChange={(e) => setDirectDocUrl(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleFetchDirectDoc()}
+                            placeholder="https://docs.google.com/document/d/..."
+                            className="flex-1 min-w-0 bg-[#0d121c] border border-[#080d15] rounded-xl px-3 py-1.5 text-xs text-[#eef4fc] focus:outline-none focus:border-[#e05a66]/50"
+                          />
+                          <button
+                            onClick={handleFetchDirectDoc}
+                            disabled={!directDocUrl.trim() || sourceBusy || scopeStatus !== 'ok'}
+                            className="px-3 py-1.5 rounded-xl bg-[#1e2a3f] hover:bg-[#2a3b58] disabled:opacity-40 text-[#8ab1e0] text-xs font-mono transition-colors inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+                          >
+                            {isFetchingDirectDoc && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                            <span>Fetch</span>
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {/* Busy: a picked/pasted file is being exported & converted */}
+                  {isDriveLoading && selectedDriveFile && (
+                    <div className="p-6 text-center text-xs font-mono text-[#8ab1e0]">
+                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-[#e05a66]" />
+                      Exporting and converting {selectedDriveFile.name} to Markdown…
                     </div>
                   )}
 
@@ -641,7 +717,12 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
           {activeTab === 'upload' && (
             <div className="space-y-4">
-              <label className="border-2 border-dashed border-[#141d2c] hover:border-[#e05a66]/50 rounded-xl p-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors bg-[#0a0e17]/50">
+              <label
+                className={`border-2 border-dashed border-[#141d2c] hover:border-[#e05a66]/50 rounded-xl p-5 flex flex-col items-center justify-center gap-2 transition-colors bg-[#0a0e17]/50 ${
+                  sourceBusy ? 'opacity-50 pointer-events-none cursor-not-allowed' : 'cursor-pointer'
+                }`}
+                title={sourceBusy ? 'Wait for the current extraction to finish' : undefined}
+              >
                 <FileCode className="w-8 h-8 text-[#8ab1e0]" />
                 <span className="text-xs text-[#c2d1e0] font-medium">
                   {uploadFileName ? uploadFileName : 'Tap to select Markdown or Plain Text file'}

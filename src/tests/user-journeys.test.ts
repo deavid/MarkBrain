@@ -1,11 +1,18 @@
+/**
+ * Core journey suite (the honest survivors).
+ *
+ * 2026-10-18 purge — see design-docs/05_CLEANSE_DECISIONS.md:
+ * Journeys 5, 6, 7, 9 were tautologies (test-local reimplementations of App
+ * logic / constructor roundtrips) and were deleted. Journey 3 was misnamed
+ * and renamed. What remains: J1 timeline smoke, J2 parser (load-bearing),
+ * J3 abort-before-dispatch contract, J4 chapter seal (load-bearing),
+ * J8 workspace load smoke.
+ */
 import { describe, it, expect, vi } from 'vitest';
 import { DialogueTimelineDomain } from '../domains/01-dialogue-timeline/DialogueTimelineDomain';
 import { ChapterSegmentationDomain } from '../domains/02-chapter-segmentation/ChapterSegmentationDomain';
-import { ArtifactDocumentDomain } from '../domains/01-artifact-document/ArtifactDocumentDomain';
-import { TopologicalGraphDomain } from '../domains/02-topological-graph/TopologicalGraphDomain';
 import { StreamProtocolDomain } from '../domains/03-stream-protocol';
 import { WorkspaceDomain } from '../domains/00-workspace';
-import { ProjectSnapshot } from '../services/persistenceService';
 
 describe('MarkBrain Core User Journeys & Invariants Suite', () => {
   // ---------------------------------------------------------------------------
@@ -115,10 +122,11 @@ Let me know if you would like to tune the saturation threshold.
   });
 
   // ---------------------------------------------------------------------------
-  // JOURNEY 3: Stream Interruption & Partial Preservation
+  // JOURNEY 3: Abort before dispatch (honest name — this does NOT test
+  // mid-stream partial-text preservation; that test doesn't exist yet)
   // ---------------------------------------------------------------------------
-  describe('Journey 3: Stream Interruption & Partial Text Preservation', () => {
-    it('preserves clean partial text and calculates estimated tokens when aborted', async () => {
+  describe('Journey 3: Abort before dispatch returns stub result', () => {
+    it('returns a stub result with estimated tokens when aborted before fetch', async () => {
       const stream = new StreamProtocolDomain();
       const abortController = new AbortController();
       abortController.abort(); // already aborted signal
@@ -133,7 +141,7 @@ Let me know if you would like to tune the saturation threshold.
         }
       );
 
-      // Invariant: generation was aborted, but returns a valid result with fallback/interrupted semantics
+      // Invariant: abort-before-fetch returns a stub with estimated telemetry, never throws
       expect(result).toBeDefined();
       expect(typeof result.cleanReply).toBe('string');
       expect(result.telemetry).toBeDefined();
@@ -206,175 +214,11 @@ Let me know if you would like to tune the saturation threshold.
   });
 
   // ---------------------------------------------------------------------------
-  // JOURNEY 5: Workspace Snapshot Persistence & Roundtrip Restoration
-  // ---------------------------------------------------------------------------
-  describe('Journey 5: Workspace Snapshot Persistence & Restoration', () => {
-    it('serializes and roundtrips turns, chapters, artifacts, and edges with zero data loss', () => {
-      const projectId = 'proj-persistence-verify';
-
-      // 1. Setup sample domain state
-      const sampleSnapshot: ProjectSnapshot = {
-        projectId,
-        turns: [
-          { id: 't-1', role: 'user', content: 'Define invariants', timestamp: 1000 },
-          { id: 't-2', role: 'assistant', content: 'Invariant 1: Zero Top Bar', timestamp: 1001 },
-        ],
-        chapters: [
-          {
-            id: 'c-1',
-            workspaceId: projectId,
-            title: 'Genesis Spec',
-            status: 'active',
-            startIndex: 0,
-            createdAt: 1000,
-          },
-        ],
-        artifacts: [
-          {
-            id: 'art-1',
-            workspaceId: projectId,
-            code: 'SPEC-01',
-            title: 'Substrate Spec',
-            type: 'document',
-            category: 'system-spec',
-            isHighConcept: true,
-            current: {
-              t0_label: 'Substrate Spec',
-              t1_abstract: 'Core substrate invariant',
-              t2_summary: 'Summary of substrate',
-              t3_body: 'Body specification content',
-            },
-            tags: ['core', 'substrate'],
-            createdAt: 1000,
-            updatedAt: 1000,
-          },
-        ],
-        edges: [
-          {
-            id: 'edge-1',
-            workspaceId: projectId,
-            sourceId: 'art-1',
-            targetId: 'art-1',
-            kind: 'relates_to',
-            weight: 1.0,
-            createdAt: 1000,
-          },
-        ],
-        updatedAt: 1002,
-      };
-
-      // 2. Hydrate new clean domains from the snapshot
-      const restoredTimeline = new DialogueTimelineDomain(projectId, sampleSnapshot.turns);
-      const restoredChapters = new ChapterSegmentationDomain(projectId, sampleSnapshot.chapters);
-      const restoredArtifacts = new ArtifactDocumentDomain(projectId, sampleSnapshot.artifacts);
-      const restoredGraph = new TopologicalGraphDomain(sampleSnapshot.edges);
-
-      // 3. Verify exact integrity
-      expect(restoredTimeline.count()).toBe(2);
-      expect(restoredTimeline.getTurn('t-1')?.content).toBe('Define invariants');
-      expect(restoredTimeline.getTurn('t-2')?.content).toBe('Invariant 1: Zero Top Bar');
-
-      expect(restoredChapters.listChapters()).toHaveLength(1);
-      expect(restoredChapters.getActiveChapter()?.title).toBe('Genesis Spec');
-
-      expect(restoredArtifacts.listArtifacts()).toHaveLength(1);
-      const restoredArt = restoredArtifacts.getArtifact('art-1');
-      expect(restoredArt).not.toBeNull();
-      expect(restoredArt?.title).toBe('Substrate Spec');
-      expect(restoredArt?.current?.t3_body).toBe('Body specification content');
-
-      expect(restoredGraph.listEdges()).toHaveLength(1);
-      expect(restoredGraph.listEdges()[0].id).toBe('edge-1');
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // JOURNEY 6: Guaranteed Genesis Chapter Fallback (Chat Interface Visibility)
-  // ---------------------------------------------------------------------------
-  describe('Journey 6: Guaranteed Genesis Chapter Fallback', () => {
-    it('synthesizes an active Genesis chapter when domain chapters are empty, ensuring chat is never blank', () => {
-      const workspaceId = 'proj-empty-chapters';
-      const timeline = new DialogueTimelineDomain(workspaceId, []);
-      timeline.appendTurn('user', 'First question in brand new workspace');
-
-      const domainChapters: any[] = []; // simulating empty segmentation
-
-      // The exact fallback logic implemented in App.tsx
-      let finalChapters = domainChapters;
-      if (finalChapters.length === 0) {
-        const turns = timeline.getTurnSlice(0, undefined);
-        finalChapters = [
-          {
-            id: 'chap-genesis',
-            projectId: workspaceId,
-            title: 'Genesis Chapter',
-            summary: '',
-            keyPoints: [],
-            isSummarized: false,
-            compressionMode: 'full',
-            status: 'active',
-            createdAt: new Date().toISOString(),
-            messages: turns.map((t) => ({
-              id: t.id,
-              chapterId: 'chap-genesis',
-              role: t.role,
-              content: t.content,
-              timestamp: new Date(t.timestamp).toISOString(),
-            })),
-          },
-        ];
-      }
-
-      // Invariant: chapters array is NEVER empty
-      expect(finalChapters).toHaveLength(1);
-      expect(finalChapters[0].id).toBe('chap-genesis');
-      expect(finalChapters[0].status).toBe('active');
-      expect(finalChapters[0].messages).toHaveLength(1);
-      expect(finalChapters[0].messages[0].content).toBe('First question in brand new workspace');
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // JOURNEY 7: Pre-Flight Auth State Gating & Project Genesis Evaluation
-  // ---------------------------------------------------------------------------
-  describe('Journey 7: Pre-Flight Auth State Gating & Route Evaluation', () => {
-    function evaluateAppRoute(
-      authInitialized: boolean,
-      currentUser: any | null,
-      projectsCount: number
-    ): 'loading' | 'auth-gate' | 'project-genesis' | 'workspace' {
-      if (!authInitialized) return 'loading';
-      if (!currentUser) return 'auth-gate';
-      if (projectsCount === 0) return 'project-genesis';
-      return 'workspace';
-    }
-
-    it('strictly gates unauthenticated visitors before loading any workspaces', () => {
-      // 1. Initializing probe
-      expect(evaluateAppRoute(false, null, 0)).toBe('loading');
-
-      // 2. Unauthenticated visitor -> MUST present AuthGate
-      expect(evaluateAppRoute(true, null, 0)).toBe('auth-gate');
-      expect(evaluateAppRoute(true, null, 5)).toBe('auth-gate'); // even if stale local count exists
-    });
-
-    it('routes authenticated user with zero cloud projects directly to ProjectGenesis', () => {
-      const mockUser = { uid: 'usr-123', email: 'architect@test.com' };
-      expect(evaluateAppRoute(true, mockUser, 0)).toBe('project-genesis');
-    });
-
-    it('launches full workspace IDE only when authenticated user has existing projects', () => {
-      const mockUser = { uid: 'usr-123', email: 'architect@test.com' };
-      expect(evaluateAppRoute(true, mockUser, 2)).toBe('workspace');
-    });
-  });
-
-  // ---------------------------------------------------------------------------
   // JOURNEY 8: Workspace Domain Cloud Project Isolation & Loading
   // ---------------------------------------------------------------------------
   describe('Journey 8: Workspace Domain Cloud Project Isolation & Loading', () => {
     it('clears all projects when cloud has zero projects, and mounts user projects dynamically', () => {
-      const ws = new WorkspaceDomain('test_isolated_ws');
+      const ws = new WorkspaceDomain();
 
       // 1. When empty array passed -> projects cleared
       ws.loadUserProjects([]);
@@ -401,56 +245,4 @@ Let me know if you would like to tune the saturation threshold.
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // JOURNEY 9: Zero-Chat Centered Hero Input Composer Transition
-  // ---------------------------------------------------------------------------
-  describe('Journey 9: Zero-Chat Centered Hero Input Composer Transition', () => {
-    function computeComposerMode(chapters: any[]): 'hero-centered' | 'timeline-feed' {
-      const totalMessages = chapters.reduce(
-        (acc, chap) => acc + (chap.messages ? chap.messages.length : 0),
-        0
-      );
-      return totalMessages === 0 ? 'hero-centered' : 'timeline-feed';
-    }
-
-    it('displays hero-centered composer on brand new project with zero chats', () => {
-      const freshChapters = [
-        {
-          id: 'chap-genesis',
-          title: 'Genesis Architecture',
-          messages: [],
-        },
-      ];
-
-      expect(computeComposerMode(freshChapters)).toBe('hero-centered');
-    });
-
-    it('smoothly transitions to timeline-feed and bottom bar once first message is sent', () => {
-      const timeline = new DialogueTimelineDomain('proj-fresh', []);
-      const chapters = [
-        {
-          id: 'chap-genesis',
-          title: 'Genesis Architecture',
-          messages: [] as any[],
-        },
-      ];
-
-      // Initially zero
-      expect(computeComposerMode(chapters)).toBe('hero-centered');
-
-      // User sends initial prompt
-      const turn = timeline.appendTurn('user', 'Define microservices invariant matrix');
-      chapters[0].messages.push({
-        id: turn.id,
-        role: turn.role,
-        content: turn.content,
-        timestamp: new Date(turn.timestamp).toISOString(),
-      });
-
-      // Now transitions to timeline feed
-      expect(computeComposerMode(chapters)).toBe('timeline-feed');
-      expect(chapters[0].messages).toHaveLength(1);
-      expect(chapters[0].messages[0].content).toBe('Define microservices invariant matrix');
-    });
-  });
 });

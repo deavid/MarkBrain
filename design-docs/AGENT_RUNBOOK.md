@@ -17,7 +17,8 @@ node scripts/headless-capture.cjs        # → chat/graph/mobile PNGs in $TMPDIR
 ```
 
 Screenshots of the **loader/auth-gate** states need no mock at all — plain
-`google-chrome --headless --screenshot` works (see §5).
+`google-chrome --headless --screenshot` works (see §6). For driving the UI
+headlessly, the selector map lives in §7.
 
 ---
 
@@ -41,15 +42,22 @@ Screenshots of the **loader/auth-gate** states need no mock at all — plain
 `src/App.tsx` renders, in order:
 
 1. `!authInitialized` → "Connecting to MarkBrain Substrate…" loader
-2. `!currentUser` → `AuthGate` — button label is **"Continue with Google"**,
-   wired to `signInWithPopup` (a human + a real Google account + a popup)
-3. zero projects → `ProjectGenesis` (create-new-project screen)
-4. otherwise → main app (sidebar + chat/graph)
+2. `!currentUser` → `AuthGate` — **two branches**:
+   - **"Continue with Google"** → `signInWithPopup` (a human + a real Google
+     account + a popup) — Firebase/Firestore backend
+   - **"Continue locally"** → no account, no network auth; IndexedDB backend
+     (the Local branch, §5). Headless this one is a single click.
+3. signed in but project list unresolved (`cloudProjectsCount === null`) →
+   boot loader "Loading cloud projects…" (never flash Genesis to a returning user)
+4. zero projects → `ProjectGenesis` (create-new-project screen; also hosts
+   "Restore from a database backup instead" — a fresh browser has no Sidebar)
+5. otherwise → main app (sidebar + chat/graph)
 
-There is **no guest mode, no demo mode, no env bypass**. Headless, the
-auth observer resolves with `null` and you sit at the gate forever. That's
-what the mock below defeats — entirely at the network/storage layer, **no repo
-code changes**.
+Pre-Local-branch history said "there is no guest mode" — that's obsolete.
+Headless with no mock at all you land on the Gate; from there **Continue
+locally** is the zero-ceremony path. The mock below exists for screenshotting
+the *cloud* flows without a human popup — entirely at the network/storage
+layer, **no repo code changes**.
 
 ## 3. The mock — three intercepts
 
@@ -137,7 +145,7 @@ cloud CRUD.)
 
 ```bash
 node scripts/headless-capture.cjs           # fixture mode (default, offline)
-node scripts/headless-capture.cjs --real    # real-data mode (§3.5, needs .env token)
+node scripts/headless-capture.cjs --real    # real-data mode (§4.1, needs .env token)
 ```
 
 - **Dependency:** `playwright-core` (bootstrap: `npm i --prefix /tmp/pw playwright-core`,
@@ -150,10 +158,12 @@ node scripts/headless-capture.cjs --real    # real-data mode (§3.5, needs .env 
 - **Runtime:** ~15s including settle-wait. It also logs console errors,
   failed responses, and how many Firestore requests it held — read those lines
   before trusting a run. If it exits on `screen: unknown`, it dumps
-  `localStorage` keys and body text as a debug breadcrumb.
+  `localStorage` keys, IndexedDB auth records (`fbase_key`/uid), and body text
+  as a debug breadcrumb — plus a `__mb_seeded` marker the init script leaves in
+  `localStorage`, so you can tell "seed never ran" from "SDK evicted the key".
 - The `.cjs` extension is load-bearing: `package.json` has `"type": "module"`.
 
-### 3.5 Real-data mode (`--real`) — David's own data, read-only
+### 4.1 Real-data mode (`--real`) — David's own data, read-only
 
 ```bash
 node scripts/headless-capture.cjs --real     # or MARKBRAIN_CAPTURE_MODE=real
@@ -186,7 +196,7 @@ node scripts/headless-capture.cjs --real     # or MARKBRAIN_CAPTURE_MODE=real
   stacked 40+ Chromiums and systemd-oomd killed the whole agent scope
   (2026-10-18 00:01). Always `browser.close()` in `finally`; never batch.
 
-### 3.6 Local branch + database backup/restore
+## 5. Local branch + database backup/restore
 
 Two gate branches: **Continue with Google** (Firestore) / **Continue locally**
 (IndexedDB, no account). Only `persistenceService.ts` knows both exist —
@@ -208,7 +218,11 @@ node scripts/roundtrip-test.cjs
 # B: fresh context → Continue locally → Restore → same UI
 ```
 
-## 5. Screenshots without any mock (loader / gate states)
+Also `node scripts/delete-test.cjs` — project deletion acceptance (create →
+Deck → trash → named confirmation modal → delete → Genesis → IDB empty).
+Both scripts are serial single-Chromium, exit 0/1.
+
+## 6. Screenshots without any mock (loader / gate states)
 
 ```bash
 google-chrome --headless=new --disable-gpu --no-sandbox \
@@ -220,7 +234,48 @@ Caveat: `--virtual-time-budget` races network timing — you may catch the
 loader rather than the gate. For anything deterministic, use the script (it
 *waits* for a screen to identify itself).
 
-## 6. Re-verify before trusting, when…
+## 7. Navigating the app headlessly — selectors that work
+
+The acceptance scripts (`scripts/roundtrip-test.cjs`, `scripts/delete-test.cjs`)
+encode this, but the map matters when you write new interactions:
+
+**Screens & paths**
+- Gate: `getByRole('button', { name: 'Continue locally' })` — **role selector,
+  not `getByText`**: the explanatory copy contains the same words and Playwright
+  strict mode will refuse the click (learned the hard way).
+- Gate (cloud): `getByText('Continue with Google')` — needs a real popup; the
+  fixture mock fulfills `accounts:lookup` so this boots without a human.
+- Genesis form: `getByPlaceholder('e.g. Distributed Optical Engine')` (name),
+  `getByPlaceholder('e.g. OPT-ENG')` (code), submit
+  `getByRole('button', { name: /Create & Launch Workspace/ })`.
+- Workspace Deck (project selection): sidebar **"Active Project"** accordion
+  (collapsed by default) → **"Create / Switch in Deck"** button.
+- I/O accordion (Backup DB / Restore DB): sidebar **"Import / Export I/O"**
+  (collapsed by default) → `getByText('Backup DB')` / `getByText('Restore DB')`.
+- Delete flow: per-row `[aria-label*="Delete project"]` (it `stopPropagation`s —
+  the whole row is a click target for "open chat") → confirmation modal
+  `Delete “{name}”?` → `getByRole('button', { name: /Delete permanently/ })`.
+- Fresh browser with zero projects: there is **no Sidebar on Genesis** — the
+  restore trigger lives on the Genesis screen itself ("Restore from a database
+  backup instead") and feeds a hidden `input[type=file][accept*="json"]`
+  (`locator.setInputFiles(...)` works on hidden inputs).
+- Backup download: `Promise.all([page.waitForEvent('download'), click])` —
+  context needs `acceptDownloads: true`.
+
+**Gotchas**
+- Sidebar accordions default **collapsed** except Cloud/Artifacts/Optical —
+  open before clicking anything inside.
+- Import/restore ends in `window.location.reload()` — wait for content after,
+  not for a route change.
+- `page.on('dialog')` — import failures `alert()`; dismiss and fail the run.
+- Identifier smart quotes: the delete modal uses `“{name}”` (U+201C/201D) in
+  its `getByText` match — copy exactly.
+- All test scripts are `.cjs` (`"type": "module"` in package.json) and resolve
+  `playwright-core` from `/tmp/pw/node_modules` — bootstrap once per machine.
+- **One Chromium at a time** (OOM law, §4.1). Never parallelize capture or
+  test runs.
+
+## 8. Re-verify before trusting, when…
 
 - **Firebase major version bump** → storage key format, `accounts:lookup`
   response shape, persistence backend could all have moved. Symptom of a wrong
@@ -231,12 +286,19 @@ loader rather than the gate. For anything deterministic, use the script (it
   committed broken JSX: it can linger — hard reload or restart the dev server;
   don't debug the app under it.
 
-## 7. What this mock does NOT do
+## 9. What the rig does and does NOT do
 
 - No Gemini traffic: `/api/chat`, `/api/chat/stream` (SSE), `/api/tts`, etc.
   are never called — exercising them spends real API quota and needs a real
   session flow. Not covered, not attempted.
 - No Google Drive/Docs import flows (`googleDriveService.ts` — popup OAuth).
-- No Firestore CRUD (held, per §3.3).
-- It is a **viewer rig**, not a test rig. Functional testing lives in
-  `src/tests/user-journeys.test.ts` (vitest).
+- Fixture mode holds all Firestore (§3.3). Real-data mode (`--real`) does live
+  reads with writes no-op'd at the app layer (`?capture=1`). Local branch does
+  real IndexedDB CRUD in the browser profile — throwaway contexts only.
+- Screenshot capture is a **viewer rig**; the *functional* acceptance rigs are
+  `scripts/roundtrip-test.cjs` (export/import round-trip) and
+  `scripts/delete-test.cjs` (deletion + confirmation) — both Local-branch,
+  both serial. The pre-existing `src/tests/user-journeys.test.ts` (vitest) is
+  declared but blocked on a stale `node_modules` install and has never run.
+- The Firestore side of every feature (Local branch included) is David's to
+  click — the agent verifies the local backend; that split is deliberate.

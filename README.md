@@ -17,9 +17,9 @@ artifact graph, and a token-budgeted context compiler, so you always control
 |---|---|
 | Frontend | React 19 + Vite 8 + Tailwind 4, TypeScript, SPA in `src/` |
 | Backend | Single `server.ts` — Express, mounts Vite (dev) or `dist/` (prod), proxies Gemini (`@google/genai`) |
-| Auth/DB | Firebase Auth (Google popup) + Firestore, per-user trees, rules in `firestore.rules` |
+| Auth/DB | Firebase Auth (Google popup) + Firestore, per-user trees, rules in `firestore.rules`; or the Local branch (no account, IndexedDB) |
 | Domain logic | DDD-ish modules in `src/domains/` behind `DomainRegistry` — see `design-docs/03_DOMAIN_ARCHITECTURE_RULES.md` |
-| Persistence | LocalStorage-first snapshots, Firestore as sync (`src/services/persistenceService.ts`) |
+| Persistence | One port, two backends: Firestore (default) or local IndexedDB — `src/services/persistenceService.ts` is the only module that knows both exist. Canonical backup/restore JSON (Backup DB / Restore DB). |
 
 ## Run it
 
@@ -44,8 +44,10 @@ Notes:
   `vite.config.ts`). `.env.example` lists everything.
 - Known state: `vitest` is declared but may be absent from `node_modules`
   (stale install) — both `lint` and `test` need a full `npm install` first.
-- First screen is an auth gate (`Continue with Google`); there is no guest
-  mode. On a fresh account you land on Project Genesis, then the main studio.
+- First screen is an auth gate with two branches: `Continue with Google`
+  (cloud) and `Continue locally` (no account, this browser only). On a fresh
+  account you land on Project Genesis, then the main studio. Projects are
+  deletable from the project selection screen (Workspace Deck).
 
 ## Shape of the code
 
@@ -57,8 +59,8 @@ src/App.tsx               # screen flow: loader → AuthGate → Genesis → stu
 src/components/           # Sidebar, ChatView, SpatialGraph, modals, gate…
 src/domains/              # workspace, timeline, artifacts, chapters, graph,
                           # compiler, stream protocol… (+ DomainRegistry)
-src/services/             # firebase, persistence (localStorage+Firestore), Google Drive/Docs import
-src/data/initialData.ts   # demo seed (the "Unhaunter" project) + model list
+src/services/             # firebase, persistenceService (the storage port), Google Drive/Docs import
+src/data/models.ts        # AVAILABLE_MODELS (the old initialData.ts demo seeds are gone)
 design-docs/              # the actual spec — see index in SCRATCH.md
 ```
 
@@ -69,10 +71,15 @@ network/storage layer, Firestore held so nothing real is touched:
 
 ```bash
 npm i --prefix /tmp/pw playwright-core    # one-time
-node scripts/headless-capture.cjs         # → chat/graph/mobile PNGs
+node scripts/headless-capture.cjs         # → chat/graph/mobile PNGs (fixture mode, offline)
+node scripts/headless-capture.cjs --real  # real-data mode: live auth + live Firestore reads, writes no-op
+node scripts/roundtrip-test.cjs           # acceptance: export → fresh browser → import → same UI
+node scripts/delete-test.cjs              # acceptance: project deletion + confirmation flow
 ```
 
-Mechanics, gotchas, and caveats: **[`design-docs/AGENT_RUNBOOK.md`](design-docs/AGENT_RUNBOOK.md)**.
+Mechanics, gotchas, selector map, and caveats: **[`design-docs/AGENT_RUNBOOK.md`](design-docs/AGENT_RUNBOOK.md)**.
+One rule to remember: capture/test runs are strictly **serial** — one
+Chromium at a time (parallel runs OOM-killed the agent; see runbook).
 
 ## Design docs map
 

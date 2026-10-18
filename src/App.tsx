@@ -8,7 +8,6 @@ import {
   ChatMessage,
   ModelOption,
   AbstractionLevel,
-  ArtifactVersion,
   ResolutionTier,
   getMellowPastelColor,
 } from './types';
@@ -338,38 +337,7 @@ export default function App() {
       };
     });
 
-    const artifacts: Artifact[] = domainArtifacts.map((art) => ({
-      id: art.id,
-      workspace_id: art.workspaceId,
-      projectId: art.workspaceId,
-      code: art.code,
-      title: art.title,
-      type: art.type,
-      category: art.category,
-      isHighConcept: art.isHighConcept,
-      color: art.color,
-      description: art.current?.t1_abstract || '',
-      summary: art.current?.t2_summary || '',
-      content: art.current?.t3_body || '',
-      current: art.current,
-      tags: art.tags || [],
-      created_at: art.createdAt,
-      updated_at: art.updatedAt,
-      createdAt: new Date(art.createdAt).toISOString(),
-      updatedAt: new Date(art.updatedAt).toISOString(),
-      revisions: [],
-      relations: [],
-      provenance: {
-        origin_chapter_id: '',
-        mutation_chapter_ids: [],
-      },
-      graph: art.graph || {
-        is_high_concept: art.isHighConcept,
-        x: 300,
-        y: 200,
-      },
-      resolution: 'full',
-    }));
+    const artifacts: Artifact[] = domainArtifacts;
 
     const nodes: GraphNode[] = domainArtifacts.map((art, idx) => ({
       id: `node-${art.id}`,
@@ -554,18 +522,6 @@ export default function App() {
     }
   };
 
-  // Non-Destructive Version Rollback
-  const handleRestoreArtifactVersion = (
-    artifactId: string,
-    targetVersion: ArtifactVersion
-  ) => {
-    const art = artifactsDomain.getArtifact(artifactId);
-    if (art) {
-      versioning.rollback(art.id, targetVersion.version);
-      artifactsDomain.updateTiers(art.id, { t3_body: targetVersion.content });
-    }
-  };
-
   // Add New Artifact
   const handleAddArtifact = (newArt: Artifact) => {
     artifactsDomain.upsertArtifact({
@@ -579,14 +535,14 @@ export default function App() {
       color: newArt.color,
       current: newArt.current || {
         t0_label: newArt.title || 'Untitled',
-        t1_abstract: newArt.description || '',
-        t2_summary: newArt.summary || '',
-        t3_body: newArt.content || '',
+        t1_abstract: '',
+        t2_summary: '',
+        t3_body: '',
       },
       tags: newArt.tags || [],
-      createdAt: typeof newArt.created_at === 'number' ? newArt.created_at : Date.now(),
-      updatedAt: typeof newArt.updated_at === 'number' ? newArt.updated_at : Date.now(),
-      graph: newArt.graph ? { x: newArt.graph.x, y: newArt.graph.y, is_high_concept: newArt.isHighConcept } : undefined,
+      createdAt: newArt.createdAt ?? Date.now(),
+      updatedAt: newArt.updatedAt ?? Date.now(),
+      graph: newArt.graph,
       resolution: newArt.resolution,
     });
     setSelectedArtifactId(newArt.id);
@@ -728,69 +684,33 @@ export default function App() {
               const artContent = u.content.t3_body || `# ${artTitle}\n\nExtracted note.`;
               const artColor = getMellowPastelColor(code);
 
-              const activeChap = segmentation.getActiveChapter();
-              const chapId = activeChap ? activeChap.id : 'chap-1';
-
               const newArtifact: Artifact = {
                 id: u.id || `art-${now}`,
-                workspace_id: activeProjectId,
-                projectId: activeProjectId,
+                workspaceId: activeProjectId,
                 code,
                 title: artTitle,
-                type: u.type || 'document',
+                type: u.type === 'chapter' ? 'chapter' : 'document',
                 category: 'note',
                 color: artColor,
-                description: artDesc,
-                summary: artSumm,
-                content: artContent,
-                created_at: now,
-                updated_at: now,
+                isHighConcept: false,
                 current: {
                   t0_label: artTitle,
                   t1_abstract: artDesc,
                   t2_summary: artSumm,
                   t3_body: artContent,
                 },
-                revisions: [],
-                relations: [{ target_artifact_id: chapId, kind: 'born_from' }],
-                provenance: {
-                  origin_chapter_id: chapId,
-                  mutation_chapter_ids: [],
-                },
+                tags: ['chat-extracted', u.type || 'note'],
+                createdAt: now,
+                updatedAt: now,
                 graph: {
                   is_high_concept: false,
                   x: 300,
                   y: 200,
                 },
-                isHighConcept: false,
                 resolution: 'full',
-                history: [
-                  {
-                    version: 1,
-                    timestamp: new Date().toISOString(),
-                    changeSummary: 'Extracted from chat',
-                    content: artContent,
-                  },
-                ],
-                tags: ['chat-extracted', u.type || 'note'],
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
               };
               artifactsDomain.upsertArtifact({
-                id: newArtifact.id,
-                title: newArtifact.title || artTitle,
-                workspaceId: activeProjectId,
-                code: newArtifact.code || code,
-                type: 'document',
-                category: newArtifact.category || 'note',
-                isHighConcept: Boolean(newArtifact.isHighConcept),
-                color: newArtifact.color,
-                current: newArtifact.current,
-                tags: newArtifact.tags || [],
-                createdAt: now,
-                updatedAt: now,
-                graph: { x: 300, y: 200, is_high_concept: false },
-                resolution: 'full',
+                ...newArtifact,
                 yamlDocument: serializeArtifactToYamlDoc(newArtifact),
               });
             }
@@ -1084,6 +1004,7 @@ export default function App() {
           return (
             <ArtifactDetailModal
               artifact={art}
+              history={versioning.getHistory(art.id)}
               onClose={() => setSelectedArtifactId(null)}
               isInContext={focalArtifactIds.includes(art.id)}
               contextTier={compiledContext.nodeTiers[art.id]?.tier ?? 'culled'}

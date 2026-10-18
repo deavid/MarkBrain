@@ -139,9 +139,9 @@ export function getArtifactTokenVariants(artifact: Artifact): {
   title: number;
   excluded: number;
 } {
-  const full = estimateTokens(artifact.content || '');
-  const summary = estimateTokens(artifact.summary || artifact.description || '');
-  const description = estimateTokens(artifact.description || '');
+  const full = estimateTokens(artifact.current?.t3_body || '');
+  const summary = estimateTokens(artifact.current?.t2_summary || artifact.current?.t1_abstract || '');
+  const description = estimateTokens(artifact.current?.t1_abstract || '');
   const title = estimateTokens(artifact.title || '');
   const excluded = 0;
 
@@ -186,12 +186,12 @@ export function getArtifactTextAtLevel(artifact: Artifact, level: AbstractionLev
     case 'title':
       return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]`;
     case 'description':
-      return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]\nDescription: ${artifact.description}`;
+      return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]\nDescription: ${artifact.current?.t1_abstract}`;
     case 'summary':
-      return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]\nSummary: ${artifact.summary || artifact.description}`;
+      return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]\nSummary: ${artifact.current?.t2_summary || artifact.current?.t1_abstract}`;
     case 'full':
     default:
-      return `# ${artifact.title} (${artifact.code || artifact.id})\nType: ${artifact.type}${artifact.category ? ` | Category: ${artifact.category}` : ''}\n\n${artifact.content}`;
+      return `# ${artifact.title} (${artifact.code || artifact.id})\nType: ${artifact.type}${artifact.category ? ` | Category: ${artifact.category}` : ''}\n\n${artifact.current?.t3_body}`;
   }
 }
 
@@ -205,23 +205,23 @@ export function getArtifactTextAtDepth(
 ): string {
   if (depth === 'off' || depth === 'excluded') return '';
   if (depth === 'name' || depth === 'title') return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]`;
-  if (depth === 'description') return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]\nDescription: ${artifact.description}`;
-  if (depth === 'summary') return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]\nSummary: ${artifact.summary || artifact.description}`;
+  if (depth === 'description') return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]\nDescription: ${artifact.current?.t1_abstract}`;
+  if (depth === 'summary') return `[Artifact: ${artifact.title} (${artifact.code || artifact.id})]\nSummary: ${artifact.current?.t2_summary || artifact.current?.t1_abstract}`;
   if (depth === 'children-summaries') {
-    let text = `# ${artifact.title} (${artifact.code || artifact.id})\n${artifact.content}`;
-    if (allArtifacts && ((artifact as any).relationships?.children || (artifact as any).relations)) {
+    let text = `# ${artifact.title} (${artifact.code || artifact.id})\n${artifact.current?.t3_body}`;
+    const childCodes = artifact.graph?.children || [];
+    if (allArtifacts && childCodes.length > 0) {
       text += '\n\n## Sub-Artifacts (Summaries):\n';
-      const childCodes = (artifact as any).relationships?.children || [];
       for (const childCode of childCodes) {
         const child = allArtifacts.find((a) => a.code === childCode || a.id === childCode);
         if (child) {
-          text += `- **${child.title}** (${child.code || child.id}): ${child.summary || child.description}\n`;
+          text += `- **${child.title}** (${child.code || child.id}): ${child.current?.t2_summary || child.current?.t1_abstract}\n`;
         }
       }
     }
     return text;
   }
-  return `# ${artifact.title} (${artifact.code || artifact.id})\nType: ${artifact.type}\n\n${artifact.content}`;
+  return `# ${artifact.title} (${artifact.code || artifact.id})\nType: ${artifact.type}\n\n${artifact.current?.t3_body}`;
 }
 
 /**
@@ -344,9 +344,9 @@ export function exportToMarkdown(project: Project): string {
   for (const art of project.artifacts) {
     md += `### ${art.title} (\`${art.code || art.id}\`)\n`;
     md += `**Type:** ${art.type} | **High Concept:** ${art.isHighConcept ? 'Yes' : 'No'} | **Resolution:** ${art.resolution}\n\n`;
-    md += `**Description:** ${art.description}\n\n`;
-    md += `**Summary:** ${art.summary}\n\n`;
-    md += `\`\`\`markdown\n${art.content}\n\`\`\`\n\n`;
+    md += `**Description:** ${art.current?.t1_abstract}\n\n`;
+    md += `**Summary:** ${art.current?.t2_summary}\n\n`;
+    md += `\`\`\`markdown\n${art.current?.t3_body}\n\`\`\`\n\n`;
   }
 
   md += `---\n\n## Project Chapters & History\n\n`;
@@ -390,9 +390,9 @@ export function exportToYAML(project: Project): string {
         type: a.type,
         is_high_concept: a.isHighConcept ?? false,
         resolution: a.resolution,
-        description: a.description,
-        summary: a.summary,
-        content: a.content,
+        description: a.current?.t1_abstract,
+        summary: a.current?.t2_summary,
+        content: a.current?.t3_body,
       })),
       chapters: project.chapters.map((c) => ({
         id: c.id,

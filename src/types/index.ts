@@ -1,115 +1,17 @@
 // ============================================================================
 // UNIVERSAL ARTIFACT DATA MODEL (legacy shared types)
 // ============================================================================
+import type { UniversalArtifactDocument } from '../domains/01-artifact-document/types';
 
 export type ArtifactType = 'document' | 'chapter' | (string & {});
 
 export type ResolutionTier = 0 | 1 | 2 | 3;
 
 /**
- * Universal Multi-Resolution representation pre-computed for every artifact.
- * Governs optical depth-of-field down-sampling.
+ * Universal Artifact Primitive — the artifact DOCUMENT model lives in the
+ * domain layer (single source of truth, Phase 3b of the cleanse).
  */
-export interface MultiResolutionContent {
-  /** Tier 0: 1-5 words. Label / tag identifier */
-  t0_label: string;
-
-  /** Tier 1: 1-2 sentences. Pure conceptual essence / silhouette */
-  t1_abstract: string;
-
-  /** Tier 2: 3-6 bullet points. Key parameters, structural decisions, constraints */
-  t2_summary: string;
-
-  /** Tier 3: Full fidelity. Verbatim text / markdown / dialogue turns */
-  t3_body: string;
-}
-
-export interface ArtifactRevision {
-  revision_id: string;
-  timestamp: number;
-  content: MultiResolutionContent;
-  /** Conversation turn or prompt context that authored this change */
-  author_note?: string;
-}
-
-export type RelationKind =
-  | 'parent_of'   // Hierarchical abstraction (Parent is more abstract)
-  | 'child_of'    // Hierarchical concretization (Child is more detailed)
-  | 'relates_to'  // Lateral associative link
-  | 'refines'     // Direct evolutionary update
-  | 'born_from';  // Derived from a specific Chapter
-
-export interface ArtifactRelation {
-  target_artifact_id: string;
-  kind: RelationKind;
-  weight?: number; // Optional semantic tightness (default: 1.0)
-}
-
-export interface ProvenanceRecord {
-  /** Chapter ID during which this artifact was first drafted */
-  origin_chapter_id: string;
-  /** Turn index range within that chapter (e.g., [4, 7]) */
-  turn_range?: [number, number];
-  /** History of subsequent chapters that modified this artifact */
-  mutation_chapter_ids: string[];
-}
-
-/**
- * Universal Artifact Primitive:
- * Both documents and dialogue chapters share this unified schema.
- */
-export interface Artifact {
-  id: string;
-  workspace_id: string;
-  type: ArtifactType;
-  created_at: number;
-  updated_at: number;
-
-  /** Multi-resolution representation of the latest active revision */
-  current: MultiResolutionContent;
-
-  /** Complete historical revision audit trail (revisions never deleted) */
-  revisions: ArtifactRevision[];
-
-  /** Graph connections to other artifacts */
-  relations: ArtifactRelation[];
-
-  /** Audit trail tying this artifact back to raw discussion turns */
-  provenance: ProvenanceRecord;
-
-  // Metadata & display attributes
-  tags?: string[];
-  category?: string;
-  code?: string;
-  isHighConcept?: boolean;
-  color?: string;
-  pinned_tier?: ResolutionTier;
-  graph?: {
-    x?: number;
-    y?: number;
-    parent?: string;
-    children?: string[];
-    relationships?: Array<{ target: string; type: string; note?: string }>;
-    is_high_concept?: boolean;
-    [key: string]: any;
-  };
-
-  // Helper getters/aliases for transition compatibility
-  title?: string;
-  description?: string;
-  summary?: string;
-  content?: string;
-  history?: any[];
-  projectId?: string;
-  resolution?: any;
-  yamlDocument?: string;
-  createdAt?: string | number;
-  updatedAt?: string | number;
-  relationships?: any;
-  abstract?: string;
-  depth?: any;
-  tokens?: number;
-}
+export type Artifact = UniversalArtifactDocument;
 
 export interface Turn {
   id: string;
@@ -119,58 +21,7 @@ export interface Turn {
   raw_payload?: string; // Complete unstripped model stream for debugging
 }
 
-export interface ChapterArtifact extends Artifact {
-  type: 'chapter';
-  turns: Turn[];
-  status: 'active' | 'closed';
-  /** Optional side-channel recalibration dialogue associated solely with this chapter */
-  recalibration_thread?: Turn[];
-}
-
 export type OpticalMode = 'autofocus' | 'manual' | 'myopia';
-
-export interface WorkspaceState {
-  workspace_id: string;
-  name: string;
-  description: string;
-  color?: string;
-  created_at: number;
-  updated_at: number;
-
-  /** Currently active conversation chapter ID */
-  active_chapter_id: string;
-
-  /** Pinned focal artifacts for manual or autofocus mode */
-  focal_artifact_ids: string[];
-
-  /** Optical mode governing depth of field */
-  optical_mode: OpticalMode;
-
-  /** All artifacts in the workspace (documents and chapters) mapped by ID */
-  artifacts: Record<string, Artifact | ChapterArtifact>;
-
-  /** Pinned or manual tier overrides per artifact */
-  tier_overrides: Record<string, ResolutionTier>;
-}
-
-export interface ContextTelemetry {
-  focal_artifact_ids: string[];
-  optical_mode: OpticalMode;
-  token_breakdown: {
-    system_tokens: number;
-    substrate_tokens: number;
-    history_tokens: number;
-    total_tokens: number;
-    budget_ceiling: number;
-  };
-  node_distribution: {
-    tier_3_count: number;
-    tier_2_count: number;
-    tier_1_count: number;
-    tier_0_count: number;
-    culled_count: number;
-  };
-}
 
 export interface ModelOption {
   id: string;
@@ -183,15 +34,9 @@ export interface ModelOption {
   costMultiplier?: number;
 }
 
-// Compatibility types for legacy components during transition
 export type AbstractionLevel = 'full' | 'summary' | 'description' | 'title' | 'excluded';
 export type ContextDepth = AbstractionLevel | 'off' | 'name' | 'children-summaries';
 export type ArtifactCategory = string;
-export interface ArtifactRelationship {
-  parent?: string;
-  children?: string[];
-  related?: string[];
-}
 export interface ArtifactGraphData {
   parent?: string;
   children?: string[];
@@ -199,14 +44,6 @@ export interface ArtifactGraphData {
   is_high_concept?: boolean;
   x?: number;
   y?: number;
-}
-export interface ArtifactVersion {
-  version: number;
-  timestamp: string;
-  author?: 'user' | 'assistant';
-  changeSummary: string;
-  previousContent?: string;
-  content: string;
 }
 export interface GraphNode {
   id: string;

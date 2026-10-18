@@ -1,5 +1,5 @@
 import YAML from 'yaml';
-import { Artifact, ArtifactGraphData, ArtifactVersion, ArtifactType, ArtifactCategory } from '../types';
+import { Artifact, ArtifactGraphData, ArtifactType, ArtifactCategory } from '../types';
 import { logger } from './logger';
 
 export interface ParsedYamlArtifact {
@@ -27,34 +27,26 @@ export function serializeArtifactToYamlDoc(art: Artifact): string {
     title: art.title,
     type: art.type || 'note',
     category: art.category || 'note',
-    description: art.description || '',
-    summary: art.summary || '',
+    description: art.current?.t1_abstract || '',
+    summary: art.current?.t2_summary || '',
     graph: {
-      parent: art.graph?.parent || art.relationships?.parent || null,
-      children: art.graph?.children || art.relationships?.children || [],
+      parent: art.graph?.parent || null,
+      children: art.graph?.children || [],
       relationships: art.graph?.relationships || [],
       is_high_concept: art.graph?.is_high_concept ?? art.isHighConcept ?? false,
       x: art.graph?.x ?? 0,
       y: art.graph?.y ?? 0,
     },
     resolution: art.resolution || 'full',
-    updated_at: art.updatedAt || new Date().toISOString(),
+    updated_at: art.updatedAt ?? Date.now(),
   };
 
   if (art.tags && art.tags.length > 0) {
     frontmatterData.tags = art.tags;
   }
 
-  if (art.history && art.history.length > 0) {
-    frontmatterData.history = art.history.map((h) => ({
-      version: h.version,
-      timestamp: h.timestamp,
-      change_summary: h.changeSummary,
-    }));
-  }
-
   const yamlString = YAML.stringify(frontmatterData).trim();
-  const markdownBody = (art.content || '').trim();
+  const markdownBody = (art.current?.t3_body || '').trim();
 
   return `---\n${yamlString}\n---\n\n${markdownBody}\n`;
 }
@@ -88,62 +80,35 @@ export function parseYamlArtifactDoc(
         y: typeof parsedData.graph?.y === 'number' ? parsedData.graph.y : undefined,
       };
 
-      const history: ArtifactVersion[] = Array.isArray(parsedData.history)
-        ? parsedData.history.map((h: any, idx: number) => ({
-            version: h.version || idx + 1,
-            timestamp: h.timestamp || new Date().toISOString(),
-            changeSummary: h.change_summary || h.changeSummary || 'Recorded modification',
-            content: h.content || markdownPart,
-          }))
-        : [
-            {
-              version: 1,
-              timestamp: new Date().toISOString(),
-              changeSummary: 'Initial ingestion',
-              content: markdownPart,
-            },
-          ];
-
       const now = Date.now();
-      const artDesc = parsedData.description || `Imported specification: ${title}`;
+      const artDesc = parsedData.description || `Imported note: ${title}`;
       const artSumm = parsedData.summary || parsedData.description || 'Imported note summary.';
+      const parseTime = (v: unknown, fallback: number): number =>
+        typeof v === 'number'
+          ? v
+          : typeof v === 'string' && !isNaN(Date.parse(v))
+            ? Date.parse(v)
+            : fallback;
 
       const artifact: Artifact = {
         id,
-        workspace_id: fallbackProjectId,
-        projectId: fallbackProjectId,
+        workspaceId: fallbackProjectId,
         code,
         title,
         type: 'document',
         category: (parsedData.category as ArtifactCategory) || 'note',
-        description: artDesc,
-        summary: artSumm,
-        content: markdownPart,
-        created_at: now,
-        updated_at: now,
+        isHighConcept: Boolean(graphData.is_high_concept),
         current: {
           t0_label: title,
           t1_abstract: artDesc,
           t2_summary: artSumm,
           t3_body: markdownPart,
         },
-        revisions: [],
-        relations: [],
-        provenance: {
-          origin_chapter_id: 'chap-import',
-          mutation_chapter_ids: [],
-        },
-        graph: graphData,
-        isHighConcept: graphData.is_high_concept,
-        resolution: parsedData.resolution || 'full',
-        history,
         tags: Array.isArray(parsedData.tags) ? parsedData.tags : ['yaml-imported'],
-        createdAt: parsedData.created_at || new Date().toISOString(),
-        updatedAt: parsedData.updated_at || new Date().toISOString(),
-        relationships: {
-          parent: graphData.parent,
-          children: graphData.children,
-        },
+        createdAt: parseTime(parsedData.created_at, now),
+        updatedAt: parseTime(parsedData.updated_at, now),
+        graph: graphData,
+        resolution: parsedData.resolution || 'full',
       };
 
       return {
@@ -169,7 +134,7 @@ export function parseYamlArtifactDoc(
   }
 
   const generatedCode = firstHeading.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
-  const firstParagraph = lines.filter((l) => l.trim().length > 0 && !l.startsWith('#'))[0] || 'Specification document';
+  const firstParagraph = lines.filter((l) => l.trim().length > 0 && !l.startsWith('#'))[0] || '';
 
   const now = Date.now();
   const desc = firstParagraph.slice(0, 160);
@@ -177,47 +142,27 @@ export function parseYamlArtifactDoc(
 
   const artifact: Artifact = {
     id: `art-${now}-${Math.floor(Math.random() * 1000)}`,
-    workspace_id: fallbackProjectId,
-    projectId: fallbackProjectId,
+    workspaceId: fallbackProjectId,
     code: generatedCode,
     title: firstHeading,
     type: 'document',
     category: 'note',
-    description: desc,
-    summary: summ,
-    content: trimmed,
-    created_at: now,
-    updated_at: now,
+    isHighConcept: false,
     current: {
       t0_label: firstHeading,
       t1_abstract: desc,
       t2_summary: summ,
       t3_body: trimmed,
     },
-    revisions: [],
-    relations: [],
-    provenance: {
-      origin_chapter_id: 'chap-import',
-      mutation_chapter_ids: [],
-    },
+    tags: ['raw-import'],
+    createdAt: now,
+    updatedAt: now,
     graph: {
       children: [],
       relationships: [],
       is_high_concept: false,
     },
-    isHighConcept: false,
     resolution: 'full',
-    history: [
-      {
-        version: 1,
-        timestamp: new Date().toISOString(),
-        changeSummary: 'Initial ingestion from raw file',
-        content: trimmed,
-      },
-    ],
-    tags: ['raw-import'],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
   };
 
   return {

@@ -283,12 +283,13 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
               callbacks.onChunk?.(cleanDelta, accumulatedClean);
             }
           } else if (eventName === 'complete') {
+            // Client demux is the SOLE parser — server sends raw text + telemetry only.
             const parsed = this.demuxFullTurn(data.rawReply || accumulatedRaw);
             finalResult = {
-              cleanReply: data.reply || parsed.cleanText,
+              cleanReply: parsed.cleanText,
               rawReply: data.rawReply || accumulatedRaw,
-              artifacts: parsed.artifactUpserts.length > 0 ? parsed.artifactUpserts : (data.artifacts || []),
-              topicShift: parsed.topicShift || data.topicShift,
+              artifacts: parsed.artifactUpserts,
+              topicShift: parsed.topicShift,
               telemetry: data.telemetry,
             };
 

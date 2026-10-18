@@ -643,11 +643,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                         const body = art.content || `# ${title}\n\nGenerated specification document.`;
                                         const fullArtifact: Artifact = {
                                           id: `art-${now}-${idx}`,
-                                          workspace_id: project.id,
-                                          projectId: project.id,
+                                          workspaceId: project.id,
                                           type: 'document',
-                                          created_at: now,
-                                          updated_at: now,
                                           color: '#5d87b8',
                                           current: {
                                             t0_label: title,
@@ -655,33 +652,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                             t2_summary: summ,
                                             t3_body: body,
                                           },
-                                          revisions: [],
-                                          relations: [],
-                                          provenance: {
-                                            origin_chapter_id: project.currentChapterId,
-                                            mutation_chapter_ids: [],
-                                          },
                                           code:
                                             art.code ||
                                             title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
                                           title,
                                           category: (art.category as Artifact['category']) || 'note',
                                           isHighConcept: Boolean(art.isHighConcept),
-                                          description: desc,
-                                          summary: summ,
-                                          content: body,
                                           resolution: 'full',
-                                          history: [
-                                            {
-                                              version: 1,
-                                              timestamp: new Date().toISOString(),
-                                              changeSummary: 'Manually pinned from chat',
-                                              content: body,
-                                            },
-                                          ],
                                           tags: ['manual-pin'],
-                                          createdAt: new Date().toISOString(),
-                                          updatedAt: new Date().toISOString(),
+                                          createdAt: now,
+                                          updatedAt: now,
                                         };
                                         onAddArtifactToProject(fullArtifact);
                                       }}

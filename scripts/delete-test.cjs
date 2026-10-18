@@ -108,8 +108,8 @@ async function main() {
 
     await page.goto(APP + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.getByRole('button', { name: 'Continue locally' }).click({ timeout: 15000 });
-    await page.getByPlaceholder('e.g. Distributed Optical Engine').waitFor({ timeout: 15000 });
-    await page.getByPlaceholder('e.g. Distributed Optical Engine').fill(PROJECT_NAME);
+    await page.getByPlaceholder('e.g. Side Project Ideas').waitFor({ timeout: 15000 });
+    await page.getByPlaceholder('e.g. Side Project Ideas').fill(PROJECT_NAME);
     await page.getByRole('button', { name: /Create & Launch Workspace/ }).click({ timeout: 15000 });
     await page.getByText(PROJECT_NAME).first().waitFor({ timeout: 30000 });
     log(`created "${PROJECT_NAME}"`);
@@ -128,7 +128,7 @@ async function main() {
 
     await page.getByRole('button', { name: /Delete permanently/ }).click({ timeout: 10000 });
     // Last project → Project Genesis must return
-    await page.getByPlaceholder('e.g. Distributed Optical Engine').waitFor({ timeout: 15000 });
+    await page.getByPlaceholder('e.g. Side Project Ideas').waitFor({ timeout: 15000 });
     log('deleted → Genesis returned');
 
     const idb = await page.evaluate(

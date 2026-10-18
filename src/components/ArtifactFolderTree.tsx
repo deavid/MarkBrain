@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { ArtifactDetailModal } from './ArtifactDetailModal';
 
-export type ArtifactFilterMode = 'all' | 'in_context' | 'out_of_context' | 'related';
+export type ArtifactFilterMode = 'all' | 'in_context' | 'out_of_context';
 
 interface ArtifactFolderTreeProps {
   project: Project;
@@ -77,24 +77,6 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
     return ids;
   }, [project.artifacts, nodeTiers, focalIds]);
 
-  // Related artifacts to selected/focal ones
-  const relatedArtifactIds = useMemo(() => {
-    const ids = new Set<string>();
-    const focalOrSelected = new Set([...focalIds, ...(selectedArtifactId ? [selectedArtifactId] : [])]);
-    project.artifacts.forEach((art) => {
-      if (focalOrSelected.has(art.id)) return;
-      // Check relations or shared tags
-      const hasDirectRelation = (art.relations || []).some((r) => focalOrSelected.has(r.target_artifact_id));
-      const hasIncomingRelation = project.artifacts.some(
-        (other) => focalOrSelected.has(other.id) && (other.relations || []).some((r) => r.target_artifact_id === art.id)
-      );
-      if (hasDirectRelation || hasIncomingRelation) {
-        ids.add(art.id);
-      }
-    });
-    return ids;
-  }, [project.artifacts, focalIds, selectedArtifactId]);
-
   // Filter and group artifacts
   const filteredArtifacts = useMemo(() => {
     return project.artifacts.filter((art) => {
@@ -105,7 +87,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
           art.title?.toLowerCase().includes(q) ||
           art.code?.toLowerCase().includes(q) ||
           art.category?.toLowerCase().includes(q) ||
-          art.description?.toLowerCase().includes(q) ||
+          art.current?.t1_abstract?.toLowerCase().includes(q) ||
           (art.tags && art.tags.some((t) => t.toLowerCase().includes(q)));
         if (!matchesText) return false;
       }
@@ -117,12 +99,9 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
       if (contextFilter === 'out_of_context') {
         return !inContextArtifactIds.has(art.id);
       }
-      if (contextFilter === 'related') {
-        return relatedArtifactIds.has(art.id);
-      }
       return true;
     });
-  }, [project.artifacts, filterText, contextFilter, inContextArtifactIds, relatedArtifactIds]);
+  }, [project.artifacts, filterText, contextFilter, inContextArtifactIds]);
 
   // Group by category
   const groupedArtifacts = useMemo(() => {
@@ -186,16 +165,6 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
             }`}
           >
             In Context ({inContextArtifactIds.size})
-          </button>
-          <button
-            onClick={() => setContextFilter('related')}
-            className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer shrink-0 ${
-              contextFilter === 'related'
-                ? 'bg-[#291f14] text-[#e0b96c] font-semibold border border-[#4d3a24]'
-                : 'bg-[#070b12] text-[#6b82a3] hover:text-[#9bb0d1]'
-            }`}
-          >
-            Related ({relatedArtifactIds.size})
           </button>
           <button
             onClick={() => setContextFilter('out_of_context')}

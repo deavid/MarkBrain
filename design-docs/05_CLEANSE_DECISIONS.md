@@ -148,3 +148,124 @@ It's Phase 3 in the plan below, and the mirror (Phase 4) must wait for it.
   1 `action` + 1 `info` interrupted (+1 `warn` only if cancel fetch fails).
 - **Deliberately NOT logged:** `recordRevision` / graph `addEdge` (bulk-import
   loops — would break the 16-cap); dead domains (Phase 3 keep/kill first).
+
+---
+
+## 2026-10-18 ~10:30 — Phase 3 progress: twin parser KILLED (nova)
+
+- **Status:** DONE, uncommitted. Green: vitest 6/6, `tsc --noEmit` clean.
+- **Evidence:** `server.ts parseModelResponse` (101 lines) was called only
+  inside `/api/chat/stream` at stream end — and the client's
+  `stream-protocol demuxFullTurn` **re-parsed the same rawReply anyway**,
+  preferring its own results on every field (`artifacts`, `topicShift`);
+  client parser is a strict superset (handles `<link>` + legacy fences the
+  server's didn't). Server parse output was dead weight on every send.
+- **Cut:** server `complete` event now sends `{ rawReply, telemetry }` only;
+  removed the fake "Reading reply and extracting notes…" indexing status
+  (parsing is the client's job, happens instantly at `complete`);
+  `parseModelResponse` deleted (−101 lines); `STREAM:DONE` log no longer
+  references server-side extraction counts. Client is the SOLE parser.
+- **The remaining Phase 3 table (DECISION NEEDED — "at the table with the
+  code in front of us"):** unify the dual data model.
+  - **Fact A:** `src/types/index.ts` (333L) = legacy frankenmodel blob
+    (Artifact carries flat `description/summary/content` AND tiered
+    `current.t0..t3`); imported by 32 files, mostly UI.
+  - **Fact B:** domains + persistence speak `UniversalArtifactDocument` /
+    `ChapterPartition` / `ProjectSnapshot` (tiered, purposeful).
+  - **Fact C:** App.tsx (1101L) is the translator between A and B — writes
+    both shapes on every artifact create (flat + `current.*`).
+  - **Fact D:** components already read `artifact.description ||
+    artifact.current?.t1_abstract` defensive chains everywhere — they were
+    built to survive the duality, not to choose.
+  - **Option 1 (recommended): domain model wins.** types/index.ts shrinks to
+    UI-only types (ChatMessage, ModelOption, palette, view enums) + a
+    transition re-export. One-time backfill synthesizes `current.*` from
+    flat fields for old records at the persistence boundary (persistence
+    Service already knows). App.tsx translation code evaporates; component
+    reads migrate flat→tiered (mechanical, ~15 component files). Churn: high
+    but bounded; kills the root inconsistency.
+  - **Option 2: frankenmodel wins.** Domains flatten → destroys T0–T3, which
+    the optical compiler consumes for tiering. Vetoed: kills a kept feature.
+  - **Option 3: status quo + mapping layer.** Keeps both forever; App stays
+    god; not a cleanse.
+  - Recommendation: **Option 1**, executed as: (1) backfill helper +
+    persistence boundary unification, (2) component read migration,
+    (3) types/index.ts collapse, (4) App.tsx translator deletion — one
+    commit each, green after each. Awaiting David's greenlight at the table.
+
+---
+
+## 2026-10-18 ~11:00 — Phase 3b EXECUTED (Option 1, greenlit by David) — nova
+
+- **`339c627` backfill:** `loadProjectSnapshot` hydrates every artifact to
+  canonical shape at the persistence boundary (tiers synthesized from legacy
+  flat fields, camelCase ids/dates ensured). Non-destructive; one WARN per
+  project load with backfill count.
+- **`c578aa0` reads:** flat→tiered reads in DetailModal, tokenCalculator,
+  yaml serializer, FolderTree search. YAML export KEYS stay
+  description/summary/content (external format), values from tiers. Purged
+  the **Related filter husk** (relations never existed on the domain model
+  — chip was permanently `Related (0)`).
+- **`42c327f` type collapse (the big bang, +77/−413):**
+  - `Artifact` in types/index.ts = `UniversalArtifactDocument` (import +
+    alias — bare `export type {X as Y} from` doesn't bind a local name).
+  - Dead types deleted: MultiResolutionContent, ArtifactRevision,
+    ArtifactRelation, RelationKind, ProvenanceRecord, ChapterArtifact,
+    WorkspaceState, ContextTelemetry, ArtifactRelationship, ArtifactVersion.
+  - UAD `graph` widened to what runtime actually stores (parent/children).
+  - All writers emit canonical shape only (parser ×2, ImportModal confirm +
+    preview + 3 prefills, ChatView Save-as-Artifact, App onArtifact upsert).
+  - **App translator deleted:** 32-line UAD→legacy project-load map is now a
+    passthrough; handleAddArtifact reads canonical fields.
+  - Dead code found & deleted along the way: `handleRestoreArtifactVersion`
+    (never passed to any component); ArtifactDetailModal history tab now
+    fed by the **versioning domain** via a new `history` prop (real source).
+  - Slip recorded: one edit batch accidentally deleted `ModelOption` from
+    types (swept in a too-large `before` block) — restored immediately.
+- **Known remaining dual-model surfaces (NOT part of artifact fight):**
+  Chapter (UI `Chapter` ↔ domain `ChapterPartition`, App still maps at
+  project-load) and legacy `substrate_tokens` telemetry field names
+  (optional follow-ups if David wants them). `Turn`/`ChatMessage` are
+  UI-shaped by design.
+
+---
+
+## 2026-10-18 ~11:20 — SELF-REVIEW (David's ask) — nova
+
+Method: re-read my own branch diffs (risky files line-by-line), then run
+everything for real on this worktree's port (3031, David's per-worktree
+.env convention; his instance of dev-nova was already serving).
+
+**Verified green:**
+- tsc clean, vitest 6/6, `vite build` OK.
+- Server boots; `/api/health` OK; live SSE against real Gemini:
+  `complete` event = exactly `{rawReply, telemetry}` (twin-kill holds
+  at runtime, not just in types).
+- `roundtrip-test` PASS after fixing stale selectors (see findings).
+- `delete-test` PASS (create → delete → IndexedDB empty).
+- **Instrumentation law verified LIVE** (ad-hoc Playwright probe,
+  one human send in a fresh browser): `{"action":1,"info":8,
+  "warn":0,"error":0}` = **9 ≤ 16**, reply rendered in 1.3s. Matches
+  the manual trace recorded in Phase 2.
+
+**Findings + fixes:**
+1. **Stale acceptance-test selectors** — roundtrip-test + delete-test
+   (6 places) still waited for Phase-1 persona placeholders
+   ('Distributed Optical Engine' / 'OPT-ENG'); the app was healthy,
+   the tests asserted dead copy. Updated to locked readme copy
+   ('Side Project Ideas' / 'SIDE-IDEAS'). Committed `4741d78`.
+2. **Silent behavior fix caught in diff review** — `handleAddArtifact`
+   used to rebuild `graph` as `{x,y,is_high_concept}` only, **dropping
+   `graph.parent`** that ImportModal writes; now passes `newArt.graph`
+   through, so imported parent links survive (old code lost them).
+3. Two composer implementations (hero for 0-message state, pinned bar
+   after) — pre-existing, works, but any future UI automation must
+   target the right one (hero submits on Enter; only the pinned bar has
+   `title="Send message"`).
+4. No regressions found in the full diff re-read (server.ts,
+   stream-protocol, persistence hydrate, App hunks all correct).
+   `pageerror: WebSocket closed without opened` seen once during
+   delete-test teardown — pre-existing noise, not from this branch.
+
+Probe script lives at /tmp/chat-send-test.cjs (ad-hoc, not committed;
+worth promoting to scripts/ if David wants the law checked in CI).

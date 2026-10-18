@@ -118,10 +118,10 @@ async function main() {
     log('A: chose Continue locally');
 
     // Empty local store → Genesis
-    const nameInput = pageA.getByPlaceholder('e.g. Distributed Optical Engine');
+    const nameInput = pageA.getByPlaceholder('e.g. Side Project Ideas');
     await nameInput.waitFor({ state: 'visible', timeout: 15000 });
     await nameInput.fill(PROJECT_NAME);
-    const codeInput = pageA.getByPlaceholder('e.g. OPT-ENG');
+    const codeInput = pageA.getByPlaceholder('e.g. SIDE-IDEAS');
     if (await codeInput.isVisible().catch(() => false)) await codeInput.fill(PROJECT_CODE);
     await pageA.getByRole('button', { name: /Create & Launch Workspace/ }).click({ timeout: 15000 });
     log('A: created project');
@@ -167,7 +167,7 @@ async function main() {
     log('B: chose Continue locally (empty store)');
 
     // Fresh store → Genesis → restore trigger lives HERE (no sidebar yet)
-    const bName = pageB.getByPlaceholder('e.g. Distributed Optical Engine');
+    const bName = pageB.getByPlaceholder('e.g. Side Project Ideas');
     await bName.waitFor({ state: 'visible', timeout: 15000 });
     await pageB.getByText('Restore from a database backup instead', { exact: false }).click({ timeout: 10000 });
     await pageB.locator('input[type="file"]').setInputFiles({

@@ -148,108 +148,6 @@ app.get('/api/auth/config', (_req: Request, res: Response) => {
   });
 });
 
-// Helper to parse artifacts, topic shifts, and clean reply text from raw LLM output
-function parseModelResponse(replyText: string) {
-  const artifacts: Array<{
-    title: string;
-    type: string;
-    abstract: string;
-    highConcept: boolean;
-    content: string;
-  }> = [];
-
-  // 1. Extract markdown ```artifact ... ``` blocks
-  const artifactRegex = /```artifact\s*([\s\S]*?)```/g;
-  let match;
-  while ((match = artifactRegex.exec(replyText)) !== null) {
-    const block = match[1];
-    const titleMatch = block.match(/title:\s*(.*)/i);
-    const typeMatch = block.match(/type:\s*(.*)/i);
-    const abstractMatch = block.match(/abstract:\s*(.*)/i);
-    const highConceptMatch = block.match(/highConcept:\s*(true|false)/i);
-
-    const bodyLines = block
-      .replace(/title:.*\n/i, '')
-      .replace(/type:.*\n/i, '')
-      .replace(/abstract:.*\n/i, '')
-      .replace(/highConcept:.*\n/i, '')
-      .trim();
-
-    artifacts.push({
-      title: titleMatch ? titleMatch[1].trim() : 'Extracted note',
-      type: typeMatch ? typeMatch[1].trim() : 'note',
-      abstract: abstractMatch ? abstractMatch[1].trim() : 'Generated note.',
-      highConcept: highConceptMatch ? highConceptMatch[1].toLowerCase() === 'true' : false,
-      content: bodyLines || block,
-    });
-  }
-
-  // 2. Extract XML <artifact_upsert> or <artifact> tags (attributes in any order)
-  const xmlArtifactRegex = /<(?:artifact_upsert|artifact)\b([^>]*)>([\s\S]*?)<\/(?:artifact_upsert|artifact)>/gi;
-  let upMatch;
-  while ((upMatch = xmlArtifactRegex.exec(replyText)) !== null) {
-    const attrs = upMatch[1];
-    const inner = upMatch[2];
-    const titleAttr = /title=["']([^"']+)["']/i.exec(attrs);
-    const typeAttr = /type=["']([^"']+)["']/i.exec(attrs);
-    const idAttr = /id=["']([^"']+)["']/i.exec(attrs);
-
-    const upTitle = titleAttr ? titleAttr[1] : (idAttr ? idAttr[1] : 'Extracted note');
-    const upType = typeAttr ? typeAttr[1] : 'document';
-    const absMatch = /<abstract>([\s\S]*?)<\/abstract>/i.exec(inner);
-    const contentMatch = /<content>([\s\S]*?)<\/content>/i.exec(inner);
-    const sumMatch = /<summary>([\s\S]*?)<\/summary>/i.exec(inner);
-
-    artifacts.push({
-      title: upTitle,
-      type: upType,
-      abstract: absMatch ? absMatch[1].trim() : (sumMatch ? sumMatch[1].trim() : upTitle),
-      highConcept: false,
-      content: contentMatch ? contentMatch[1].trim() : inner.trim(),
-    });
-  }
-
-  // 3. Extract topic shifts (JSON or XML)
-  let topicShift: { shiftDetected: boolean; newChapterTitle: string; reason: string } | null = null;
-  const topicShiftRegex = /```topic_shift\s*([\s\S]*?)```/i;
-  const topicMatch = replyText.match(topicShiftRegex);
-  if (topicMatch) {
-    try {
-      topicShift = JSON.parse(topicMatch[1].trim());
-    } catch {
-      // ignore parse error
-    }
-  }
-
-  const topicShiftXml = /<topic_shift\s+([^>]*?)\/?>/i.exec(replyText);
-  if (topicShiftXml && !topicShift) {
-    const titleM = /title=["']([^"']+)["']/i.exec(topicShiftXml[1]);
-    const summaryM = /summary=["']([^"']+)["']/i.exec(topicShiftXml[1]);
-    if (titleM) {
-      topicShift = {
-        shiftDetected: true,
-        newChapterTitle: titleM[1],
-        reason: summaryM ? summaryM[1] : 'Topic progression',
-      };
-    }
-  }
-
-  // Clean reply text of artifact/topic_shift raw blocks for display
-  const cleanedReply = replyText
-    .replace(/```topic_shift[\s\S]*?```/gi, '')
-    .replace(/<topic_shift[\s\S]*?\/>/gi, '')
-    .replace(/<(?:artifact_upsert|artifact)\b[^>]*>[\s\S]*?<\/(?:artifact_upsert|artifact)>/gi, '')
-    .replace(/```artifact\s*[\s\S]*?```/gi, '')
-    .replace(/<link[\s\S]*?\/>/gi, '')
-    .trim();
-
-  return {
-    cleanedReply,
-    artifacts,
-    topicShift,
-  };
-}
-
 const DEFAULT_SYSTEM_INSTRUCTION = `You are MarkBrain, a thinking partner for a brain that overflows with ideas. You help collect thoughts before they evaporate, keep them organized, and keep the whole forest in view while diving into details.
 Talk WITH the user — curious, direct, plain-spoken. No corporate filler. It's fine to say you don't know something.
 
@@ -479,14 +377,8 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
         return;
       }
 
-      // Step 3: Indexing and extracting artifacts from the complete stream
-      sendSSE('status', {
-        state: 'indexing',
-        message: 'Reading reply and extracting notes...',
-        timestamp: Date.now(),
-      });
-
-      const { cleanedReply, artifacts, topicShift } = parseModelResponse(fullText);
+      // Client-side demux is the sole parser of artifacts/topic shifts
+      // (stream-protocol demuxFullTurn — superset of any server parse).
 
       // Raw 1:1 Gemini API token usage
       const promptTokens = usageMetadata?.promptTokenCount ?? estimateTokens(compiledPrompt);
@@ -499,8 +391,6 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
         promptTokens,
         candidatesTokens,
         totalTokens,
-        artifactsExtracted: artifacts.length,
-        topicShiftDetected: Boolean(topicShift),
       });
 
       const telemetry = {
@@ -515,10 +405,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       };
 
       sendSSE('complete', {
-        reply: cleanedReply || fullText,
         rawReply: fullText,
-        artifacts,
-        topicShift,
         telemetry,
       });
 
@@ -559,7 +446,6 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
         await new Promise((r) => setTimeout(r, 250));
       }
 
-      const { cleanedReply, artifacts, topicShift } = parseModelResponse(accumulated);
       const promptTokens = estimateTokens(compiledPrompt);
       const candidatesTokens = estimateTokens(accumulated);
 
@@ -575,10 +461,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       };
 
       sendSSE('complete', {
-        reply: cleanedReply || accumulated,
         rawReply: accumulated,
-        artifacts,
-        topicShift,
         telemetry,
       });
 

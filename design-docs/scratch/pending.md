@@ -54,6 +54,21 @@
     ImportConfirm gesture actions added. Per-send trace: typical 5 / worst ~9
     / cap 16 → PASS. Green: vitest 6/6, tsc clean. Full record in 05 ledger.
     Awaiting commit; Phase 3 (data-model fight) next.
+  - **Phase 3a DONE + COMMITTED (`de07861`):** twin parser killed — server
+    `parseModelResponse` (101L) deleted; client `demuxFullTurn` is sole
+    parser; server `complete` = {rawReply, telemetry} only; fake 'indexing'
+    status removed. **Phase 3b (data-model unification) = DECISION TABLE for
+    David** — options + recommendation (Option 1: domain model wins,
+    types/index.ts collapses to UI types, backfill at persistence boundary)
+    recorded in 05 ledger. Phase 4 (mirror) waits behind 3b.
+  - **Phase 3b DONE + COMMITTED (4 commits, Option 1 executed):**
+    `339c627` persistence-boundary backfill (hydrate, 1 WARN/load),
+    `c578aa0` reads→tiers + Related-filter husk purged,
+    `42c327f` type collapse big bang (Artifact = UAD; dead types deleted;
+    all writers canonical; App translator map deleted; DetailModal history
+    now fed by versioning domain; dead handleRestoreArtifactVersion
+    deleted; +77/−413). Green: vitest 6/6, tsc clean.
+    **Phase 3 fully done** — Phase 4 (mirror v1) next, needs David go.
   - **Tautologies: DELETE — actioned same day** (J5/6/7/9 removed, J3 renamed;
     suite 13 → 6 tests; run `bunx vitest run` to verify).
   - Logging: **law** = 1/human action guideline, **max 16 hard rule**, don't
@@ -202,3 +217,9 @@
 
 *(Detailed pre-consolidation history lives in git commit `8aebe04` and its
 predecessors — this file is state, not archaeology.)*
+- **SELF-REVIEW DONE (2026-10-18 ~11:20), `4741d78` + docs:** roundtrip PASS,
+  delete-test PASS, live SSE contract OK (complete={rawReply,telemetry}),
+  instrumentation law verified LIVE: 9 events/send (cap 16). Fixed stale
+  Phase-1 selectors in roundtrip+delete scripts (6 places). Diff re-read:
+  no regressions; noted handleAddArtifact now preserves graph.parent
+  (old code dropped it). Full record in 05 ledger.

@@ -25,6 +25,8 @@ interface ArtifactDetailModalProps {
   contextTier: ResolutionTier | 'culled';
   onToggleInContext: (artId: string) => void;
   onChangeTierOverride?: (artId: string, tier: ResolutionTier | null) => void;
+  /** Version history from the versioning domain (source of truth — artifacts no longer embed history) */
+  history?: Array<{ version: number; timestamp: number; changeSummary: string }>;
 }
 
 export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
@@ -34,6 +36,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   contextTier,
   onToggleInContext,
   onChangeTierOverride,
+  history = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'content' | 'metadata' | 'history'>('content');
   const [isFullscreen, setIsFullscreen] = useState(true);
@@ -48,9 +51,9 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   }, [onClose]);
 
   const title = artifact.title || artifact.current?.t0_label || artifact.id;
-  const abstract = artifact.description || artifact.current?.t1_abstract || '';
-  const summary = artifact.summary || artifact.current?.t2_summary || '';
-  const body = artifact.content || artifact.current?.t3_body || '';
+  const abstract = artifact.current?.t1_abstract || '';
+  const summary = artifact.current?.t2_summary || '';
+  const body = artifact.current?.t3_body || '';
   const artColor = artifact.color || '#5d87b8';
 
   const tierLabels: Record<ResolutionTier | 'culled', { name: string; desc: string }> = {
@@ -191,7 +194,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           >
             Tier Fields & YAML
           </button>
-          {artifact.history && artifact.history.length > 0 && (
+          {history.length > 0 && (
             <button
               onClick={() => setActiveTab('history')}
               className={`py-2 px-3 text-xs font-mono border-b-2 transition-colors cursor-pointer ${
@@ -200,7 +203,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                   : 'border-transparent text-[#6b82a3] hover:text-[#9bb0d1]'
               }`}
             >
-              History ({artifact.history.length})
+              History ({history.length})
             </button>
           )}
         </div>
@@ -293,9 +296,9 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
             </div>
           )}
 
-          {activeTab === 'history' && artifact.history && (
+          {activeTab === 'history' && (
             <div className="space-y-2">
-              {artifact.history.map((h, i) => (
+              {history.map((h, i) => (
                 <div
                   key={i}
                   className="p-3 rounded-xl bg-[#080d16] border border-[#121c2d] space-y-1 font-mono text-[11px]"

@@ -20,7 +20,15 @@ export interface UniversalArtifactDocument {
   tags: string[];
   createdAt: number;
   updatedAt: number;
-  graph?: { x?: number; y?: number; is_high_concept?: boolean };
+  graph?: {
+    x?: number;
+    y?: number;
+    is_high_concept?: boolean;
+    parent?: string;
+    children?: string[];
+    relationships?: Array<{ target: string; type: string; note?: string }>;
+    [key: string]: any;
+  };
   resolution?: any;
   yamlDocument?: string;
 }

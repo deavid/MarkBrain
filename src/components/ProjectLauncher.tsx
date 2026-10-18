@@ -293,7 +293,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                       <div className="flex flex-wrap items-center gap-3 mt-2 text-[10px] font-mono text-[#6c82a1]">
                         <span className="flex items-center gap-1">
                           <FileCode className="w-3 h-3 text-[#e05a66]" />
-                          {totalArtifacts} YAML Specs
+                          {totalArtifacts} YAML Notes
                         </span>
                         <span className="flex items-center gap-1">
                           <Layers className="w-3 h-3 text-[#8ab1e0]" />

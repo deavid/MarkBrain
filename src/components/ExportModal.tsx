@@ -59,10 +59,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             <Download className="w-5 h-5 text-[#b88ec7]" />
             <div>
               <h2 className="font-bold text-sm text-[#f2eaf7]">
-                Export MarkBrain Design Topology
+                Export project data
               </h2>
               <p className="text-[11px] text-[#9386a3]">
-                Export complete spatial node graph, token specs, and chat chapters
+                Export the spatial node graph, token counts, and chat chapters
               </p>
             </div>
           </div>

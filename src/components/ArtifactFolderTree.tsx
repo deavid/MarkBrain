@@ -107,7 +107,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
   const groupedArtifacts = useMemo(() => {
     const groups: Record<string, Artifact[]> = {};
     filteredArtifacts.forEach((art) => {
-      const cat = art.category || (art.tags && art.tags[0]) || 'general-specs';
+      const cat = art.category || (art.tags && art.tags[0]) || 'uncategorized';
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(art);
     });
@@ -126,7 +126,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
               type="text"
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
-              placeholder="Search specs..."
+              placeholder="Search notes..."
               className="w-full bg-[#070b12] border border-[#162338] rounded-lg pl-7 pr-2 py-1 text-[11px] text-[#e3edf7] placeholder-[#556985] focus:outline-none focus:border-[#38bdf8]/50 font-sans"
             />
             <Search className="w-3.5 h-3.5 text-[#556985] absolute left-2 top-1.5" />

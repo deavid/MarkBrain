@@ -9,6 +9,13 @@ export interface OpticalCompilerOptions {
   opticalMode: 'autofocus' | 'manual' | 'myopia';
   tokenCeiling?: number;
   tierOverrides?: Record<string, ResolutionTier>;
+  /**
+   * Emit the compile lifecycle log + ceiling warn. Default FALSE because
+   * compile() also runs from the display memo on every stream-chunk render
+   * (instrumentation law: never log hot loops — see logger.ts header).
+   * Pass `log: true` only at the once-per-send call site.
+   */
+  log?: boolean;
 }
 
 export interface ContextTelemetry {
@@ -190,9 +197,11 @@ Emit functional XML tags when appropriate:
       else counts.culledCount++;
     });
 
-    logger.info('Compiler', `Compiled context: ${totalTokens} tokens (ceiling ${ceiling})`, counts);
-    if (totalTokens > ceiling) {
-      logger.warn('Compiler', `Compiled prompt exceeds token ceiling (${totalTokens} > ${ceiling}) — no degradation path exists yet`, counts);
+    if (options.log) {
+      logger.info('Compiler', `Compiled context: ${totalTokens} tokens (ceiling ${ceiling})`, counts);
+      if (totalTokens > ceiling) {
+        logger.warn('Compiler', `Compiled prompt exceeds token ceiling (${totalTokens} > ${ceiling}) — no degradation path exists yet`, counts);
+      }
     }
 
     return {

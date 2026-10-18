@@ -153,6 +153,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     try {
       const res = await fetch('/api/extract-artifact-from-file', {
         method: 'POST',
+        // Review: slow extraction model (observed 113–135s) left the spinner
+        // spinning forever. Cap at 120s so the UI always recovers.
+        signal: AbortSignal.timeout(120_000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: contentToExtract,
@@ -166,8 +169,8 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       if (data.artifact) {
         setArtifactTitle(data.artifact.title || filename);
         setArtifactCode(data.artifact.code || filename.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
-        setArtifactDescription(data.artifact.current?.t1_abstract || '');
-        setArtifactSummary(data.artifact.current?.t2_summary || '');
+        setArtifactDescription(data.artifact.current?.t1_abstract || data.artifact.description || '');
+        setArtifactSummary(data.artifact.current?.t2_summary || data.artifact.summary || '');
         setArtifactType((data.artifact.type as ArtifactType) || 'note');
         setIsHighConcept(Boolean(data.artifact.graph?.is_high_concept));
         setParentCode(data.artifact.graph?.parent || '');
@@ -178,13 +181,19 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           setArtifactTags(['imported-gdoc', 'note']);
         }
 
-        if (data.artifact.current?.t3_body) {
-          setUploadContent(data.artifact.current.t3_body);
+        const extractedBody = data.artifact.current?.t3_body || data.artifact.content;
+        if (extractedBody) {
+          setUploadContent(extractedBody);
         }
         setExtractedSuccess(true);
       }
     } catch (err) {
-      logger.error('ImportModal', 'LLM extraction failed', err);
+      const timedOut = err instanceof DOMException && err.name === 'TimeoutError';
+      logger.error(
+        'ImportModal',
+        timedOut ? 'LLM extraction timed out after 120s' : 'LLM extraction failed',
+        err
+      );
     } finally {
       setIsExtractingWithAI(false);
     }
@@ -417,7 +426,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
               <h2 className="text-sm font-bold text-[#eef4fc] font-mono flex items-center gap-2">
                 <span>Import Google Docs & Markdown</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#1e2a3f] text-[#8ab1e0] border border-[#080d15] font-normal">
-                  YAML + Tags Synthesis
+                  Markdown → YAML
                 </span>
               </h2>
               <p className="text-[11px] text-[#7d93b3]">
@@ -882,7 +891,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             disabled={!uploadContent.trim()}
             className="px-4 py-2 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] disabled:opacity-40 text-white font-medium text-xs font-mono transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
           >
-            <span>Import YAML Artifact</span>
+            <span>Import note</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>

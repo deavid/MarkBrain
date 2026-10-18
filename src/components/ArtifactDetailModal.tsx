@@ -136,7 +136,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
             </button>
 
             <span className="text-[11px] font-mono text-[#556985] hidden sm:inline">
-              Current: <strong className="text-[#a4bddf]">{tierLabels[contextTier]?.name || contextTier}</strong>
+              Prompt tier: <strong className="text-[#a4bddf]">{tierLabels[contextTier]?.name || contextTier}</strong>
             </span>
           </div>
 
@@ -182,7 +182,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                 : 'border-transparent text-[#6b82a3] hover:text-[#9bb0d1]'
             }`}
           >
-            Specification Content
+            Content
           </button>
           <button
             onClick={() => setActiveTab('metadata')}
@@ -319,7 +319,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
         {/* Footer */}
         <div className="p-3 border-t border-[#141f33] bg-[#0c121e] flex items-center justify-between">
           <span className="text-[10px] font-mono text-[#556985]">
-            Multi-Resolution Artifact Model
+            Label · Abstract · Summary · Full
           </span>
           <button
             onClick={onClose}

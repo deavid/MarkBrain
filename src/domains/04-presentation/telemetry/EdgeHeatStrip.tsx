@@ -16,7 +16,7 @@ export const EdgeHeatStrip: React.FC<EdgeHeatStripProps> = ({ telemetry }) => {
   return (
     <div
       className="absolute right-0 top-0 w-[5px] h-full flex flex-col bg-[#0b1018] border-l border-[#080d15] z-30"
-      title="Peripheral Ambient Telemetry: Red=Detail/Focus (T3), Yellow=Summary (T2), Blue=Title (T0)"
+      title="Edge telemetry: red = active chapter tokens, yellow = older chapter tokens, blue = system + notes"
     >
       {/* Red = Detail / Tier 3 (Focus) */}
       <div

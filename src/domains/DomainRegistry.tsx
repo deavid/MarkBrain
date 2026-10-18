@@ -138,11 +138,19 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!activeId) return;
     if (isCaptureMode()) return; // capture/fixture runs are read-only
     try {
+      // Meta MUST ride along: IndexedDB put() REPLACES the record, so an
+      // omission here wipes name/codeName/description/color on first
+      // auto-save (review P0#3 — caller-side, not snapshot-side).
+      const container = workspace.getProject(activeId);
       await saveProjectSnapshot(activeId, {
         turns: timeline.getTurns(),
         chapters: segmentation.listChapters(),
         artifacts: artifacts.listArtifacts(),
         edges: graph.listEdges(),
+        name: container?.metadata.name,
+        codeName: container?.metadata.codeName,
+        description: container?.metadata.description,
+        color: container?.metadata.color,
       });
     } catch (err) {
       logger.error('DomainRegistry', 'Persistence failed', err);

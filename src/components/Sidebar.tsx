@@ -153,7 +153,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   MarkBrain
                 </span>
                 <span className="text-[9px] text-[#556985] font-mono block">
-                  MarkBrain
+                  thinking workbench
                 </span>
               </div>
             </div>
@@ -449,7 +449,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="flex items-center gap-1.5 text-[#556985]">
                 <span className={`text-[10px] font-mono font-semibold ${colorInfo.textClass}`}>
-                  {Math.round(totalTokens / 1000)}k tok
+                  {totalTokens < 1000 ? totalTokens : `${Math.round(totalTokens / 1000)}k`} tok
                 </span>
                 {opticalAccordionOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </div>

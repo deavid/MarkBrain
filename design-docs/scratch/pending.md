@@ -223,3 +223,15 @@ predecessors — this file is state, not archaeology.)*
   Phase-1 selectors in roundtrip+delete scripts (6 places). Diff re-read:
   no regressions; noted handleAddArtifact now preserves graph.parent
   (old code dropped it). Full record in 05 ledger.
+External-review fix batch: P0×3 + copy sweep + idempotent Save + mobile
+sidebar default-closed — tsc/vitest/build green, committing now (~10:56).
+Remaining: re-verify P1#9 live; P2 nits recorded in ledger; Drive import,
+README, chapter dual-model = later.
+Round-2 review done (~11:16): P0#3 caller fixed + name-wipe probe PASS;
+compile log gated → law PASS 10/16 under long-reply probe; empty-reply msg,
+sidebar 0k, copy leftovers, 120s extraction timeout. All 3 probes green +
+tsc/vitest/build green. Committing now. Later: manual-mode chip semantics,
+perf if projects grow, Drive import, README.
+NOTE: all commit hashes cited above are DEAD — history was rewritten twice
+(once pre-squash review cycles, once for the 4-phase squash 2026-10-18 ~11:23).
+The ledger prose is the source of truth, not the hashes.

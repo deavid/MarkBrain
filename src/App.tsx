@@ -35,6 +35,7 @@ import { ServerLogsModal } from './components/ServerLogsModal';
 import { useDomains } from './domains/DomainRegistry';
 import { SaturationOrb } from './domains/04-presentation/telemetry/SaturationOrb';
 import { EdgeHeatStrip } from './domains/04-presentation/telemetry/EdgeHeatStrip';
+import { MirrorPanel } from './domains/04-presentation/telemetry/MirrorPanel';
 import { AmbientTelemetryData } from './domains/04-presentation/telemetry/ambientTelemetry';
 
 export default function App() {
@@ -122,10 +123,13 @@ export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>('chat');
 
   // Modals & Project Launcher state
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  // Default-open on desktop; default-closed on phones so the drawer+backdrop
+  // doesn't bury the composer on first load (review P1 #8).
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [isProjectLauncherOpen, setIsProjectLauncherOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isMirrorOpen, setIsMirrorOpen] = useState(false);
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
 
@@ -250,7 +254,7 @@ export default function App() {
       tokenCeiling: currentContainer?.tokenCeiling || 32000,
       tierOverrides: manualTierOverrides,
     });
-  }, [compiler, focalList, opticalMode, currentContainer?.tokenCeiling, manualTierOverrides]);
+  }, [compiler, focalList, opticalMode, currentContainer?.tokenCeiling, manualTierOverrides, tick]);
 
   // Telemetry payload for SaturationOrb and EdgeHeatStrip
   const ambientTelemetry: AmbientTelemetryData = useMemo(() => {
@@ -524,8 +528,20 @@ export default function App() {
 
   // Add New Artifact
   const handleAddArtifact = (newArt: Artifact) => {
+    // Idempotent by title (review P1 #7): extracted notes are already
+    // auto-upserted via onArtifact with a different id — "Save as Artifact"
+    // must update that record, not create a second copy.
+    const title = (newArt.title || newArt.current?.t0_label || '').trim();
+    const existing = !title
+      ? undefined
+      : artifactsDomain
+        .listArtifacts()
+        .find(
+          (a) =>
+            (a.title || a.current?.t0_label || '').trim() === title
+        );
     artifactsDomain.upsertArtifact({
-      id: newArt.id,
+      id: existing?.id ?? newArt.id,
       title: newArt.title || newArt.current?.t0_label || 'Untitled',
       workspaceId: activeProjectId,
       code: newArt.code || newArt.id,
@@ -540,12 +556,12 @@ export default function App() {
         t3_body: '',
       },
       tags: newArt.tags || [],
-      createdAt: newArt.createdAt ?? Date.now(),
+      createdAt: existing?.createdAt ?? newArt.createdAt ?? Date.now(),
       updatedAt: newArt.updatedAt ?? Date.now(),
       graph: newArt.graph,
       resolution: newArt.resolution,
     });
-    setSelectedArtifactId(newArt.id);
+    setSelectedArtifactId(existing?.id ?? newArt.id);
   };
 
   // Declare New Chapter
@@ -622,6 +638,7 @@ export default function App() {
         opticalMode,
         tokenCeiling: currentContainer?.tokenCeiling || 32000,
         tierOverrides: manualTierOverrides,
+        log: true, // once-per-send lifecycle log (display memo must stay silent)
       });
 
       // 4. Stream chat turn via Stream Protocol Domain with abort signal
@@ -735,7 +752,14 @@ export default function App() {
       const totalTok = result.telemetry?.totalTokens ?? (estPrompt + estCand);
 
       timeline.updateTurn(assistantTurn.id, {
-        content: result.cleanReply || assistantTurn.content || (isInterrupted ? '' : 'No reply came back. Try again.'),
+        content:
+          result.cleanReply ||
+          assistantTurn.content ||
+          (isInterrupted
+            ? ''
+            : extractedList.length > 0
+              ? `Extracted ${extractedList.length} note${extractedList.length === 1 ? '' : 's'} — no prose reply came back.`
+              : 'No reply came back. Try again.'),
         extractedArtifacts: extractedList,
         meta: {
           model: result.telemetry?.model || selectedModel.name,
@@ -951,8 +975,25 @@ export default function App() {
             </div>
           )}
 
-          {/* Presentation Telemetry: Floating Saturation Orb */}
-          <SaturationOrb telemetry={ambientTelemetry} onClick={cycleOpticalMode} />
+          {/* Presentation Telemetry: Floating Saturation Orb → opens the Mirror */}
+          <SaturationOrb
+            telemetry={ambientTelemetry}
+            onClick={() => {
+              logger.action('App', 'Open mirror (tap orb)');
+              setIsMirrorOpen(true);
+            }}
+          />
+          <MirrorPanel
+            open={isMirrorOpen}
+            onClose={() => {
+              logger.action('App', 'Close mirror');
+              setIsMirrorOpen(false);
+            }}
+            compiled={compiledContext}
+            artifacts={activeProject.artifacts}
+            chapters={activeProject.chapters}
+            ceiling={ambientTelemetry.ceiling}
+          />
         </div>
 
         {/* Presentation Telemetry: 5px Edge Heat Bar */}

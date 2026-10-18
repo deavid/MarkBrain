@@ -96,6 +96,12 @@ export async function saveProjectSnapshot(
     artifacts: snapshot.artifacts,
     edges: snapshot.edges,
     updatedAt: Date.now(),
+    // Meta must ride along: IndexedDB put() REPLACES the record — without
+    // these the first auto-save wipes name/codeName/description/color.
+    name: snapshot.name,
+    codeName: snapshot.codeName,
+    description: snapshot.description,
+    color: snapshot.color,
   };
 
   if (getBackend() === 'local') {

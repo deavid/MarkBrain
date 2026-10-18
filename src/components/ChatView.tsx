@@ -258,7 +258,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <span aria-hidden="true">·</span>
                   <span>Thinking space</span>
                   <span aria-hidden="true">·</span>
-                  <span>Zero-Leakage Memory</span>
+                  <span>Local-first</span>
                 </div>
               </div>
 
@@ -286,7 +286,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     }
                   }
                 }}
-                placeholder="Pour it out before it evaporates — we'll organize later." 
+                placeholder="Pour it out before it evaporates — we'll organize later."
                 rows={3}
                 disabled={isLoading}
                 autoFocus
@@ -775,7 +775,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   }
                 }
               }}
-              placeholder={`Brainstorm on ${project.name} (artifacts auto-extracted)...`}
+              placeholder="Keep typing — Enter to send, Shift+Enter for a new line"
               disabled={isLoading}
               rows={1}
               className="flex-1 bg-[#090d15] border border-[#162234] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-[#eef4fc] placeholder-[#50637f] focus:outline-none focus:border-[#3b82f6]/50 transition-colors resize-none leading-relaxed max-h-32"

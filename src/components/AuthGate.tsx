@@ -64,18 +64,16 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
 
           {/* Unboxed Metadata separator */}
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[#4d6382] font-mono pt-1">
-            <span>Firestore Persistence</span>
+            <span>Cloud or local</span>
             <span aria-hidden="true">·</span>
-            <span>Zero-Leakage Memory</span>
-            <span aria-hidden="true">·</span>
-            <span>Cloud Isolated</span>
+            <span>exportable anytime</span>
           </div>
         </div>
 
         {/* Informative Explanation */}
         <div className="p-3.5 rounded-xl bg-[#080d16] border border-[#131d2e] space-y-2 text-xs text-[#8299ba] leading-relaxed">
           <p className="text-[#c5d7ed] font-medium">
-            Personal Database Access Gate
+            Where your data lives
           </p>
           <p className="text-[11px] text-[#6b82a3]">
             Sign in with Google for cloud storage, or continue locally — your data stays in this
@@ -201,9 +199,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
         <div className="pt-2 border-t border-[#121c2d] flex items-center justify-between text-[10px] font-mono text-[#4b607d]">
           <div className="flex items-center gap-1.5">
             <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-            <span>Encrypted per-user isolation</span>
+            <span>Stored per account</span>
           </div>
-          <span>Firestore v2</span>
+          <span>Export anytime</span>
         </div>
       </div>
     </div>

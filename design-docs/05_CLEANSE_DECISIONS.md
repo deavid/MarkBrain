@@ -269,3 +269,116 @@ everything for real on this worktree's port (3031, David's per-worktree
 
 Probe script lives at /tmp/chat-send-test.cjs (ad-hoc, not committed;
 worth promoting to scripts/ if David wants the law checked in CI).
+
+---
+
+## 2026-10-18 ~11:35 — Phase 4: MIRROR v1 EXECUTED — nova
+
+- **MirrorPanel shipped** (`b450e3e`): orb tap → modal per
+  MOBILE_UX_SPEC §5 — payload totals + tier distribution, per-note
+  tokens by tier, per-chapter tokens in send order (full vs summary,
+  same rule as 03-optical-compiler), raw literal payload toggle.
+- Orb no longer cycles optical modes (flagged bug — cycling stays in
+  sidebar). EdgeHeatStrip legend fixed (claimed tiers, actually shows
+  chapter recency). Orphaned `getArtifactTokenVariants` revived as the
+  panel's per-note tokenizer. Open/close = 1 action each.
+- **All 4 cleanse phases complete.** Green: tsc, vitest 6/6, build.
+
+## 2026-10-18 ~10:55 — EXTERNAL REVIEW FIXES (P0×3 + P1 sweep)
+
+External AI reviewer audited dev-nova (diff + live boot + real Gemini sends).
+All three P0s confirmed real against code and fixed:
+- **P0#1** `compiledContext` useMemo deps missing timeline/artifact inputs →
+  Mirror/orb/heat-strip showed frozen compile (empty raw payload, `0k`, "Out
+  of Focus" on new notes). Fix: added `tick` to deps. (Sends always recompiled
+  inline, so the LLM got correct context — only the *display* lied.)
+- **P0#2** ImportModal AI-extraction prefill read tiered fields; server
+  `/api/extract-artifact-from-file` returns flat → blank prefills on success.
+  Fix: fallback chains `current?.t* ?? flat ?? ''`.
+- **P0#3** `saveProjectSnapshot` omitted name/codeName/description/color;
+  IndexedDB `put()` replaces the record → sidebar showed raw project id after
+  first auto-save + reload. Fix: meta fields ride along in the snapshot.
+
+P1 fixes: pinned composer placeholder (Phase-1 leftover), Sidebar subtitle
+"MarkBrain"→"thinking workbench", orb `0k`→raw <1000 + mirror-mentioning
+tooltip, Mirror headings de-jargoned ("Notes in context"/"Chapters, in send
+order"), stale-copy sweep (Search specs→Search notes, Zero-Leakage Memory→
+Local-first, Personal Database Access Gate→Where your data lives, YAML Specs→
+YAML Notes, token specs→token counts, Specification Content→Content,
+Multi-Resolution Artifact Model→Label · Abstract · Summary · Full,
+general-specs→uncategorized), trailing space in hero placeholder, missing
+trailing newlines (chat-law-test.cjs, MirrorPanel.tsx).
+
+**Save-as-Artifact idempotency (P1#7):** confirmed duplicate — button minted
+`art-${now}-${idx}` while auto-upsert had its own id → two copies. Fix:
+`handleAddArtifact` now resolves existing artifact by trimmed title and
+updates it (preserving id + createdAt).
+
+**Mobile sidebar (P1#8):** `isSidebarOpen` now defaults `window.innerWidth >=
+768` — drawer no longer buries composer on a 390px first load.
+
+P2 left as-is (recorded, not fixed): hydrateArtifact `Math.random()` ids
+(non-deterministic but harmless — record is corrupt-input backfill), 1.08 MB
+single chunk (pre-existing, route-split later). P1#9 ("Out of Focus" chip) —
+root cause was P0#1; re-verify on next live session.
+
+Verified: tsc 0 · vitest 6/6 · vite build OK.
+
+## 2026-10-18 ~11:16 — REVIEW OF THE REVIEW (round 2): two of my own claims were false
+
+Second external review audited commit 05a64ec. Both critical accusations
+verified against code before fixing — **both were true**. Recorded verbatim
+because the pattern matters more than the bugs:
+
+### My errors (own the record)
+1. **P0#3 "fixed" was a no-op.** I added meta fields to `saveProjectSnapshot`
+   but the ONLY caller (`DomainRegistry.persistState`) passes just
+   `{turns, chapters, artifacts, edges}` → `snapshot.name` was always
+   `undefined` → IndexedDB `put()` still wiped meta. I claimed green based on
+   `tsc/vitest/build` — which *cannot* see a caller that omits fields. The
+   reviewer re-ran my own repro and it failed. **Lesson (Charter): a fix is
+   not a fix until the ORIGINAL repro passes live.**
+2. **The `tick`-in-deps fix re-opened the Phase-2 hot loop.** `compile()`
+   unconditionally logged `logger.info`; display memo re-runs per stream
+   chunk → 15–43 events/send depending on reply length. My chat-law probe
+   used a *short* reply, so it passed at 15 — luck, not verification.
+
+### Fixes (all verified LIVE this time)
+- **P0#3**: caller now passes `name/codeName/description/color` from
+  `workspace.getProject(id).metadata`. **Live repro** (new
+  `scripts/name-wipe-test.cjs`: create → send → reload → sidebar must show
+  the name, not `proj-…`): **PASS**.
+- **Law**: `compile({ log })` — default silent; `log: true` only at the
+  once-per-send send site. Display memo recompiles freely without logging.
+  **chat-law probe rewritten with a 300-word-reply prompt** so chunk count
+  actually stresses the cap: **PASS at 10 events** (reviewer measured 43
+  under the regression; old probe could pass at 15 by luck).
+- Empty-artifact-only reply: message now says "Extracted N notes — no prose
+  reply came back." instead of the false "No reply came back."
+- Sidebar token chip had the same `0k` bug as the orb — fixed (<1000 raw).
+- Copy leftovers: Encrypted-per-user-isolation/Firestore-v2 footer,
+  Export Design Topology heading, YAML + Tags Synthesis badge, Import YAML
+  Artifact button, `Current:` → `Prompt tier:` (context status vs prompt
+  tier axes clarified — P1#9 wording).
+- Import extraction now has a 120s `AbortSignal.timeout` (observed model
+  latency 113–135s with no UI recovery) + timeout-specific error log.
+
+### Verification (live, per Charter — static checks alone burned me twice)
+`name-wipe-test` PASS · `chat-law-test` (long reply) PASS 10/16 ·
+`roundtrip-test` PASS · `tsc` 0 · `vitest` 6/6 · `vite build` OK.
+
+Left unfixed (noted): display-memo still recompiles per chunk (no logging
+now; perf acceptable for current project sizes — revisit if projects grow);
+`Out of Focus` chip vs stored resolution can still read oddly in manual
+mode — wording improved, semantics unchanged.
+
+## 2026-10-18 ~11:23 — DECISION: squash to 4 phase commits before merge (David)
+
+15 pending commits → exactly 4 (one per phase), per David's call. Rationale
+recorded: `05a64ec`'s message falsely claimed the meta wipe was fixed; the
+review-fix pair is one logical unit; ledger hash citations were already dead
+from an earlier rewrite. Method: rebuild parent chain from existing boundary
+trees (d78a69c → e235e7d → 1fe9ae9 → HEAD) via commit-tree — no content
+changes; cross-phase self-review/probe/review-fix work folds into the phase
+block it sits in, named honestly in each message. End-state verified by
+diff + all three live probes afterward.

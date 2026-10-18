@@ -2,7 +2,7 @@
 /* Ad-hoc self-review probe: one human send → verify stream works + instrumentation law.
  * Counts [MarkBrain:*] console lines between send click and stream end. */
 const path = require('path');
-const ROOT = '/home/deavid/git/MarkBrain-dev-nova';
+const ROOT = path.resolve(__dirname, '..');
 function req(c) { for (const p of [c, `/tmp/pw/node_modules/${c}`, path.join(ROOT, 'node_modules', c)]) { try { return require(p); } catch {} } console.error(`${c} missing`); process.exit(1); }
 const { chromium } = req('playwright-core');
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -48,7 +48,11 @@ async function main() {
   counts.action = counts.info = counts.warn = counts.error = counts.other = 0;
   actions.length = errors.length = 0;
 
-  await composer.fill('Self-review probe: reply with exactly one short sentence.');
+  // Long reply ON PURPOSE: forces many stream chunks → many re-renders →
+  // stresses the ≤16 cap. A short-reply probe can pass by luck (review note).
+  await composer.fill(
+    'Self-review probe: write a 300-word essay on why overflow brains need notebooks. No lists.'
+  );
   const t0 = Date.now();
   await composer.press('Enter'); // hero composer submits on Enter (0-message state)
   log('send triggered (Enter)');

@@ -173,8 +173,25 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const unsubChapters = segmentation.subscribe(triggerDebouncedSave);
     const unsubGraph = graph.subscribe(triggerDebouncedSave);
 
+    // Flush a pending debounced save when the tab hides/dies — reloading
+    // within the 500ms window must not lose the last mutation.
+    const flushPendingSave = () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        persistState();
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushPendingSave();
+    };
+    window.addEventListener('pagehide', flushPendingSave);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      window.removeEventListener('pagehide', flushPendingSave);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       unsubTimeline();
       unsubArtifacts();
       unsubChapters();

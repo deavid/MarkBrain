@@ -556,7 +556,17 @@ export default function App() {
       tags: newArt.tags || [],
       createdAt: existing?.createdAt ?? newArt.createdAt ?? Date.now(),
       updatedAt: newArt.updatedAt ?? Date.now(),
-      graph: newArt.graph,
+      // Only copy coordinates when they are real numbers: imported artifacts
+      // carry graph metadata without x/y, and `{x: undefined}` poisons
+      // Firestore saves (see utils/storageSanitize.ts for the boundary guard).
+      graph: (() => {
+        const g: { x?: number; y?: number; is_high_concept?: boolean } = {
+          is_high_concept: Boolean(newArt.isHighConcept),
+        };
+        if (typeof newArt.graph?.x === 'number') g.x = newArt.graph.x;
+        if (typeof newArt.graph?.y === 'number') g.y = newArt.graph.y;
+        return g;
+      })(),
       resolution: newArt.resolution,
     });
     setSelectedArtifactId(existing?.id ?? newArt.id);

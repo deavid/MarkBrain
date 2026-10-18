@@ -65,11 +65,25 @@ export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
       tags: doc.tags || existing?.tags || ['note'],
       createdAt: existing?.createdAt || now,
       updatedAt: now,
-      // Preserve optional fields: prefer values from the update, else keep existing.
-      // (Previously these were silently dropped, which broke node drag positions.)
-      graph: doc.graph !== undefined ? doc.graph : existing?.graph,
-      resolution: doc.resolution !== undefined ? doc.resolution : existing?.resolution,
-      yamlDocument: doc.yamlDocument !== undefined ? doc.yamlDocument : existing?.yamlDocument,
+      // Preserve optional fields: prefer the update, else the existing value —
+      // but OMIT the key entirely when neither exists. Materializing
+      // `graph: undefined` poisons Firestore saves (the SDK rejects undefined
+      // field values), which made every snapshot fail after a fresh import.
+      ...(doc.graph !== undefined
+        ? { graph: doc.graph }
+        : existing?.graph !== undefined
+          ? { graph: existing.graph }
+          : {}),
+      ...(doc.resolution !== undefined
+        ? { resolution: doc.resolution }
+        : existing?.resolution !== undefined
+          ? { resolution: existing.resolution }
+          : {}),
+      ...(doc.yamlDocument !== undefined
+        ? { yamlDocument: doc.yamlDocument }
+        : existing?.yamlDocument !== undefined
+          ? { yamlDocument: existing.yamlDocument }
+          : {}),
     };
 
     this.artifacts.set(doc.id, merged);

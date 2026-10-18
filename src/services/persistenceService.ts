@@ -1,6 +1,7 @@
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
 import { doc, getDoc, getDocs, setDoc, deleteDoc, collection } from 'firebase/firestore';
 import { logger } from '../utils/logger';
+import { sanitizeForStorage } from '../utils/storageSanitize';
 import { HEADLESS_FIXTURE } from '../data/headlessFixture';
 import {
   localListProjects,
@@ -89,7 +90,11 @@ export async function saveProjectSnapshot(
 ): Promise<void> {
   if (isCaptureMode()) return; // capture/fixture runs never write
 
-  const fullSnapshot: ProjectSnapshot = {
+  // Strip undefined BEFORE touching either backend: Firestore throws
+  // "Unsupported field value: undefined" on setDoc (default settings), which
+  // used to make every save fail silently after an import — session fine,
+  // everything gone on reload. See utils/storageSanitize.ts.
+  const fullSnapshot: ProjectSnapshot = sanitizeForStorage({
     projectId,
     turns: snapshot.turns,
     chapters: snapshot.chapters,
@@ -102,7 +107,7 @@ export async function saveProjectSnapshot(
     codeName: snapshot.codeName,
     description: snapshot.description,
     color: snapshot.color,
-  };
+  });
 
   if (getBackend() === 'local') {
     await localPutProject(fullSnapshot);

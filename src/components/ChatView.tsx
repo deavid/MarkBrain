@@ -18,12 +18,15 @@ import {
   Brain,
 } from 'lucide-react';
 import { logger } from '../utils/logger';
+import { ThreadRuntime } from '../domains/06-chat-threads';
 
 interface ChatViewProps {
   project: Project;
   onSendMessage: (text: string) => Promise<void>;
   isLoading: boolean;
   streamingStatus?: string | null;
+  /** Which serial-queue phase the active thread's job is in (working only). */
+  streamPhase?: 'waiting' | 'streaming' | null;
   onStopGeneration?: () => void;
   onOpenServerLogs?: () => void;
   onAddArtifactToProject: (artifact: Artifact) => void;
@@ -32,7 +35,14 @@ interface ChatViewProps {
   onDeclareChapter: (messageId: string, title: string) => void;
   onNavigateToGraph: () => void;
   onSelectArtifact?: (artifact: Artifact) => void;
-
+  // Thread chrome (06-chat-threads)
+  threadTitle?: string;
+  threadTitleState?: 'placeholder' | 'auto' | 'manual';
+  threadRuntime?: ThreadRuntime;
+  queuePosition?: number;
+  onRenameThread?: (title: string) => void;
+  onRetry?: () => void;
+  onCancelQueued?: () => void;
 }
 
 // Prebuilt TTS voices supported by the Gemini TTS endpoint (/api/tts)
@@ -52,6 +62,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onSendMessage,
   isLoading,
   streamingStatus,
+  streamPhase,
   onStopGeneration,
   onOpenServerLogs,
   onAddArtifactToProject,
@@ -60,11 +71,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onDeclareChapter,
   onNavigateToGraph,
   onSelectArtifact,
-
+  threadTitle = 'New thread',
+  threadTitleState = 'placeholder',
+  threadRuntime = 'idle',
+  queuePosition = 0,
+  onRenameThread,
+  onRetry,
+  onCancelQueued,
 }) => {
   const [inputText, setInputText] = useState('');
   const [showPrompts, setShowPrompts] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  // Inline thread-title rename (click the header title)
+  const [renamingTitle, setRenamingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heroInputRef = useRef<HTMLTextAreaElement>(null);
   const prevMessagesCountRef = useRef<number>(0);
@@ -251,8 +271,92 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setNewChapterTitle('');
   };
 
+  // Retry affordance: only for the LAST assistant message when the thread is
+  // idle (not working/queued) and that reply died (error/interrupted).
+  const lastChapter = project.chapters[project.chapters.length - 1];
+  const lastMessage = lastChapter?.messages[lastChapter.messages.length - 1];
+  const lastMessageFailed =
+    lastMessage?.role === 'assistant' &&
+    (Boolean(lastMessage.meta?.interrupted) ||
+      lastMessage.meta?.streamState === 'error' ||
+      lastMessage.meta?.streamState === 'interrupted');
+  const showRetry =
+    Boolean(onRetry) &&
+    (threadRuntime === 'error' || threadRuntime === 'interrupted') &&
+    !isLoading &&
+    queuePosition === 0 &&
+    lastMessageFailed;
+
+  const commitTitleRename = () => {
+    if (titleDraft.trim()) {
+      onRenameThread?.(titleDraft.trim());
+      logger.action('ChatView', 'Renamed thread from header', { title: titleDraft.trim() });
+    }
+    setRenamingTitle(false);
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 w-full h-full bg-[#0d121c] text-[#e3edf7] select-text overflow-hidden pt-0 mt-0">
+      {/* Thread header: title (click to rename) + runtime chip */}
+      <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-2 border-b border-[#121c2c] bg-[#0d121c] shrink-0">
+        {renamingTitle ? (
+          <input
+            autoFocus
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitTitleRename}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') commitTitleRename();
+              if (e.key === 'Escape') setRenamingTitle(false);
+            }}
+            className="flex-1 min-w-0 max-w-md bg-[#080d16] border border-[#3b82f6] rounded-lg px-2 py-1 text-xs sm:text-sm text-white font-mono focus:outline-none"
+          />
+        ) : (
+          <button
+            onClick={() => {
+              setTitleDraft(threadTitle);
+              setRenamingTitle(true);
+            }}
+            className="min-w-0 max-w-md text-left px-2 py-1 rounded-lg hover:bg-[#111827] transition-colors cursor-text group"
+            title="Click to rename this thread"
+          >
+            <span
+              className={`text-xs sm:text-sm font-mono font-semibold text-[#eef4fc] truncate block group-hover:text-white ${
+                threadTitleState === 'placeholder' ? 'italic opacity-70' : ''
+              }`}
+            >
+              {threadTitle}
+            </span>
+          </button>
+        )}
+
+        <div className="flex items-center gap-2 shrink-0">
+          {threadRuntime === 'working' ? (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#0c1a2b] border border-[#1d3a5c] text-[#38bdf8] text-[10px] font-mono max-w-[280px]">
+              <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+              <span className="truncate">
+                {streamPhase === 'streaming'
+                  ? 'Working…'
+                  : streamingStatus || 'Waiting for Gemini…'}
+              </span>
+            </span>
+          ) : threadRuntime === 'queued' ? (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#241c0c] border border-[#423214] text-[#e0b96c] text-[10px] font-mono">
+              Queued{queuePosition > 1 ? ` — ${queuePosition - 1} ahead` : ''}
+            </span>
+          ) : threadRuntime === 'error' ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-[#241417] border border-[#3d1f25] text-[#f28894] text-[10px] font-mono font-semibold uppercase tracking-wider">
+              Failed
+            </span>
+          ) : threadRuntime === 'interrupted' ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-[#241c0c] border border-[#423214] text-[#e0b96c] text-[10px] font-mono font-semibold uppercase tracking-wider">
+              Interrupted
+            </span>
+          ) : null}
+        </div>
+      </div>
+
       {/* If project has zero messages, render the Centered Hero Input Composer */}
       {totalMessagesCount === 0 ? (
         <div className="flex-1 min-h-[400px] flex flex-col items-center justify-center p-4 sm:p-8 overflow-y-auto">
@@ -777,6 +881,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </div>
       )}
 
+      {/* Retry banner for a failed/interrupted last reply */}
+      {showRetry && (
+        <div className="mx-3 sm:mx-6 mb-2 flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-[#1a1510]/80 border border-[#423214] text-[11px] font-mono text-[#e0b96c] animate-in fade-in duration-150 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle className="w-3.5 h-3.5 text-[#e0b96c] shrink-0" />
+            <span className="truncate">
+              {threadRuntime === 'error' ? 'Generation failed' : 'Response interrupted'} — the last reply didn't finish.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onRetry?.()}
+            className="px-3 py-1 rounded-lg bg-[#2a2010] hover:bg-[#3a2c14] border border-[#5a4418] text-[#f0d090] font-semibold transition-colors cursor-pointer shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Bottom Pinned Chat Input Bar - Active once messages exist */}
       {totalMessagesCount > 0 && (
         <div className="p-2.5 sm:p-3 bg-[#0d121c] border-t border-[#121c2c] shrink-0">
@@ -848,6 +971,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
               rows={1}
               className="flex-1 bg-[#090d15] border border-[#162234] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-[#eef4fc] placeholder-[#50637f] focus:outline-none focus:border-[#3b82f6]/50 transition-colors resize-none leading-relaxed max-h-32"
             />
+
+            {/* Pending sends for THIS thread (serial queue) — cancel never touches the live stream */}
+            {queuePosition > 0 && !isLoading && (
+              <button
+                type="button"
+                onClick={() => onCancelQueued?.()}
+                className="px-2.5 py-2 rounded-xl bg-[#241c0c] hover:bg-[#33270f] border border-[#423214] text-[#e0b96c] text-[10px] font-mono transition-colors cursor-pointer shrink-0"
+                title="Cancel queued messages for this thread"
+              >
+                {queuePosition} queued ✕
+              </button>
+            )}
 
             {isLoading && onStopGeneration ? (
               <button

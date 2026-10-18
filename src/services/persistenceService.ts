@@ -18,6 +18,11 @@ export interface ProjectSnapshot {
   artifacts: any[];
   edges: any[];
   updatedAt: number;
+  // Chat threads (see domains/06-chat-threads). Optional on load — the
+  // registry backfills legacy snapshots; always written on save.
+  threads?: any[];
+  folders?: any[];
+  activeThreadId?: string;
   // Present on list/create docs (mapped into workspace metadata):
   name?: string;
   codeName?: string;
@@ -100,6 +105,9 @@ export async function saveProjectSnapshot(
     chapters: snapshot.chapters,
     artifacts: snapshot.artifacts,
     edges: snapshot.edges,
+    threads: snapshot.threads,
+    folders: snapshot.folders,
+    activeThreadId: snapshot.activeThreadId,
     updatedAt: Date.now(),
     // Meta must ride along: IndexedDB put() REPLACES the record — without
     // these the first auto-save wipes name/codeName/description/color.

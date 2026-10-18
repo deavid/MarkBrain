@@ -3,6 +3,8 @@ export interface Turn {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  /** Chat-thread ownership — tagged at snapshot boundaries (see 06-chat-threads). */
+  threadId?: string;
   extractedArtifacts?: any[];
   meta?: {
     model?: string;

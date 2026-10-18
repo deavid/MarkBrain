@@ -1,0 +1,354 @@
+import type { Turn } from '../01-dialogue-timeline';
+import type { ChapterPartition } from '../02-chapter-segmentation';
+import {
+  ChatThread,
+  ThreadFolder,
+  makeDefaultThread,
+  makeGenesisChapter,
+  makeThreadId,
+} from './types';
+
+export interface ThreadContent {
+  turns: Turn[];
+  chapters: ChapterPartition[];
+}
+
+export interface ThreadHydrateInput {
+  projectId: string;
+  threads?: ChatThread[];
+  folders?: ThreadFolder[];
+  turns?: Turn[];
+  chapters?: ChapterPartition[];
+  activeThreadId?: string;
+}
+
+const rand = () => Math.random().toString(36).slice(2, 6);
+
+/**
+ * ThreadRegistry — owner of thread/folder metadata + the content of every
+ * INACTIVE thread in the active project.
+ *
+ * Split-brain invariant (the whole design in one line):
+ *   - LIVE domains (timeline/segmentation) hold ONLY the active thread's
+ *     turns/chapters; the registry's inactive map holds everyone else's.
+ *   - `select()` flushes live → cache for the outgoing thread and pops the
+ *     incoming thread's content for the live domains to load.
+ *   - `compose()` re-flattens both halves for the snapshot save.
+ *
+ * Mutations on inactive threads (background generation streaming into a
+ * thread you're not looking at) go through appendInactiveTurn /
+ * updateInactiveTurn / declareChapterInactive — same Turn/Chapter shapes,
+ * so a later select() is seamless.
+ */
+export class ThreadRegistry {
+  private threads: ChatThread[] = [];
+  private folders: ThreadFolder[] = [];
+  private activeId = '';
+  private projectId = '';
+  private inactive = new Map<string, ThreadContent>();
+  private listeners: Set<() => void> = new Set();
+
+  subscribe(cb: () => void): () => void {
+    this.listeners.add(cb);
+    return () => this.listeners.delete(cb);
+  }
+
+  private emit(): void {
+    this.listeners.forEach((l) => l());
+  }
+
+  // ── Queries ────────────────────────────────────────────────────────────
+
+  getThreads(): ChatThread[] {
+    return [...this.threads];
+  }
+
+  getFolders(): ThreadFolder[] {
+    return [...this.folders];
+  }
+
+  getActiveThreadId(): string {
+    return this.activeId;
+  }
+
+  getThread(id: string): ChatThread | null {
+    return this.threads.find((t) => t.id === id) || null;
+  }
+
+  /** Content of a NON-active thread (auto-seeds genesis chapter). Null for the active one. */
+  getInactiveContent(threadId: string): ThreadContent | null {
+    if (threadId === this.activeId) return null;
+    let content = this.inactive.get(threadId);
+    if (!content) {
+      content = { turns: [], chapters: [makeGenesisChapter(this.projectId, threadId)] };
+      this.inactive.set(threadId, content);
+    }
+    return content;
+  }
+
+  // ── Snapshot hydration ────────────────────────────────────────────────
+
+  /**
+   * Replace ALL registry state from a loaded snapshot and return the ACTIVE
+   * thread's content for the live domains. Normalizes legacy snapshots:
+   * missing threads → one default "Main" thread; turns/chapters without a
+   * known threadId → assigned to the first thread.
+   */
+  hydrate(input: ThreadHydrateInput): ThreadContent {
+    this.projectId = input.projectId;
+    this.inactive.clear();
+
+    const rawThreads = (input.threads || []).filter((t) => t && t.id);
+    this.threads = rawThreads.length > 0 ? rawThreads.map((t) => ({ ...t })) : [makeDefaultThread()];
+    this.folders = (input.folders || []).map((f) => ({ ...f }));
+
+    const known = new Set(this.threads.map((t) => t.id));
+    const fallbackId = this.threads[0].id;
+    const tag = <T extends { threadId?: string }>(item: T): T =>
+      item.threadId && known.has(item.threadId) ? item : { ...item, threadId: fallbackId };
+
+    const allTurns = ((input.turns || []) as Turn[]).map(tag);
+    const allChapters = ((input.chapters || []) as ChapterPartition[]).map(tag);
+
+    const preferred = this.threads.find(
+      (t) => t.id === input.activeThreadId && t.lifecycle === 'active'
+    );
+    const mostRecent = this.threads
+      .filter((t) => t.lifecycle === 'active')
+      .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
+    const active = preferred || mostRecent || this.threads[0];
+    this.activeId = active.id;
+
+    const contentOf = (id: string): ThreadContent => {
+      const turns = allTurns.filter((t) => (t as any).threadId === id);
+      let chapters = allChapters.filter((c) => (c as any).threadId === id);
+      if (chapters.length === 0) chapters = [makeGenesisChapter(this.projectId, id)];
+      return { turns, chapters };
+    };
+
+    const activeContent = contentOf(active.id);
+    for (const t of this.threads) {
+      if (t.id === active.id) continue;
+      this.inactive.set(t.id, contentOf(t.id));
+    }
+    return activeContent;
+  }
+
+  /**
+   * Flatten live (active) + cached (inactive) into snapshot arrays. Every
+   * turn/chapter is tagged with its owning threadId at this boundary.
+   */
+  compose(activeTurns: Turn[], activeChapters: ChapterPartition[]): {
+    threads: ChatThread[];
+    folders: ThreadFolder[];
+    activeThreadId: string;
+    turns: Turn[];
+    chapters: ChapterPartition[];
+  } {
+    const turns: Turn[] = [];
+    const chapters: ChapterPartition[] = [];
+    for (const t of this.threads) {
+      const content =
+        t.id === this.activeId
+          ? { turns: activeTurns, chapters: activeChapters }
+          : this.inactive.get(t.id) || {
+              turns: [],
+              chapters: [makeGenesisChapter(this.projectId, t.id)],
+            };
+      content.turns.forEach((turn) => turns.push({ ...turn, threadId: t.id }));
+      content.chapters.forEach((chap) => chapters.push({ ...chap, threadId: t.id }));
+    }
+    return {
+      threads: this.threads,
+      folders: this.folders,
+      activeThreadId: this.activeId,
+      turns,
+      chapters,
+    };
+  }
+
+  // ── Thread lifecycle ──────────────────────────────────────────────────
+
+  /**
+   * Switch the active thread. `live` is the outgoing thread's current live
+   * content (flushed to cache); returns the incoming thread's content for
+   * the caller to load into timeline/segmentation. Null = no-op.
+   */
+  select(threadId: string, live: ThreadContent): ThreadContent | null {
+    if (threadId === this.activeId) return null;
+    if (!this.threads.some((t) => t.id === threadId)) return null;
+    this.inactive.set(this.activeId, { turns: live.turns, chapters: live.chapters });
+    this.activeId = threadId;
+    let incoming = this.inactive.get(threadId);
+    this.inactive.delete(threadId);
+    if (!incoming) {
+      incoming = { turns: [], chapters: [makeGenesisChapter(this.projectId, threadId)] };
+    }
+    this.emit();
+    return incoming;
+  }
+
+  /**
+   * Create a thread (NOT selected). Seeds its cache entry so a follow-up
+   * select() finds empty content + genesis chapter.
+   */
+  createThread(partial: Partial<ChatThread> = {}): ChatThread {
+    const thread: ChatThread = {
+      id: makeThreadId(),
+      folderId: null,
+      title: 'New thread',
+      titleState: 'placeholder',
+      titleVersion: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      lifecycle: 'active',
+      lastOutcome: 'ok',
+      preview: '',
+      ...partial,
+    };
+    this.threads.unshift(thread);
+    this.inactive.set(thread.id, {
+      turns: [],
+      chapters: [makeGenesisChapter(this.projectId, thread.id)],
+    });
+    this.emit();
+    return thread;
+  }
+
+  /**
+   * Delete a thread. When the ACTIVE thread dies, its live content is
+   * discarded (not flushed) and a fallback thread becomes active — returns
+   * its content for the caller to load. Returns null when no switch needed.
+   */
+  deleteThread(threadId: string): ThreadContent | null {
+    const idx = this.threads.findIndex((t) => t.id === threadId);
+    if (idx === -1) return null;
+    this.threads.splice(idx, 1);
+    this.inactive.delete(threadId);
+
+    if (this.activeId !== threadId) {
+      this.emit();
+      return null;
+    }
+
+    let next =
+      this.threads
+        .filter((t) => t.lifecycle === 'active')
+        .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0] || null;
+    if (!next) {
+      next = makeDefaultThread();
+      this.threads.push(next);
+    }
+    this.activeId = next.id;
+    let incoming = this.inactive.get(next.id);
+    this.inactive.delete(next.id);
+    if (!incoming) {
+      incoming = { turns: [], chapters: [makeGenesisChapter(this.projectId, next.id)] };
+    }
+    this.emit();
+    return incoming;
+  }
+
+  /** Merge metadata into a thread (preview, lastOutcome, activity, …). */
+  patch(threadId: string, partial: Partial<ChatThread>): void {
+    const idx = this.threads.findIndex((t) => t.id === threadId);
+    if (idx === -1) return;
+    this.threads[idx] = { ...this.threads[idx], ...partial, updatedAt: Date.now() };
+    this.emit();
+  }
+
+  /** Manual rename → permanent lock. */
+  rename(threadId: string, title: string): void {
+    const clean = title.replace(/\s+/g, ' ').trim();
+    if (!clean) return;
+    this.patch(threadId, { title: clean, titleState: 'manual' });
+  }
+
+  /**
+   * Auto-title from the pipeline. Never downgrades a newer version, never
+   * touches a manual lock.
+   */
+  applyAutoTitle(threadId: string, title: string, version: number): boolean {
+    const thread = this.getThread(threadId);
+    if (!thread || thread.titleState === 'manual') return false;
+    if (version <= thread.titleVersion) return false;
+    const clean = title.replace(/\s+/g, ' ').trim();
+    if (!clean) return false;
+    this.patch(threadId, { title: clean, titleState: 'auto', titleVersion: version });
+    return true;
+  }
+
+  // ── Background-thread content mutations (serial queue may run jobs
+  //    against threads the user is NOT looking at) ───────────────────────
+
+  appendInactiveTurn(
+    threadId: string,
+    role: 'user' | 'assistant' | 'system',
+    content: string,
+    extractedArtifacts?: any[],
+    meta?: any
+  ): Turn | null {
+    if (threadId === this.activeId) return null;
+    const target = this.getInactiveContent(threadId);
+    if (!target) return null;
+    const turn: Turn = {
+      id: `turn-${Date.now()}-${rand()}`,
+      role,
+      content,
+      timestamp: Date.now(),
+      extractedArtifacts,
+      meta,
+      threadId,
+    };
+    target.turns.push(turn);
+    this.emit();
+    return turn;
+  }
+
+  updateInactiveTurn(threadId: string, turnId: string, partial: Partial<Turn>): void {
+    if (threadId === this.activeId) return;
+    const target = this.getInactiveTurns(threadId);
+    if (!target) return;
+    const idx = target.findIndex((t) => t.id === turnId);
+    if (idx === -1) return;
+    target[idx] = { ...target[idx], ...partial };
+    this.emit();
+  }
+
+  /** Same sealing semantics as ChapterSegmentationDomain.declareNewChapter. */
+  declareChapterInactive(
+    threadId: string,
+    title: string,
+    startIndex: number,
+    reason?: string
+  ): ChapterPartition | null {
+    if (threadId === this.activeId) return null;
+    const target = this.getInactiveContent(threadId);
+    if (!target) return null;
+    target.chapters.forEach((c) => {
+      if (c.status === 'active') {
+        c.status = 'completed';
+        if (c.endIndex === undefined) c.endIndex = startIndex;
+      }
+    });
+    const chapter: ChapterPartition = {
+      id: `chap-${Date.now()}-${rand()}`,
+      workspaceId: this.projectId,
+      threadId,
+      title,
+      status: 'active',
+      startIndex,
+      topicShiftReason: reason,
+      createdAt: Date.now(),
+    };
+    target.chapters.push(chapter);
+    this.emit();
+    return chapter;
+  }
+
+  private getInactiveTurns(threadId: string): Turn[] | null {
+    const target = this.getInactiveContent(threadId);
+    return target ? target.turns : null;
+  }
+}

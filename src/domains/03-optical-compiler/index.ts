@@ -1,7 +1,7 @@
 import { ITopologicalGraphDomain } from '../02-topological-graph';
 import { IArtifactDocumentDomain, ResolutionTier } from '../01-artifact-document';
-import { IChapterSegmentationDomain } from '../02-chapter-segmentation';
-import { IDialogueTimelineDomain } from '../01-dialogue-timeline';
+import { IChapterSegmentationDomain, ChapterPartition } from '../02-chapter-segmentation';
+import { IDialogueTimelineDomain, Turn } from '../01-dialogue-timeline';
 import { logger } from '../../utils/logger';
 
 export interface OpticalCompilerOptions {
@@ -9,6 +9,15 @@ export interface OpticalCompilerOptions {
   opticalMode: 'autofocus' | 'manual' | 'myopia';
   tokenCeiling?: number;
   tierOverrides?: Record<string, ResolutionTier>;
+  /**
+   * Thread-aware compile: compile against an EXPLICIT turn list instead of
+   * the live timeline domain. Used by the serial generation queue to build
+   * context for a background thread without touching the visible one.
+   * Chapter indices are interpreted against this list.
+   */
+  historyTurns?: Turn[];
+  /** Chapters for the compile (defaults to the segmentation domain). Pair with historyTurns. */
+  historyChapters?: ChapterPartition[];
   /**
    * Emit the compile lifecycle log + ceiling warn. Default FALSE because
    * compile() also runs from the display memo on every stream-chunk render
@@ -69,7 +78,14 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const allDocIds = allArtifacts.map((a) => a.id);
 
     // 1. Identify Focal Points
-    const activeChapter = this.segmentation.getActiveChapter();
+    // historyChapters overrides both the chapter list and the focal lookup
+    // (background-thread jobs must not read the active thread's chapters).
+    const chapterList = options.historyChapters ?? this.segmentation.listChapters();
+    const activeChapter = options.historyChapters
+      ? chapterList.find((c) => c.status === 'active') ??
+        chapterList[chapterList.length - 1] ??
+        null
+      : this.segmentation.getActiveChapter();
     const effectiveFocalIds =
       options.focalIds.length > 0
         ? options.focalIds
@@ -162,14 +178,16 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     }
 
     // 5. Build Chapters & Timeline XML
-    const chapters = this.segmentation.listChapters();
+    const chapters = chapterList;
     const historyParts: string[] = [];
     let historyTokens = 0;
 
     chapters.forEach((chap, cIdx) => {
       const isLast = cIdx === chapters.length - 1;
       const isOngoing = chap.status === 'active' || isLast;
-      const turns = this.timeline.getTurnSlice(chap.startIndex, chap.endIndex);
+      const turns = options.historyTurns
+        ? options.historyTurns.slice(chap.startIndex, chap.endIndex)
+        : this.timeline.getTurnSlice(chap.startIndex, chap.endIndex);
 
       if (isOngoing) {
         // Full verbatim turns for active chapter

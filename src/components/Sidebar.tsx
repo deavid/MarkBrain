@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Project, ModelOption, Artifact, ResolutionTier, TierReason } from '../types';
 import { getTokenColor } from '../utils/tokenCalculator';
 import { logger } from '../utils/logger';
@@ -29,6 +29,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { ArtifactFolderTree } from './ArtifactFolderTree';
+import { ChatThread, ThreadRuntime } from '../domains/06-chat-threads';
 
 export type ActiveView = 'chat' | 'graph';
 
@@ -69,6 +70,14 @@ interface SidebarProps {
   // Firebase Auth & account
   currentUser?: { displayName?: string | null; email?: string | null; photoURL?: string | null } | null;
   onSignOut?: () => void;
+  // Chat threads (per project)
+  threads?: ChatThread[];
+  activeThreadId?: string;
+  threadRuntimes?: Record<string, { state: ThreadRuntime; position: number }>;
+  onSelectThread?: (threadId: string) => void;
+  onCreateThread?: () => void;
+  onRenameThread?: (threadId: string, title: string) => void;
+  onDeleteThread?: (threadId: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -101,6 +110,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   tierOverrides,
   currentUser,
   onSignOut,
+  threads = [],
+  activeThreadId,
+  threadRuntimes = {},
+  onSelectThread,
+  onCreateThread,
+  onRenameThread,
+  onDeleteThread,
 }) => {
   // Inline accordion toggles (all expand inline in document flow, guaranteeing ZERO container clipping)
   const [projectAccordionOpen, setProjectAccordionOpen] = useState(false);
@@ -109,6 +125,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [cloudAccordionOpen, setCloudAccordionOpen] = useState(true);
   const [artifactsTreeOpen, setArtifactsTreeOpen] = useState(true);
   const [ioToolsOpen, setIoToolsOpen] = useState(false);
+  const [threadsOpen, setThreadsOpen] = useState(true);
+
+  // Thread rename (double-click or context menu) + right-click menu
+  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [threadMenu, setThreadMenu] = useState<{ x: number; y: number; threadId: string } | null>(null);
+
+  // Close the thread context menu on any outside pointerdown
+  useEffect(() => {
+    if (!threadMenu) return;
+    const onPointerDown = () => setThreadMenu(null);
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [threadMenu]);
+
+  const beginThreadRename = (t: ChatThread) => {
+    setThreadMenu(null);
+    setRenamingThreadId(t.id);
+    setRenameDraft(t.title);
+  };
+
+  const commitThreadRename = () => {
+    if (renamingThreadId && renameDraft.trim()) {
+      onRenameThread?.(renamingThreadId, renameDraft.trim());
+      logger.action('Sidebar', 'Renamed thread', { threadId: renamingThreadId, title: renameDraft.trim() });
+    }
+    setRenamingThreadId(null);
+  };
+
+  const visibleThreads = threads
+    .filter((t) => t.lifecycle === 'active')
+    .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+
+  const runtimeDot = (state?: ThreadRuntime) => {
+    if (state === 'working')
+      return <span className="w-2 h-2 rounded-full bg-[#38bdf8] animate-pulse shrink-0" title="Working…" />;
+    if (state === 'queued')
+      return <span className="w-2 h-2 rounded-full bg-[#e0b96c] animate-pulse shrink-0" title="Queued" />;
+    if (state === 'error')
+      return <span className="w-2 h-2 rounded-full bg-[#f28894] shrink-0" title="Generation failed" />;
+    if (state === 'interrupted')
+      return (
+        <span
+          className="w-2 h-2 rounded-full border border-[#e0b96c] bg-transparent shrink-0"
+          title="Interrupted"
+        />
+      );
+    return null;
+  };
 
   const colorInfo = getTokenColor(totalTokens);
 
@@ -287,6 +352,139 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             )}
           </div>
+
+          {/* Block 2.5: Chat Threads (per project — select / rename / delete) */}
+          <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
+            <div className="flex items-center justify-between p-2.5">
+              <button
+                onClick={() => {
+                  const next = !threadsOpen;
+                  logger.action('Sidebar', `Toggle threads accordion: ${next ? 'opened' : 'closed'}`);
+                  setThreadsOpen(next);
+                }}
+                className="flex items-center gap-2 min-w-0 flex-1 text-left transition-colors hover:text-white cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4 text-[#5ad49b] shrink-0" />
+                <span className="text-xs font-semibold text-white font-mono">Threads</span>
+                <span className="text-[10px] font-mono text-[#526682]">({visibleThreads.length})</span>
+                <span className="flex-1" />
+                {threadsOpen ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-[#556985] shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-[#556985] shrink-0" />
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  logger.action('Sidebar', 'Create new thread');
+                  onCreateThread?.();
+                }}
+                className="p-1.5 ml-1 rounded-lg bg-[#141d2d] hover:bg-[#1a273d] text-[#e05a66] border border-[#1d2d47] transition-colors cursor-pointer shrink-0"
+                title="New thread"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {threadsOpen && (
+              <div className="border-t border-[#131e33] bg-[#070b12] animate-in fade-in duration-100">
+                <div className="max-h-56 overflow-y-auto p-1 space-y-0.5">
+                  {visibleThreads.length === 0 && (
+                    <p className="text-[10px] font-mono text-[#526682] p-2">No threads yet.</p>
+                  )}
+                  {visibleThreads.map((t) => {
+                    const isActive = t.id === activeThreadId;
+                    const runtime = threadRuntimes[t.id];
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => {
+                          if (renamingThreadId === t.id) return;
+                          logger.action('Sidebar', `Selected thread: ${t.title}`, { threadId: t.id });
+                          onSelectThread?.(t.id);
+                        }}
+                        onDoubleClick={() => beginThreadRename(t)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setThreadMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
+                        }}
+                        className={`w-full flex items-center gap-2 p-2 rounded-lg text-left text-xs transition-colors cursor-pointer group ${
+                          isActive
+                            ? 'bg-[#182338] text-[#8ab1e0] font-semibold border border-[#223552]'
+                            : 'hover:bg-[#0e1626] text-[#9bb0d1] border border-transparent'
+                        }`}
+                        title={t.preview || t.title}
+                      >
+                        {renamingThreadId === t.id ? (
+                          <input
+                            autoFocus
+                            value={renameDraft}
+                            onChange={(e) => setRenameDraft(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onBlur={commitThreadRename}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key === 'Enter') commitThreadRename();
+                              if (e.key === 'Escape') setRenamingThreadId(null);
+                            }}
+                            className="flex-1 min-w-0 bg-[#080d16] border border-[#3b82f6] rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
+                          />
+                        ) : (
+                          <>
+                            <span
+                              className={`flex-1 min-w-0 truncate ${
+                                t.titleState === 'placeholder' ? 'italic opacity-70' : ''
+                              }`}
+                            >
+                              {t.title}
+                            </span>
+                            {runtime?.position > 0 && (
+                              <span className="text-[9px] font-mono text-[#e0b96c] shrink-0 tabular-nums">
+                                #{runtime.position}
+                              </span>
+                            )}
+                            {runtimeDot(runtime?.state)}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Thread context menu (Rename / Delete) */}
+          {threadMenu && (
+            <div
+              className="fixed z-[60] min-w-36 p-1.5 bg-[#0a0f19] border border-[#1a293e] rounded-xl shadow-xl animate-in fade-in duration-100"
+              style={{ left: threadMenu.x, top: threadMenu.y }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => {
+                  const t = threads.find((x) => x.id === threadMenu.threadId);
+                  if (t) beginThreadRename(t);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+              >
+                Rename
+              </button>
+              <button
+                onClick={() => {
+                  const id = threadMenu.threadId;
+                  setThreadMenu(null);
+                  if (window.confirm('Delete this thread and all of its messages? This cannot be undone.')) {
+                    logger.action('Sidebar', 'Delete thread', { threadId: id });
+                    onDeleteThread?.(id);
+                  }
+                }}
+                className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#f28894] hover:bg-[#241417] transition-colors cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
+          )}
 
           {/* Block 3: Inference Model Selector (INLINE ACCORDION - NO CONTAINER CLIPPING) */}
           <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">

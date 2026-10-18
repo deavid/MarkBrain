@@ -10,6 +10,7 @@ import { RecursiveGroupingDomain, IRecursiveGroupingDomain } from './02-recursiv
 import { StreamProtocolDomain, IStreamProtocolDomain } from './03-stream-protocol';
 import { ChapterRecalibrationDomain, IChapterRecalibrationDomain } from './03-chapter-recalibration';
 import { OpticalCompilerDomain, IOpticalCompilerDomain } from './03-optical-compiler';
+import { ThreadRegistry, ThreadContent } from './06-chat-threads';
 import { logger } from '../utils/logger';
 import {
   saveProjectSnapshot,
@@ -56,6 +57,14 @@ export interface DomainContextValue {
   }) => Promise<void>;
   /** Permanently delete a project from the ACTIVE backend + registry. */
   deleteWorkspace: (projectId: string) => Promise<void>;
+  /** Thread metadata + inactive-thread content (see 06-chat-threads). */
+  threadRegistry: ThreadRegistry;
+  /** Switch the active thread (flush live → cache, load incoming). */
+  selectThread: (threadId: string) => void;
+  /** Create a thread in the active project and switch to it. Returns its id. */
+  createThread: () => string;
+  /** Delete a thread; falls back to another thread when the active one dies. */
+  deleteThread: (threadId: string) => void;
 }
 
 const DomainContext = createContext<DomainContextValue | null>(null);
@@ -79,6 +88,9 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     () => new ChapterRecalibrationDomain(segmentation, timeline),
     [segmentation, timeline]
   );
+  // Chat threads: metadata + inactive-thread content. Single instance —
+  // re-hydrated on every project switch (snapshot load effect below).
+  const threadRegistry = useMemo(() => new ThreadRegistry(), []);
   const compiler = useMemo(
     () => new OpticalCompilerDomain(graph, artifacts, segmentation, timeline),
     [graph, artifacts, segmentation, timeline]
@@ -89,26 +101,46 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * come through here — the active project (or its fresh domain instances)
    * changed → fetch its snapshot → hydrate. Replaces the old chain of
    * localStorage sync-read → static seed → cloud overlay.
+   *
+   * Thread hydration rides along: the registry partitions snapshot
+   * turns/chapters by threadId (backfilling legacy snapshots with a default
+   * "Main" thread) and returns only the ACTIVE thread's content for the
+   * live domains.
    */
+  const hydratedRef = useRef(false);
   useEffect(() => {
     if (!activeProjectId) return;
     let stale = false;
+    hydratedRef.current = false; // block saves until this project's data lands
+    const hydrateProject = (snap: Awaited<ReturnType<typeof loadProjectSnapshot>>) => {
+      const activeContent = threadRegistry.hydrate({
+        projectId: activeProjectId,
+        threads: snap?.threads as any,
+        folders: snap?.folders as any,
+        turns: (snap?.turns as any) || [],
+        chapters: (snap?.chapters as any) || [],
+        activeThreadId: snap?.activeThreadId,
+      });
+      timeline.loadTurns(activeContent.turns);
+      segmentation.loadChapters(activeContent.chapters);
+      artifacts.loadArtifacts(snap?.artifacts || []);
+      graph.loadEdges(snap?.edges || []);
+      hydratedRef.current = true;
+    };
     (async () => {
       try {
         const snap = await loadProjectSnapshot(activeProjectId);
-        if (stale || !snap) return;
-        timeline.loadTurns(snap.turns || []);
-        segmentation.loadChapters(snap.chapters || []);
-        artifacts.loadArtifacts(snap.artifacts || []);
-        graph.loadEdges(snap.edges || []);
+        if (stale) return;
+        hydrateProject(snap);
       } catch (err) {
         logger.warn('DomainRegistry', 'Snapshot load failed', err);
+        if (!stale) hydrateProject(null);
       }
     })();
     return () => {
       stale = true;
     };
-  }, [activeProjectId, timeline, segmentation, artifacts, graph]);
+  }, [activeProjectId, timeline, segmentation, artifacts, graph, threadRegistry]);
 
   // Authentication & cloud state.
   // Session shape: TWO branches at the gate (Google / Local), but everything
@@ -136,15 +168,22 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const persistState = useCallback(async () => {
     const activeId = workspace.getActiveProjectId();
     if (!activeId) return;
+    if (!hydratedRef.current) return; // project switch in flight — data unreliable
     if (isCaptureMode()) return; // capture/fixture runs are read-only
     try {
       // Meta MUST ride along: IndexedDB put() REPLACES the record, so an
       // omission here wipes name/codeName/description/color on first
       // auto-save (review P0#3 — caller-side, not snapshot-side).
       const container = workspace.getProject(activeId);
+      // Threads: compose re-flattens live (active thread) + cached (inactive)
+      // content and tags every turn/chapter with its threadId.
+      const composed = threadRegistry.compose(timeline.getTurns(), segmentation.listChapters());
       await saveProjectSnapshot(activeId, {
-        turns: timeline.getTurns(),
-        chapters: segmentation.listChapters(),
+        turns: composed.turns,
+        chapters: composed.chapters,
+        threads: composed.threads,
+        folders: composed.folders,
+        activeThreadId: composed.activeThreadId,
         artifacts: artifacts.listArtifacts(),
         edges: graph.listEdges(),
         name: container?.metadata.name,
@@ -155,7 +194,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } catch (err) {
       logger.error('DomainRegistry', 'Persistence failed', err);
     }
-  }, [workspace, timeline, segmentation, artifacts, graph]);
+  }, [workspace, timeline, segmentation, artifacts, graph, threadRegistry]);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -172,6 +211,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const unsubArtifacts = artifacts.subscribe(triggerDebouncedSave);
     const unsubChapters = segmentation.subscribe(triggerDebouncedSave);
     const unsubGraph = graph.subscribe(triggerDebouncedSave);
+    const unsubThreads = threadRegistry.subscribe(triggerDebouncedSave);
 
     // Flush a pending debounced save when the tab hides/dies — reloading
     // within the 500ms window must not lose the last mutation.
@@ -196,8 +236,9 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       unsubArtifacts();
       unsubChapters();
       unsubGraph();
+      unsubThreads();
     };
-  }, [timeline, segmentation, artifacts, graph, persistState]);
+  }, [timeline, segmentation, artifacts, graph, persistState, threadRegistry]);
 
   // Project LIST — the single boot path for the workspace registry.
   // listUserProjects never throws (it catches → []), but every path must set
@@ -274,13 +315,22 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // a clear error when it can't proceed.
       const snap = await createCloudProject(meta);
       workspace.loadUserProjects([snap]);
-      timeline.loadTurns(snap.turns || []);
-      segmentation.loadChapters(snap.chapters || []);
+      const activeContent = threadRegistry.hydrate({
+        projectId: meta.id,
+        threads: snap.threads as any,
+        folders: snap.folders as any,
+        turns: (snap.turns as any) || [],
+        chapters: (snap.chapters as any) || [],
+        activeThreadId: snap.activeThreadId,
+      });
+      timeline.loadTurns(activeContent.turns);
+      segmentation.loadChapters(activeContent.chapters);
       artifacts.loadArtifacts(snap.artifacts || []);
       graph.loadEdges(snap.edges || []);
+      hydratedRef.current = true;
       setCloudProjectsCount(1);
     },
-    [workspace, timeline, segmentation, artifacts, graph]
+    [workspace, timeline, segmentation, artifacts, graph, threadRegistry]
   );
 
   // Permanently delete a project: storage first (throws → nothing in memory
@@ -293,6 +343,49 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setCloudProjectsCount(workspace.listProjects().length);
     },
     [workspace]
+  );
+
+  // ── Chat-thread operations (need the live domains to flush/load) ──────
+
+  const selectThread = useCallback(
+    (threadId: string) => {
+      const incoming = threadRegistry.select(threadId, {
+        turns: timeline.getTurns(),
+        chapters: segmentation.listChapters(),
+      });
+      if (!incoming) return;
+      timeline.loadTurns(incoming.turns);
+      segmentation.loadChapters(incoming.chapters);
+      logger.action('DomainRegistry', `Switched to thread ${threadId}`);
+    },
+    [threadRegistry, timeline, segmentation]
+  );
+
+  const createThread = useCallback((): string => {
+    const thread = threadRegistry.createThread();
+    const incoming = threadRegistry.select(thread.id, {
+      turns: timeline.getTurns(),
+      chapters: segmentation.listChapters(),
+    });
+    if (incoming) {
+      timeline.loadTurns(incoming.turns);
+      segmentation.loadChapters(incoming.chapters);
+    }
+    logger.action('DomainRegistry', `Created thread ${thread.id}`);
+    return thread.id;
+  }, [threadRegistry, timeline, segmentation]);
+
+  const deleteThread = useCallback(
+    (threadId: string) => {
+      const incoming = threadRegistry.deleteThread(threadId);
+      if (incoming) {
+        // Active thread died — live domains load the fallback thread's content.
+        timeline.loadTurns(incoming.turns);
+        segmentation.loadChapters(incoming.chapters);
+      }
+      logger.action('DomainRegistry', `Deleted thread ${threadId}`);
+    },
+    [threadRegistry, timeline, segmentation]
   );
 
   const value = useMemo<DomainContextValue>(
@@ -316,6 +409,10 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       signOut,
       createCloudWorkspace,
       deleteWorkspace,
+      threadRegistry,
+      selectThread,
+      createThread,
+      deleteThread,
     }),
     [
       workspace,
@@ -337,6 +434,10 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       signOut,
       createCloudWorkspace,
       deleteWorkspace,
+      threadRegistry,
+      selectThread,
+      createThread,
+      deleteThread,
     ]
   );
 

@@ -33,6 +33,14 @@ import { ExportModal } from './components/ExportModal';
 import { ProjectLauncher } from './components/ProjectLauncher';
 import { ServerLogsModal } from './components/ServerLogsModal';
 import { useDomains } from './domains/DomainRegistry';
+import {
+  deriveThreadRuntime,
+  queuePositionOf,
+  titlePipelineStep,
+  placeholderTitle,
+  sampleTurnsForTitle,
+  ThreadRuntime,
+} from './domains/06-chat-threads';
 import { SaturationOrb } from './domains/04-presentation/telemetry/SaturationOrb';
 import { EdgeHeatStrip } from './domains/04-presentation/telemetry/EdgeHeatStrip';
 import { MirrorPanel } from './domains/04-presentation/telemetry/MirrorPanel';
@@ -59,6 +67,10 @@ export default function App() {
     signOut,
     createCloudWorkspace,
     deleteWorkspace,
+    threadRegistry,
+    selectThread,
+    createThread,
+    deleteThread,
   } = useDomains();
 
   // Tick state to force re-render on domain events
@@ -73,6 +85,7 @@ export default function App() {
     const unsubVersioning = versioning.subscribe(() => triggerReRender());
     const unsubGraph = graph.subscribe(() => triggerReRender());
     const unsubSegmentation = segmentation.subscribe(() => triggerReRender());
+    const unsubThreads = threadRegistry.subscribe(() => triggerReRender());
 
     return () => {
       unsubWorkspace();
@@ -81,6 +94,7 @@ export default function App() {
       unsubVersioning();
       unsubGraph();
       unsubSegmentation();
+      unsubThreads();
     };
   }, [
     workspace,
@@ -89,6 +103,7 @@ export default function App() {
     versioning,
     graph,
     segmentation,
+    threadRegistry,
     triggerReRender,
   ]);
 
@@ -192,27 +207,41 @@ export default function App() {
     />
   );
 
-  // Chat loading & live streaming status state
-  const [isChatLoading, setIsChatLoading] = useState(false);
+  // ── Serial generation queue ────────────────────────────────────────────────
+  // One stream at a time (Gemini quota + serial by design). Sends in other
+  // threads enqueue; queued sends within one thread buffer-append (each job =
+  // one user turn + one assistant turn when it starts).
+  interface QueueJob {
+    id: string;
+    threadId: string;
+    mode: 'new' | 'retry';
+    text?: string;
+    turnId?: string; // retry target (assistant turn to regenerate)
+  }
+  const queueRef = useRef<QueueJob[]>([]);
+  const activeJobRef = useRef<QueueJob | null>(null);
+  const jobAbortRef = useRef<AbortController | null>(null);
   const [streamingStatus, setStreamingStatus] = useState<string | null>(null);
+  const [streamPhase, setStreamPhase] = useState<'waiting' | 'streaming' | null>(null);
 
-  // Active AbortController ref for canceling in-flight streams
-  const abortControllerRef = useRef<AbortController | null>(null);
+  // Derived (refs aren't reactive — every queue mutation calls triggerReRender)
+  const activeThreadId = threadRegistry.getActiveThreadId();
+  const isChatLoading =
+    !!activeJobRef.current && activeJobRef.current.threadId === activeThreadId;
 
   const handleStopGeneration = useCallback(() => {
     logger.action('App', 'Stop generation');
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+    const job = activeJobRef.current;
+    if (job && job.threadId === threadRegistry.getActiveThreadId() && jobAbortRef.current) {
+      jobAbortRef.current.abort();
+      fetch('/api/chat/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Stop button pressed by user' }),
+      }).catch((e) => logger.warn('App', 'POST /api/chat/cancel failed', e));
+      // runJob.finally() clears the active job and promotes the queue
     }
-    setIsChatLoading(false);
-    setStreamingStatus(null);
-    fetch('/api/chat/cancel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: 'Stop button pressed by user' }),
-    }).catch((e) => logger.warn('App', 'POST /api/chat/cancel failed', e));
-  }, []);
+  }, [threadRegistry]);
 
   // Pinned Focal Artifacts & Tier Overrides
   const focalArtifactIds = currentContainer?.focalArtifactIds || [];
@@ -815,38 +844,139 @@ export default function App() {
     // Retained for component contract compatibility
   };
 
-  // Handle Send Message via Domain Engine with Live SSE Streaming & Cancellation
-  const handleSendMessage = async (text: string) => {
-    // 1. Append User Turn to Timeline & immediately trigger re-render so it never disappears
-    timeline.appendTurn('user', text);
-    triggerReRender();
+  // ── Thread-aware turn routing ──────────────────────────────────────────────
+  // Live domains hold ONLY the active thread's turns/chapters; background
+  // jobs write through the registry into the inactive thread's cached content.
+  const isActiveThread = (threadId: string) => threadId === threadRegistry.getActiveThreadId();
 
-    setIsChatLoading(true);
+  const getTurnsOf = (threadId: string) =>
+    isActiveThread(threadId)
+      ? timeline.getTurns()
+      : threadRegistry.getInactiveContent(threadId)?.turns ?? [];
+
+  const getChaptersOf = (threadId: string) =>
+    isActiveThread(threadId)
+      ? segmentation.listChapters()
+      : threadRegistry.getInactiveContent(threadId)?.chapters ?? [];
+
+  const appendTurnToThread = (
+    threadId: string,
+    role: 'user' | 'assistant' | 'system',
+    content: string,
+    extractedArtifacts?: any[],
+    meta?: any
+  ) => {
+    if (isActiveThread(threadId)) {
+      return timeline.appendTurn(role, content, extractedArtifacts, meta);
+    }
+    const turn = threadRegistry.appendInactiveTurn(threadId, role, content, extractedArtifacts, meta);
+    if (!turn) throw new Error(`appendInactiveTurn failed for thread ${threadId}`);
+    return turn;
+  };
+
+  const updateTurnInThread = (threadId: string, turnId: string, partial: any) => {
+    if (isActiveThread(threadId)) timeline.updateTurn(turnId, partial);
+    else threadRegistry.updateInactiveTurn(threadId, turnId, partial);
+  };
+
+  // Stage-0 title: truncated first message, set at send time (instant sidebar
+  // feedback even while the job sits in the queue). No LLM involved.
+  const noteSendIntent = (threadId: string, text: string) => {
+    const thread = threadRegistry.getThread(threadId);
+    if (!thread) return;
+    const existingUserTurns = getTurnsOf(threadId).filter((t) => t.role === 'user').length;
+    const queuedNew = queueRef.current.filter(
+      (j) => j.threadId === threadId && j.mode === 'new'
+    ).length;
+    if (
+      existingUserTurns + queuedNew === 0 &&
+      thread.titleVersion === 0 &&
+      thread.titleState !== 'manual'
+    ) {
+      threadRegistry.patch(threadId, {
+        title: placeholderTitle(text),
+        titleState: 'placeholder',
+        preview: text.slice(0, 100),
+        lastActivityAt: Date.now(),
+      });
+    } else {
+      threadRegistry.patch(threadId, { preview: text.slice(0, 100), lastActivityAt: Date.now() });
+    }
+  };
+
+  // Staged titling pipeline — fires after a successful assistant reply:
+  // stage1 after the 1st, stage2 once after the 3rd. Fire-and-forget meta
+  // call; failures keep the current title (titles never block the UX).
+  const maybeRetitle = (threadId: string) => {
+    const thread = threadRegistry.getThread(threadId);
+    if (!thread || thread.titleState === 'manual') return;
+    const turns = getTurnsOf(threadId);
+    const assistantCount = turns.filter(
+      (t) =>
+        t.role === 'assistant' &&
+        t.meta?.streamState !== 'error' &&
+        t.meta?.streamState !== 'interrupted'
+    ).length;
+    const step = titlePipelineStep(thread, assistantCount);
+    if (!step) return;
+    const version = step === 'stage1' ? 1 : 2;
+    fetch('/api/title-thread', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: sampleTurnsForTitle(turns), version }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: any) => {
+        if (data?.title && threadRegistry.applyAutoTitle(threadId, data.title, version)) {
+          logger.info('App', `Thread title ${step} applied`, { threadId, title: data.title });
+          triggerReRender();
+        }
+      })
+      .catch((err) => logger.warn('App', 'title-thread request failed', err));
+  };
+
+  // Execute ONE job (new send or retry) against its thread — active thread via
+  // live domains, background threads via the registry cache.
+  const executeTurn = async (job: QueueJob) => {
+    const threadId = job.threadId;
     setStreamingStatus(`Connecting to ${selectedModel.name}...`);
+    setStreamPhase('waiting');
+    const controller = new AbortController();
+    jobAbortRef.current = controller;
 
-    // 2. Append in-flight Assistant Turn to Timeline & force immediate render
-    const assistantTurn = timeline.appendTurn('assistant', '', [], {
-      model: selectedModel.name,
-      isStreaming: true,
-      streamState: 'connecting',
-    });
+    let assistantTurnId: string;
+    if (job.mode === 'retry' && job.turnId) {
+      assistantTurnId = job.turnId;
+      updateTurnInThread(threadId, assistantTurnId, {
+        content: '',
+        extractedArtifacts: [],
+        meta: { model: selectedModel.name, isStreaming: true, streamState: 'connecting' },
+      });
+    } else {
+      appendTurnToThread(threadId, 'user', job.text!);
+      assistantTurnId = appendTurnToThread(threadId, 'assistant', '', [], {
+        model: selectedModel.name,
+        isStreaming: true,
+        streamState: 'connecting',
+      }).id;
+    }
     triggerReRender();
 
-    // Setup fresh AbortController for cancelability
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
+    let streamedContent = '';
+    let compiled: any = null;
     try {
-      // 3. Compile optical context from domains
-      const compiled = compiler.compile({
+      // Compile against THIS thread's turns/chapters (historyTurns override) —
+      // background jobs must never leak the visible thread's context.
+      compiled = compiler.compile({
         focalIds: focalArtifactIds,
         opticalMode,
         tokenCeiling: currentContainer?.tokenCeiling || 32000,
         tierOverrides: manualTierOverrides,
         log: true, // once-per-send lifecycle log (display memo must stay silent)
+        historyTurns: getTurnsOf(threadId),
+        historyChapters: getChaptersOf(threadId),
       });
 
-      // 4. Stream chat turn via Stream Protocol Domain with abort signal
       const result = await stream.executeStreamingTurn(
         {
           model: selectedModel.id,
@@ -858,7 +988,8 @@ export default function App() {
           signal: controller.signal,
           onStatus: (status) => {
             setStreamingStatus(status.message);
-            timeline.updateTurn(assistantTurn.id, {
+            setStreamPhase(status.state === 'writing' ? 'streaming' : 'waiting');
+            updateTurnInThread(threadId, assistantTurnId, {
               meta: {
                 model: status.model || selectedModel.name,
                 isStreaming: true,
@@ -869,7 +1000,9 @@ export default function App() {
             triggerReRender();
           },
           onChunk: (_cleanDelta, accumulatedClean) => {
-            timeline.updateTurn(assistantTurn.id, {
+            streamedContent = accumulatedClean;
+            setStreamPhase('streaming');
+            updateTurnInThread(threadId, assistantTurnId, {
               content: accumulatedClean,
               meta: {
                 model: selectedModel.name,
@@ -880,12 +1013,16 @@ export default function App() {
             triggerReRender();
           },
           onTopicShift: (shift) => {
-            const currentTurnsCount = timeline.count();
-            segmentation.declareNewChapter(
-              shift.title,
-              currentTurnsCount,
-              shift.abstract
-            );
+            if (isActiveThread(threadId)) {
+              segmentation.declareNewChapter(shift.title, timeline.count(), shift.abstract);
+            } else {
+              threadRegistry.declareChapterInactive(
+                threadId,
+                shift.title,
+                getTurnsOf(threadId).length,
+                shift.abstract
+              );
+            }
             triggerReRender();
           },
           onArtifact: (u) => {
@@ -941,7 +1078,7 @@ export default function App() {
         }
       );
 
-      // 5. Finalize assistant turn with clean reply, extracted artifacts, and real Gemini API telemetry
+      // Finalize assistant turn with clean reply, extracted artifacts, and real Gemini API telemetry
       const extractedList = result.artifacts.map((u) => ({
         title: u.title,
         type: u.type,
@@ -952,14 +1089,18 @@ export default function App() {
       }));
 
       const isInterrupted = controller.signal.aborted;
-      const estPrompt = result.telemetry?.promptTokens ?? Math.max(1, Math.ceil((compiled.compiledPrompt?.length || 0) / 4));
-      const estCand = result.telemetry?.candidatesTokens ?? Math.max(1, Math.ceil(((result.cleanReply || assistantTurn.content)?.length || 0) / 4));
+      const estPrompt =
+        result.telemetry?.promptTokens ??
+        Math.max(1, Math.ceil((compiled.compiledPrompt?.length || 0) / 4));
+      const estCand =
+        result.telemetry?.candidatesTokens ??
+        Math.max(1, Math.ceil(((result.cleanReply || streamedContent)?.length || 0) / 4));
       const totalTok = result.telemetry?.totalTokens ?? (estPrompt + estCand);
 
-      timeline.updateTurn(assistantTurn.id, {
+      updateTurnInThread(threadId, assistantTurnId, {
         content:
           result.cleanReply ||
-          assistantTurn.content ||
+          streamedContent ||
           (isInterrupted
             ? ''
             : extractedList.length > 0
@@ -981,19 +1122,28 @@ export default function App() {
           interrupted: isInterrupted,
         },
       });
+      threadRegistry.patch(threadId, {
+        lastOutcome: isInterrupted ? 'interrupted' : 'ok',
+        lastActivityAt: Date.now(),
+      });
       triggerReRender();
       logger.info('App', `Turn completed${isInterrupted ? ' (interrupted)' : ''}`, {
+        threadId,
         model: result.telemetry?.model || selectedModel.name,
         totalTokens: totalTok,
         artifacts: extractedList.length,
         topicShifts: result.topicShift ? 1 : 0,
       });
+      if (!isInterrupted) maybeRetitle(threadId);
     } catch (err: any) {
       if (err.name === 'AbortError' || controller.signal.aborted) {
-        const estPrompt = Math.max(1, Math.ceil((compiledContext.telemetry.tokenBreakdown.totalTokens || 120)));
-        const estCand = Math.max(1, Math.ceil((assistantTurn.content?.length || 0) / 4));
-        timeline.updateTurn(assistantTurn.id, {
-          content: assistantTurn.content || '',
+        const estPrompt = Math.max(
+          1,
+          Math.ceil(compiled?.telemetry?.tokenBreakdown?.totalTokens || 120)
+        );
+        const estCand = Math.max(1, Math.ceil((streamedContent?.length || 0) / 4));
+        updateTurnInThread(threadId, assistantTurnId, {
+          content: streamedContent || '',
           meta: {
             model: selectedModel.name,
             isStreaming: false,
@@ -1006,27 +1156,122 @@ export default function App() {
             outputTokens: estCand,
           },
         });
-        logger.info('App', 'Turn interrupted by user', { promptTokens: estPrompt, partialTokens: estCand });
+        threadRegistry.patch(threadId, {
+          lastOutcome: 'interrupted',
+          lastActivityAt: Date.now(),
+        });
+        logger.info('App', 'Turn interrupted by user', {
+          threadId,
+          promptTokens: estPrompt,
+          partialTokens: estCand,
+        });
       } else {
         logger.error('App', 'Streaming turn failed', err);
-        timeline.updateTurn(assistantTurn.id, {
-          content: assistantTurn.content || 'Error communicating with reasoning engine. Please try again.',
+        updateTurnInThread(threadId, assistantTurnId, {
+          content: streamedContent || 'Error communicating with reasoning engine. Please try again.',
           meta: {
             model: selectedModel.name,
             isStreaming: false,
             streamState: 'error',
           },
         });
+        threadRegistry.patch(threadId, { lastOutcome: 'error', lastActivityAt: Date.now() });
       }
       triggerReRender();
     } finally {
-      setIsChatLoading(false);
+      jobAbortRef.current = null;
+    }
+  };
+
+  // Serial queue runner: one job at a time; on completion promote the next.
+  const runJob = async (job: QueueJob) => {
+    activeJobRef.current = job;
+    triggerReRender();
+    try {
+      await executeTurn(job);
+    } catch (err) {
+      logger.error('App', 'Queued job failed unexpectedly', err);
+    } finally {
+      activeJobRef.current = null;
+      jobAbortRef.current = null;
       setStreamingStatus(null);
-      abortControllerRef.current = null;
+      setStreamPhase(null);
+      triggerReRender();
+      const next = queueRef.current.shift();
+      if (next) void runJob(next);
+    }
+  };
+
+  const enqueueJob = (job: QueueJob) => {
+    queueRef.current.push(job);
+    if (!activeJobRef.current) {
+      const next = queueRef.current.shift();
+      if (next) void runJob(next);
+    } else {
       triggerReRender();
     }
   };
 
+  const handleSendMessage = async (text: string) => {
+    const threadId = threadRegistry.getActiveThreadId();
+    if (!threadId) return;
+    noteSendIntent(threadId, text);
+    enqueueJob({
+      id: `job-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      threadId,
+      mode: 'new',
+      text,
+    });
+  };
+
+  // Cancel this thread's PENDING jobs (never touches an in-flight stream).
+  const handleCancelQueued = (threadId: string) => {
+    const before = queueRef.current.length;
+    queueRef.current = queueRef.current.filter((j) => j.threadId !== threadId);
+    const removed = before - queueRef.current.length;
+    if (removed === 0) return;
+    const thread = threadRegistry.getThread(threadId);
+    const stillQueued = queueRef.current.some((j) => j.threadId === threadId);
+    if (
+      thread &&
+      !stillQueued &&
+      getTurnsOf(threadId).length === 0 &&
+      thread.titleState === 'placeholder' &&
+      thread.titleVersion === 0
+    ) {
+      // Nothing ever ran — drop the speculative placeholder title/preview.
+      threadRegistry.patch(threadId, { title: 'New thread', preview: '' });
+    }
+    logger.action('App', 'Cancelled queued messages', { threadId, removed });
+    triggerReRender();
+  };
+
+  // Regenerate the last assistant turn of the active thread (error/interrupted).
+  const handleRetryThread = () => {
+    const threadId = threadRegistry.getActiveThreadId();
+    const turns = getTurnsOf(threadId);
+    const lastAssistant = [...turns].reverse().find((t) => t.role === 'assistant');
+    if (!lastAssistant) return;
+    logger.action('App', 'Retry last assistant turn', { threadId, turnId: lastAssistant.id });
+    enqueueJob({
+      id: `job-${Date.now()}-retry`,
+      threadId,
+      mode: 'retry',
+      turnId: lastAssistant.id,
+    });
+  };
+
+  // Per-thread runtime for sidebar rows + chat header chip (derived, never persisted).
+  const threadRuntimes = useMemo(() => {
+    const map: Record<string, { state: ThreadRuntime; position: number }> = {};
+    for (const t of threadRegistry.getThreads()) {
+      map[t.id] = {
+        state: deriveThreadRuntime(t, activeJobRef.current?.threadId ?? null, queueRef.current),
+        position: queuePositionOf(t.id, queueRef.current),
+      };
+    }
+    return map;
+  }, [tick, threadRegistry]);
   // 1. Pre-flight Auth Gate: Loading State during initial auth probe
   if (!authInitialized) {
     return (
@@ -1128,6 +1373,19 @@ export default function App() {
         }}
         currentUser={currentUser}
         onSignOut={signOut}
+        threads={threadRegistry.getThreads()}
+        activeThreadId={activeThreadId}
+        threadRuntimes={threadRuntimes}
+        onSelectThread={selectThread}
+        onCreateThread={() => {
+          createThread();
+          setActiveView('chat');
+        }}
+        onRenameThread={(id, title) => threadRegistry.rename(id, title)}
+        onDeleteThread={(id) => {
+          handleCancelQueued(id);
+          deleteThread(id);
+        }}
       />
 
       {/* Main Single-Focused Viewport - ZERO TOP BAR */}
@@ -1165,8 +1423,16 @@ export default function App() {
                   project={activeProject}
                   onSendMessage={handleSendMessage}
                   isLoading={isChatLoading}
-                  streamingStatus={streamingStatus}
+                  streamingStatus={isChatLoading ? streamingStatus : null}
+                  streamPhase={isChatLoading ? streamPhase : null}
                   onStopGeneration={handleStopGeneration}
+                  threadTitle={threadRegistry.getThread(activeThreadId)?.title || 'New thread'}
+                  threadTitleState={threadRegistry.getThread(activeThreadId)?.titleState || 'placeholder'}
+                  threadRuntime={threadRuntimes[activeThreadId]?.state || 'idle'}
+                  queuePosition={threadRuntimes[activeThreadId]?.position || 0}
+                  onRenameThread={(title) => threadRegistry.rename(activeThreadId, title)}
+                  onRetry={handleRetryThread}
+                  onCancelQueued={() => handleCancelQueued(activeThreadId)}
                   onOpenServerLogs={() => setIsServerLogsOpen(true)}
                   onAddArtifactToProject={handleAddArtifact}
                   onSummarizeChapter={handleSummarizeChapter}

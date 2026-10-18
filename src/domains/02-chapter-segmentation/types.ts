@@ -1,6 +1,8 @@
 export interface ChapterPartition {
   id: string;
   workspaceId: string;
+  /** Chat-thread ownership — indices are relative to that thread's turn list. */
+  threadId?: string;
   title: string;
   summary?: string;
   keyPoints?: string[];

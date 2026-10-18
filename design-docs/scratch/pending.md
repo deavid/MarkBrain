@@ -1,5 +1,50 @@
 # Pending / open work
 
+## State (2026-10-18, morning — critical review pass)
+
+- **Full-app critical review written:** `design-docs/04_CRITICAL_FINDINGS.md`.
+  David asked for a very critical look (husks, odd-one-out, disconnected
+  stuff) with the possibility of a full cleanse. Bingo partially hit: mechanics
+  partly hold (streaming, chapters, persistence, domain skeleton) but **the
+  app's soul is a different product** — "principal systems architect / token
+  topologies / design systems" (system instruction, placeholders, model copy,
+  highConcept, tests) vs David's actual collector/organizer/forest-view from
+  `motivation.md`.
+- **Top findings (detail in the doc):** wrong-product persona; dead domains
+  (`ProvenanceTracking`, `RecursiveGrouping` — instantiated, never called);
+  `<link>` parsed and dropped (no `onLink` handler in App); token ceiling
+  decorative; T0–T3 "pre-computation" not implemented; mirror absent (tap-orb
+  stats wanted, orb silently cycles optical modes instead); heat-strip legend
+  lies (shows chapter recency, not tiers); dual data model
+  (`src/types/index.ts` frankenmodel vs `domains/*/types.ts`); `App.tsx` god
+  component (1086L); twin parser in `server.ts` + stream-protocol; TTS + Drive
+  import + 849L SpatialGraph = odd-one-out features not in any design doc.
+- **Tests + instrumentation audit added to findings (§5, §6).** 13 tests,
+  7 tautologies (J5 persistence "roundtrip" never touches persistenceService;
+  J6/J7/J9 reimplement App logic *inside the test*); J3 misnamed. Only J2
+  (parser) + J4 (chapter seal) are load-bearing. Instrumentation: per-chunk
+  `logger.action` on `updateTurn` = N logs per send (violates 1-event-per-
+  human-action); `LogCategory` closed enum excludes ImportModal/Compiler/etc
+  so those files use raw console; `compile()` has zero logs; silent fallbacks
+  (model watchdog→lite, TTS, YAML, getBackend, topic_shift parse) don't warn;
+  real bug: `handleSummarizeChapter` summarizes the ACTIVE chapter regardless
+  of the `chapterId` argument + no `res.ok` check.
+- **Findings §4 questions ANSWERED (2026-10-18 08:52) — decisions recorded in
+  `design-docs/05_CLEANSE_DECISIONS.md` (append-only ledger; 04 is now a
+  frozen snapshot):**
+  - Product = **brain collector**, no option B. Daily driver = chat + chapters
+    (never actually used yet — app never worked for him).
+  - Cleanse mode = **my call → purge-in-place**, `server.ts` + `types/index.ts`
+    radioactive. Phase plan proposed in 05 §phase-plan (1 lie removal →
+    2 instrumentation law → 3 data-model fight → 4 mirror) — **Phase 1 needs
+    greenlight.**
+  - **Tautologies: DELETE — actioned same day** (J5/6/7/9 removed, J3 renamed;
+    suite 13 → 6 tests; run `bunx vitest run` to verify).
+  - Logging: **law** = 1/human action guideline, **max 16 hard rule**, don't
+    log hot loops; hard-to-do ⇒ don't log at all. Also in corrections.md.
+  - TTS keep (low priority) · Drive import wanted-but-broken (artifacts are raw
+    Google Docs, NOT YAML — re-scope later) · SpatialGraph keep (low priority).
+
 ## State (2026-10-17, end of night)
 
 - **Design-docs rewrite + consolidation pass: DONE.** (Commit `8aebe04` +

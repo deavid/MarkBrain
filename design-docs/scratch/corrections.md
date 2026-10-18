@@ -87,3 +87,23 @@
 - **Don't assume the current project resembles what David wants.** He's "at
   despair with mr AI Studio"; the codebase is evidence of attempts, not of
   settled intent.
+
+## Instrumentation law (David, 2026-10-18)
+
+- **1 event per human action = guideline** (aspirational target).
+- **MAX 16 events per human action = hard rule.** No exceptions, no excuses.
+- **If honoring it is hard → don't add the logging.** Silence beats flood.
+- **Never log hot loops** — per-chunk / per-iteration / per-tick paths.
+  (The per-chunk `logger.action` in `Timeline.updateTurn` violates this today.)
+- Every silent fallback ≥ WARN; user-visible failure = ERROR through `logger`.
+- `action` level is for human gestures only — domain internals are not "user
+  actions" no matter what the prefix says.
+
+## Product identity (David, 2026-10-18 — settled)
+
+- It's a **brain collector**. *"What else is there??"* — no option B. The
+  architect/design-system persona in code and fixtures is fake-soul and dies.
+- Daily driver (once it works): **chat + chapters**. He's never used it as-is.
+- TTS: keep, low priority. Drive import: wanted, broken (artifacts are raw
+  Google Docs, not YAML). SpatialGraph: unrequested-but-liked, keep, no
+  investment. Full triage in `design-docs/05_CLEANSE_DECISIONS.md`.

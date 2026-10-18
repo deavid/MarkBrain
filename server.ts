@@ -4,16 +4,22 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 
-// Layered env loading (env files have no native "import" — we layer them):
-//   precedence: real OS/runtime env  >  .env (personal, per-workspace)
-//               >  .env.shared (local defaults — gitignored, NEVER committed)
-// OS env wins because it's already set before dotenv runs; .env loads first
-// so its keys are never overwritten by .env.shared (override defaults false).
-dotenv.config({ quiet: true });
-dotenv.config({ path: '.env.shared', quiet: true });
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Layered env loading (env files have no native "import" — we layer them).
+// Precedence = load order; earlier loads win, real OS/runtime env beats all:
+//   1. .env                                   per worktree (PORT only, gitignored)
+//   2. .env.shared                            per worktree extras, e.g. flags (gitignored)
+//   3. ../MarkBrain/.env.markbrain-main.shared canonical credentials shared by all
+//      sibling worktrees (resolved from THIS file's dir, not cwd; gitignored via
+//      .env*; silently skipped when absent — nothing breaks before it exists).
+dotenv.config({ path: path.resolve(__dirname, '.env'), quiet: true });
+dotenv.config({ path: path.resolve(__dirname, '.env.shared'), quiet: true });
+dotenv.config({
+  path: path.resolve(__dirname, '../MarkBrain/.env.markbrain-main.shared'),
+  quiet: true,
+});
 
 const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);

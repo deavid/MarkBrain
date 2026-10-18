@@ -24,6 +24,29 @@ Traditional context assemblers use sliding windows (truncate oldest) or semantic
 
 *(The camera-lens analogy for this lives once, in `00_core_philosophy_soul.md` §5 — not here.)*
 
+### Tier provenance — why a node got its tier (added 2026-10-18)
+
+Every `nodeTiers` entry carries a `reason` (`TierReason`), so the UI can
+separate what the user pinned from what the compiler pulled in on its own:
+
+| `reason` | Meaning |
+|---|---|
+| `pin` | in the input `focalIds` — user pinned it |
+| `fallback` | default focal (no pins and no active chapter) |
+| `override` | manual tier override — wins over pin/fallback/ancestor/radius |
+| `ancestor` | ancestor backbone rescued a culled/T0 node to T1 |
+| `radius` | distance-based depth-of-field |
+| `culled` | > 3 hops from every focal point |
+
+Precedence in code: `override` first, then focal (`pin`/`fallback`), then the
+radius rules, then the `ancestor` rescue. The detail modal and folder-tree
+badges render this verbatim (reason chips / `T2 · d1`-style badges); the pin
+button shows only manual state, prompt membership is shown separately with its
+reason — so "pinned by hand" vs "pulled in automatically" stays
+distinguishable. Input contract alongside it: `focalIds` = pinned artifacts
+only; viewing/selecting an artifact does NOT inject it into the compile (it
+used to, which made unpinning look broken while the modal was open).
+
 ### Modes — reconceived as presets over the mirror (read this before trusting anything below)
 
 Honest status (David + Goose, 2026-10-17): the mode code in `03-optical-compiler`

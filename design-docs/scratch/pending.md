@@ -1,5 +1,44 @@
 # Pending / open work
 
+## State (2026-10-18, afternoon — artifact detail: markdown render + context provenance)
+
+- **Artifact detail modal: rendered markdown is now the default** (David's ask),
+  Raw behind a Rendered/Raw toggle. Renderer is homegrown at
+  `src/utils/markdown.ts` — deliberately NO new dependency: escape-first
+  (artifact bodies can't inject HTML), link-scheme whitelist, no underscore
+  emphasis (`t3_body` must stay literal), hard-line-breaks for parity with Raw.
+  If syntax is missing later, extend that file — don't add react-markdown
+  without asking. Styles: `.md-body` in `index.css`. Tests: 10 in
+  `src/tests/markdown.test.ts`.
+- **"Can't remove it from in context" bug — fixed** (three stacked causes,
+  detail in the commit body of `d3c501f`): tree row click opened TWO stacked
+  modals whose `isInContext` disagreed (tier-based label vs pin-based action —
+  clicking "remove" actually re-pinned, so the button could never turn off);
+  `selectedArtifactId` was injected into compile `focalIds` so the displayed
+  tier never changed while the modal was open; tree ⋮ menu had no Auto to clear
+  overrides. Now: ONE modal (App-level), `focalIds` = pins only, Auto in both
+  menus, T1–T3/Auto highlight the forced override (not the computed tier).
+- **Manual vs automatic now explicit:** compiler emits `reason` on every
+  `nodeTiers` entry (`pin | fallback | override | ancestor | radius | culled`),
+  surfaced as colored chips in the modal (MANUAL PIN / FORCED / ANCESTOR /
+  AUTO · N HOPS / AUTO FOCUS / CULLED) and badges in the tree (`T2 · d1`,
+  `T3 · pin`, `T1 · anc`, `T2 · forced`). Pin button = pure manual state
+  ("Pinned"/"Not pinned"); prompt membership shown separately with its reason.
+  Contract written into `CONTEXT_COMPILER.md` §1. Tests: 6 in
+  `src/tests/optical-compiler.test.ts`.
+- **Landed:** `d3c501f` on `dev-pulsar` = main (`a997fc5`) + 1 commit.
+  Rebased twice: the branch was first found as a content-identical PARALLEL
+  chain with no merge-base at all (looks like 4-phase-squash fallout — the
+  dead-hashes NOTE further down applies again); fixed via `rebase --onto` with
+  a verified-identical base tree, then a real rebase onto advanced main (3
+  conflicts: versioning-domain `history` prop / `tick` dep / `TierReason` —
+  both sides kept). Suite **22/22** (6 journeys + 10 markdown + 6 compiler),
+  tsc clean. NOT pushed.
+- **Open (low pri):** SpatialGraph nodes could reuse the provenance vocabulary.
+  David knows it exists. My take: park it — pin icon + tier styling already
+  carry most of it, chips on a canvas would be noise. Only revisit if real-use
+  confusion shows up there.
+
 ## State (2026-10-18, morning — critical review pass)
 
 - **Full-app critical review written:** `design-docs/04_CRITICAL_FINDINGS.md`.

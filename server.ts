@@ -4,7 +4,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 
-dotenv.config();
+// Layered env loading (env files have no native "import" — we layer them):
+//   precedence: real OS/runtime env  >  .env (personal, per-workspace)
+//               >  .env.shared (committed defaults, shared across workspaces)
+// OS env wins because it's already set before dotenv runs; .env loads first
+// so its keys are never overwritten by .env.shared (override defaults false).
+dotenv.config({ quiet: true });
+dotenv.config({ path: '.env.shared', quiet: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -145,6 +151,9 @@ app.get('/api/auth/config', (_req: Request, res: Response) => {
     messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '',
     firestoreDatabaseId: process.env.FIRESTORE_DB_ID || process.env.FIREBASE_FIRESTORE_DATABASE_ID || '',
     oAuthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID || '',
+    // Google Picker "developer key" (API key). Client-side by design — restrict
+    // it by referrer in Google Cloud Console.
+    pickerApiKey: process.env.GOOGLE_PICKER_API_KEY || '',
   });
 });
 

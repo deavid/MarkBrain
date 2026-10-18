@@ -1,9 +1,16 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import dotenv from 'dotenv';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  // Same env layering as server.ts: standalone `vite build` doesn't pass
+  // through server.ts, so load the files here too. When run under
+  // `npm run dev` server.ts already populated process.env → no-op.
+  dotenv.config({ quiet: true });
+  dotenv.config({ path: '.env.shared', quiet: true });
+
   return {
     plugins: [react(), tailwindcss()],
     resolve: {

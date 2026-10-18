@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Project, Artifact, ResolutionTier } from '../types';
+import { Project, Artifact, ResolutionTier, TierReason } from '../types';
 import {
   Folder,
   FolderOpen,
@@ -18,9 +18,45 @@ import {
   Layers,
   Filter,
 } from 'lucide-react';
-import { ArtifactDetailModal } from './ArtifactDetailModal';
 
 export type ArtifactFilterMode = 'all' | 'in_context' | 'out_of_context';
+
+/** Badge styling + copy per tier provenance — makes manual vs automatic visible. */
+const REASON_BADGE: Record<
+  TierReason,
+  { suffix: string; chip: string; title: string }
+> = {
+  pin: {
+    suffix: 'pin',
+    chip: 'bg-[#0a1e2e] text-[#38bdf8] border-[#14324a]',
+    title: 'Manually pinned — full focus in the compiled prompt',
+  },
+  fallback: {
+    suffix: 'auto',
+    chip: 'bg-[#0a1e18] text-[#5ad49b] border-[#14372a]',
+    title: "Default focus — nothing is pinned; compiler's fallback focal point",
+  },
+  override: {
+    suffix: 'forced',
+    chip: 'bg-[#241c0d] text-[#e0b96c] border-[#4d3a24]',
+    title: 'Forced tier override — you set this level explicitly',
+  },
+  ancestor: {
+    suffix: 'anc',
+    chip: 'bg-[#1a1430] text-[#a78bfa] border-[#2f2654]',
+    title: 'Ancestor backbone — kept because it is an ancestor of a focal artifact',
+  },
+  radius: {
+    suffix: 'auto',
+    chip: 'bg-[#131d2e] text-[#8ab1e0] border-[#1a283e]',
+    title: 'Automatic depth-of-field — near a focal point, not pinned by you',
+  },
+  culled: {
+    suffix: 'culled',
+    chip: 'bg-[#1f1618] text-[#e05a66] border-[#421d22]',
+    title: 'Not in the compiled prompt',
+  },
+};
 
 interface ArtifactFolderTreeProps {
   project: Project;
@@ -30,8 +66,13 @@ interface ArtifactFolderTreeProps {
   focalIds?: string[];
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
-  nodeTiers?: Record<string, { tier: ResolutionTier | 'culled'; distance: number }>;
+  nodeTiers?: Record<
+    string,
+    { tier: ResolutionTier | 'culled'; distance: number; reason?: TierReason }
+  >;
   onChangeTierOverride?: (artId: string, tier: ResolutionTier | null) => void;
+  /** Manual tier overrides currently forced per artifact. */
+  tierOverrides?: Record<string, ResolutionTier>;
 }
 
 export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
@@ -44,6 +85,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
   onToggleMaximize,
   nodeTiers = {},
   onChangeTierOverride,
+  tierOverrides = {},
 }) => {
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({
     all: true,
@@ -55,7 +97,6 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
   const [filterText, setFilterText] = useState('');
   const [contextFilter, setContextFilter] = useState<ArtifactFilterMode>('all');
   const [activeMenuArtifactId, setActiveMenuArtifactId] = useState<string | null>(null);
-  const [modalArtifact, setModalArtifact] = useState<Artifact | null>(null);
 
   const toggleFolder = (folderName: string) => {
     setOpenFolders((prev) => ({ ...prev, [folderName]: !prev[folderName] }));
@@ -225,6 +266,13 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                       const artColor = art.color || '#5d87b8';
                       const tierInfo = nodeTiers[art.id];
                       const currentTier = tierInfo ? tierInfo.tier : 'culled';
+                      const reasonKey = tierInfo?.reason ?? (currentTier === 'culled' ? 'culled' : 'radius');
+                      const reasonBadge = REASON_BADGE[reasonKey];
+                      const badgeSuffix = reasonKey === 'radius' && tierInfo ? `d${tierInfo.distance}` : reasonBadge.suffix;
+                      const badgeTitle =
+                        reasonKey === 'radius' && tierInfo
+                          ? `Automatic depth-of-field — ${tierInfo.distance} hop${tierInfo.distance === 1 ? '' : 's'} from the nearest focal point, not pinned by you`
+                          : reasonBadge.title;
                       const isMenuOpen = activeMenuArtifactId === art.id;
 
                       return (
@@ -236,12 +284,9 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                               : 'hover:bg-[#0f1726] border-transparent text-[#9bb0d1]'
                           }`}
                         >
-                          {/* Main Clickable row (clicking opens Detail Modal / Focus) */}
+                          {/* Main Clickable row (opens the single App-level Detail Modal) */}
                           <div
-                            onClick={() => {
-                              onSelectArtifact(art);
-                              setModalArtifact(art);
-                            }}
+                            onClick={() => onSelectArtifact(art)}
                             className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer"
                           >
                             <span
@@ -258,9 +303,12 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                               </span>
                               <div className="flex items-center gap-1.5 text-[9px] text-[#556985] truncate">
                                 <span>{art.code || art.type}</span>
-                                {isInContext && (
-                                  <span className="px-1 rounded bg-[#0a1e2e] text-[#38bdf8] font-semibold border border-[#14324a]">
-                                    {isFocal ? 'Focal T3' : `T${currentTier}`}
+                                {isInContext && currentTier !== 'culled' && (
+                                  <span
+                                    className={`px-1 rounded font-semibold border ${reasonBadge.chip}`}
+                                    title={badgeTitle}
+                                  >
+                                    {`T${currentTier} · ${badgeSuffix}`}
                                   </span>
                                 )}
                               </div>
@@ -281,7 +329,11 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                                     ? 'text-[#38bdf8] bg-[#0c1e2e]'
                                     : 'text-[#44556e] opacity-40 group-hover:opacity-100'
                                 }`}
-                                title={isFocal ? 'Remove from optical focus' : 'Pull into optical focus'}
+                                title={
+                                  isFocal
+                                    ? 'Unpin — remove manual focus (automatic depth-of-field may still include it)'
+                                    : 'Pin — manually include at full focus'
+                                }
                               >
                                 <Pin className={`w-3 h-3 ${isFocal ? 'fill-current' : ''}`} />
                               </button>
@@ -320,7 +372,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                               >
                                 <span className="flex items-center gap-1.5">
                                   <Pin className="w-3 h-3 text-[#38bdf8]" />
-                                  <span>{isFocal ? 'Remove from Focus' : 'Put in Focus (Focal)'}</span>
+                                  <span>{isFocal ? 'Unpin (manual)' : 'Pin (manual)'}</span>
                                 </span>
                                 {isFocal && <Check className="w-3 h-3 text-[#38bdf8]" />}
                               </button>
@@ -338,7 +390,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                                           setActiveMenuArtifactId(null);
                                         }}
                                         className={`py-1 rounded text-center transition-colors cursor-pointer ${
-                                          currentTier === t
+                                          tierOverrides[art.id] === t
                                             ? 'bg-[#1e2f4a] text-[#38bdf8] font-bold border border-[#2b446b]'
                                             : 'bg-[#0f1726] text-[#7185a3] hover:text-white'
                                         }`}
@@ -347,13 +399,29 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                                       </button>
                                     ))}
                                   </div>
+                                  <button
+                                    onClick={() => {
+                                      onChangeTierOverride(art.id, null);
+                                      setActiveMenuArtifactId(null);
+                                    }}
+                                    className={`w-full py-1 rounded text-center text-[10px] transition-colors cursor-pointer ${
+                                      tierOverrides[art.id] === undefined
+                                        ? 'bg-[#1e2f4a] text-[#38bdf8] font-bold border border-[#2b446b]'
+                                        : 'bg-[#0f1726] text-[#7185a3] hover:text-white'
+                                    }`}
+                                    title={`Reset to automatic depth-of-field (currently computed: ${
+                                      currentTier === 'culled' ? 'culled' : `Tier ${currentTier}`
+                                    })`}
+                                  >
+                                    Auto
+                                  </button>
                                 </div>
                               )}
 
                               {/* Action: View Details Modal */}
                               <button
                                 onClick={() => {
-                                  setModalArtifact(art);
+                                  onSelectArtifact(art);
                                   setActiveMenuArtifactId(null);
                                 }}
                                 className="w-full flex items-center gap-1.5 p-1.5 rounded-lg text-left hover:bg-[#152033] text-[#8ab1e0] transition-colors cursor-pointer"
@@ -373,20 +441,6 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
           })
         )}
       </div>
-
-      {/* Artifact Details Popup Modal */}
-      {modalArtifact && (
-        <ArtifactDetailModal
-          artifact={modalArtifact}
-          onClose={() => setModalArtifact(null)}
-          isInContext={inContextArtifactIds.has(modalArtifact.id)}
-          contextTier={nodeTiers[modalArtifact.id]?.tier ?? 'culled'}
-          onToggleInContext={(artId) => {
-            if (onToggleFocus) onToggleFocus(artId);
-          }}
-          onChangeTierOverride={onChangeTierOverride}
-        />
-      )}
     </div>
   );
 };

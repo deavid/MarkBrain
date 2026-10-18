@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Project, ModelOption, Artifact, ResolutionTier } from '../types';
+import { Project, ModelOption, Artifact, ResolutionTier, TierReason } from '../types';
 import { getTokenColor } from '../utils/tokenCalculator';
 import { logger } from '../utils/logger';
 import {
@@ -58,8 +58,12 @@ interface SidebarProps {
   selectedArtifactId?: string | null;
   onToggleFocus?: (artId: string) => void;
   focalIds?: string[];
-  nodeTiers?: Record<string, { tier: ResolutionTier | 'culled'; distance: number }>;
+  nodeTiers?: Record<
+    string,
+    { tier: ResolutionTier | 'culled'; distance: number; reason?: TierReason }
+  >;
   onChangeTierOverride?: (artId: string, tier: ResolutionTier | null) => void;
+  tierOverrides?: Record<string, ResolutionTier>;
   // Firebase Auth & account
   currentUser?: { displayName?: string | null; email?: string | null; photoURL?: string | null } | null;
   onSignOut?: () => void;
@@ -91,6 +95,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   focalIds = [],
   nodeTiers = {},
   onChangeTierOverride,
+  tierOverrides,
   currentUser,
   onSignOut,
 }) => {
@@ -555,6 +560,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     focalIds={focalIds}
                     nodeTiers={nodeTiers}
                     onChangeTierOverride={onChangeTierOverride}
+                    tierOverrides={tierOverrides}
                   />
                 </div>
               </div>

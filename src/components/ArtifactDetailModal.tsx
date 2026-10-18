@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Artifact, ResolutionTier } from '../types';
+import { Artifact, ResolutionTier, TierReason } from '../types';
 import {
   X,
   FileCode,
@@ -17,6 +17,7 @@ import {
   Maximize2,
   Minimize2,
 } from 'lucide-react';
+import { renderMarkdown } from '../utils/markdown';
 
 interface ArtifactDetailModalProps {
   artifact: Artifact;
@@ -27,6 +28,12 @@ interface ArtifactDetailModalProps {
   onChangeTierOverride?: (artId: string, tier: ResolutionTier | null) => void;
   /** Version history from the versioning domain (source of truth — artifacts no longer embed history) */
   history?: Array<{ version: number; timestamp: number; changeSummary: string }>;
+  /** Manual tier override currently forced for this artifact, if any. */
+  tierOverride?: ResolutionTier | null;
+  /** Why the compiled tier is what it is (pin / override / ancestor / radius / …). */
+  tierReason?: TierReason;
+  /** Hop distance from the nearest focal point (used in the reason chip). */
+  tierDistance?: number;
 }
 
 export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
@@ -37,8 +44,12 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   onToggleInContext,
   onChangeTierOverride,
   history = [],
+  tierOverride,
+  tierReason,
+  tierDistance,
 }) => {
   const [activeTab, setActiveTab] = useState<'content' | 'metadata' | 'history'>('content');
+  const [bodyView, setBodyView] = useState<'rendered' | 'raw'>('rendered');
   const [isFullscreen, setIsFullscreen] = useState(true);
 
   // Close on Escape key
@@ -55,6 +66,56 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   const summary = artifact.current?.t2_summary || '';
   const body = artifact.current?.t3_body || '';
   const artColor = artifact.color || '#5d87b8';
+
+  // Provenance chip: answers "why is this artifact at this tier?" at a glance.
+  const reasonChip = (() => {
+    switch (tierReason) {
+      case 'pin':
+        return {
+          label: 'manual pin',
+          title: 'Manually pinned — compiled at full focus regardless of distance.',
+          cls: 'bg-[#0f2438] text-[#38bdf8] border-[#1d4c73]',
+        };
+      case 'fallback':
+        return {
+          label: 'auto focus',
+          title: "Nothing is pinned, so the compiler fell back to its default focal point.",
+          cls: 'bg-[#0a1e18] text-[#5ad49b] border-[#14372a]',
+        };
+      case 'override':
+        return {
+          label: 'forced',
+          title: 'Manual tier override — this level is forced regardless of distance.',
+          cls: 'bg-[#241c0d] text-[#e0b96c] border-[#4d3a24]',
+        };
+      case 'ancestor':
+        return {
+          label: 'ancestor',
+          title: 'Ancestor backbone — kept at Tier ≥ 1 because it is an ancestor of a focal artifact.',
+          cls: 'bg-[#1a1430] text-[#a78bfa] border-[#2f2654]',
+        };
+      case 'radius': {
+        const hops =
+          typeof tierDistance === 'number' && Number.isFinite(tierDistance)
+            ? ` · ${tierDistance} hop${tierDistance === 1 ? '' : 's'}`
+            : '';
+        return {
+          label: `auto${hops}`,
+          title:
+            'Automatic depth-of-field — pulled in because it sits within 3 hops of a focal point, not because you pinned it.',
+          cls: 'bg-[#131d2e] text-[#8ab1e0] border-[#1a283e]',
+        };
+      }
+      case 'culled':
+        return {
+          label: 'culled',
+          title: 'Outside the focus radius (more than 3 hops from any focal point) — not compiled into the prompt.',
+          cls: 'bg-[#1f1618] text-[#e05a66] border-[#421d22]',
+        };
+      default:
+        return null;
+    }
+  })();
 
   const tierLabels: Record<ResolutionTier | 'culled', { name: string; desc: string }> = {
     3: { name: 'Tier 3 (Full Verbatim)', desc: 'Sharpest focus. Complete markdown body ingested into prompt.' },
@@ -121,8 +182,8 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
 
         {/* Action Toolbar: In/Out of context & Detail Level */}
         <div className="p-3 bg-[#080d16] border-b border-[#131d2f] flex flex-wrap items-center justify-between gap-2.5">
-          {/* Toggle In/Out Context */}
-          <div className="flex items-center gap-2">
+          {/* MANUAL state: what YOU chose (pin in/out of the focal window) */}
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => onToggleInContext(artifact.id)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-medium border transition-all cursor-pointer ${
@@ -130,22 +191,41 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                   ? 'bg-[#0f2438] border-[#1d4c73] text-[#38bdf8] shadow-sm'
                   : 'bg-[#141924] border-[#1f2638] text-[#7185a3] hover:text-[#9bb0d1]'
               }`}
+              title={
+                isInContext
+                  ? 'Manually pinned — click to unpin from the focal window'
+                  : 'Not manually pinned — click to pin at full focus (the prompt may still include it automatically; see status)'
+              }
             >
               <Pin className={`w-3.5 h-3.5 ${isInContext ? 'fill-current' : ''}`} />
-              <span>{isInContext ? 'In Context (Focal)' : 'Out of Focus'}</span>
+              <span>{isInContext ? 'Pinned' : 'Not pinned'}</span>
             </button>
 
-            <span className="text-[11px] font-mono text-[#556985] hidden sm:inline">
-              Prompt tier: <strong className="text-[#a4bddf]">{tierLabels[contextTier]?.name || contextTier}</strong>
+            {/* COMPUTED state: what the LLM prompt actually contains, and WHY */}
+            <span className="text-[11px] font-mono text-[#556985] hidden sm:flex items-center gap-1.5 flex-wrap">
+              <span>Prompt:</span>
+              <strong className="text-[#a4bddf]">
+                {contextTier === 'culled'
+                  ? 'excluded'
+                  : tierLabels[contextTier]?.name || contextTier}
+              </strong>
+              {reasonChip && (
+                <span
+                  className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold uppercase tracking-wide ${reasonChip.cls}`}
+                  title={reasonChip.title}
+                >
+                  {reasonChip.label}
+                </span>
+              )}
             </span>
           </div>
 
           {/* Change Detail Level (Resolution Tier Override) */}
           {onChangeTierOverride && (
             <div className="flex items-center gap-1">
-              <span className="text-[10px] font-mono text-[#556985] mr-1">Tier:</span>
+              <span className="text-[10px] font-mono text-[#556985] mr-1">Force:</span>
               {([3, 2, 1, 0] as ResolutionTier[]).map((t) => {
-                const isActive = contextTier === t;
+                const isActive = tierOverride === t;
                 return (
                   <button
                     key={t}
@@ -155,7 +235,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                         ? 'bg-[#1d2d47] text-[#e0eeff] font-bold border-[#2d4770]'
                         : 'bg-[#0a0f19] text-[#6b82a3] border-[#131d2e] hover:bg-[#121c2e] hover:text-[#8ab1e0]'
                     }`}
-                    title={tierLabels[t].desc}
+                    title={`Force this artifact to ${tierLabels[t].name} in the compiled context`}
                   >
                     T{t}
                   </button>
@@ -163,7 +243,11 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
               })}
               <button
                 onClick={() => onChangeTierOverride(artifact.id, null)}
-                className="px-1.5 py-1 rounded-lg text-[9px] font-mono text-[#556985] hover:text-[#9bb0d1]"
+                className={`px-1.5 py-1 rounded-lg text-[9px] font-mono transition-colors cursor-pointer ${
+                  tierOverride == null
+                    ? 'bg-[#1d2d47] text-[#e0eeff] font-bold border border-[#2d4770]'
+                    : 'text-[#556985] hover:text-[#9bb0d1] border border-transparent'
+                }`}
                 title="Reset tier to automatic depth-of-field calculation"
               >
                 Auto
@@ -236,12 +320,51 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
 
               {/* Full Markdown Body */}
               <div className="p-3.5 rounded-xl bg-[#080d16] border border-[#111928] space-y-1.5">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-[#5ad49b] font-semibold block">
-                  Tier 3 • Full Markdown Body
-                </span>
-                <div className="font-mono text-[11px] whitespace-pre-wrap text-[#c4d6ed] bg-[#050810] p-3 rounded-lg border border-[#0d1422] max-h-80 overflow-y-auto">
-                  {body || '# No full body recorded.'}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#5ad49b] font-semibold">
+                    Tier 3 • Full Markdown Body
+                  </span>
+                  <div className="flex items-center gap-0.5 bg-[#050810] border border-[#111928] rounded-lg p-0.5 shrink-0">
+                    <button
+                      onClick={() => setBodyView('rendered')}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-mono transition-colors cursor-pointer ${
+                        bodyView === 'rendered'
+                          ? 'bg-[#1d2d47] text-[#e0eeff] font-semibold'
+                          : 'text-[#6b82a3] hover:text-[#9bb0d1]'
+                      }`}
+                      title="Rendered markdown preview"
+                    >
+                      Rendered
+                    </button>
+                    <button
+                      onClick={() => setBodyView('raw')}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-mono transition-colors cursor-pointer ${
+                        bodyView === 'raw'
+                          ? 'bg-[#1d2d47] text-[#e0eeff] font-semibold'
+                          : 'text-[#6b82a3] hover:text-[#9bb0d1]'
+                      }`}
+                      title="Raw markdown source"
+                    >
+                      Raw
+                    </button>
+                  </div>
                 </div>
+                {bodyView === 'rendered' ? (
+                  body ? (
+                    <div
+                      className="md-body bg-[#050810] p-3.5 rounded-lg border border-[#0d1422]"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }}
+                    />
+                  ) : (
+                    <div className="text-[11px] italic text-[#556985] bg-[#050810] p-3 rounded-lg border border-[#0d1422]">
+                      No full body recorded.
+                    </div>
+                  )
+                ) : (
+                  <div className="font-mono text-[11px] whitespace-pre-wrap text-[#c4d6ed] bg-[#050810] p-3 rounded-lg border border-[#0d1422] max-h-80 overflow-y-auto">
+                    {body || '# No full body recorded.'}
+                  </div>
+                )}
               </div>
             </div>
           )}

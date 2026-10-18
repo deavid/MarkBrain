@@ -670,7 +670,11 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                           ? 'text-[#38bdf8] bg-[#0c1f30]'
                           : 'text-[#4e6382] hover:text-[#9bb0d1]'
                       }`}
-                      title={isFocal ? 'Release from focal window' : 'Pull into conversation focus'}
+                      title={
+                        isFocal
+                          ? 'Unpin — remove manual focus (automatic depth-of-field may still include it)'
+                          : 'Pin — manually include at full focus'
+                      }
                     >
                       <Pin className={`w-3 h-3 ${isFocal ? 'fill-current' : ''}`} />
                     </button>

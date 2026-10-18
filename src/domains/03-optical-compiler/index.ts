@@ -34,11 +34,20 @@ export interface ContextTelemetry {
   };
 }
 
+/** Why an artifact received its compiled tier (surfaced in the UI). */
+export type TierReason =
+  | 'pin' // explicitly pinned focal artifact
+  | 'fallback' // compiler default focal (nothing pinned / no active chapter)
+  | 'override' // manual tier override
+  | 'ancestor' // ancestor backbone (minimum Tier 1)
+  | 'radius' // automatic depth-of-field by distance
+  | 'culled'; // outside the focus radius
+
 export interface CompiledOpticalPayload {
   compiledPrompt: string;
   systemInstruction: string;
   telemetry: ContextTelemetry;
-  nodeTiers: Record<string, { tier: ResolutionTier | 'culled'; distance: number }>;
+  nodeTiers: Record<string, { tier: ResolutionTier | 'culled'; distance: number; reason: TierReason }>;
 }
 
 export interface IOpticalCompilerDomain {
@@ -71,8 +80,14 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     // 2. Compute Distances
     const distances = this.graph.computeDistancesFromFocal(effectiveFocalIds, allDocIds);
 
-    // 3. Assign Raw Tiers
-    const nodeTiers: Record<string, { tier: ResolutionTier | 'culled'; distance: number }> = {};
+    // 3. Assign Raw Tiers (each with provenance so the UI can explain WHY)
+    const nodeTiers: Record<
+      string,
+      { tier: ResolutionTier | 'culled'; distance: number; reason: TierReason }
+    > = {};
+    // 'pin' = user pinned it; 'fallback' = compiler's default focal point
+    const focalReason = (id: string): TierReason =>
+      options.focalIds.includes(id) ? 'pin' : 'fallback';
     const ancestors = new Set<string>();
     effectiveFocalIds.forEach((fid) => {
       this.graph.getAncestors(fid).forEach((a) => ancestors.add(a));
@@ -83,41 +98,41 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
 
       // Check manual override
       if (options.tierOverrides && options.tierOverrides[art.id] !== undefined) {
-        nodeTiers[art.id] = { tier: options.tierOverrides[art.id], distance: dist };
+        nodeTiers[art.id] = { tier: options.tierOverrides[art.id], distance: dist, reason: 'override' };
         continue;
       }
 
       if (mode === 'myopia') {
         if (effectiveFocalIds.includes(art.id)) {
-          nodeTiers[art.id] = { tier: 2, distance: 0 };
+          nodeTiers[art.id] = { tier: 2, distance: 0, reason: focalReason(art.id) };
         } else if (dist <= 2) {
-          nodeTiers[art.id] = { tier: 1, distance: dist };
+          nodeTiers[art.id] = { tier: 1, distance: dist, reason: 'radius' };
         } else if (dist === 3) {
-          nodeTiers[art.id] = { tier: 0, distance: dist };
+          nodeTiers[art.id] = { tier: 0, distance: dist, reason: 'radius' };
         } else {
-          nodeTiers[art.id] = { tier: 'culled', distance: dist };
+          nodeTiers[art.id] = { tier: 'culled', distance: dist, reason: 'culled' };
         }
         continue;
       }
 
       // Standard Optics
       if (effectiveFocalIds.includes(art.id)) {
-        nodeTiers[art.id] = { tier: 3, distance: 0 };
+        nodeTiers[art.id] = { tier: 3, distance: 0, reason: focalReason(art.id) };
       } else if (dist === 1) {
-        nodeTiers[art.id] = { tier: 2, distance: 1 };
+        nodeTiers[art.id] = { tier: 2, distance: 1, reason: 'radius' };
       } else if (dist === 2) {
-        nodeTiers[art.id] = { tier: 1, distance: 2 };
+        nodeTiers[art.id] = { tier: 1, distance: 2, reason: 'radius' };
       } else if (dist === 3) {
-        nodeTiers[art.id] = { tier: 0, distance: 3 };
+        nodeTiers[art.id] = { tier: 0, distance: 3, reason: 'radius' };
       } else {
-        nodeTiers[art.id] = { tier: 'culled', distance: dist };
+        nodeTiers[art.id] = { tier: 'culled', distance: dist, reason: 'culled' };
       }
 
       // Ancestor backbone preservation
       if (ancestors.has(art.id)) {
         const cur = nodeTiers[art.id].tier;
         if (cur === 'culled' || cur === 0) {
-          nodeTiers[art.id] = { tier: 1, distance: dist };
+          nodeTiers[art.id] = { tier: 1, distance: dist, reason: 'ancestor' };
         }
       }
     }

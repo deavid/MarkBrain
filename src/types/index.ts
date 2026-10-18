@@ -8,6 +8,14 @@ export type ArtifactType = 'document' | 'chapter' | (string & {});
 export type ResolutionTier = 0 | 1 | 2 | 3;
 
 /**
+ * Why an artifact received its compiled tier — mirrors the optical compiler
+ * domain (same boundary convention as ResolutionTier) so components can label
+ * manual pin / forced override / ancestor backbone / automatic depth-of-field
+ * without importing across the domain layer.
+ */
+export type TierReason = 'pin' | 'fallback' | 'override' | 'ancestor' | 'radius' | 'culled';
+
+/**
  * Universal Artifact Primitive — the artifact DOCUMENT model lives in the
  * domain layer (single source of truth, Phase 3b of the cleanse).
  */

@@ -239,22 +239,20 @@ export default function App() {
     triggerReRender();
   };
 
-  // Compile Optical Context through compiler domain
-  const focalList = useMemo(() => {
-    return [
-      ...(selectedArtifactId ? [selectedArtifactId] : []),
-      ...focalArtifactIds,
-    ];
-  }, [selectedArtifactId, focalArtifactIds]);
-
+  // Compile Optical Context through compiler domain.
+  // NOTE: focalIds = explicitly pinned artifacts ONLY. The selected/viewed
+  // artifact is deliberately NOT injected here — selection only ever differs
+  // from pins while the detail modal is open (chat cannot happen then), and
+  // injecting it made "Current: Tier" and in-context state appear stuck no
+  // matter what pin/tier/Auto the user clicked.
   const compiledContext = useMemo(() => {
     return compiler.compile({
-      focalIds: focalList,
+      focalIds: focalArtifactIds,
       opticalMode,
       tokenCeiling: currentContainer?.tokenCeiling || 32000,
       tierOverrides: manualTierOverrides,
     });
-  }, [compiler, focalList, opticalMode, currentContainer?.tokenCeiling, manualTierOverrides, tick]);
+  }, [compiler, focalArtifactIds, opticalMode, currentContainer?.tokenCeiling, manualTierOverrides, tick]);
 
   // Telemetry payload for SaturationOrb and EdgeHeatStrip
   const ambientTelemetry: AmbientTelemetryData = useMemo(() => {
@@ -634,7 +632,7 @@ export default function App() {
     try {
       // 3. Compile optical context from domains
       const compiled = compiler.compile({
-        focalIds: focalList,
+        focalIds: focalArtifactIds,
         opticalMode,
         tokenCeiling: currentContainer?.tokenCeiling || 32000,
         tierOverrides: manualTierOverrides,
@@ -916,6 +914,7 @@ export default function App() {
         focalIds={focalArtifactIds}
         nodeTiers={compiledContext.nodeTiers}
         onChangeTierOverride={handleChangeTierOverride}
+        tierOverrides={manualTierOverrides}
         currentUser={currentUser}
         onSignOut={signOut}
       />
@@ -1051,6 +1050,9 @@ export default function App() {
               contextTier={compiledContext.nodeTiers[art.id]?.tier ?? 'culled'}
               onToggleInContext={handleToggleFocusArtifact}
               onChangeTierOverride={handleChangeTierOverride}
+              tierOverride={manualTierOverrides[art.id] ?? null}
+              tierReason={compiledContext.nodeTiers[art.id]?.reason}
+              tierDistance={compiledContext.nodeTiers[art.id]?.distance}
             />
           );
         })()

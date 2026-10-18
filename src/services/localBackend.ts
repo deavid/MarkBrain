@@ -81,6 +81,24 @@ export async function localPutProject(snapshot: ProjectSnapshot): Promise<void> 
 }
 
 /**
+ * Delete one record by projectId (no-op when absent).
+ */
+export async function localDeleteProject(projectId: string): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(projectId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('local delete aborted'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * Replace the entire local store with `projects` — import semantics.
  * One transaction: either the whole restore lands or nothing does.
  */

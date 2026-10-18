@@ -15,6 +15,7 @@ import {
   loadProjectSnapshot,
   listUserProjects,
   createCloudProject,
+  deleteProject,
   isCaptureMode,
   getBackend,
   setBackend,
@@ -52,6 +53,8 @@ export interface DomainContextValue {
     description: string;
     color: string;
   }) => Promise<void>;
+  /** Permanently delete a project from the ACTIVE backend + registry. */
+  deleteWorkspace: (projectId: string) => Promise<void>;
 }
 
 const DomainContext = createContext<DomainContextValue | null>(null);
@@ -254,6 +257,18 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [workspace, timeline, segmentation, artifacts, graph]
   );
 
+  // Permanently delete a project: storage first (throws → nothing in memory
+  // changes), then registry. Registry re-picks the active project (or '' →
+  // Genesis); count stays truthful so App's boot gates behave.
+  const deleteWorkspace = useCallback(
+    async (projectId: string) => {
+      await deleteProject(projectId);
+      workspace.removeProject(projectId);
+      setCloudProjectsCount(workspace.listProjects().length);
+    },
+    [workspace]
+  );
+
   const value = useMemo<DomainContextValue>(
     () => ({
       workspace,
@@ -274,6 +289,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       continueLocal,
       signOut,
       createCloudWorkspace,
+      deleteWorkspace,
     }),
     [
       workspace,
@@ -294,6 +310,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       continueLocal,
       signOut,
       createCloudWorkspace,
+      deleteWorkspace,
     ]
   );
 

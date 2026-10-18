@@ -1,5 +1,5 @@
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
-import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, deleteDoc, collection } from 'firebase/firestore';
 import { logger } from '../utils/logger';
 import { HEADLESS_FIXTURE } from '../data/headlessFixture';
 import {
@@ -7,6 +7,7 @@ import {
   localLoadProject,
   localPutProject,
   localReplaceAll,
+  localDeleteProject,
 } from './localBackend';
 
 export interface ProjectSnapshot {
@@ -255,6 +256,37 @@ export async function createCloudProject(meta: {
 
   logger.info('Persistence', `Created new cloud project "${meta.name}" (${meta.id})`, { uid: currentUser.uid });
   return withMeta; // meta included — WorkspaceDomain maps snap.name → display
+}
+
+/**
+ * Delete a project from the ACTIVE backend — permanent. Dispatch is the
+ * same shape as every other CRUD op: local = IDB delete, firestore = deleteDoc
+ * under the signed-in user's tree (rules enforce isOwner).
+ */
+export async function deleteProject(projectId: string): Promise<void> {
+  if (isCaptureMode()) return; // capture/fixture runs never write
+
+  if (getBackend() === 'local') {
+    await localDeleteProject(projectId);
+    logger.info('Persistence', `Deleted project ${projectId} from IndexedDB`);
+    return;
+  }
+
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('Sign in with Google before deleting cloud projects.');
+  }
+  const docPath = `users/${currentUser.uid}/projects/${projectId}`;
+  try {
+    await deleteDoc(doc(db, 'users', currentUser.uid, 'projects', projectId));
+    logger.info('Persistence', `Deleted project ${projectId} from Firestore`, { uid: currentUser.uid });
+  } catch (err: any) {
+    logger.warn('Persistence', `Firestore delete failed for ${projectId}`, err);
+    if (err?.code === 'permission-denied') {
+      handleFirestoreError(err, OperationType.WRITE, docPath);
+    }
+    throw err;
+  }
 }
 
 /**

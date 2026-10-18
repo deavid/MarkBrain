@@ -42,6 +42,17 @@
     local → restore → same UI. **ROUNDTRIP PASS.** tsc clean (pre-existing
     vitest gap only). Fixture capture green. David tests the Firestore side,
     agent tested the local side.
+- **Project deletion — BUILT, VERIFIED (2026-10-18 08:13).** David: "no way to
+  remove projects… from the selection screen… clear confirmation." Stack goes
+  through the same port: `persistenceService.deleteProject` (firestore
+  deleteDoc / local IDB delete, capture-guarded) → `WorkspaceDomain.removeProject`
+  (the `projectDeleted` event type already existed, method didn't — added;
+  active project promotes next or '' → Genesis) → `deleteWorkspace` in
+  DomainRegistry (storage first, then registry, count stays truthful) →
+  ProjectLauncher trash button + confirmation modal (names the project,
+  lists ALL data consequences, extra warning when deleting the current
+  project). Verified on local: delete test PASS (IDB empty, Genesis
+  returns); roundtrip PASS; fixture green; tsc clean.
 - **AuthGate error UX cleanup — "strip all stupidity from here" (David's ask).**
   - Verdict on record: the "Enter New API Key" button + localStorage key-override
     were invented by an earlier AI to appease *"keep the Firebase key secret"* —

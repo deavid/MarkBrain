@@ -55,6 +55,7 @@ export default function App() {
     continueLocal,
     signOut,
     createCloudWorkspace,
+    deleteWorkspace,
   } = useDomains();
 
   // Tick state to force re-render on domain events
@@ -1038,6 +1039,7 @@ export default function App() {
           activeProjectId={activeProjectId}
           onSelectProjectAndLaunchChat={handleSelectProjectAndLaunchChat}
           onCreateProject={handleCreateProject}
+          onDeleteProject={deleteWorkspace}
           onClose={() => setIsProjectLauncherOpen(false)}
           isDismissable={true}
         />

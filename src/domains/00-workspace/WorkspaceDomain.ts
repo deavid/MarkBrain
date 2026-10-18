@@ -87,6 +87,23 @@ export class WorkspaceDomain implements IWorkspaceDomain {
     this.projects.set(container.metadata.id, { ...container });
   }
 
+  /**
+   * Remove a project from the registry. If it was active, promote the next
+   * project (or '' → Project Genesis when the last one dies).
+   */
+  removeProject(id: string): void {
+    if (!this.projects.has(id)) return;
+    this.projects.delete(id);
+    this.emit({ type: 'projectDeleted', projectId: id });
+
+    if (this.activeProjectId === id) {
+      const rest = Array.from(this.projects.keys());
+      const next = rest[0] || '';
+      this.activeProjectId = next;
+      this.emit({ type: 'activeProjectChanged', previousId: id, nextId: next });
+    }
+  }
+
   loadUserProjects(cloudProjects: any[]): void {
     this.projects.clear();
     if (cloudProjects.length === 0) {

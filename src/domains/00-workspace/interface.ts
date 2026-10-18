@@ -14,6 +14,7 @@ export interface IWorkspaceDomain {
   updateMetadata(id: string, partial: Partial<ProjectMetadata>): void;
   saveContainer(container: WorkspaceContainer): void;
   loadUserProjects(cloudProjects: any[]): void;
+  removeProject(id: string): void;
 
   // Subscriptions
   subscribe(callback: (event: WorkspaceEvent) => void): () => void;

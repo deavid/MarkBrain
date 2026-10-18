@@ -13,6 +13,8 @@ import {
   Clock,
   ChevronRight,
   X,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface ProjectLauncherProps {
@@ -20,6 +22,8 @@ interface ProjectLauncherProps {
   activeProjectId: string;
   onSelectProjectAndLaunchChat: (projectId: string) => void;
   onCreateProject: (name: string, description: string, codeName: string, color: string) => void;
+  /** Permanent delete — routed through the persistence port (any backend). */
+  onDeleteProject?: (projectId: string) => Promise<void>;
   onClose?: () => void;
   isDismissable?: boolean;
 }
@@ -29,6 +33,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
   activeProjectId,
   onSelectProjectAndLaunchChat,
   onCreateProject,
+  onDeleteProject,
   onClose,
   isDismissable = false,
 }) => {
@@ -37,6 +42,10 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
   const [newCodeName, setNewCodeName] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState('#be3a49'); // default Unhaunter ruby
+  // Delete flow: pendingDelete holds the target until the user confirms.
+  const [pendingDelete, setPendingDelete] = useState<Project | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const colorOptions = [
     { label: 'Ruby Crimson', value: '#be3a49' },
@@ -66,6 +75,20 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
     setNewName('');
     setNewCodeName('');
     setNewDescription('');
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete || !onDeleteProject) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDeleteProject(pendingDelete.id);
+      setPendingDelete(null);
+    } catch (err: any) {
+      setDeleteError(err?.message || 'Delete failed.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -287,7 +310,20 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                   </div>
 
                   {/* Launch Action */}
-                  <div className="sm:self-center shrink-0 flex items-center justify-end">
+                  <div className="sm:self-center shrink-0 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteError(null);
+                        setPendingDelete(proj);
+                      }}
+                      className="p-2 rounded-xl bg-[#182338] text-[#6c82a1] hover:bg-[#2a1519] hover:text-[#f28894] transition-colors cursor-pointer"
+                      title={`Delete "${proj.name}"`}
+                      aria-label={`Delete project ${proj.name}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                     <button
                       type="button"
                       className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition-all ${
@@ -306,6 +342,58 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Destructive confirmation — explicit target, explicit consequences */}
+      {pendingDelete && (
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#15121c] border border-[#3d161d] rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#2e1519] border border-[#5b2029] flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-[#f28894]" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-[#f2eaf7] font-mono">
+                  Delete “{pendingDelete.name}”?
+                </h2>
+                <p className="text-xs text-[#c9a0aa] leading-relaxed mt-1.5">
+                  This permanently deletes the project and <strong>ALL of its data</strong> —
+                  dialogue turns, chapters, artifacts, and the spatial graph.
+                  It cannot be undone.
+                </p>
+                {pendingDelete.id === activeProjectId && (
+                  <p className="text-[11px] text-[#eab308] mt-2">
+                    This is your current project — the workspace will move to the next
+                    project, or to project creation if it&apos;s the last one.
+                  </p>
+                )}
+                {deleteError && (
+                  <p className="text-[11px] text-[#f28894] mt-2 font-mono">{deleteError}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                disabled={isDeleting}
+                className="px-3.5 py-2 rounded-xl bg-[#182338] hover:bg-[#1f2b40] text-[#8ab1e0] text-xs font-mono transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="px-3.5 py-2 rounded-xl bg-[#7f1d1d] hover:bg-[#991b1b] text-white text-xs font-bold font-mono transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeleting ? 'Deleting…' : 'Delete permanently'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

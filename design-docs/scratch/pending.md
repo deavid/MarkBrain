@@ -36,8 +36,15 @@
     (never actually used yet — app never worked for him).
   - Cleanse mode = **my call → purge-in-place**, `server.ts` + `types/index.ts`
     radioactive. Phase plan proposed in 05 §phase-plan (1 lie removal →
-    2 instrumentation law → 3 data-model fight → 4 mirror) — **Phase 1 needs
-    greenlight.**
+    2 instrumentation law → 3 data-model fight → 4 mirror) — **Phase 1 DONE
+    (2026-10-18 ~09:35), uncommitted on `dev-nova` (worktree, alias nova):**
+    persona/placeholders/model copy/prompt voice/category defaults
+    (`system-spec`→`note`)/`/api/chat` dead endpoint all purged across ~21
+    files. Green: vitest 6/6, tsc clean. Deliberately NOT touched (Phase 3):
+    internal identifiers (`substrateTokens`, `<knowledge_substrate>` XML tag,
+    `knowledge_substrate` protocol), test fixture strings, legacy
+    `architecture` folder default (old data may exist). Awaiting commit OK
+    from David, then Phase 2 greenlight.
   - **Tautologies: DELETE — actioned same day** (J5/6/7/9 removed, J3 renamed;
     suite 13 → 6 tests; run `bunx vitest run` to verify).
   - Logging: **law** = 1/human action guideline, **max 16 hard rule**, don't

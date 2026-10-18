@@ -176,9 +176,9 @@ function parseModelResponse(replyText: string) {
       .trim();
 
     artifacts.push({
-      title: titleMatch ? titleMatch[1].trim() : 'Synthesized Artifact',
-      type: typeMatch ? typeMatch[1].trim() : 'architecture',
-      abstract: abstractMatch ? abstractMatch[1].trim() : 'Generated architectural artifact.',
+      title: titleMatch ? titleMatch[1].trim() : 'Extracted note',
+      type: typeMatch ? typeMatch[1].trim() : 'note',
+      abstract: abstractMatch ? abstractMatch[1].trim() : 'Generated note.',
       highConcept: highConceptMatch ? highConceptMatch[1].toLowerCase() === 'true' : false,
       content: bodyLines || block,
     });
@@ -194,7 +194,7 @@ function parseModelResponse(replyText: string) {
     const typeAttr = /type=["']([^"']+)["']/i.exec(attrs);
     const idAttr = /id=["']([^"']+)["']/i.exec(attrs);
 
-    const upTitle = titleAttr ? titleAttr[1] : (idAttr ? idAttr[1] : 'Synthesized Spec');
+    const upTitle = titleAttr ? titleAttr[1] : (idAttr ? idAttr[1] : 'Extracted note');
     const upType = typeAttr ? typeAttr[1] : 'document';
     const absMatch = /<abstract>([\s\S]*?)<\/abstract>/i.exec(inner);
     const contentMatch = /<content>([\s\S]*?)<\/content>/i.exec(inner);
@@ -250,32 +250,32 @@ function parseModelResponse(replyText: string) {
   };
 }
 
-const DEFAULT_SYSTEM_INSTRUCTION = `You are MarkBrain, a principal systems architect specializing in multi-tier design systems, token topologies, component state machines, and spatial software architectures.
-You collaborate with engineers to brainstorm, structure, and refine complex system boundaries.
+const DEFAULT_SYSTEM_INSTRUCTION = `You are MarkBrain, a thinking partner for a brain that overflows with ideas. You help collect thoughts before they evaporate, keep them organized, and keep the whole forest in view while diving into details.
+Talk WITH the user — curious, direct, plain-spoken. No corporate filler. It's fine to say you don't know something.
 
 CRITICAL INSTRUCTIONS:
-1. Ground your analysis strictly on the provided Context & Project boundaries.
-2. If you formulate a concrete architectural artifact, schema, token definition, or system invariant, output it inside a dedicated artifact block:
+1. Ground your response in the provided notes and conversation chapters.
+2. When the user crystallizes an idea worth keeping on its own, output it inside a dedicated artifact block:
 \`\`\`artifact
-title: [Short Artifact Title]
-type: [architecture | token-spec | component-contract | schema | migration-guide]
-abstract: [1-sentence summary of this concept]
-highConcept: [true | false - set true if it represents a cross-project core protocol or top-level architecture that can bridge repos, false if it is a detail component/token implementation]
-[Markdown artifact specification content here]
+title: [Short Note Title]
+type: [note | decision | summary | reference | topic]
+abstract: [1-sentence summary of this idea]
+highConcept: [true | false - true if it's a core thread tying many other thoughts together, false for a regular note]
+[Markdown content here]
 \`\`\`
-3. Keep prose articulate, high-signal, and structured.
-4. If the user's latest query shifts into a substantially new topic/dimension, declare it via:
-<topic_shift title="New Chapter Title" abstract="1-sentence essence" summary="Key invariant bullets" />
+3. Keep prose honest and high-signal.
+4. If the conversation shifts into a substantially new topic, declare it via:
+<topic_shift title="New Chapter Title" abstract="1-sentence essence" summary="Key points of this shift" />
 or conclude with a JSON block:
 \`\`\`topic_shift
-{"shiftDetected": true, "newChapterTitle": "Suggested New Chapter Title", "reason": "Reason for architectural pivot"}
+{"shiftDetected": true, "newChapterTitle": "Suggested New Chapter Title", "reason": "What changed"}
 \`\`\`
 otherwise omit that block.`;
 
 function buildCompiledPrompt(payload: any): string {
   const {
     compiledPrompt: clientCompiledPrompt,
-    projectTitle = 'Design System Core',
+    projectTitle = 'Untitled',
     currentTopic = '',
     chapterSummaries = [],
     contextPayload = '',
@@ -284,12 +284,12 @@ function buildCompiledPrompt(payload: any): string {
 
   if (clientCompiledPrompt) return clientCompiledPrompt;
 
-  let prompt = `Project: ${projectTitle}\nCurrent Focus: ${currentTopic || 'General Architecture'}\n\n`;
+  let prompt = `Project: ${projectTitle}\nCurrent Focus: ${currentTopic || 'General'}\n\n`;
 
   if (chapterSummaries && chapterSummaries.length > 0) {
     prompt += `--- PREVIOUS CHAPTER SUMMARIES (Compressed Memory) ---\n`;
     for (const chap of chapterSummaries) {
-      prompt += `[Chapter: ${chap.title}]\nSummary: ${chap.summary}\nKey Invariants: ${(chap.keyPoints || []).join('; ')}\n\n`;
+      prompt += `[Chapter: ${chap.title}]\nSummary: ${chap.summary}\nKey Points: ${(chap.keyPoints || []).join('; ')}\n\n`;
     }
   }
 
@@ -299,115 +299,12 @@ function buildCompiledPrompt(payload: any): string {
 
   prompt += `--- CONVERSATION TRANSCRIPT ---\n`;
   for (const msg of messages) {
-    prompt += `${msg.role === 'user' ? 'User' : 'Architect'}: ${msg.content}\n`;
+    prompt += `${msg.role === 'user' ? 'User' : 'MarkBrain'}: ${msg.content}\n`;
   }
 
-  prompt += `\nArchitect:`;
+  prompt += `\nMarkBrain:`;
   return prompt;
 }
-
-// API: Standard Chat Endpoint (non-streaming with 1:1 API telemetry)
-app.post('/api/chat', async (req: Request, res: Response) => {
-  const reqId = (req as any).reqId || Math.floor(Math.random() * 10000);
-  const startTime = Date.now();
-  try {
-    const {
-      model = 'gemini-3.8-flash',
-      projectTitle = 'Design System Core',
-      systemInstruction: clientSystemInstruction,
-    } = req.body;
-
-    const systemInstruction = clientSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
-    const compiledPrompt = buildCompiledPrompt(req.body);
-
-    let replyText = '';
-    let usageMetadata: any = null;
-    const validModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
-    const targetModel = validModels.includes(model) ? model : 'gemini-3.8-flash';
-
-    if (ai) {
-      const response = await ai.models.generateContent({
-        model: targetModel,
-        contents: compiledPrompt,
-        config: {
-          systemInstruction,
-          temperature: 0.7,
-        },
-      });
-
-      replyText = response.text || '';
-      usageMetadata = response.usageMetadata || null;
-    } else {
-      replyText = `### Architectural Synthesis: ${projectTitle}
-
-We are examining the active memory state with your configured abstraction layers.
-
-\`\`\`artifact
-title: Dynamic Token Boundary Spec
-type: token-spec
-abstract: Unified semantic token resolution matrix bridging core foundations with component aliases
-highConcept: true
-# Dynamic Token Boundary Spec v2.1
-
-## Topology
-\`\`\`
-[Global Primitives] (e.g. color.cyan.500)
-       ↓
-[Semantic Aliases] (e.g. color.surface.accent)
-       ↓
-[Component Overrides] (e.g. button.primary.fill)
-\`\`\`
-
-## Invariants
-1. Cross-repo boundaries must reference **Semantic Aliases** only. Detail overrides remain repo-scoped.
-2. Abstraction resolution preserves 40% context budget across multi-chapter sessions.
-\`\`\`
-
-The chapter context and spatial nodes have been verified. You can tweak the token compression slider to test different footprint budgets.`;
-    }
-
-    const { cleanedReply, artifacts, topicShift } = parseModelResponse(replyText);
-
-    // Exact 1:1 Gemini API token usage (fallback to character estimate only if API metadata omitted)
-    const promptTokens = usageMetadata?.promptTokenCount ?? estimateTokens(compiledPrompt);
-    const completionTokens = usageMetadata?.candidatesTokenCount ?? estimateTokens(replyText);
-    const totalTokens = usageMetadata?.totalTokenCount ?? (promptTokens + completionTokens);
-    const durationMs = Date.now() - startTime;
-
-    logServer('success', 'CHAT:DONE', `#${reqId} Chat completed in ${durationMs}ms`, {
-      model: targetModel,
-      promptTokens,
-      completionTokens,
-      totalTokens,
-      artifactsCount: artifacts.length,
-    });
-
-    res.json({
-      reply: cleanedReply || replyText,
-      rawReply: replyText,
-      artifacts,
-      topicShift,
-      usage: {
-        promptTokens,
-        completionTokens,
-        totalTokens,
-      },
-      telemetry: {
-        model: targetModel,
-        promptTokens,
-        candidatesTokens: completionTokens,
-        totalTokens,
-        durationMs,
-        rawMetadata: usageMetadata,
-        isFallback: !ai,
-      },
-    });
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : 'Internal Server Error';
-    logServer('error', 'CHAT:ERROR', `#${reqId} Error: ${errorMessage}`);
-    res.status(500).json({ error: errorMessage });
-  }
-});
 
 // API: Explicit Chat Cancellation
 app.post('/api/chat/cancel', (req: Request, res: Response) => {
@@ -448,7 +345,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
   try {
     const {
       model = 'gemini-3.1-flash-lite',
-      projectTitle = 'Design System Core',
+      projectTitle = 'Untitled',
       systemInstruction: clientSystemInstruction,
     } = req.body;
 
@@ -471,7 +368,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     if (ai) {
       sendSSE('status', {
         state: 'thinking',
-        message: `Analyzing context substrate with ${targetModel}...`,
+        message: `Thinking with ${targetModel}...`,
         timestamp: Date.now(),
         model: targetModel,
       });
@@ -585,7 +482,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       // Step 3: Indexing and extracting artifacts from the complete stream
       sendSSE('status', {
         state: 'indexing',
-        message: 'Parsing architectural invariants and extracted artifacts...',
+        message: 'Reading reply and extracting notes...',
         timestamp: Date.now(),
       });
 
@@ -632,7 +529,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       logServer('info', 'STREAM:FALLBACK', `#${reqId} Running in local simulation fallback`);
       sendSSE('status', {
         state: 'thinking',
-        message: 'Analyzing project context in local engine...',
+        message: 'Demo mode (no API key) — streaming a canned reply...',
         timestamp: Date.now(),
       });
 
@@ -640,14 +537,14 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
 
       sendSSE('status', {
         state: 'writing',
-        message: 'Synthesizing specification document...',
+        message: 'Writing reply...',
         timestamp: Date.now(),
       });
 
       const sampleChunks = [
-        `### Architectural Synthesis: ${projectTitle}\n\nWe are examining the active memory state with your configured abstraction layers.\n\n`,
-        `\`\`\`artifact\ntitle: Dynamic Token Boundary Spec\ntype: token-spec\nabstract: Unified semantic token resolution matrix bridging core foundations with component aliases\nhighConcept: true\n# Dynamic Token Boundary Spec v2.1\n\n## Topology\n\`\`\`\n[Global Primitives] (e.g. color.cyan.500)\n       ↓\n[Semantic Aliases] (e.g. color.surface.accent)\n       ↓\n[Component Overrides] (e.g. button.primary.fill)\n\`\`\`\n\n## Invariants\n1. Cross-repo boundaries must reference **Semantic Aliases** only. Detail overrides remain repo-scoped.\n2. Abstraction resolution preserves 40% context budget across multi-chapter sessions.\n\`\`\`\n\n`,
-        `The chapter context and spatial nodes have been verified. You can tweak the token compression slider to test different footprint budgets.`,
+        `### Offline demo\n\nThe server is running without a GEMINI_API_KEY, so this is a canned reply — but it exercises the real pipeline: streaming, tag stripping, and note extraction.\n\n`,
+        `\`\`\`artifact\ntitle: Example Note\ntype: note\nabstract: A canned note produced by the local simulation fallback.\nhighConcept: false\n# Example Note\n\nThis note exists so the extraction pipeline can be exercised without an API key. Put a real key in .env to talk to an actual model.\n\`\`\`\n\n`,
+        `Prose stays clean, and the block above becomes a note in your graph. That's the whole loop.\n\n`,
       ];
 
       let accumulated = '';
@@ -716,14 +613,14 @@ app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
     let keyPoints: string[] = [];
 
     if (ai) {
-      const prompt = `Summarize the following architectural brainstorming chapter titled "${title}".
+      const prompt = `Summarize the following conversation chapter titled "${title}".
 Provide:
-1. An executive summary (2-3 sentences) capturing core architectural decisions and rationales.
-2. Up to 4 bullet points of crucial system invariants or contracts established.
+1. A short summary (2-3 sentences) capturing what was actually discussed and decided.
+2. Up to 4 key points worth remembering from this stretch of conversation.
 
 Output format:
-SUMMARY: [executive summary]
-INVARIANTS:
+SUMMARY: [summary]
+KEY POINTS:
 - [point 1]
 - [point 2]
 
@@ -739,7 +636,7 @@ ${conversationTranscript}`;
       });
 
       const raw = response.text || '';
-      const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]*?)(?=INVARIANTS:|$)/i);
+      const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]*?)(?=KEY POINTS:|$)/i);
       summaryText = summaryMatch ? summaryMatch[1].trim() : raw.slice(0, 300);
 
       const bulletMatches = raw.match(/- (.*)/g);
@@ -747,11 +644,9 @@ ${conversationTranscript}`;
         keyPoints = bulletMatches.map((b) => b.replace(/^- \s*/, '').trim());
       }
     } else {
-      summaryText = `Chapter focused on ${title}. Established modular contracts, context boundary constraints, and memory token optimization strategies.`;
+      summaryText = `Chapter: ${title}.`;
       keyPoints = [
-        'Isolated detail artifacts within repository boundaries to reduce overhead',
-        'Bridged high-concept abstractions across project graphs',
-        'Implemented dynamic resolution compression for older message contexts',
+        'No API key set — this summary is a placeholder, not a real one.',
       ];
     }
 
@@ -796,7 +691,7 @@ app.post('/api/tts', async (req: Request, res: Response) => {
               {
                 text: cleanSpokenText,
                 speechMetadata: {
-                  style: 'Articulate, calm, professional systems architect',
+                  style: 'Articulate, calm, natural',
                 },
               },
             ],
@@ -846,30 +741,30 @@ app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) 
     }
 
     if (ai) {
-      const prompt = `You are MarkBrain's architectural compiler and YAML artifact synthesizer.
+      const prompt = `You are MarkBrain, importing a document into a thinking workbench.
 Analyze the following document (imported from ${fileType === 'gdoc' ? 'Google Docs' : 'file'}: "${filename}") for the project "${projectTitle}".
-Synthesize it into a pristine MarkBrain artifact containing YAML frontmatter metadata and structured Markdown pages.
+Synthesize it into a MarkBrain note with YAML frontmatter metadata and structured Markdown content.
 
 Requirements:
 1. Title: A concise title (few words).
-2. Code: A clean, memorable kebab-case identifier/nickname (e.g., "physics-engine", "combat-rage-loop", "token-allocator").
-3. Type: One of ["architecture", "system-spec", "concept-doc", "component-contract", "token-spec", "schema", "decision-record", "research-note"].
-4. Description: A short description (few phrases).
-5. Summary: A detailed summary of the contents in a few paragraphs explaining rationale, key invariants, and state flows.
-6. Tags: 4 to 8 highly relevant, lowercase, kebab-case tags (e.g., ["rage-system", "combat-flow", "gameplay-mechanic", "state-machine"]). These tags will be embedded in the YAML header to tentatively and automatically cross-link related artifacts and graph nodes.
+2. Code: A clean, memorable kebab-case identifier/nickname (e.g., "reading-list", "garden-plan", "pricing-notes").
+3. Type: One of ["note", "decision-record", "research-note", "summary", "reference", "topic"].
+4. Description: A short description (a few phrases).
+5. Summary: A summary of the contents in a few paragraphs — what it says, what matters, why it might matter later.
+6. Tags: 4 to 8 highly relevant, lowercase, kebab-case tags (e.g., ["pricing", "family", "reading", "garden"]). These tags will be embedded in the YAML header to tentatively and automatically cross-link related notes.
 7. Graph:
-   - parent: A parent artifact code if this is a sub-system, or null.
-   - children: Array of sub-component codes if identified, or [].
-   - relationships: Array of tentative relational objects: [{"target": "other-spec-code", "type": "depends_on" | "implements" | "bridges", "note": "Tentative cross-link"}]
-   - is_high_concept: boolean (true if high-level conceptual boundary, false if granular detail).
-8. Content: The full, clean Markdown specification with clear hierarchy (headings, bullet lists, code blocks, or invariant tables).
+   - parent: A parent note code if this belongs under one, or null.
+   - children: Array of child note codes if identified, or [].
+   - relationships: Array of tentative relational objects: [{"target": "other-note-code", "type": "depends_on" | "implements" | "bridges", "note": "Tentative cross-link"}]
+   - is_high_concept: boolean (true if this is a core thread tying many other thoughts together, false for a regular note).
+8. Content: The full, clean Markdown content with clear hierarchy (headings, bullet lists, code blocks).
 
 Respond ONLY with a JSON object in this exact schema:
 {
   "title": "Short title in a few words",
   "code": "unique-slug-or-nickname",
-  "type": "architecture",
-  "category": "system-spec",
+  "type": "note",
+  "category": "note",
   "description": "Short description in a few phrases",
   "summary": "Summary of contents in a few paragraphs",
   "tags": ["tag1", "tag2", "tag3", "tag4"],
@@ -896,7 +791,7 @@ ${content.slice(0, 24000)}`;
 
       const parsed = JSON.parse(response.text || '{}');
       if (!Array.isArray(parsed.tags) || parsed.tags.length === 0) {
-        parsed.tags = ['google-docs', 'imported-spec', parsed.code || 'component'];
+        parsed.tags = ['google-docs', 'imported-note', parsed.code || 'note'];
       }
 
       return res.json({
@@ -917,7 +812,7 @@ ${content.slice(0, 24000)}`;
     const code = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
     const nonHeaders = lines.filter((l: string) => l.trim().length > 0 && !l.startsWith('#'));
     const description = nonHeaders[0]?.slice(0, 160) || `Imported Google Doc specification: ${title}`;
-    const summary = nonHeaders.slice(0, 4).join(' ').slice(0, 400) || 'Comprehensive architectural specification summary.';
+    const summary = nonHeaders.slice(0, 4).join(' ').slice(0, 400) || 'Imported note summary.';
 
     // Generate tentative tags from words in title and content
     const rawTokens = (title + ' ' + description).toLowerCase().match(/[a-z]{4,}/g) || [];
@@ -928,8 +823,8 @@ ${content.slice(0, 24000)}`;
       artifact: {
         title,
         code,
-        type: 'architecture',
-        category: 'system-spec',
+        type: 'note',
+        category: 'note',
         description,
         summary,
         tags,
@@ -968,7 +863,7 @@ async function startServer() {
   }
 
   app.listen(port, '0.0.0.0', () => {
-    console.log(`[Antigravity Architect] Server listening on http://0.0.0.0:${port}`);
+    console.log(`[MarkBrain] Server listening on http://0.0.0.0:${port}`);
   });
 }
 

@@ -211,7 +211,7 @@ export async function createCloudProject(meta: {
       {
         id: genesisChapterId,
         projectId: meta.id,
-        title: 'Genesis Architecture',
+        title: 'Genesis Chapter',
         summary: '',
         keyPoints: [],
         status: 'active',

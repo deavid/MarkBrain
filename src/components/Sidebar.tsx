@@ -153,7 +153,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   MarkBrain
                 </span>
                 <span className="text-[9px] text-[#556985] font-mono block">
-                  Optical Context Substrate
+                  MarkBrain
                 </span>
               </div>
             </div>
@@ -399,7 +399,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       )}
                       <div className="min-w-0 flex-1">
                         <span className="text-xs font-semibold text-white block truncate">
-                          {currentUser.displayName || 'Architect'}
+                          {currentUser.displayName || 'You'}
                         </span>
                         <span className="text-[10px] font-mono text-[#6c84a3] block truncate">
                           {currentUser.email}
@@ -516,7 +516,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* Block 6: Artifact Knowledge Substrate Tree */}
+          {/* Block 6: Artifact tree */}
           <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
             <button
               onClick={() => {
@@ -529,7 +529,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="flex items-center gap-2 min-w-0">
                 <FolderTree className="w-4 h-4 text-[#8ab1e0] shrink-0" />
                 <span className="text-xs font-semibold text-white font-mono">
-                  Artifacts Substrate
+                  Artifacts
                 </span>
                 <span className="text-[10px] font-mono text-[#526682]">
                   ({activeProject.artifacts.length})

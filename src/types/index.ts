@@ -1,6 +1,5 @@
 // ============================================================================
-// SYSTEM ARCHITECTURE: THE UNIVERSAL ARTIFACT & OPTICAL CONTEXT ENGINE
-// Spec: SYSTEM_ARCHITECTURE.md & 00_core_philosophy_soul.md
+// UNIVERSAL ARTIFACT DATA MODEL (legacy shared types)
 // ============================================================================
 
 export type ArtifactType = 'document' | 'chapter' | (string & {});

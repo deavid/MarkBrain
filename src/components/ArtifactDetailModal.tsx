@@ -316,7 +316,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
         {/* Footer */}
         <div className="p-3 border-t border-[#141f33] bg-[#0c121e] flex items-center justify-between">
           <span className="text-[10px] font-mono text-[#556985]">
-            Optical Context Engine • Multi-Resolution Artifact Model
+            Multi-Resolution Artifact Model
           </span>
           <button
             onClick={onClose}

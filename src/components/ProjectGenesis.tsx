@@ -62,7 +62,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
         id,
         name: name.trim(),
         codeName: finalCode,
-        description: description.trim() || 'Core architectural workspace substrate.',
+        description: description.trim() || 'A space for thinking out loud.',
         color,
       });
     } catch (err: any) {
@@ -74,7 +74,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen w-screen bg-[#070b12] text-[#d6e3f5] p-4 select-none relative overflow-hidden font-sans">
-      {/* Background ambient architectural grid lines */}
+      {/* Background ambient grid lines */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a15_1px,transparent_1px),linear-gradient(to_bottom,#0f172a15_1px,transparent_1px)] bg-[size:48px_48px] pointer-events-none" />
 
       {/* Main Container */}
@@ -121,7 +121,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
             </h2>
           </div>
           <p className="text-xs text-[#7187a5] leading-relaxed">
-            Your Firestore database currently has no architectural projects. Create your initial substrate to begin dialogue reasoning, artifact extraction, and topological graphs.
+            You don't have any projects yet. Create one to start collecting thoughts.
           </p>
         </div>
 
@@ -141,7 +141,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Distributed Optical Engine"
+              placeholder="e.g. Side Project Ideas"
               required
               className="w-full bg-[#080d16] border border-[#162338] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-[#455770] focus:outline-none focus:border-[#3b82f6] transition-colors"
             />
@@ -156,7 +156,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
                 type="text"
                 value={codeName}
                 onChange={(e) => setCodeName(e.target.value.toUpperCase())}
-                placeholder="e.g. OPT-ENG"
+                placeholder="e.g. SIDE-IDEAS"
                 maxLength={8}
                 className="w-full bg-[#080d16] border border-[#162338] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono text-white placeholder-[#455770] focus:outline-none focus:border-[#3b82f6] transition-colors"
               />
@@ -184,12 +184,12 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
 
           <div className="space-y-1.5">
             <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
-              Architectural Scope / Description
+              Description
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Brief overview of invariants, system goals, or substrate boundaries..."
+              placeholder="What is this collection of thoughts about?"
               rows={2}
               className="w-full bg-[#080d16] border border-[#162338] rounded-xl px-3.5 py-2 text-xs text-white placeholder-[#455770] focus:outline-none focus:border-[#3b82f6] transition-colors resize-none"
             />

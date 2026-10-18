@@ -47,7 +47,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
 }) => {
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({
     all: true,
-    'system-spec': true,
+    'note': true,
     architecture: true,
     combat: true,
     uncategorized: true,

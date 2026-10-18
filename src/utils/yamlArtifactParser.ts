@@ -24,8 +24,8 @@ export function serializeArtifactToYamlDoc(art: Artifact): string {
     id: art.id,
     code: art.code || art.id,
     title: art.title,
-    type: art.type || 'architecture',
-    category: art.category || 'system-spec',
+    type: art.type || 'note',
+    category: art.category || 'note',
     description: art.description || '',
     summary: art.summary || '',
     graph: {
@@ -105,7 +105,7 @@ export function parseYamlArtifactDoc(
 
       const now = Date.now();
       const artDesc = parsedData.description || `Imported specification: ${title}`;
-      const artSumm = parsedData.summary || parsedData.description || 'Imported architectural artifact summary.';
+      const artSumm = parsedData.summary || parsedData.description || 'Imported note summary.';
 
       const artifact: Artifact = {
         id,
@@ -114,7 +114,7 @@ export function parseYamlArtifactDoc(
         code,
         title,
         type: 'document',
-        category: (parsedData.category as ArtifactCategory) || 'system-spec',
+        category: (parsedData.category as ArtifactCategory) || 'note',
         description: artDesc,
         summary: artSumm,
         content: markdownPart,
@@ -181,7 +181,7 @@ export function parseYamlArtifactDoc(
     code: generatedCode,
     title: firstHeading,
     type: 'document',
-    category: 'system-spec',
+    category: 'note',
     description: desc,
     summary: summ,
     content: trimmed,

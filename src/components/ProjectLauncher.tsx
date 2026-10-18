@@ -67,7 +67,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
     if (!newName.trim()) return;
     onCreateProject(
       newName.trim(),
-      newDescription.trim() || 'Architectural project workspace.',
+      newDescription.trim() || 'Thinking space.',
       newCodeName.trim() || newName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
       selectedColor
     );
@@ -170,7 +170,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Nebula Space Protocol"
+                  placeholder="e.g. Novel Draft Notes"
                   value={newName}
                   onChange={(e) => handleNameChange(e.target.value)}
                   className="w-full bg-[#0d121c] border border-[#080d15] rounded-xl px-3 py-2 text-xs text-[#eef4fc] placeholder-[#50637f] focus:outline-none focus:border-[#e05a66]/50"
@@ -184,7 +184,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. nebula-protocol"
+                  placeholder="e.g. NOVEL"
                   value={newCodeName}
                   onChange={(e) => setNewCodeName(e.target.value)}
                   className="w-full bg-[#0d121c] border border-[#080d15] rounded-xl px-3 py-2 text-xs font-mono text-[#8ab1e0] placeholder-[#50637f] focus:outline-none focus:border-[#e05a66]/50"
@@ -194,11 +194,11 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
 
             <div>
               <label className="block text-[11px] font-mono text-[#869ab8] mb-1">
-                High-Level Architecture & Scope Description
+                Description
               </label>
               <textarea
                 rows={2}
-                placeholder="Core subsystems, domain boundaries, and conceptual invariants..."
+                placeholder="What is this project about?"
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
                 className="w-full bg-[#0d121c] border border-[#080d15] rounded-xl p-2.5 text-xs text-[#eef4fc] placeholder-[#50637f] focus:outline-none focus:border-[#e05a66]/50 resize-none"

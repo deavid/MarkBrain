@@ -42,7 +42,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
 
   return (
     <div className="flex items-center justify-center min-h-screen w-screen bg-[#070b12] text-[#d6e3f5] p-4 select-none relative overflow-hidden font-sans">
-      {/* Background ambient architectural grid lines */}
+      {/* Background ambient grid lines */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a15_1px,transparent_1px),linear-gradient(to_bottom,#0f172a15_1px,transparent_1px)] bg-[size:48px_48px] pointer-events-none" />
 
       {/* Main Authentication Card */}
@@ -58,7 +58,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
               MarkBrain
             </h1>
             <p className="text-xs text-[#6e85a6] mt-1 leading-relaxed">
-              Optical Context Substrate & Dialogue Architecture
+              A thinking workbench for overflowing brains
             </p>
           </div>
 

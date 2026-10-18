@@ -195,7 +195,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           audioRef.current = null;
         };
         audio.onerror = () => {
-          logger.warn('ChatView', 'Kokoro-82M audio playback failed, falling back to speech synthesis');
+          logger.warn('ChatView', 'TTS audio playback failed, falling back to browser speech synthesis');
           fallbackSpeech(data.cleanSpokenText || message.content, message.id);
         };
         await audio.play();
@@ -204,7 +204,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         fallbackSpeech(data.cleanSpokenText || message.content, message.id);
       }
     } catch (err) {
-      logger.warn('ChatView', 'Kokoro-82M API request failed, falling back to web speech', err);
+      logger.warn('ChatView', 'TTS API request failed, falling back to web speech', err);
       fallbackSpeech(message.content, message.id);
     } finally {
       setTtsLoadingId(null);
@@ -240,7 +240,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {totalMessagesCount === 0 ? (
         <div className="flex-1 min-h-[400px] flex flex-col items-center justify-center p-4 sm:p-8 overflow-y-auto">
           <div className="w-full max-w-2xl space-y-6 my-auto transition-opacity duration-300">
-            {/* Project Brand & Architectural Scope */}
+            {/* Project Brand */}
             <div className="text-center space-y-3">
               <div
                 style={{ borderColor: `${project.color || '#3b82f6'}55` }}
@@ -251,12 +251,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight font-mono">
-                  {project.name || 'Architectural Workspace'}
+                  {project.name || 'Untitled Project'}
                 </h1>
                 <div className="flex items-center justify-center gap-2 text-xs text-[#6e85a6] font-mono mt-1">
                   <span>{project.codeName || 'CORE'}</span>
                   <span aria-hidden="true">·</span>
-                  <span>Optical Dialogue Substrate</span>
+                  <span>Thinking space</span>
                   <span aria-hidden="true">·</span>
                   <span>Zero-Leakage Memory</span>
                 </div>
@@ -286,7 +286,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     }
                   }
                 }}
-                placeholder="What architectural invariants, system specifications, or domain state machines are we designing today?"
+                placeholder="Pour it out before it evaporates — we'll organize later." 
                 rows={3}
                 disabled={isLoading}
                 autoFocus
@@ -506,7 +506,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         {/* Speaker & Timestamp Header */}
                         <div className="flex items-center gap-2 mb-1 text-[11px] font-mono text-[#627794]">
                           <span className={isUser ? 'text-[#8ab1e0]' : 'text-[#e05a66] font-semibold'}>
-                            {isUser ? 'Architect' : 'MarkBrain Engine'}
+                            {isUser ? 'You' : 'MarkBrain'}
                           </span>
                           <span>•</span>
                           <span>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -518,7 +518,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             className={`p-1 rounded hover:bg-[#141b29] transition-colors cursor-pointer ${
                               isPlaying ? 'text-[#38bdf8]' : 'text-[#50637f] hover:text-[#9bb0d1]'
                             }`}
-                            title={isPlaying ? 'Stop playback' : 'Play audio (Kokoro-82M TTS)'}
+                            title={isPlaying ? 'Stop playback' : 'Play audio (TTS)'}
                           >
                             {isTtsLoading ? (
                               <Loader2 className="w-3 h-3 animate-spin text-[#38bdf8]" />
@@ -554,7 +554,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               type="text"
                               value={newChapterTitle}
                               onChange={(e) => setNewChapterTitle(e.target.value)}
-                              placeholder="New Chapter Title (e.g. Chapter 4: Combat Roll)"
+                              placeholder="New Chapter Title (e.g. On pricing)"
                               className="w-full bg-[#080d16] border border-[#162438] rounded-lg px-2.5 py-1.5 text-xs text-[#eef4fc] placeholder-[#556985] focus:outline-none focus:border-[#38bdf8]"
                             />
                             <div className="flex items-center justify-end gap-2 pt-1">
@@ -589,21 +589,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             ) : (
                               <div className="flex items-center gap-2 text-xs font-mono text-[#38bdf8] py-1 animate-pulse">
                                 <Loader2 className="w-3.5 h-3.5 animate-spin text-[#38bdf8]" />
-                                <span>Thinking & synthesizing architectural invariants...</span>
+                                <span>Thinking...</span>
                               </div>
                             )}
                           </div>
 
-                          {/* Synthesized Artifacts */}
+                          {/* Extracted notes */}
                           {message.extractedArtifacts && message.extractedArtifacts.length > 0 && (
                             <div className="mt-3 pt-2.5 border-t border-[#090e18] space-y-2">
                               <div className="text-[10px] font-semibold text-[#8ab1e0] flex items-center justify-between font-mono">
                                 <div className="flex items-center gap-1.5">
                                   <FileCode className="w-3.5 h-3.5 text-[#8ab1e0]" />
-                                  <span>Synthesized Architectural Specification</span>
+                                  <span>Extracted notes</span>
                                 </div>
                                 <span className="text-[9px] text-[#4f99a3] bg-[#0c1a20] px-1.5 py-0.2 rounded border border-[#081216]">
-                                  Ingested in Knowledge Substrate
+                                  Collected
                                 </span>
                               </div>
 
@@ -637,9 +637,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                     <button
                                       onClick={() => {
                                         const now = Date.now();
-                                        const title = art.title || 'Synthesized Artifact';
+                                        const title = art.title || 'Extracted note';
                                         const desc = art.description || art.abstract || 'Generated artifact spec.';
-                                        const summ = art.summary || art.abstract || 'Synthesized architectural summary.';
+                                        const summ = art.summary || art.abstract || 'Extracted note summary.';
                                         const body = art.content || `# ${title}\n\nGenerated specification document.`;
                                         const fullArtifact: Artifact = {
                                           id: `art-${now}-${idx}`,
@@ -665,7 +665,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                             art.code ||
                                             title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
                                           title,
-                                          category: (art.category as Artifact['category']) || 'system-spec',
+                                          category: (art.category as Artifact['category']) || 'note',
                                           isHighConcept: Boolean(art.isHighConcept),
                                           description: desc,
                                           summary: summ,
@@ -744,7 +744,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <div className="flex items-center justify-between gap-3 text-xs font-mono text-[#8ab1e0] bg-[#101623] p-3 rounded-xl border border-[#1a293e] max-w-xl shadow-lg animate-in fade-in">
             <div className="flex items-center gap-2.5 min-w-0">
               <Loader2 className="w-4 h-4 animate-spin text-[#38bdf8] shrink-0" />
-              <span className="truncate">{streamingStatus || 'MarkBrain synthesizing architectural invariants...'}</span>
+              <span className="truncate">{streamingStatus || 'MarkBrain is thinking...'}</span>
               <span className="text-[10px] text-[#567295] font-mono px-1.5 py-0.5 rounded bg-[#090d16] border border-[#141e2e] shrink-0">
                 {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')}s
               </span>
@@ -816,7 +816,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 type="submit"
                 disabled={!inputText.trim()}
                 className="px-4 py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 disabled:hover:bg-[#2563eb] text-white transition-all shadow-md shadow-blue-900/25 flex items-center justify-center cursor-pointer shrink-0"
-                title="Send architectural query"
+                title="Send message"
               >
                 <Send className="w-4 h-4" />
               </button>

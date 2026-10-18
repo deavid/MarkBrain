@@ -53,7 +53,7 @@ export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
       code: doc.code || doc.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
       title: doc.title,
       type: doc.type || 'document',
-      category: doc.category || 'system-spec',
+      category: doc.category || 'note',
       isHighConcept: Boolean(doc.isHighConcept),
       color: doc.color || existing?.color || '#5d87b8',
       current: {
@@ -62,7 +62,7 @@ export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
         t2_summary: t2,
         t3_body: t3,
       },
-      tags: doc.tags || existing?.tags || ['synthesized'],
+      tags: doc.tags || existing?.tags || ['note'],
       createdAt: existing?.createdAt || now,
       updatedAt: now,
       // Preserve optional fields: prefer values from the update, else keep existing.

@@ -169,11 +169,11 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const historyBlock = `<conversation_chapters>\n${historyParts.join('\n\n')}\n</conversation_chapters>`;
 
     const compiledPrompt = `${substrateBlock}\n\n${historyBlock}`;
-    const systemInstruction = `You are MarkBrain, a principal systems architect.
-Ground your thinking directly in the provided Knowledge Substrate and Conversation Chapters.
+    const systemInstruction = `You are MarkBrain, a thinking partner for a brain that overflows with ideas. Collect thoughts before they evaporate, keep them organized, and keep the forest in view. Talk WITH the user — direct, plain-spoken, no corporate filler.
+Ground your thinking directly in the provided notes and conversation chapters.
 Emit functional XML tags when appropriate:
-- <topic_shift title="New Chapter Title" abstract="1-sentence essence" summary="Key invariant bullets" />
-- <artifact_upsert id="unique_id" title="Artifact Title" type="document"><abstract>...</abstract><summary>...</summary><content>...</content></artifact_upsert>
+- <topic_shift title="New Chapter Title" abstract="1-sentence essence" summary="Key points of this shift" />
+- <artifact_upsert id="unique_id" title="Note Title" type="document"><abstract>...</abstract><summary>...</summary><content>...</content></artifact_upsert>
 - <link source="id1" target="id2" kind="relates_to|refines|parent_of|child_of|born_from" />`;
 
     const systemTokens = Math.ceil(systemInstruction.length / 4);

@@ -87,7 +87,7 @@ export function getTokenColor(tokens: number): TokenColorInfo {
       borderClass: 'border-[#544321]',
       bgClass: 'bg-[#2b2212]/70',
       barColor: '#eab308',
-      description: 'Dense architectural memory. Consider summarizing historical chapters.',
+      description: 'Lots of memory — consider summarizing older chapters.',
     };
   } else if (tokens <= 256000) {
     return {

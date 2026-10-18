@@ -130,7 +130,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       const idAttr = /id=["']([^"']+)["']/i.exec(attrs);
       const typeAttr = /type=["']([^"']+)["']/i.exec(attrs);
 
-      const title = titleAttr ? titleAttr[1] : (idAttr ? idAttr[1] : 'Synthesized Spec');
+      const title = titleAttr ? titleAttr[1] : (idAttr ? idAttr[1] : 'Extracted note');
       const id = idAttr ? idAttr[1] : `art-${Date.now()}-${artifactUpserts.length}`;
       const type = (typeAttr ? typeAttr[1] : 'document') as any;
 
@@ -173,9 +173,9 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
         .replace(/highConcept:.*\n/i, '')
         .trim();
 
-      const title = titleMatch ? titleMatch[1].trim() : 'Synthesized Artifact';
+      const title = titleMatch ? titleMatch[1].trim() : 'Extracted note';
       const type = (typeMatch ? typeMatch[1].trim() : 'document') as any;
-      const abstractText = abstractMatch ? abstractMatch[1].trim() : 'Synthesized artifact.';
+      const abstractText = abstractMatch ? abstractMatch[1].trim() : 'Extracted note.';
 
       const up: ExtractedArtifactUpsert = {
         id: `art-${Date.now()}-${artifactUpserts.length}`,

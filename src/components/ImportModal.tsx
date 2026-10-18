@@ -54,7 +54,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   const [uploadContent, setUploadContent] = useState('');
   const [artifactTitle, setArtifactTitle] = useState('');
   const [artifactCode, setArtifactCode] = useState('');
-  const [artifactType, setArtifactType] = useState<ArtifactType>('architecture');
+  const [artifactType, setArtifactType] = useState<ArtifactType>('note');
   const [isHighConcept, setIsHighConcept] = useState(false);
   const [artifactDescription, setArtifactDescription] = useState('');
   const [artifactSummary, setArtifactSummary] = useState('');
@@ -167,14 +167,14 @@ export const ImportModal: React.FC<ImportModalProps> = ({
         setArtifactCode(data.artifact.code || filename.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
         setArtifactDescription(data.artifact.description || '');
         setArtifactSummary(data.artifact.summary || '');
-        setArtifactType((data.artifact.type as ArtifactType) || 'architecture');
+        setArtifactType((data.artifact.type as ArtifactType) || 'note');
         setIsHighConcept(Boolean(data.artifact.graph?.is_high_concept));
         setParentCode(data.artifact.graph?.parent || '');
 
         if (Array.isArray(data.artifact.tags) && data.artifact.tags.length > 0) {
           setArtifactTags(data.artifact.tags);
         } else {
-          setArtifactTags(['imported-gdoc', 'architecture']);
+          setArtifactTags(['imported-gdoc', 'note']);
         }
 
         if (data.artifact.content) {
@@ -322,11 +322,11 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       baseTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
 
     const now = Date.now();
-    const desc = artifactDescription.trim() || `Imported specification: ${baseTitle}`;
+    const desc = artifactDescription.trim() || `Imported note: ${baseTitle}`;
     const summ =
       artifactSummary.trim() ||
       artifactDescription.trim() ||
-      'Comprehensive architectural specification document.';
+      'Imported note.';
 
     const fullArtifact: Artifact = {
       id: `art-${now}-${Math.floor(Math.random() * 1000)}`,
@@ -335,7 +335,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       code: baseCode,
       title: baseTitle,
       type: 'document',
-      category: 'system-spec',
+      category: 'note',
       description: desc,
       summary: summ,
       content: uploadContent,
@@ -393,7 +393,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       code: artifactCode || 'sample-spec',
       title,
       type: 'document',
-      category: 'system-spec',
+      category: 'note',
       description: desc,
       summary: summ,
       tags: artifactTags,
@@ -503,7 +503,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       Connect Google Docs & Drive
                     </h3>
                     <p className="text-xs text-[#8297b5] max-w-md mx-auto">
-                      Select your architectural Google Docs directly. MarkBrain exports them to clean Markdown and uses Gemini to synthesize YAML metadata, executive summaries, and tentative cross-linking tags.
+                      Import Google Docs directly. MarkBrain exports them to Markdown and uses Gemini to turn them into notes with summaries and tags.
                     </p>
                   </div>
 

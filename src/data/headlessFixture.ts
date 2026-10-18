@@ -13,7 +13,7 @@ import type { ProjectSnapshot } from '../services/persistenceService';
  */
 export const HEADLESS_FIXTURE: ProjectSnapshot = {
   projectId: 'proj-fixture',
-  name: 'Fixture Substrate',
+  name: 'Fixture Project',
   codeName: 'FIXTURE',
   description:
     'Synthetic headless-capture fixture. Not demo data: loads only via ?fixture=1 in dev.',
@@ -59,7 +59,7 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
       code: 'fixture-alpha',
       title: 'Fixture Artifact Alpha',
       type: 'document',
-      category: 'system-spec',
+      category: 'note',
       isHighConcept: true,
       current: {
         t0_label: 'Fixture Alpha',
@@ -78,7 +78,7 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
       code: 'fixture-beta',
       title: 'Fixture Artifact Beta',
       type: 'document',
-      category: 'system-spec',
+      category: 'note',
       isHighConcept: false,
       current: {
         t0_label: 'Fixture Beta',

@@ -185,7 +185,7 @@ async function main() {
     if (importAlert) throw new Error(`import surfaced an alert: ${importAlert}`);
     log('B: imported project visible in studio');
 
-    // Same-UI spot checks: sidebar project entry + chat substrate present.
+    // Same-UI spot checks: sidebar project entry + chat view present.
     const sidebarHasProject = await pageB
       .getByText(PROJECT_NAME, { exact: false })
       .first()

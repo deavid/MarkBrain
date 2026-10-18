@@ -89,3 +89,24 @@ It's Phase 3 in the plan below, and the mirror (Phase 4) must wait for it.
    "big one". Then compaction presets ride on it later.
 
 *(later decisions appended below)*
+
+---
+
+## 2026-10-18 ~09:36 — Phase 1 (lie removal) EXECUTED — nova
+
+- **Status:** DONE, uncommitted on `dev-nova` (worktree `/home/deavid/git/MarkBrain-dev-nova`).
+  Green: vitest 6/6, `tsc --noEmit` clean.
+- **Scope shipped:** brain-collector system instruction (server + compiler),
+  all persona placeholders/copy (ChatView, ProjectGenesis, ProjectLauncher,
+  AuthGate, Sidebar, ArtifactDetailModal, ImportModal), model badges/descriptions
+  (models.ts — note: earlier session report claimed these landed; they hadn't,
+  re-done here), artifact category default `system-spec` → `note` everywhere
+  (parser, App, ImportModal, Drive import, domain upsert, fixture, folder-tree
+  open-state), stream-parser fallback titles (`Synthesized *` → `Extracted note`),
+  LLM prompt voice ("Knowledge Substrate" → "notes and conversation chapters"),
+  dead `/api/chat` endpoint removed, types/index.ts header de-lied.
+- **Deliberately deferred to Phase 3 (data-model fight):** internal identifiers —
+  `substrateTokens`/`substrate_tokens` fields, `<knowledge_substrate>` XML
+  protocol tag, `substrateParts` locals. Renaming these is a cross-cutting
+  model change, not copy. Test fixture strings left (not user-facing).
+  Legacy `architecture:` folder default kept (David's existing data may use it).

@@ -279,7 +279,6 @@ export default function App() {
         description: meta.description,
         color: meta.color,
         icon: 'Layers',
-        boundaryRules: 'Cross-repo linking bridges high-concept architecture specs.',
         currentChapterId: container?.activeChapterId || '',
         chapters: [],
         artifacts: [],
@@ -439,12 +438,11 @@ export default function App() {
     const fallbackId = activeProjectId || currentContainer?.metadata?.id || 'default-workspace';
     return {
       id: fallbackId,
-      name: meta?.name || 'Architectural Workspace',
-      codeName: meta?.codeName || 'CORE',
-      description: meta?.description || 'Optical dialogue substrate initialized.',
+      name: meta?.name || 'Untitled Project',
+      codeName: meta?.codeName || 'IDEAS',
+      description: meta?.description || 'A space for thinking out loud.',
       color: meta?.color || '#3b82f6',
       icon: 'Layers',
-      boundaryRules: 'Cross-repo linking bridges high-concept architecture specs.',
       currentChapterId: currentContainer?.activeChapterId || finalChapters[0]?.id || 'chap-genesis',
       chapters: finalChapters,
       artifacts,
@@ -575,7 +573,7 @@ export default function App() {
       workspaceId: activeProjectId,
       code: newArt.code || newArt.id,
       type: newArt.type === 'chapter' ? 'chapter' : 'document',
-      category: newArt.category || 'system-spec',
+      category: newArt.category || 'note',
       isHighConcept: Boolean(newArt.isHighConcept),
       color: newArt.color,
       current: newArt.current || {
@@ -712,14 +710,14 @@ export default function App() {
               versioning.recordRevision(
                 existing.id,
                 u.content.t3_body,
-                `Synthesized update from chat: ${u.content.t1_abstract}`
+                `Update from chat: ${u.content.t1_abstract}`
               );
             } else {
               const now = Date.now();
-              const artTitle = u.title || 'Synthesized Artifact';
-              const artDesc = u.content.t1_abstract || 'Synthesized specification.';
+              const artTitle = u.title || 'Extracted note';
+              const artDesc = u.content.t1_abstract || 'Extracted note.';
               const artSumm = u.content.t2_summary || artDesc;
-              const artContent = u.content.t3_body || `# ${artTitle}\n\nSynthesized specification.`;
+              const artContent = u.content.t3_body || `# ${artTitle}\n\nExtracted note.`;
               const artColor = getMellowPastelColor(code);
 
               const activeChap = segmentation.getActiveChapter();
@@ -732,7 +730,7 @@ export default function App() {
                 code,
                 title: artTitle,
                 type: u.type || 'document',
-                category: 'system-spec',
+                category: 'note',
                 color: artColor,
                 description: artDesc,
                 summary: artSumm,
@@ -762,11 +760,11 @@ export default function App() {
                   {
                     version: 1,
                     timestamp: new Date().toISOString(),
-                    changeSummary: 'Initial synthesis from architectural chat session',
+                    changeSummary: 'Extracted from chat',
                     content: artContent,
                   },
                 ],
-                tags: ['chat-synthesized', u.type || 'architecture'],
+                tags: ['chat-extracted', u.type || 'note'],
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
               };
@@ -776,7 +774,7 @@ export default function App() {
                 workspaceId: activeProjectId,
                 code: newArtifact.code || code,
                 type: 'document',
-                category: newArtifact.category || 'system-spec',
+                category: newArtifact.category || 'note',
                 isHighConcept: Boolean(newArtifact.isHighConcept),
                 color: newArtifact.color,
                 current: newArtifact.current,
@@ -809,7 +807,7 @@ export default function App() {
       const totalTok = result.telemetry?.totalTokens ?? (estPrompt + estCand);
 
       timeline.updateTurn(assistantTurn.id, {
-        content: result.cleanReply || assistantTurn.content || (isInterrupted ? '' : 'Synthesized architecture verified.'),
+        content: result.cleanReply || assistantTurn.content || (isInterrupted ? '' : 'No reply came back. Try again.'),
         extractedArtifacts: extractedList,
         meta: {
           model: result.telemetry?.model || selectedModel.name,
@@ -873,7 +871,7 @@ export default function App() {
           <div className="w-12 h-12 rounded-2xl bg-[#121c2d] border border-[#1e2e47] flex items-center justify-center text-[#e05a66] shadow-sm animate-pulse">
             <Brain className="w-6 h-6 text-[#e05a66]" />
           </div>
-          <span className="text-xs font-mono text-[#526e91]">Connecting to MarkBrain Substrate...</span>
+          <span className="text-xs font-mono text-[#526e91]">Connecting to MarkBrain...</span>
         </div>
       </div>
     );

@@ -1,5 +1,66 @@
 # Pending / open work
 
+## State (2026-10-18, ~15:40 — import rework + persistence save-loss fix + env layering + history de-dup; worktree `dev-orion`)
+
+- **CRITICAL persistence bug — FIXED: imported artifacts vanished forever on
+  reload.** Firestore `setDoc` rejects `undefined` field values (default
+  settings), and the import path produced them (`graph: {x: undefined,
+  y: undefined}` from handleAddArtifact; `graph`/`yamlDocument` materialized
+  as undefined in upsertArtifact). One poisoned artifact made EVERY subsequent
+  snapshot save throw — caught and logged quietly — so sessions looked fine
+  and everything since the last good save was gone on reload. Fix is at the
+  boundary: `src/utils/storageSanitize.ts` (`sanitizeForStorage` =
+  JSON-semantics strip, applied inside `saveProjectSnapshot` for BOTH
+  backends) so future undefined producers are harmless by construction; plus
+  both known producers fixed (numeric-only coords / omit keys entirely) and
+  the 500ms debounced save now flushes on `pagehide`/`visibilitychange→hidden`
+  so a fast reload can't lose the last mutation. Regression tests:
+  `src/tests/storage-sanitize.test.ts`.
+- **Drive import reworked after the 403 "insufficient authentication scopes"
+  failure** (stale narrow grant from a scope-less sign-in; recovery = revoke +
+  `prompt:'consent'`): `verifyDriveScopes()` checks the token via tokeninfo →
+  amber banner + **Reconnect** button instead of Google's raw 403. The
+  previously dead paste-a-URL input is now rendered (`extractGoogleDocIdFromUrl`
+  + `fetchGoogleDocById`) and is THE working import path. Hand-rolled Drive
+  list ("All Files" that wasn't) deleted.
+- **Google Picker: built, then SHELVED behind
+  `VITE_GOOGLE_PICKER_ENABLED=false`** (developer-key errors persist on
+  localhost — revisit on a deployed https domain). Button disabled with an
+  "Unfinished" hover tooltip + visible hint; config steps in `.env.example`.
+- **Source-lock:** while a source is loaded / extraction / fetch is running,
+  Browse/Fetch collapse into a source bar + disabled-until-done "Choose
+  different" — a second `triggerAIExtraction` could race the first and clobber
+  fields.
+- **Env layering — loader SHIPPED (in `3c7493e`), rollout OPEN:** `.env` files
+  can't import each other → `server.ts` + `vite.config.ts` load 3 layers in
+  order (OS env > `.env` > `.env.shared` >
+  `../MarkBrain/.env.markbrain-main.shared`; dotenv never overwrites, so
+  earlier = higher precedence; ENOENT = silent no-op). **Still to do
+  (David's):** create the sibling `MarkBrain/.env.markbrain-main.shared` with
+  the canonical credentials, then slim each worktree's `.env` to a single
+  `PORT=` line. Until then every worktree still carries full credentials.
+- **Secrets incident closed:** `.env.shared` was briefly committed → purged
+  from ALL refs (filter-branch + reflog expire + gc --prune=now), `.gitignore`
+  back to `.env*` + `!.env.example`. Law (in agent memory): env files NEVER
+  enter git; ask before any secrets-policy change.
+- **History de-dup:** the tree had been rewritten, leaving two parallel
+  no-merge-base chains (byte-identical base trees — same content, dead
+  hashes, cf. the NOTE above). dev-orion moved twice: `rebase --onto
+  <new-main> <old-base>` (zero conflicts), then a plain rebase onto advanced
+  main (3 conflicts: App.tsx handleAddArtifact — kept new camelCase model +
+  numeric-only graph guard; persistenceService — kept meta-fields AND the
+  sanitizer; googleDriveService — listDriveFiles remnants vs Picker rewrite,
+  took ours after verifying main's only changes there were console→logger
+  swaps). All 5 session commits now on main; suite 25/25, tsc, build green.
+  NOT pushed.
+- **NEW HARD RULE (David, 2026-10-18 15:41): never write git outside my own
+  worktree + branch — and never even propose it.** Read/inspect any branch
+  freely; merges/resets/ff-updates/ref-deletions on anything that isn't
+  dev-orion = David's job, always. Applied immediately: dropped the proposed
+  nova/altair/sirius/done ff + vega snap + backup-ref deletion (those four
+  branches sat 1 behind main; vega was the last old-lineage remnant — status
+  noted for David, action is his).
+
 ## State (2026-10-18, afternoon — artifact detail: markdown render + context provenance)
 
 - **Artifact detail modal: rendered markdown is now the default** (David's ask),

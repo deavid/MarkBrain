@@ -235,3 +235,10 @@ perf if projects grow, Drive import, README.
 NOTE: all commit hashes cited above are DEAD — history was rewritten twice
 (once pre-squash review cycles, once for the 4-phase squash 2026-10-18 ~11:23).
 The ledger prose is the source of truth, not the hashes.
+
+## 🚫 HARD RULE (David, 2026-10-18 11:25): NEVER PUSH
+- Commit locally as much as wanted — but DO NOT `git push` unless David
+  explicitly says push. Not "commit and push", not implied by "commit from
+  time to time", not for convenience. NEVER.
+- Violation this session: pushed dev-nova without instruction → ordered to
+  delete remote branch immediately (done, upstream unset).

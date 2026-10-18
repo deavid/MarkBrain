@@ -93,7 +93,7 @@ export default function App() {
   const activeProjectId = workspace.getActiveProjectId();
   const currentContainer = workspace.getProject(activeProjectId);
 
-  // Model selection (default to fast Gemini 3.1 Flash Lite)
+  // Model selection (default to Google: Gemini 3.5 Flash Lite)
   const [selectedModel, setSelectedModel] = useState<ModelOption>(AVAILABLE_MODELS[0]);
 
   // Optical Mode state from current container or default

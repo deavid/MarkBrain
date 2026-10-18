@@ -86,7 +86,7 @@ budget();
 {
   const t0 = Date.now();
   let ttfc = null, usage = null;
-  const s = await ai.models.generateContentStream({ model: 'gemini-3.1-flash-lite', contents: PROMPT, config: { ...CAP, ...NO_THINK } });
+  const s = await ai.models.generateContentStream({ model: 'gemini-3.5-flash-lite', contents: PROMPT, config: { ...CAP, ...NO_THINK } });
   for await (const c of s) { if (ttfc === null && c.text) ttfc = Date.now() - t0; if (c.usageMetadata) usage = c.usageMetadata; }
   const ms = Date.now() - t0;
   rows.push({ label: '7 LITE STREAM think=0', ms, ttfc, thoughts: usage?.thoughtsTokenCount ?? 0, out: usage?.candidatesTokenCount });

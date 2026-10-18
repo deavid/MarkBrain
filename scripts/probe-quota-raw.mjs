@@ -39,7 +39,7 @@ async function call(model, label) {
   }
 }
 
-const F38 = 'gemini-3.8-flash', LITE = 'gemini-3.1-flash-lite';
+const F38 = 'gemini-3.8-flash', LITE = 'gemini-3.5-flash-lite';
 console.log('--- rapid fire 3.8 x8 (raw REST) ---');
 const rows = [];
 for (let i = 1; i <= 8; i++) rows.push(await call(F38, `3.8 rapid #${i}`));

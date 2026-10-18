@@ -57,7 +57,7 @@ describe('MarkBrain Core User Journeys & Invariants Suite', () => {
       timeline.updateTurn(assistantTurn.id, {
         content: 'Completed architectural synthesis.',
         meta: {
-          model: 'gemini-3.1-flash-lite',
+          model: 'gemini-3.5-flash-lite',
           promptTokens: 120,
           candidatesTokens: 45,
           totalTokens: 165,
@@ -68,7 +68,7 @@ describe('MarkBrain Core User Journeys & Invariants Suite', () => {
       const updated = timeline.getTurn(assistantTurn.id);
       expect(updated).not.toBeNull();
       expect(updated!.content).toBe('Completed architectural synthesis.');
-      expect(updated!.meta!.model).toBe('gemini-3.1-flash-lite');
+      expect(updated!.meta!.model).toBe('gemini-3.5-flash-lite');
       expect(updated!.meta!.totalTokens).toBe(165);
     });
   });
@@ -133,7 +133,7 @@ Let me know if you would like to tune the saturation threshold.
 
       const result = await stream.executeStreamingTurn(
         {
-          model: 'gemini-3.1-flash-lite',
+          model: 'gemini-3.5-flash-lite',
           compiledPrompt: 'Generate a 100-page architectural analysis of distributed consensus',
         },
         {
@@ -145,7 +145,7 @@ Let me know if you would like to tune the saturation threshold.
       expect(result).toBeDefined();
       expect(typeof result.cleanReply).toBe('string');
       expect(result.telemetry).toBeDefined();
-      expect(result.telemetry!.model).toBe('gemini-3.1-flash-lite');
+      expect(result.telemetry!.model).toBe('gemini-3.5-flash-lite');
       // Token counts must be non-zero estimates, never 0 in 0 out
       expect(result.telemetry!.promptTokens).toBeGreaterThan(0);
       expect(result.telemetry!.totalTokens).toBeGreaterThan(0);

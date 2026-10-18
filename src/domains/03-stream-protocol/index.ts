@@ -332,7 +332,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
           artifacts: demuxed.artifactUpserts,
           topicShift: demuxed.topicShift,
           telemetry: {
-            model: payload.model || 'gemini-3.1-flash-lite',
+            model: payload.model || 'gemini-3.5-flash-lite',
             promptTokens: estPrompt,
             candidatesTokens: estCand,
             totalTokens: estPrompt + estCand,

@@ -257,7 +257,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
 
   try {
     const {
-      model = 'gemini-3.1-flash-lite',
+      model = 'gemini-3.5-flash-lite',
       projectTitle = 'Untitled',
       systemInstruction: clientSystemInstruction,
     } = req.body;
@@ -265,8 +265,9 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     const systemInstruction = clientSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
     const compiledPrompt = buildCompiledPrompt(req.body);
 
-    const validModels = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-3.1-pro-preview'];
-    let targetModel = validModels.includes(model) ? model : 'gemini-3.1-flash-lite';
+    // Google-side lineup: Flash Lite only. OpenRouter models get appended here later.
+    const validModels = ['gemini-3.5-flash-lite'];
+    let targetModel = validModels.includes(model) ? model : 'gemini-3.5-flash-lite';
 
     logServer('info', 'STREAM:INIT', `#${reqId} Initiating stream for project="${projectTitle}", model=${targetModel}, promptChars=${compiledPrompt.length}`);
 
@@ -303,22 +304,22 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       let usedModel = targetModel;
 
       // Smart watchdog: if non-lite model is requested, race with a 9-second watchdog
-      if (targetModel !== 'gemini-3.1-flash-lite') {
+      if (targetModel !== 'gemini-3.5-flash-lite') {
         try {
           const timeoutPromise = new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error('FIRST_CHUNK_TIMEOUT_9S')), 9000)
           );
           responseStream = await Promise.race([streamFromModel(targetModel), timeoutPromise]);
         } catch (streamErr: any) {
-          logServer('warn', 'STREAM:WATCHDOG', `#${reqId} Upstream model ${targetModel} delayed (${streamErr?.message || 'timeout'}). Failing over to gemini-3.1-flash-lite.`);
+          logServer('warn', 'STREAM:WATCHDOG', `#${reqId} Upstream model ${targetModel} delayed (${streamErr?.message || 'timeout'}). Failing over to gemini-3.5-flash-lite.`);
           sendSSE('status', {
             state: 'thinking',
-            message: `Optimizing latency: routed to Gemini 3.1 Flash Lite...`,
+            message: `Optimizing latency: routed to Google: Gemini 3.5 Flash Lite...`,
             timestamp: Date.now(),
-            model: 'gemini-3.1-flash-lite',
+            model: 'gemini-3.5-flash-lite',
           });
-          usedModel = 'gemini-3.1-flash-lite';
-          responseStream = await streamFromModel('gemini-3.1-flash-lite');
+          usedModel = 'gemini-3.5-flash-lite';
+          responseStream = await streamFromModel('gemini-3.5-flash-lite');
         }
       } else {
         responseStream = await streamFromModel(targetModel);
@@ -526,7 +527,7 @@ Transcript:
 ${conversationTranscript}`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.5-flash-lite',
         contents: prompt,
         config: {
           temperature: 0.3,
@@ -679,7 +680,7 @@ Raw Input Document (${filename}):
 ${content.slice(0, 24000)}`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.5-flash-lite',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',

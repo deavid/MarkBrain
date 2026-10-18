@@ -73,7 +73,7 @@ async function runStream(label, model, config) {
 }
 
 const F38 = 'gemini-3.8-flash';
-const LITE = 'gemini-3.1-flash-lite';
+const LITE = 'gemini-3.5-flash-lite';
 const JSONCFG = { responseMimeType: 'application/json', temperature: 0.2 };
 const TEXTCFG = { temperature: 0.2 };
 

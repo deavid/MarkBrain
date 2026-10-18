@@ -44,7 +44,7 @@ async function run(label, model, config, prompt, mode = 'ns') {
   }
 }
 
-const F38 = 'gemini-3.8-flash', LITE = 'gemini-3.1-flash-lite';
+const F38 = 'gemini-3.8-flash', LITE = 'gemini-3.5-flash-lite';
 const JSONCFG = { responseMimeType: 'application/json', temperature: 0.2 };
 
 console.log('--- variance: 3.8 baseline x6 ---');

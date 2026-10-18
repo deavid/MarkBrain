@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Project } from '../types';
 import { exportToJSON, exportToMarkdown, exportToYAML } from '../utils/tokenCalculator';
 import { Download, Copy, Check, X, FileText, Code, FileJson } from 'lucide-react';
@@ -16,6 +16,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 }) => {
   const [format, setFormat] = useState<'json' | 'markdown' | 'yaml'>('json');
   const [copied, setCopied] = useState(false);
+
+  // Close on Escape — consistent with ArtifactDetailModal/ImportModal/MirrorPanel
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const getExportData = () => {
     switch (format) {

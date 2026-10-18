@@ -9,10 +9,12 @@ export default defineConfig(() => {
   // standalone `vite build` doesn't pass through server.ts, so load the
   // files here too. When run under `npm run dev` server.ts already
   // populated process.env → no-op.
-  dotenv.config({ path: path.resolve(__dirname, '.env'), quiet: true });
-  dotenv.config({ path: path.resolve(__dirname, '.env.shared'), quiet: true });
+  // import.meta.dirname, not __dirname — the native ESM config loader (Vite's
+  // future default) has no __dirname and warns about it on every boot.
+  dotenv.config({ path: path.resolve(import.meta.dirname, '.env'), quiet: true });
+  dotenv.config({ path: path.resolve(import.meta.dirname, '.env.shared'), quiet: true });
   dotenv.config({
-    path: path.resolve(__dirname, '../MarkBrain/.env.markbrain-main.shared'),
+    path: path.resolve(import.meta.dirname, '../MarkBrain/.env.markbrain-main.shared'),
     quiet: true,
   });
 
@@ -20,7 +22,7 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     define: {

@@ -101,4 +101,12 @@ Pulled `main` (`a997fc5..3c7493e`) into `dev-nova` and compared against `stable`
 
 ---
 
+### Follow-up fixes (same day, post visual review)
+
+- **Escape dismiss everywhere** — Mirror, Export, and Import modals now close on Escape, consistent with ArtifactDetailModal (they were X-only).
+- **Vite config deprecation** — all `__dirname` uses in `vite.config.ts` (dotenv layering + `@` alias) replaced with `import.meta.dirname`; the `configLoader: 'native'` boot warning is gone.
+- **Favicon** — new `public/favicon.svg` + `<link rel="icon">` in `index.html`; no more `/favicon.ico` 404.
+
+---
+
 *Range: `stable` → `main` @ `3c7493e` (2026-10-18). Commits: `56d9b57`, `805ebc4`, `d221c08`, `3858039`, `1aea8d4`, `a997fc5`, `d3c501f`, `eedb85c`, `b7fdbb1`, `eecaad5`, `3f7e2a2`, `3c7493e`.*

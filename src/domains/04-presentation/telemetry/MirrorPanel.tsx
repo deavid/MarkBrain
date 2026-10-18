@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Artifact, Chapter } from '../../../types';
 import { estimateTokens, getArtifactTokenVariants } from '../../../utils/tokenCalculator';
@@ -65,6 +65,18 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   ceiling,
 }) => {
   const [showRaw, setShowRaw] = useState(false);
+
+  // Close on Escape — consistent with ArtifactDetailModal/ExportModal/ImportModal.
+  // Guarded because this panel stays mounted while closed.
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const tb = compiled.telemetry.tokenBreakdown;

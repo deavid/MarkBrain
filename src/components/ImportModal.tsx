@@ -91,6 +91,15 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     return () => unsubscribe();
   }, []);
 
+  // Close on Escape — consistent with ArtifactDetailModal/ExportModal/MirrorPanel
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   // Verify the token actually carries Drive scopes BEFORE any Drive call,
   // so we can offer a Reconnect instead of Google's raw 403 error.
   useEffect(() => {

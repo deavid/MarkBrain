@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, ChatMessage, Artifact, Chapter, getMellowPastelColor } from '../types';
 import {
+  Sparkles,
   Send,
   Loader2,
   FileCode,
@@ -41,7 +42,7 @@ interface ChatViewProps {
   threadArchived?: boolean;
   threadRuntime?: ThreadRuntime;
   queuePosition?: number;
-  onRenameThread?: (title: string) => void;
+  onSuggestTitle?: () => void;
   onUnarchive?: () => void;
   onRetry?: () => void;
   onCancelQueued?: () => void;
@@ -78,7 +79,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   threadArchived = false,
   threadRuntime = 'idle',
   queuePosition = 0,
-  onRenameThread,
+  onSuggestTitle,
   onUnarchive,
   onRetry,
   onCancelQueued,
@@ -86,9 +87,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [inputText, setInputText] = useState('');
   const [showPrompts, setShowPrompts] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  // Inline thread-title rename (click the header title)
-  const [renamingTitle, setRenamingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heroInputRef = useRef<HTMLTextAreaElement>(null);
   const prevMessagesCountRef = useRef<number>(0);
@@ -291,76 +289,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     queuePosition === 0 &&
     lastMessageFailed;
 
-  const commitTitleRename = () => {
-    if (titleDraft.trim()) {
-      onRenameThread?.(titleDraft.trim());
-      logger.action('ChatView', 'Renamed thread from header', { title: titleDraft.trim() });
-    }
-    setRenamingTitle(false);
-  };
-
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0 w-full h-full bg-[#0d121c] text-[#e3edf7] select-text overflow-hidden pt-0 mt-0">
-      {/* Thread header: title (click to rename) + runtime chip */}
-      <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-2 border-b border-[#121c2c] bg-[#0d121c] shrink-0">
-        {renamingTitle ? (
-          <input
-            autoFocus
-            value={titleDraft}
-            onChange={(e) => setTitleDraft(e.target.value)}
-            onBlur={commitTitleRename}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === 'Enter') commitTitleRename();
-              if (e.key === 'Escape') setRenamingTitle(false);
-            }}
-            className="flex-1 min-w-0 max-w-md bg-[#080d16] border border-[#3b82f6] rounded-lg px-2 py-1 text-xs sm:text-sm text-white font-mono focus:outline-none"
-          />
-        ) : (
-          <button
-            onClick={() => {
-              setTitleDraft(threadTitle);
-              setRenamingTitle(true);
-            }}
-            className="min-w-0 max-w-md text-left px-2 py-1 rounded-lg hover:bg-[#111827] transition-colors cursor-text group"
-            title="Click to rename this thread"
-          >
-            <span
-              className={`text-xs sm:text-sm font-mono font-semibold text-[#eef4fc] truncate block group-hover:text-white ${
-                threadTitleState === 'placeholder' ? 'italic opacity-70' : ''
-              }`}
-            >
-              {threadTitle}
-            </span>
-          </button>
-        )}
-
-        <div className="flex items-center gap-2 shrink-0">
-          {threadRuntime === 'working' ? (
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#0c1a2b] border border-[#1d3a5c] text-[#38bdf8] text-[10px] font-mono max-w-[280px]">
-              <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-              <span className="truncate">
-                {streamPhase === 'streaming'
-                  ? 'Working…'
-                  : streamingStatus || 'Waiting for Gemini…'}
-              </span>
-            </span>
-          ) : threadRuntime === 'queued' ? (
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#241c0c] border border-[#423214] text-[#e0b96c] text-[10px] font-mono">
-              Queued{queuePosition > 1 ? ` — ${queuePosition - 1} ahead` : ''}
-            </span>
-          ) : threadRuntime === 'error' ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-[#241417] border border-[#3d1f25] text-[#f28894] text-[10px] font-mono font-semibold uppercase tracking-wider">
-              Failed
-            </span>
-          ) : threadRuntime === 'interrupted' ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-[#241c0c] border border-[#423214] text-[#e0b96c] text-[10px] font-mono font-semibold uppercase tracking-wider">
-              Interrupted
-            </span>
-          ) : null}
-        </div>
-      </div>
-
+    <div className="relative flex-1 flex flex-col min-h-0 min-w-0 w-full h-full bg-[#0d121c] text-[#e3edf7] select-text overflow-hidden pt-0 mt-0">
       {/* Archived thread: readable, one click to continue */}
       {threadArchived && (
         <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-1.5 bg-[#0a0f19] border-b border-[#1a293e] text-[10px] font-mono text-[#7d93b3] shrink-0 animate-in fade-in duration-150">
@@ -376,6 +306,29 @@ export const ChatView: React.FC<ChatViewProps> = ({
             className="px-2.5 py-1 rounded-lg bg-[#141d2d] hover:bg-[#1a273d] border border-[#1d2d47] text-[#8ab1e0] transition-colors cursor-pointer shrink-0"
           >
             Unarchive
+          </button>
+        </div>
+      )}
+
+      {/* Floating thread title — overlays content, reserves NO vertical space.
+          Appears over the chat (nice on scroll-up); rename lives in the sidebar. */}
+      {!threadArchived && (
+        <div className="absolute top-1.5 left-14 right-3 z-20 flex items-center gap-1.5 pointer-events-none">
+          <span
+            className={`truncate text-[11px] font-mono font-semibold text-[#8ab1e0]/85 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] bg-[#0d121c]/70 backdrop-blur-sm rounded-md px-2 py-1 border border-[#162234]/60 ${
+              threadTitleState === 'placeholder' ? 'italic' : ''
+            }`}
+            title="Rename in the sidebar (double-click the thread)"
+          >
+            {threadTitle}
+          </span>
+          <button
+            type="button"
+            onClick={() => onSuggestTitle?.()}
+            className="pointer-events-auto p-1 rounded-md bg-[#0d121c]/70 backdrop-blur-sm border border-[#162234]/60 text-[#e0b96c] hover:text-[#f0d090] transition-colors cursor-pointer"
+            title="Auto-generate a title for this thread"
+          >
+            <Sparkles className="w-3 h-3" />
           </button>
         </div>
       )}

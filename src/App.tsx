@@ -32,6 +32,7 @@ import { ImportModal } from './components/ImportModal';
 import { ExportModal } from './components/ExportModal';
 import { ProjectLauncher } from './components/ProjectLauncher';
 import { ServerLogsModal } from './components/ServerLogsModal';
+import { ThreadSwitcher } from './components/ThreadSwitcher';
 import { useDomains } from './domains/DomainRegistry';
 import {
   deriveThreadRuntime,
@@ -1197,6 +1198,8 @@ export default function App() {
       setStreamingStatus(null);
       setStreamPhase(null);
       triggerReRender();
+      // Finished while the user was elsewhere → brightness bump until opened.
+      markThreadUnread(job.threadId);
       const next = queueRef.current.shift();
       if (next) void runJob(next);
     }
@@ -1278,6 +1281,67 @@ export default function App() {
     }
     return map;
   }, [tick, threadRegistry]);
+
+  // "New since you left": thread finished generating while you were elsewhere.
+  // Transient (tab-local) — cleared the moment the thread is opened.
+  const [unreadThreadIds, setUnreadThreadIds] = useState<string[]>([]);
+  const markThreadUnread = (threadId: string) => {
+    if (threadId === threadRegistry.getActiveThreadId()) return;
+    setUnreadThreadIds((prev) => (prev.includes(threadId) ? prev : [...prev, threadId]));
+  };
+  const clearThreadUnread = (threadId: string) => {
+    setUnreadThreadIds((prev) =>
+      prev.includes(threadId) ? prev.filter((id) => id !== threadId) : prev
+    );
+  };
+
+  // Quick switcher + shortcuts: Cmd/Ctrl+K switcher, Cmd/Ctrl+N new thread,
+  // Cmd/Ctrl+Shift+A archive/unarchive active thread.
+  const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'k') {
+        e.preventDefault();
+        setIsSwitcherOpen((v) => !v);
+      } else if (k === 'n' && !e.shiftKey) {
+        e.preventDefault();
+        createThread();
+        setActiveView('chat');
+      } else if (k === 'a' && e.shiftKey) {
+        e.preventDefault();
+        const id = threadRegistry.getActiveThreadId();
+        const t = threadRegistry.getThread(id);
+        if (t) {
+          const next = t.lifecycle === 'archived' ? 'active' : 'archived';
+          logger.action('App', `Shortcut archive toggle → ${next}`, { threadId: id });
+          threadRegistry.setThreadLifecycle(id, next);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [createThread, threadRegistry]);
+
+  // User-initiated title suggestion — force (may override a manual name).
+  const handleSuggestTitle = (threadId: string) => {
+    const turns = getTurnsOf(threadId);
+    if (turns.filter((t) => (t.content || '').trim()).length === 0) return;
+    fetch('/api/title-thread', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: sampleTurnsForTitle(turns), version: 2 }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: any) => {
+        if (data?.title && threadRegistry.forceAutoTitle(threadId, data.title)) {
+          logger.info('App', 'Suggested title applied', { threadId, title: data.title });
+          triggerReRender();
+        }
+      })
+      .catch((err) => logger.warn('App', 'suggest-title failed', err));
+  };
   // 1. Pre-flight Auth Gate: Loading State during initial auth probe
   if (!authInitialized) {
     return (
@@ -1383,7 +1447,10 @@ export default function App() {
         folders={threadRegistry.getFolders()}
         activeThreadId={activeThreadId}
         threadRuntimes={threadRuntimes}
-        onSelectThread={selectThread}
+        onSelectThread={(id) => {
+          clearThreadUnread(id);
+          selectThread(id);
+        }}
         onCreateThread={(folderId) => {
           const id = createThread();
           if (folderId) threadRegistry.patch(id, { folderId });
@@ -1401,6 +1468,8 @@ export default function App() {
         onRenameFolder={(id, name) => threadRegistry.renameFolder(id, name)}
         onDeleteFolder={(id) => threadRegistry.deleteFolder(id)}
         onReorderFolders={(dragId, targetId) => threadRegistry.reorderFolderBefore(dragId, targetId)}
+        onSuggestTitle={handleSuggestTitle}
+        unreadThreadIds={unreadThreadIds}
       />
 
       {/* Main Single-Focused Viewport - ZERO TOP BAR */}
@@ -1446,7 +1515,7 @@ export default function App() {
                   threadArchived={threadRegistry.getThread(activeThreadId)?.lifecycle === 'archived'}
                   threadRuntime={threadRuntimes[activeThreadId]?.state || 'idle'}
                   queuePosition={threadRuntimes[activeThreadId]?.position || 0}
-                  onRenameThread={(title) => threadRegistry.rename(activeThreadId, title)}
+                  onSuggestTitle={() => handleSuggestTitle(activeThreadId)}
                   onUnarchive={() => threadRegistry.setThreadLifecycle(activeThreadId, 'active')}
                   onRetry={handleRetryThread}
                   onCancelQueued={() => handleCancelQueued(activeThreadId)}
@@ -1515,6 +1584,25 @@ export default function App() {
         isOpen={isServerLogsOpen}
         onClose={() => setIsServerLogsOpen(false)}
       />
+
+      {/* Quick thread switcher (Cmd/Ctrl+K) — archived included, dimmed */}
+      {isSwitcherOpen && (
+        <ThreadSwitcher
+          threads={threadRegistry.getThreads()}
+          folders={threadRegistry.getFolders()}
+          threadRuntimes={threadRuntimes}
+          activeThreadId={activeThreadId}
+          onSelect={(id) => {
+            clearThreadUnread(id);
+            selectThread(id);
+          }}
+          onNewThread={() => {
+            createThread();
+            setActiveView('chat');
+          }}
+          onClose={() => setIsSwitcherOpen(false)}
+        />
+      )}
 
       {/* Project Launcher Screen / Modal */}
       {isProjectLauncherOpen && (

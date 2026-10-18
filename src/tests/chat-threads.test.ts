@@ -197,6 +197,14 @@ describe('ThreadRegistry', () => {
     expect(reg.getThread(t.id)!.titleState).toBe('manual');
     expect(reg.applyAutoTitle(t.id, 'Hacked', 3)).toBe(false);
     expect(reg.getThread(t.id)!.title).toBe('My Title');
+
+    // user-initiated force overrides the manual lock and retires the pipeline
+    expect(reg.forceAutoTitle(t.id, 'Suggested Title')).toBe(true);
+    expect(reg.getThread(t.id)!.title).toBe('Suggested Title');
+    expect(reg.getThread(t.id)!.titleState).toBe('auto');
+    expect(reg.getThread(t.id)!.titleVersion).toBe(2);
+    expect(reg.forceAutoTitle('missing', 'nope')).toBe(false);
+    expect(reg.forceAutoTitle(t.id, '   ')).toBe(false);
   });
 });
 

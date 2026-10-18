@@ -343,6 +343,17 @@ export class ThreadRegistry {
     return true;
   }
 
+  /**
+   * User-initiated "Suggest new title" — explicitly overrides even a manual
+   * lock (the user asked for it) and retires the pipeline (version 2).
+   */
+  forceAutoTitle(threadId: string, title: string): boolean {
+    const clean = title.replace(/\s+/g, ' ').trim();
+    if (!clean || !this.getThread(threadId)) return false;
+    this.patch(threadId, { title: clean, titleState: 'auto', titleVersion: 2 });
+    return true;
+  }
+
   // ── Background-thread content mutations (serial queue may run jobs
   //    against threads the user is NOT looking at) ───────────────────────
 

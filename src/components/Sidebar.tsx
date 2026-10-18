@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Project, ModelOption, Artifact, ResolutionTier, TierReason } from '../types';
 import { getTokenColor } from '../utils/tokenCalculator';
 import { logger } from '../utils/logger';
@@ -87,6 +87,9 @@ interface SidebarProps {
   onRenameFolder?: (folderId: string, name: string) => void;
   onDeleteFolder?: (folderId: string) => void;
   onReorderFolders?: (dragId: string, targetId: string) => void;
+  onSuggestTitle?: (threadId: string) => void;
+  /** "New since you left" brightness bump — cleared on open. */
+  unreadThreadIds?: string[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -134,6 +137,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRenameFolder,
   onDeleteFolder,
   onReorderFolders,
+  onSuggestTitle,
+  unreadThreadIds = [],
 }) => {
   // Inline accordion toggles (all expand inline in document flow, guaranteeing ZERO container clipping)
   const [projectAccordionOpen, setProjectAccordionOpen] = useState(false);
@@ -158,6 +163,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [archivedOpen, setArchivedOpen] = useState(false);
   // Drag & drop highlight target: 'inbox' | 'archived' | folderId
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const unreadSet = useMemo(() => new Set(unreadThreadIds), [unreadThreadIds]);
+
 
   // Drag payload MIME types (HTML5 dnd — no library)
   const DRAG_THREAD = 'application/x-markbrain-thread';
@@ -278,7 +285,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className={`w-full flex items-center gap-2 p-2 rounded-lg text-left text-xs transition-colors cursor-pointer group select-none ${
           isActive
             ? 'bg-[#182338] text-[#8ab1e0] font-semibold border border-[#223552]'
-            : 'hover:bg-[#0e1626] text-[#9bb0d1] border border-transparent'
+            : unreadSet.has(t.id)
+              ? 'bg-[#111c33] text-[#d6e3f5] border border-[#1d3150] font-medium'
+              : 'hover:bg-[#0e1626] text-[#9bb0d1] border border-transparent'
         } ${opts.dimmed ? 'opacity-70' : ''}`}
         title={`${t.preview || t.title}${opts.dimmed ? ' (archived)' : ''}`}
       >
@@ -298,6 +307,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
         ) : (
           <>
+
             <span
               className={`flex-1 min-w-0 truncate ${
                 t.titleState === 'placeholder' ? 'italic opacity-70' : ''
@@ -351,7 +361,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <aside
         className={`fixed md:relative top-0 bottom-0 left-0 z-40 md:z-20 h-full bg-[#090d16]/98 md:bg-[#090d16] border-r border-[#121c2d] flex flex-col transition-all duration-200 ease-in-out text-[#d6e3f5] backdrop-blur-xl shrink-0 ${
           isOpen
-            ? 'w-80 md:w-80 translate-x-0 shadow-2xl md:shadow-none'
+            ? 'w-[85vw] max-w-[350px] md:w-[350px] translate-x-0 shadow-2xl md:shadow-none'
             : '-translate-x-full md:translate-x-0 md:w-0 md:overflow-hidden md:border-r-0'
         }`}
       >
@@ -634,13 +644,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             e.dataTransfer.effectAllowed = 'move';
                           }}
                           onClick={() => setFolderOpen((p) => ({ ...p, [f.id]: !open }))}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            if (!isRenaming) beginFolderNameBox('rename', f.id, f.name);
+                          }}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             setThreadMenu(null);
                             setFolderMenu({ x: e.clientX, y: e.clientY, folderId: f.id });
                           }}
                           className="w-full flex items-center gap-1.5 p-1.5 rounded-lg text-xs text-[#9bb0d1] hover:bg-[#0e1626] cursor-pointer select-none"
-                          title="Click to fold · drag to reorder · right-click for actions"
+                          title="Click to fold · double-click to rename · drag to reorder · right-click for actions"
                         >
                           {open ? (
                             <ChevronDown className="w-3 h-3 text-[#556985] shrink-0" />
@@ -726,6 +740,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {threads.length === 0 && (
                     <p className="text-[10px] font-mono text-[#526682] p-2">No threads yet.</p>
                   )}
+
+
                 </div>
               </div>
             )}
@@ -749,6 +765,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
                     >
                       Rename
+                    </button>
+                    <button
+                      onClick={() => {
+                        const id = threadMenu.threadId;
+                        setThreadMenu(null);
+                        if (t) {
+                          logger.action('Sidebar', 'Suggest new title', { threadId: id });
+                          onSuggestTitle?.(id);
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+                    >
+                      Suggest new title
                     </button>
                     <button
                       onClick={() => setMenuMoveOpen((v) => !v)}
@@ -838,6 +867,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {(() => {
                 const f = folders.find((x) => x.id === folderMenu.folderId);
                 if (!f) return null;
+                const fCount = threadsInFolder(f.id).length;
                 return (
                   <>
                     <button
@@ -860,7 +890,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onClick={() => {
                         const id = folderMenu.folderId;
                         setFolderMenu(null);
-                        if (window.confirm(`Delete folder "${f.name}"? Threads inside return to Inbox.`)) {
+                        if (fCount > 0) {
+                          window.alert(`"${f.name}" is not empty — move or delete its threads first.`);
+                        } else if (window.confirm(`Delete folder "${f.name}"?`)) {
                           logger.action('Sidebar', 'Delete folder', { folderId: id });
                           onDeleteFolder?.(id);
                         }

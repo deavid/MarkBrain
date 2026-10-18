@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Project, Artifact, ArtifactType } from '../types';
+import { logger } from '../utils/logger';
 import {
   googleSignIn,
   googleSignOut,
@@ -183,7 +184,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
         setExtractedSuccess(true);
       }
     } catch (err) {
-      console.error('LLM Extraction failed:', err);
+      logger.error('ImportModal', 'LLM extraction failed', err);
     } finally {
       setIsExtractingWithAI(false);
     }
@@ -311,6 +312,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
   // Save Artifact
   const handleConfirmImport = () => {
+    logger.action('ImportModal', `Confirm import: ${artifactTitle || artifactCode}`);
     if (!uploadContent.trim()) return;
 
     const baseTitle =

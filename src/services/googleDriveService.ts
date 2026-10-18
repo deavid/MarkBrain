@@ -8,6 +8,7 @@ import {
   signOut,
   Auth,
 } from 'firebase/auth';
+import { logger } from '../utils/logger';
 
 let appInstance: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
@@ -39,7 +40,7 @@ async function getOrInitAuth(): Promise<Auth | null> {
     authInstance = getAuth(appInstance);
     return authInstance;
   } catch (e) {
-    console.warn('Failed to initialize Firebase Auth from environment config:', e);
+    logger.warn('Drive', 'Failed to initialize Firebase Auth from environment config', e);
     return null;
   }
 }
@@ -104,7 +105,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error) {
-    console.error('Google sign-in error:', error);
+    logger.error('Drive', 'Google sign-in error', error);
     throw error;
   } finally {
     isSigningIn = false;
@@ -199,7 +200,7 @@ export async function listDriveFiles(
 
     // If query failed with 400 (e.g. strict query syntax restriction on user account), retry with simple query
     if (!res.ok && res.status === 400) {
-      console.warn('Drive query with mimeType returned 400, falling back to simple trashed=false query');
+      logger.warn('Drive', 'Drive query with mimeType returned 400 — falling back to simple trashed=false query');
       res = await fetchFiles('trashed = false');
     }
 
@@ -243,7 +244,7 @@ export async function listDriveFiles(
 
     return files;
   } catch (err) {
-    console.error('Failed to list Drive files:', err);
+    logger.error('Drive', 'Failed to list Drive files', err);
     throw err;
   }
 }
@@ -405,7 +406,7 @@ export async function fetchGoogleDocById(
 
     throw new Error('Unable to read Google Doc. Verify that you have view permissions for this document.');
   } catch (err) {
-    console.error('Failed to fetch Google Doc by ID:', err);
+    logger.error('Drive', 'Failed to fetch Google Doc by ID', err);
     throw err;
   }
 }
@@ -434,7 +435,7 @@ export async function fetchDriveFileContent(
           }
         }
       } catch (e) {
-        console.warn('Native markdown export not available, falling back to Docs API AST parsing:', e);
+        logger.warn('Drive', 'Native markdown export unavailable — falling back to Docs API AST parsing', e);
       }
 
       // Second try: Google Docs API v1 AST document fetch and structured Markdown conversion
@@ -452,7 +453,7 @@ export async function fetchDriveFileContent(
           }
         }
       } catch (e) {
-        console.warn('Google Docs API fetch failed, trying text/plain export:', e);
+        logger.warn('Drive', 'Docs API fetch failed — falling back to text/plain export', e);
       }
 
       // Third try: plain text export
@@ -483,7 +484,7 @@ export async function fetchDriveFileContent(
     const text = await res.text();
     return { markdown: text, format: 'native_markdown' };
   } catch (err) {
-    console.error('Failed to fetch Drive file content:', err);
+    logger.error('Drive', 'Failed to fetch Drive file content', err);
     throw err;
   }
 }

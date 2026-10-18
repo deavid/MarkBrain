@@ -656,7 +656,7 @@ ${conversationTranscript}`;
       tokens: estimateTokens(summaryText + keyPoints.join(' ')),
     });
   } catch (err: unknown) {
-    console.error('Error in /api/summarize-chapter:', err);
+    logServer('error', 'API:SUMMARIZE', `Error in /api/summarize-chapter: ${err instanceof Error ? err.message : err}`, err);
     const errorMessage = err instanceof Error ? err.message : 'Summarization error';
     res.status(500).json({ error: errorMessage });
   }
@@ -723,7 +723,7 @@ app.post('/api/tts', async (req: Request, res: Response) => {
       cleanSpokenText,
     });
   } catch (err: unknown) {
-    console.error('Error in /api/tts:', err);
+    logServer('error', 'API:TTS', `Error in /api/tts: ${err instanceof Error ? err.message : err}`, err);
     // Return fallback: true so client seamlessly plays via Web Speech API
     const cleanSpokenText = (req.body.text || '')
       .replace(/```[\s\S]*?```/g, '')
@@ -838,7 +838,7 @@ ${content.slice(0, 24000)}`;
       },
     });
   } catch (err: unknown) {
-    console.error('Error in /api/extract-artifact-from-file:', err);
+    logServer('error', 'API:EXTRACT', `Error in /api/extract-artifact-from-file: ${err instanceof Error ? err.message : err}`, err);
     const errorMessage = err instanceof Error ? err.message : 'Extraction error';
     res.status(500).json({ error: errorMessage });
   }
@@ -863,11 +863,11 @@ async function startServer() {
   }
 
   app.listen(port, '0.0.0.0', () => {
-    console.log(`[MarkBrain] Server listening on http://0.0.0.0:${port}`);
+    logServer('info', 'SERVER', `Server listening on http://0.0.0.0:${port}`);
   });
 }
 
 startServer().catch((err) => {
-  console.error('Failed to start server:', err);
+  logServer('error', 'SERVER', `Failed to start server: ${err instanceof Error ? err.message : err}`, err);
   process.exit(1);
 });

@@ -192,6 +192,7 @@ export default function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleStopGeneration = useCallback(() => {
+    logger.action('App', 'Stop generation');
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -202,7 +203,7 @@ export default function App() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: 'Stop button pressed by user' }),
-    }).catch(() => {});
+    }).catch((e) => logger.warn('App', 'POST /api/chat/cancel failed', e));
   }, []);
 
   // Pinned Focal Artifacts & Tier Overrides
@@ -602,23 +603,30 @@ export default function App() {
 
   // Summarize Chapter
   const handleSummarizeChapter = async (chapterId: string) => {
-    const activeChap = segmentation.getActiveChapter();
-    if (!activeChap) return;
+    const target = segmentation.getChapter(chapterId);
+    if (!target) {
+      logger.warn('App', `Summarize requested for unknown chapter ${chapterId}`);
+      return;
+    }
 
     try {
-      const turns = timeline.getTurnSlice(activeChap.startIndex, activeChap.endIndex);
+      const turns = timeline.getTurnSlice(target.startIndex, target.endIndex);
       const res = await fetch('/api/summarize-chapter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: activeChap.title,
+          title: target.title,
           messages: turns.map((t) => ({ role: t.role, content: t.content })),
         }),
       });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        throw new Error(`summarize-chapter HTTP ${res.status}${errBody?.error ? `: ${errBody.error}` : ''}`);
+      }
       const data = await res.json();
       segmentation.updateSummary(chapterId, data.summary);
     } catch (err) {
-      console.error('Failed to summarize chapter:', err);
+      logger.error('App', `Failed to summarize chapter ${chapterId}`, err);
     }
   };
 
@@ -825,6 +833,12 @@ export default function App() {
         },
       });
       triggerReRender();
+      logger.info('App', `Turn completed${isInterrupted ? ' (interrupted)' : ''}`, {
+        model: result.telemetry?.model || selectedModel.name,
+        totalTokens: totalTok,
+        artifacts: extractedList.length,
+        topicShifts: result.topicShift ? 1 : 0,
+      });
     } catch (err: any) {
       if (err.name === 'AbortError' || controller.signal.aborted) {
         const estPrompt = Math.max(1, Math.ceil((compiledContext.telemetry.tokenBreakdown.totalTokens || 120)));
@@ -843,8 +857,9 @@ export default function App() {
             outputTokens: estCand,
           },
         });
+        logger.info('App', 'Turn interrupted by user', { promptTokens: estPrompt, partialTokens: estCand });
       } else {
-        console.error('Error in streaming turn:', err);
+        logger.error('App', 'Streaming turn failed', err);
         timeline.updateTurn(assistantTurn.id, {
           content: assistantTurn.content || 'Error communicating with reasoning engine. Please try again.',
           meta: {

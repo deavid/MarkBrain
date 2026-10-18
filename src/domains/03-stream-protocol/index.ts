@@ -8,6 +8,7 @@ import {
   StreamTurnResult,
 } from './types';
 import { RelationKind } from '../02-topological-graph';
+import { logger } from '../../utils/logger';
 
 export interface IStreamProtocolDomain {
   demuxChunk(chunk: string): string;
@@ -99,8 +100,8 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
           };
           this.handlers.onTopicShiftDetected?.forEach((fn) => fn(topicShift!));
         }
-      } catch {
-        // ignore
+      } catch (e) {
+        logger.warn('Stream', 'Legacy topic_shift JSON parse failed — shift ignored', e);
       }
     }
 
@@ -303,7 +304,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
             throw new Error(data.error || 'Stream error from server');
           }
         } catch (err) {
-          console.warn('Error processing SSE chunk:', err);
+          logger.warn('Stream', 'Error processing SSE chunk — stream continues', err);
         }
       }
     }

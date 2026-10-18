@@ -1,7 +1,16 @@
 /**
- * MarkBrain Centralized Production Logger
- * Provides permanent, high-visibility diagnostic logging across all application domains,
- * user interactions, streaming events, and error branches.
+ * MarkBrain centralized logger.
+ *
+ * THE INSTRUMENTATION LAW (David, 2026-10-18 — see design-docs/05_CLEANSE_DECISIONS.md):
+ * - `action`  — exactly one per human gesture (tap send, toggle, confirm). NEVER
+ *               from domain internals, NEVER from stream chunks, NEVER in loops.
+ * - `info`    — lifecycle that is not a gesture (boot, load, turn completed).
+ *               Guideline: ~1 per human action.
+ * - `warn`    — EVERY fallback / silent-degradation branch, by definition.
+ *               If a branch recovers from something unexpected, it warns.
+ * - `error`   — user-visible failure, data-loss risk, contract violation.
+ * - HARD RULE — max 16 events per human action. If honoring that is hard,
+ *               do NOT add the logging. Never log hot loops.
  */
 
 export type LogCategory =
@@ -16,7 +25,11 @@ export type LogCategory =
   | 'Auth'
   | 'AuthGate'
   | 'ProjectGenesis'
-  | 'ErrorBoundary';
+  | 'ErrorBoundary'
+  // Open tail — any component/domain may log without joining this union
+  // by hand. (Previously closed: ImportModal, Compiler, Drive, TTS, etc.
+  // were forced into raw console.*.)
+  | (string & {});
 
 export interface LogEntry {
   timestamp: string;

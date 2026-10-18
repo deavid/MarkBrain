@@ -1,5 +1,6 @@
 import YAML from 'yaml';
 import { Artifact, ArtifactGraphData, ArtifactVersion, ArtifactType, ArtifactCategory } from '../types';
+import { logger } from './logger';
 
 export interface ParsedYamlArtifact {
   artifact: Artifact;
@@ -152,7 +153,7 @@ export function parseYamlArtifactDoc(
         hasFrontmatter: true,
       };
     } catch (e) {
-      console.warn('Failed to parse YAML frontmatter, treating as plain markdown:', e);
+      logger.warn('YamlParser', 'Failed to parse YAML frontmatter, treating as plain markdown', e);
     }
   }
 

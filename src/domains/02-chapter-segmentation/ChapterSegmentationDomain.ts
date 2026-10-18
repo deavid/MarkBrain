@@ -26,7 +26,7 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
   }
 
   declareNewChapter(title: string, startIndex: number, reason?: string, color?: string): ChapterPartition {
-    logger.action('Segmentation', `Declare new chapter "${title}" at turn #${startIndex}`, { reason, color });
+    logger.info('Segmentation', `Declare new chapter "${title}" at turn #${startIndex}`, { reason, color });
     // Close existing active chapter
     this.chapters.forEach((c) => {
       if (c.status === 'active') {
@@ -77,14 +77,20 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
 
   shiftBoundary(chapterId: string, newStartIndex: number): void {
     const chapter = this.chapters.find((c) => c.id === chapterId);
-    if (!chapter) return;
+    if (!chapter) {
+      logger.warn('Segmentation', `shiftBoundary: unknown chapter ${chapterId} — ignored`);
+      return;
+    }
     chapter.startIndex = newStartIndex;
     this.emit({ type: 'boundaryShifted', chapterId, newStartIndex });
   }
 
   updateSummary(chapterId: string, summary: string, keyPoints?: string[]): void {
     const chapter = this.chapters.find((c) => c.id === chapterId);
-    if (!chapter) return;
+    if (!chapter) {
+      logger.warn('Segmentation', `updateSummary: unknown chapter ${chapterId} — ignored`);
+      return;
+    }
     chapter.summary = summary;
     if (keyPoints) chapter.keyPoints = keyPoints;
     this.emit({ type: 'chapterSummaryUpdated', chapterId, summary, keyPoints });

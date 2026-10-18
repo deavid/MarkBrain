@@ -2,6 +2,7 @@ import { ITopologicalGraphDomain } from '../02-topological-graph';
 import { IArtifactDocumentDomain, ResolutionTier } from '../01-artifact-document';
 import { IChapterSegmentationDomain } from '../02-chapter-segmentation';
 import { IDialogueTimelineDomain } from '../01-dialogue-timeline';
+import { logger } from '../../utils/logger';
 
 export interface OpticalCompilerOptions {
   focalIds: string[];
@@ -188,6 +189,11 @@ Emit functional XML tags when appropriate:
       else if (t.tier === 0) counts.tier0Count++;
       else counts.culledCount++;
     });
+
+    logger.info('Compiler', `Compiled context: ${totalTokens} tokens (ceiling ${ceiling})`, counts);
+    if (totalTokens > ceiling) {
+      logger.warn('Compiler', `Compiled prompt exceeds token ceiling (${totalTokens} > ${ceiling}) — no degradation path exists yet`, counts);
+    }
 
     return {
       compiledPrompt,

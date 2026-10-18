@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, Trash2, Copy, Check, X, ArrowDown } from 'lucide-react';
+import { logger } from '../utils/logger';
 
 export interface ServerLogItem {
   id: string;
@@ -35,7 +36,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
           setLogs(data.logs);
         }
       })
-      .catch((err) => console.error('Failed to load initial server logs:', err));
+      .catch((err) => logger.error('ServerLogs', 'Failed to load initial server logs', err));
 
     // Connect to live SSE stream
     const eventSource = new EventSource('/api/server-logs/stream');
@@ -47,7 +48,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
           setLogs(data.logs);
         }
       } catch (err) {
-        console.error('Error parsing log_init:', err);
+        logger.warn('ServerLogs', 'Error parsing log_init event', err);
       }
     });
 
@@ -56,7 +57,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
         const item = JSON.parse(e.data);
         setLogs((prev) => [...prev.slice(-300), item]);
       } catch (err) {
-        console.error('Error parsing SSE log:', err);
+        logger.warn('ServerLogs', 'Error parsing SSE log event', err);
       }
     });
 
@@ -79,7 +80,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
       await fetch('/api/server-logs/clear', { method: 'POST' });
       setLogs([]);
     } catch (e) {
-      console.error('Failed to clear logs:', e);
+      logger.error('ServerLogs', 'Failed to clear server logs', e);
     }
   };
 

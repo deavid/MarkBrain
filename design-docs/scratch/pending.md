@@ -36,15 +36,24 @@
     (never actually used yet — app never worked for him).
   - Cleanse mode = **my call → purge-in-place**, `server.ts` + `types/index.ts`
     radioactive. Phase plan proposed in 05 §phase-plan (1 lie removal →
-    2 instrumentation law → 3 data-model fight → 4 mirror) — **Phase 1 DONE
-    (2026-10-18 ~09:35), uncommitted on `dev-nova` (worktree, alias nova):**
+    2 instrumentation law → 3 data-model fight → 4 mirror) — **Phase 1 DONE +
+    COMMITTED (`66ed42a` on `dev-nova`, worktree alias nova):**
     persona/placeholders/model copy/prompt voice/category defaults
     (`system-spec`→`note`)/`/api/chat` dead endpoint all purged across ~21
     files. Green: vitest 6/6, tsc clean. Deliberately NOT touched (Phase 3):
     internal identifiers (`substrateTokens`, `<knowledge_substrate>` XML tag,
     `knowledge_substrate` protocol), test fixture strings, legacy
-    `architecture` folder default (old data may exist). Awaiting commit OK
-    from David, then Phase 2 greenlight.
+    `architecture` folder default (old data may exist).
+  - **Phase 2 (instrumentation law) DONE (2026-10-18 ~10:05), uncommitted:**
+    per-chunk action flood killed (`updateTurn` hot path silent),
+    `appendTurn`/`declareNewChapter` action→info, `LogCategory` opened,
+    every fallback warns (persistence/YAML/topic_shift/SSE/Drive×4/cancel/
+    segmentation-unknown-id/ceiling-breach), `compile()` + graph load +
+    turn lifecycle instrumented, raw `console.*` eliminated from all of `src/`,
+    summarize-chapter wrong-chapter + missing `res.ok` bugs fixed, Stop +
+    ImportConfirm gesture actions added. Per-send trace: typical 5 / worst ~9
+    / cap 16 → PASS. Green: vitest 6/6, tsc clean. Full record in 05 ledger.
+    Awaiting commit; Phase 3 (data-model fight) next.
   - **Tautologies: DELETE — actioned same day** (J5/6/7/9 removed, J3 renamed;
     suite 13 → 6 tests; run `bunx vitest run` to verify).
   - Logging: **law** = 1/human action guideline, **max 16 hard rule**, don't

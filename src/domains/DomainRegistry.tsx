@@ -10,6 +10,7 @@ import { RecursiveGroupingDomain, IRecursiveGroupingDomain } from './02-recursiv
 import { StreamProtocolDomain, IStreamProtocolDomain } from './03-stream-protocol';
 import { ChapterRecalibrationDomain, IChapterRecalibrationDomain } from './03-chapter-recalibration';
 import { OpticalCompilerDomain, IOpticalCompilerDomain } from './03-optical-compiler';
+import { logger } from '../utils/logger';
 import {
   saveProjectSnapshot,
   loadProjectSnapshot,
@@ -101,7 +102,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         artifacts.loadArtifacts(snap.artifacts || []);
         graph.loadEdges(snap.edges || []);
       } catch (err) {
-        console.warn('[DomainRegistry] snapshot load failed:', err);
+        logger.warn('DomainRegistry', 'Snapshot load failed', err);
       }
     })();
     return () => {
@@ -144,7 +145,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         edges: graph.listEdges(),
       });
     } catch (err) {
-      console.warn('[DomainRegistry] Persistence failed:', err);
+      logger.error('DomainRegistry', 'Persistence failed', err);
     }
   }, [workspace, timeline, segmentation, artifacts, graph]);
 
@@ -183,7 +184,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setCloudProjectsCount(userProjects.length);
       workspace.loadUserProjects(userProjects); // [] clears registry → Genesis
     } catch (err) {
-      console.warn('[DomainRegistry] Error loading project list:', err);
+      logger.warn('DomainRegistry', 'Error loading project list', err);
       setCloudProjectsCount(0);
     }
   }, [workspace]);

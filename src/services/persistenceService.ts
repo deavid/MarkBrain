@@ -46,6 +46,7 @@ export function getBackend(): StorageBackend {
   try {
     return window.localStorage.getItem(BACKEND_KEY) === 'local' ? 'local' : 'firestore';
   } catch {
+    logger.warn('Persistence', 'localStorage unavailable — defaulting to firestore backend');
     return 'firestore';
   }
 }
@@ -54,7 +55,9 @@ export function setBackend(backend: StorageBackend): void {
   try {
     if (backend === 'firestore') window.localStorage.removeItem(BACKEND_KEY);
     else window.localStorage.setItem(BACKEND_KEY, backend);
-  } catch { /* storage unavailable → next boot defaults to firestore */ }
+  } catch {
+    logger.warn('Persistence', 'setBackend: storage write failed — backend choice not persisted');
+  }
   logger.info('Persistence', `Backend → ${backend}`);
 }
 

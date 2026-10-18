@@ -110,3 +110,41 @@ It's Phase 3 in the plan below, and the mirror (Phase 4) must wait for it.
   protocol tag, `substrateParts` locals. Renaming these is a cross-cutting
   model change, not copy. Test fixture strings left (not user-facing).
   Legacy `architecture:` folder default kept (David's existing data may use it).
+
+---
+
+## 2026-10-18 ~10:05 — Phase 2 (instrumentation law) EXECUTED — nova
+
+- **Status:** DONE, uncommitted. Green: vitest 6/6, `tsc --noEmit` clean.
+  Zero raw `console.warn/error/log` left anywhere in `src/` (logger sink + CLI
+  scripts excluded).
+- **Flood killed:** `Timeline.updateTurn` per-chunk `action` log REMOVED (hot
+  path — law: never log hot loops). `appendTurn` + `declareNewChapter`
+  demoted `action` → `info` (domain internals are not gestures).
+- **Law codified** in `logger.ts` header; `LogCategory` opened with
+  `(string & {})` tail — ImportModal/Compiler/Drive/TTS/etc. can log without
+  joining a closed union by hand.
+- **Every fallback now warns:** persistence `getBackend`/`setBackend` storage
+  catches, YAML frontmatter parse fail, legacy `topic_shift` parse fail, SSE
+  chunk parse fail, Drive auth-init / mimeType-400 / 2-deep export fallbacks,
+  `summarize-chapter` / cancel-fetch failures, silent
+  `shiftBoundary`/`updateSummary` unknown-id returns, ceiling breach in
+  `compile()`.
+- **Instrumented:** `compile()` → one `info` per compile (tokens + tier
+  counts) + `warn` on ceiling breach (the previously nonexistent degradation
+  signal); `graph.loadEdges` → one `info`; turn lifecycle → `info` at
+  "Turn completed" / "Turn interrupted" with tokens+artifact totals.
+- **Routed to sinks:** all `server.ts` `console.error` → `logServer('error')`;
+  all client raw console → `logger`.
+- **Bug fixed (findings §7.4.1–2):** `handleSummarizeChapter` now fetches the
+  **target** chapter (`getChapter(chapterId)`), not the active one; checks
+  `res.ok`; failures → `logger.error`.
+- **Added missing gesture logs:** Stop generation → `action`; ImportModal
+  confirm → `action`.
+- **Per-send manual trace (the ≤16 verification):**
+  1 `action` (send) + 2 `info` (appends) + 1–2 `info` (compile; memo may
+  recompute) + 0–2 `info` (topic shifts) + 1 `info` (turn completed) + 0 per
+  chunk = **typical 5, worst realistic ~9, hard cap 16. PASS.** Stop path:
+  1 `action` + 1 `info` interrupted (+1 `warn` only if cancel fetch fails).
+- **Deliberately NOT logged:** `recordRevision` / graph `addEdge` (bulk-import
+  loops — would break the 16-cap); dead domains (Phase 3 keep/kill first).

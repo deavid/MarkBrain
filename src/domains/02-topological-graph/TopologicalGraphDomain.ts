@@ -1,5 +1,6 @@
 import { ITopologicalGraphDomain } from './interface';
 import { SemanticEdge, RelationKind, GraphEvent } from './types';
+import { logger } from '../../utils/logger';
 
 export class TopologicalGraphDomain implements ITopologicalGraphDomain {
   private edges: Map<string, SemanticEdge> = new Map();
@@ -42,6 +43,7 @@ export class TopologicalGraphDomain implements ITopologicalGraphDomain {
   loadEdges(edges: SemanticEdge[]): void {
     this.edges.clear();
     edges.forEach((e) => this.edges.set(e.id, e));
+    logger.info('Graph', `Loaded ${this.edges.size} edges`);
     this.emit({ type: 'edgesLoaded', edges: Array.from(this.edges.values()) });
   }
 

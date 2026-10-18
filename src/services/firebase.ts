@@ -12,6 +12,7 @@ import {
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
+import { logger } from '../utils/logger';
 // The web API key comes from .env only (gitignored — the real boundary: keeping
 // it out of git history). It still reaches the client bundle by design; that's
 // Firebase's model, not a leak we can close from here.
@@ -91,7 +92,7 @@ export function handleFirestoreError(
     operationType,
     path,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  logger.error('Firebase', 'Firestore Error', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
@@ -101,7 +102,7 @@ export async function testConnection(): Promise<void> {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+      logger.error('Firebase', 'Boot connection test failed — check Firebase configuration');
     }
   }
 }
@@ -111,12 +112,12 @@ testConnection();
 // Authentication helper methods
 export async function signInWithGoogle(): Promise<User> {
   try {
-    console.log('[MarkBrain:Auth] Initiating Google Sign-In with popup...');
+    logger.info('Auth', 'Initiating Google Sign-In with popup...');
     const result = await signInWithPopup(auth, googleProvider);
-    console.log('[MarkBrain:Auth] Google Sign-In successful for:', result.user.email);
+    logger.info('Auth', `Google Sign-In successful for: ${result.user.email}`);
     return result.user;
   } catch (error: any) {
-    console.error('[MarkBrain:Auth] Google Sign-In error:', error?.code, error?.message);
+    logger.error('Auth', 'Google Sign-In error', { code: error?.code, message: error?.message });
     // Preserve the error CODE on every path — AuthGate classifies on codes,
     // never on message strings (the old string-matching was load-bearing
     // rot caused by exactly this function throwing bare Errors).
@@ -145,9 +146,9 @@ export async function signInWithGoogle(): Promise<User> {
 }
 
 export async function logOut(): Promise<void> {
-  console.log('[MarkBrain:Auth] Signing out user...');
+  logger.info('Auth', 'Signing out user...');
   await signOut(auth);
-  console.log('[MarkBrain:Auth] User successfully signed out');
+  logger.info('Auth', 'User successfully signed out');
 }
 
 export function subscribeToAuth(callback: (user: User | null) => void): () => void {

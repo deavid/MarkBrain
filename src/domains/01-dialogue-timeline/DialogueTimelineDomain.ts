@@ -44,7 +44,7 @@ export class DialogueTimelineDomain implements IDialogueTimelineDomain {
       meta,
     };
     this.turns.push(turn);
-    logger.action('Timeline', `Appended turn [${role}] #${this.turns.length}`, { id: turn.id, role, length: content.length, meta });
+    logger.info('Timeline', `Appended turn [${role}] #${this.turns.length}`, { id: turn.id, role, length: content.length, meta });
     this.emit({ type: 'turnAppended', turn });
     return turn;
   }
@@ -52,8 +52,9 @@ export class DialogueTimelineDomain implements IDialogueTimelineDomain {
   updateTurn(id: string, partial: Partial<Turn>): void {
     const idx = this.turns.findIndex((t) => t.id === id);
     if (idx !== -1) {
+      // Hot path: called once per SSE chunk during streaming — no logging here
+      // (instrumentation law: never log hot loops; see logger.ts header).
       this.turns[idx] = { ...this.turns[idx], ...partial };
-      logger.action('Timeline', `Updated turn ${id}`, { partialKeys: Object.keys(partial), interrupted: (partial.meta as any)?.interrupted });
       this.emit({ type: 'turnUpdated', turn: this.turns[idx] });
     } else {
       logger.warn('Timeline', `Attempted to update non-existent turn: ${id}`);

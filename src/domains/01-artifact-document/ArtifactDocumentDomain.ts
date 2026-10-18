@@ -65,6 +65,11 @@ export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
       tags: doc.tags || existing?.tags || ['synthesized'],
       createdAt: existing?.createdAt || now,
       updatedAt: now,
+      // Preserve optional fields: prefer values from the update, else keep existing.
+      // (Previously these were silently dropped, which broke node drag positions.)
+      graph: doc.graph !== undefined ? doc.graph : existing?.graph,
+      resolution: doc.resolution !== undefined ? doc.resolution : existing?.resolution,
+      yamlDocument: doc.yamlDocument !== undefined ? doc.yamlDocument : existing?.yamlDocument,
     };
 
     this.artifacts.set(doc.id, merged);

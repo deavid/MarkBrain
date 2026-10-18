@@ -621,7 +621,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                   : `0 4px 16px -2px ${artColor}15`,
               }}
               onPointerDown={(e) => handleNodePointerDown(e, node)}
-              className={`absolute pointer-events-auto rounded-xl p-3 border backdrop-blur-md cursor-grab active:cursor-grabbing transition-all select-none bg-[#101726]/95 hover:border-[#2f4368] ${
+              className={`absolute pointer-events-auto rounded-xl p-3 border backdrop-blur-md cursor-grab active:cursor-grabbing transition-[border-color,box-shadow] select-none bg-[#101726]/95 hover:border-[#2f4368] ${
                 isSelected ? 'ring-2 ring-[#e65a6c]' : ''
               }`}
             >

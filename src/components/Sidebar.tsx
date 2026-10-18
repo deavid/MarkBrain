@@ -57,6 +57,8 @@ interface SidebarProps {
   onSelectArtifact?: (art: Artifact) => void;
   selectedArtifactId?: string | null;
   onToggleFocus?: (artId: string) => void;
+  /** Phase 3: flagged-row click in Revisions mode opens triage instead of detail. */
+  onTriageArtifact?: (artId: string) => void;
   focalIds?: string[];
   nodeTiers?: Record<
     string,
@@ -92,6 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectArtifact,
   selectedArtifactId,
   onToggleFocus,
+  onTriageArtifact,
   focalIds = [],
   nodeTiers = {},
   onChangeTierOverride,
@@ -557,6 +560,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', `Toggled focus for artifact: ${artId}`);
                       onToggleFocus?.(artId);
                     }}
+                    onTriageArtifact={onTriageArtifact}
                     focalIds={focalIds}
                     nodeTiers={nodeTiers}
                     onChangeTierOverride={onChangeTierOverride}

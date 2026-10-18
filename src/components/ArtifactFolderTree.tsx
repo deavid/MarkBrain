@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Project, Artifact, ResolutionTier, TierReason } from '../types';
+import { isFlaggedArtifact } from '../utils/importDetect';
 import {
   Folder,
   FolderOpen,
@@ -66,6 +67,8 @@ interface ArtifactFolderTreeProps {
   focalIds?: string[];
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
+  /** Phase 3: flagged-row click while the Revisions filter is on opens triage. */
+  onTriageArtifact?: (artId: string) => void;
   nodeTiers?: Record<
     string,
     { tier: ResolutionTier | 'culled'; distance: number; reason?: TierReason }
@@ -86,6 +89,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
   nodeTiers = {},
   onChangeTierOverride,
   tierOverrides = {},
+  onTriageArtifact,
 }) => {
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({
     all: true,
@@ -96,7 +100,14 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
   });
   const [filterText, setFilterText] = useState('');
   const [contextFilter, setContextFilter] = useState<ArtifactFilterMode>('all');
+  const [revisionsOnly, setRevisionsOnly] = useState(false);
   const [activeMenuArtifactId, setActiveMenuArtifactId] = useState<string | null>(null);
+
+  // Phase 2: artifacts auto-flagged as possible re-imports (revision-of/duplicate-of)
+  const flaggedCount = useMemo(
+    () => project.artifacts.filter(isFlaggedArtifact).length,
+    [project.artifacts]
+  );
 
   const toggleFolder = (folderName: string) => {
     setOpenFolders((prev) => ({ ...prev, [folderName]: !prev[folderName] }));
@@ -133,6 +144,9 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
         if (!matchesText) return false;
       }
 
+      // 1b. Revisions-only filter (Phase 2 import flags)
+      if (revisionsOnly && !isFlaggedArtifact(art)) return false;
+
       // 2. Context status filter
       if (contextFilter === 'in_context') {
         return inContextArtifactIds.has(art.id);
@@ -142,7 +156,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
       }
       return true;
     });
-  }, [project.artifacts, filterText, contextFilter, inContextArtifactIds]);
+  }, [project.artifacts, filterText, contextFilter, revisionsOnly, inContextArtifactIds]);
 
   // Group by category
   const groupedArtifacts = useMemo(() => {
@@ -217,6 +231,23 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
           >
             Out ({project.artifacts.length - inContextArtifactIds.size})
           </button>
+          <button
+            onClick={() => setRevisionsOnly((v) => !v)}
+            className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer shrink-0 ${
+              revisionsOnly
+                ? 'bg-[#2a1f0d] text-[#f0c674] font-semibold border border-[#4a3a16]'
+                : flaggedCount > 0
+                  ? 'bg-[#070b12] text-[#f0c674]/80 hover:text-[#f0c674] border border-[#2a1f0d]'
+                  : 'bg-[#070b12] text-[#6b82a3] hover:text-[#9bb0d1]'
+            }`}
+            title={
+              flaggedCount > 0
+                ? 'Artifacts auto-flagged on import as possible revisions/duplicates of an older note — click a flagged artifact (with this filter on) to open triage'
+                : 'No flagged revisions.'
+            }
+          >
+            ⚑ Revisions ({flaggedCount})
+          </button>
         </div>
       </div>
 
@@ -224,7 +255,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {categories.length === 0 ? (
           <div className="p-4 text-center text-[#556985] text-xs font-sans">
-            No artifacts found matching active filters.
+            {revisionsOnly ? 'No flagged revisions.' : 'No artifacts found matching active filters.'}
           </div>
         ) : (
           categories.map((cat) => {
@@ -263,6 +294,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                       const isSelected = selectedArtifactId === art.id;
                       const isInContext = inContextArtifactIds.has(art.id);
                       const isFocal = focalIds.includes(art.id);
+                      const isFlagged = isFlaggedArtifact(art);
                       const artColor = art.color || '#5d87b8';
                       const tierInfo = nodeTiers[art.id];
                       const currentTier = tierInfo ? tierInfo.tier : 'culled';
@@ -284,9 +316,16 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                               : 'hover:bg-[#0f1726] border-transparent text-[#9bb0d1]'
                           }`}
                         >
-                          {/* Main Clickable row (opens the single App-level Detail Modal) */}
+                          {/* Main Clickable row (opens the single App-level Detail Modal;
+                              in Revisions-filter mode a flagged row opens triage instead) */}
                           <div
-                            onClick={() => onSelectArtifact(art)}
+                            onClick={() => {
+                              if (revisionsOnly && isFlagged && onTriageArtifact) {
+                                onTriageArtifact(art.id);
+                              } else {
+                                onSelectArtifact(art);
+                              }
+                            }}
                             className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer"
                           >
                             <span
@@ -296,6 +335,13 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                             />
 
                             <FileCode className="w-3.5 h-3.5 text-[#6c85a8] group-hover:text-[#9bb0d1] shrink-0" />
+
+                            {isFlagged && (
+                              <span
+                                className="w-1.5 h-1.5 rounded-full bg-[#f0c674] shrink-0"
+                                title="Flagged import — auto-linked to a possible earlier version (open ⚑ Revisions in the filter row)"
+                              />
+                            )}
 
                             <div className="truncate min-w-0 flex-1">
                               <span className="font-medium text-[11px] block truncate">

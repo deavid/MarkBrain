@@ -37,6 +37,9 @@ import { SaturationOrb } from './domains/04-presentation/telemetry/SaturationOrb
 import { EdgeHeatStrip } from './domains/04-presentation/telemetry/EdgeHeatStrip';
 import { MirrorPanel } from './domains/04-presentation/telemetry/MirrorPanel';
 import { AmbientTelemetryData } from './domains/04-presentation/telemetry/ambientTelemetry';
+import { useImportSession } from './components/import/useImportSession';
+import { detectImportFlag, flagRelationship, ImportFlag } from './utils/importDetect';
+import { RevisionTriageModal } from './components/RevisionTriageModal';
 
 export default function App() {
   const {
@@ -132,6 +135,8 @@ export default function App() {
   const [isMirrorOpen, setIsMirrorOpen] = useState(false);
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
+  // Phase 3: triage modal — non-null = open, value = flagged pair to focus.
+  const [triageFocusId, setTriageFocusId] = useState<string | null>(null);
 
   // Full-database backup / restore (canonical format lives in persistenceService).
   const importDbFileRef = useRef<HTMLInputElement | null>(null);
@@ -572,6 +577,198 @@ export default function App() {
     setSelectedArtifactId(existing?.id ?? newArt.id);
   };
 
+  // Import-session land (multi-import plan): ALWAYS a separate artifact.
+  // Unlike handleAddArtifact (title-idempotent for the chat flow), a colliding
+  // frontmatter `id` must never silently overwrite an existing record — mint a
+  // fresh id instead. Phase 2: when the body/code/title matches something
+  // already imported, auto-attach a revision-of/duplicate-of relationship (the
+  // flag) — never merge or block here; triage is post-import. Returns the final
+  // id + flag so the session row can reference and display them.
+  const handleImportArtifact = (newArt: Artifact): { id: string; flag: ImportFlag | null } => {
+    let id = newArt.id;
+    if (artifactsDomain.getArtifact(id)) {
+      id = `art-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    }
+    const flag = detectImportFlag(
+      {
+        title: newArt.title || newArt.current?.t0_label || '',
+        code: newArt.code,
+        body: newArt.current?.t3_body || '',
+      },
+      artifactsDomain.listArtifacts().map((a) => ({
+        id: a.id,
+        title: a.title || a.current?.t0_label || '',
+        code: a.code,
+        body: a.current?.t3_body || '',
+      }))
+    );
+    artifactsDomain.upsertArtifact({
+      id,
+      title: newArt.title || newArt.current?.t0_label || 'Untitled',
+      workspaceId: activeProjectId,
+      code: newArt.code || id,
+      type: newArt.type === 'chapter' ? 'chapter' : 'document',
+      category: newArt.category || 'note',
+      isHighConcept: Boolean(newArt.isHighConcept),
+      color: newArt.color,
+      current: newArt.current || {
+        t0_label: newArt.title || 'Untitled',
+        t1_abstract: '',
+        t2_summary: '',
+        t3_body: '',
+      },
+      tags: newArt.tags || [],
+      createdAt: newArt.createdAt ?? Date.now(),
+      updatedAt: newArt.updatedAt ?? Date.now(),
+      // Number-only coordinates — `{x: undefined}` poisons Firestore saves
+      // (same guard as handleAddArtifact; see utils/storageSanitize.ts).
+      // Relationships: carry incoming edges + append the Phase-2 flag edge.
+      graph: (() => {
+        const relationships = [...(newArt.graph?.relationships || [])];
+        if (flag) relationships.push(flagRelationship(flag));
+        const g: {
+          x?: number;
+          y?: number;
+          is_high_concept?: boolean;
+          relationships?: Array<{ target: string; type: string; note?: string }>;
+        } = {
+          is_high_concept: Boolean(newArt.isHighConcept),
+        };
+        if (typeof newArt.graph?.x === 'number') g.x = newArt.graph.x;
+        if (typeof newArt.graph?.y === 'number') g.y = newArt.graph.y;
+        if (relationships.length > 0) g.relationships = relationships;
+        return g;
+      })(),
+      resolution: newArt.resolution,
+    });
+    return { id, flag };
+  };
+
+  // Session lives at App level: closing ImportModal keeps the queue processing.
+  const importSession = useImportSession(activeProject, handleImportArtifact);
+
+  // ---- Phase 3: post-import triage (work AFTER the fact, never during) ----
+  // Graph-only upsert that preserves everything else (incl. regenerating the
+  // cached yamlDocument snapshot when the artifact had one).
+  const upsertGraphOf = (art: Artifact, graph: NonNullable<Artifact['graph']>) => {
+    const next: Artifact = { ...art, graph };
+    artifactsDomain.upsertArtifact({
+      ...next,
+      ...(art.yamlDocument !== undefined ? { yamlDocument: serializeArtifactToYamlDoc(next) } : {}),
+    });
+  };
+
+  // Dangling-edge + focus scrub for any artifact id leaving the workspace.
+  const scrubReferencesTo = (deletedId: string) => {
+    artifactsDomain.listArtifacts().forEach((a) => {
+      const rels = a.graph?.relationships;
+      if (!rels || !rels.some((r) => r.target === deletedId)) return;
+      upsertGraphOf(a, {
+        ...(a.graph || {}),
+        relationships: rels.filter((r) => r.target !== deletedId),
+      });
+    });
+    // One saveContainer for BOTH focal + tier scrub — two sync calls would
+    // race on the same stale currentContainer snapshot.
+    if (
+      currentContainer &&
+      ((currentContainer.focalArtifactIds || []).includes(deletedId) ||
+        (currentContainer.tierOverrides && deletedId in currentContainer.tierOverrides))
+    ) {
+      const nextContainer = { ...currentContainer };
+      if ((nextContainer.focalArtifactIds || []).includes(deletedId)) {
+        nextContainer.focalArtifactIds = (nextContainer.focalArtifactIds || []).filter(
+          (i: string) => i !== deletedId
+        );
+      }
+      if (nextContainer.tierOverrides && deletedId in nextContainer.tierOverrides) {
+        const overrides = { ...nextContainer.tierOverrides };
+        delete overrides[deletedId];
+        nextContainer.tierOverrides = overrides;
+      }
+      workspace.saveContainer(nextContainer);
+    }
+    if (selectedArtifactId === deletedId) setSelectedArtifactId(null);
+    if (triageFocusId === deletedId) setTriageFocusId(null);
+  };
+
+  const handleTriageKeepBoth = (newId: string, oldId: string) => {
+    const art = artifactsDomain.getArtifact(newId);
+    if (!art) return;
+    const rels = (art.graph?.relationships || []).filter(
+      (r) => !(r.target === oldId && (r.type === 'revision-of' || r.type === 'duplicate-of'))
+    );
+    upsertGraphOf(art, { ...(art.graph || {}), relationships: rels });
+    logger.action('App', `Triage: keep both — dismissed import flag ${newId} → ${oldId}`);
+  };
+
+  const handleTriageOverwrite = (newId: string, oldId: string) => {
+    const oldArt = artifactsDomain.getArtifact(oldId);
+    const newArt = artifactsDomain.getArtifact(newId);
+    if (!oldArt || !newArt || oldId === newId) return;
+    const oldBody = oldArt.current?.t3_body || '';
+    const newBody = newArt.current?.t3_body || '';
+
+    // 1) Snapshot pre-overwrite state (rollback target; content == state at record time).
+    versioning.recordRevision(oldId, oldBody, 'Pre-overwrite snapshot (import triage)');
+
+    // 2) Adopt new content/meta onto the OLD id — old keeps identity + coordinates.
+    const graph: NonNullable<Artifact['graph']> = {
+      is_high_concept: Boolean(newArt.isHighConcept),
+    };
+    if (typeof oldArt.graph?.x === 'number') graph.x = oldArt.graph.x;
+    if (typeof oldArt.graph?.y === 'number') graph.y = oldArt.graph.y;
+    const parent = newArt.graph?.parent || oldArt.graph?.parent;
+    if (parent) graph.parent = parent;
+    const rels = [
+      ...(oldArt.graph?.relationships || []).filter((r) => r.target !== newId),
+      // Incoming (non-flag) edges travel with the content; flag edges never
+      // transfer — a carrier→old edge would become old→old, carrier→third
+      // would misattribute the flag to the old artifact.
+      ...(newArt.graph?.relationships || []).filter(
+        (r) => r.type !== 'revision-of' && r.type !== 'duplicate-of'
+      ),
+    ];
+    if (rels.length > 0) graph.relationships = rels;
+
+    const merged: Artifact = {
+      ...oldArt,
+      title: newArt.title,
+      code: newArt.code || oldArt.code,
+      type: newArt.type,
+      category: newArt.category,
+      isHighConcept: Boolean(newArt.isHighConcept),
+      tags: newArt.tags,
+      current: newArt.current,
+      resolution: newArt.resolution || oldArt.resolution,
+      graph,
+      updatedAt: Date.now(),
+    };
+    artifactsDomain.upsertArtifact({
+      ...merged,
+      yamlDocument: serializeArtifactToYamlDoc(merged),
+    });
+
+    // 3) Post state recorded so history's latest matches reality; rollback to
+    //    the pre-overwrite entry restores the old body.
+    versioning.recordRevision(oldId, newBody, `Overwritten by import triage from "${newArt.title}"`);
+
+    // 4) Carrier removal + dangling-edge/focus scrub.
+    artifactsDomain.deleteArtifact(newId);
+    scrubReferencesTo(newId);
+    logger.action(
+      'App',
+      `Triage: overwrote "${oldArt.title}" (${oldId}) with "${newArt.title}" (${newId}) — carrier removed, rollback available`
+    );
+  };
+
+  const handleTriageDelete = (artifactId: string) => {
+    const art = artifactsDomain.getArtifact(artifactId);
+    artifactsDomain.deleteArtifact(artifactId);
+    scrubReferencesTo(artifactId);
+    logger.action('App', `Triage: deleted ${art?.title || artifactId}`);
+  };
+
   // Declare New Chapter
   const handleDeclareChapter = (
     _messageId: string,
@@ -925,6 +1122,10 @@ export default function App() {
         nodeTiers={compiledContext.nodeTiers}
         onChangeTierOverride={handleChangeTierOverride}
         tierOverrides={manualTierOverrides}
+        onTriageArtifact={(id) => {
+          logger.action('App', `Open revision triage focused on ${id}`);
+          setTriageFocusId(id);
+        }}
         currentUser={currentUser}
         onSignOut={signOut}
       />
@@ -984,6 +1185,23 @@ export default function App() {
             </div>
           )}
 
+          {/* Import session still running while the modal is closed */}
+          {importSession.running && !isImportOpen && (
+            <button
+              type="button"
+              onClick={() => setIsImportOpen(true)}
+              title="Open the import session"
+              className="fixed bottom-4 left-4 z-30 px-3 py-1.5 rounded-full bg-[#0d1421]/90 backdrop-blur-md border border-[#162235] shadow-lg text-[10px] font-mono text-[#8ab1e0] hover:border-[#223552] transition-colors cursor-pointer flex items-center gap-2"
+            >
+              <span className="w-2 h-2 rounded-full bg-[#8ab1e0] animate-pulse" />
+              <span>
+                Importing…{' '}
+                {importSession.rows.filter((r) => r.status === 'queued' || r.status === 'extracting').length}{' '}
+                left
+              </span>
+            </button>
+          )}
+
           {/* Presentation Telemetry: Floating Saturation Orb → opens the Mirror */}
           <SaturationOrb
             telemetry={ambientTelemetry}
@@ -1034,6 +1252,27 @@ export default function App() {
           project={activeProject}
           onClose={() => setIsImportOpen(false)}
           onImportArtifact={handleAddArtifact}
+          session={importSession}
+          onOpenArtifact={(id) => {
+            // Single-modal rule: hide import before opening the detail modal.
+            setIsImportOpen(false);
+            setSelectedArtifactId(id);
+          }}
+        />
+      )}
+
+      {/* Revision triage modal (Phase 3 — post-import duplicate/flag resolution) */}
+      {triageFocusId !== null && (
+        <RevisionTriageModal
+          artifacts={activeProject.artifacts}
+          focusId={triageFocusId}
+          onClose={() => {
+            logger.action('App', 'Close revision triage');
+            setTriageFocusId(null);
+          }}
+          onKeepBoth={handleTriageKeepBoth}
+          onOverwrite={handleTriageOverwrite}
+          onDelete={handleTriageDelete}
         />
       )}
 

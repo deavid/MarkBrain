@@ -17,6 +17,8 @@ import {
 import { User } from 'firebase/auth';
 import { parseYamlArtifactDoc, serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 import { estimateTokens } from '../utils/tokenCalculator';
+import { ImportSessionApi } from './import/useImportSession';
+import { ImportSessionList } from './import/ImportSessionList';
 import {
   Upload,
   FileCode,
@@ -36,13 +38,20 @@ import {
 interface ImportModalProps {
   project: Project;
   onClose: () => void;
+  /** Drive-tab single-file confirm (title-idempotent upsert, historic behavior). */
   onImportArtifact: (artifact: Artifact) => void;
+  /** Multi-file session, owned by App so it survives this modal closing. */
+  session: ImportSessionApi;
+  /** Hide this modal and open ArtifactDetailModal for a landed row. */
+  onOpenArtifact: (artifactId: string) => void;
 }
 
 export const ImportModal: React.FC<ImportModalProps> = ({
   project,
   onClose,
   onImportArtifact,
+  session,
+  onOpenArtifact,
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'drive'>('drive');
   const [previewMode, setPreviewMode] = useState<'form' | 'raw_yaml'>('form');
@@ -243,32 +252,18 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     }
   };
 
+  // Multi-file: every selected file becomes a session row, processed as we go.
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (files && files.length > 0) session.addFiles(files);
+    // Reset so re-selecting the same file(s) fires onChange again.
+    e.target.value = '';
+  };
 
-    setUploadFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      setUploadContent(text);
-
-      const parsed = parseYamlArtifactDoc(text, project.id);
-      if (parsed.hasFrontmatter) {
-        setArtifactTitle(parsed.artifact.title || '');
-        setArtifactCode(parsed.artifact.code || '');
-        setArtifactDescription(parsed.artifact.current?.t1_abstract || '');
-        setArtifactSummary(parsed.artifact.current?.t2_summary || '');
-        setArtifactType(parsed.artifact.type);
-        setArtifactTags(parsed.artifact.tags || []);
-        setIsHighConcept(Boolean(parsed.artifact.isHighConcept));
-        setParentCode(parsed.artifact.graph?.parent || '');
-        setExtractedSuccess(true);
-      } else {
-        triggerAIExtraction(text, file.name, 'doc');
-      }
-    };
-    reader.readAsText(file);
+  // Basic file drag-and-drop onto the upload tab (folder-drop = Phase 5).
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer?.files?.length) session.addFiles(e.dataTransfer.files);
   };
 
   // Select and convert a Google Doc or Drive file
@@ -540,7 +535,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             }`}
           >
             <FileCode className="w-4 h-4 text-[#8ab1e0]" />
-            <span>Local File (.md / .txt)</span>
+            <span>Local Files (.md / .txt)</span>
           </button>
         </div>
 
@@ -726,31 +721,118 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
           {activeTab === 'upload' && (
             <div className="space-y-4">
+              {/* Phase-4 batch rules — set BEFORE adding files; applied at each row-land.
+                  Precedence: row override > frontmatter parent > this batch default. */}
+              <div className="bg-[#0d121c] border border-[#080d15] rounded-xl p-2.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono text-[#e05a66] uppercase font-bold">
+                    Batch rules (optional)
+                  </span>
+                  <span className="text-[9px] font-mono text-[#5f7491]">
+                    applied to every file as it lands
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    id="batch-parent"
+                    list="batch-parent-codes"
+                    type="text"
+                    placeholder="Parent (slug — pick an existing code or type)"
+                    value={session.rules.parent}
+                    onChange={(e) => session.setRules((r) => ({ ...r, parent: e.target.value }))}
+                    className="w-full bg-[#141b29] border border-[#080d15] rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none focus:border-[#e05a66]/50"
+                  />
+                  <datalist id="batch-parent-codes">
+                    {project.artifacts.map((a) => (
+                      <option key={a.id} value={a.code || a.id} />
+                    ))}
+                  </datalist>
+                  <input
+                    id="batch-tags"
+                    type="text"
+                    placeholder="Tags, comma-separated — appended to each"
+                    value={session.rules.tags.join(', ')}
+                    onChange={(e) =>
+                      session.setRules((r) => ({
+                        ...r,
+                        tags: e.target.value
+                          .split(',')
+                          .map((t) => t.trim().toLowerCase().replace(/[^a-z0-9_-]/g, ''))
+                          .filter(Boolean),
+                      }))
+                    }
+                    className="w-full bg-[#141b29] border border-[#080d15] rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none focus:border-[#e05a66]/50"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                  <span className="text-[#788fa8] text-[10px]">Relate all →</span>
+                  <select
+                    id="batch-rel-type"
+                    value={session.rules.relType}
+                    onChange={(e) => session.setRules((r) => ({ ...r, relType: e.target.value }))}
+                    className="bg-[#141b29] border border-[#080d15] rounded-lg px-2 py-1.5 text-[11px] text-[#c2d1e0] focus:outline-none cursor-pointer"
+                  >
+                    <option value="">(no relationship)</option>
+                    <option value="cites">cites</option>
+                    <option value="belongs-to">belongs-to</option>
+                    <option value="responds-to">responds-to</option>
+                    <option value="related">related</option>
+                  </select>
+                  <span className="text-[#556985]">→</span>
+                  <select
+                    id="batch-rel-target"
+                    value={session.rules.relTargetId}
+                    onChange={(e) => session.setRules((r) => ({ ...r, relTargetId: e.target.value }))}
+                    disabled={!session.rules.relType || project.artifacts.length === 0}
+                    className="bg-[#141b29] border border-[#080d15] rounded-lg px-2 py-1.5 text-[11px] text-[#c2d1e0] focus:outline-none cursor-pointer disabled:opacity-40 max-w-[220px]"
+                  >
+                    <option value="">
+                      {project.artifacts.length === 0 ? '(no artifacts yet)' : '(pick target)'}
+                    </option>
+                    {project.artifacts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <label
-                className={`border-2 border-dashed border-[#141d2c] hover:border-[#e05a66]/50 rounded-xl p-5 flex flex-col items-center justify-center gap-2 transition-colors bg-[#0a0e17]/50 ${
-                  sourceBusy ? 'opacity-50 pointer-events-none cursor-not-allowed' : 'cursor-pointer'
-                }`}
-                title={sourceBusy ? 'Wait for the current extraction to finish' : undefined}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+                className="border-2 border-dashed border-[#141d2c] hover:border-[#e05a66]/50 rounded-xl p-5 flex flex-col items-center justify-center gap-2 transition-colors bg-[#0a0e17]/50 cursor-pointer"
               >
                 <FileCode className="w-8 h-8 text-[#8ab1e0]" />
                 <span className="text-xs text-[#c2d1e0] font-medium">
-                  {uploadFileName ? uploadFileName : 'Tap to select Markdown or Plain Text file'}
+                  Select or drop multiple Markdown / Plain Text files
                 </span>
                 <span className="text-[10px] text-[#627794]">
-                  Accepts .md, .markdown, .txt (up to 5MB)
+                  Accepts .md, .markdown, .txt (up to 5MB each) — they process as a queue, one by one
                 </span>
                 <input
                   type="file"
                   accept=".md,.markdown,.txt"
+                  multiple
                   onChange={handleFileUpload}
                   className="hidden"
                 />
               </label>
+
+              <ImportSessionList
+                rows={session.rows}
+                running={session.running}
+                onRetry={session.retryRow}
+                onDismiss={session.dismissRow}
+                onCancelRemaining={session.cancelRemaining}
+                onOpenArtifact={onOpenArtifact}
+                onParentOverride={session.setParentOverride}
+              />
             </div>
           )}
 
-          {/* AI Extraction State Indicator */}
-          {isExtractingWithAI && (
+          {/* AI Extraction State Indicator — Drive tab only (session has its own lane UI) */}
+          {activeTab === 'drive' && isExtractingWithAI && (
             <div className="p-3 bg-[#142033] border border-[#080d15] rounded-xl flex items-center gap-2 text-xs font-mono text-[#8ab1e0]">
               <Loader2 className="w-4 h-4 animate-spin text-[#e05a66]" />
               <span>
@@ -759,8 +841,8 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             </div>
           )}
 
-          {/* Result Editor & Review */}
-          {uploadContent && (
+          {/* Result Editor & Review — Drive tab only (upload tab lands-as-you-go) */}
+          {activeTab === 'drive' && uploadContent && (
             <div className="space-y-3 bg-[#0d121c] p-3.5 rounded-xl border border-[#080d15]">
               {/* Review Bar */}
               <div className="flex items-center justify-between border-b border-[#080d15] pb-2.5">
@@ -973,17 +1055,25 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             onClick={onClose}
             className="px-3 py-1.5 rounded-xl text-xs font-mono text-[#7d93b3] hover:text-white"
           >
-            Cancel
+            {activeTab === 'upload' ? 'Close' : 'Cancel'}
           </button>
 
-          <button
-            onClick={handleConfirmImport}
-            disabled={!uploadContent.trim()}
-            className="px-4 py-2 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] disabled:opacity-40 text-white font-medium text-xs font-mono transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
-          >
-            <span>Import note</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+          {activeTab === 'drive' ? (
+            <button
+              onClick={handleConfirmImport}
+              disabled={!uploadContent.trim()}
+              className="px-4 py-2 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] disabled:opacity-40 text-white font-medium text-xs font-mono transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>Import note</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <span className="text-[10px] font-mono text-[#627794]">
+              {session.rows.length > 0
+                ? `${session.rows.filter((r) => r.status === 'landed').length}/${session.rows.length} landed`
+                : 'Rows land automatically — close anytime, the queue keeps running'}
+            </span>
+          )}
         </div>
       </div>
     </div>

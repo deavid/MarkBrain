@@ -110,3 +110,31 @@ Pulled `main` (`a997fc5..3c7493e`) into `dev-nova` and compared against `stable`
 ---
 
 *Range: `stable` → `main` @ `3c7493e` (2026-10-18). Commits: `56d9b57`, `805ebc4`, `d221c08`, `3858039`, `1aea8d4`, `a997fc5`, `d3c501f`, `eedb85c`, `b7fdbb1`, `eecaad5`, `3f7e2a2`, `3c7493e`.*
+---
+
+## Multi-import (design-docs/07_MULTI_IMPORT_PLAN.md)
+
+### 2026-10-18 — Phase 1: import sessions (multi-file pipeline)
+- **Multi-select & drag-drop** — the local file input accepts many `.md/.markdown/.txt` files at once (up to 5MB each) and drop works on the upload tab; previously only `files[0]` was read and the rest were silently dropped.
+- **Process-as-you-go sessions** — files become queued rows (frontmatter lane lands instantly; no-frontmatter lane goes through Gemini extraction, serially), each landing as a real artifact the moment it's ready. The session lives at App level, so closing the modal keeps the queue running (floating "Importing…" chip reopens it).
+- **Click-to-check rows** — every row expands in place (Fields / Raw YAML+MD preview) with "Open full artifact" for full editing; one summary log line per session (instrumentation law), per-row failures are warnings.
+- **Cancel / retry / append** — cancel queued rows (in-flight finishes), retry failed rows (including surfaced Gemini quota messages), and add more files mid-session.
+- **Always-separate import policy** — `handleImportArtifact` never reuses an existing id or title (chat-flow title-idempotent `handleAddArtifact` untouched); duplicate titles produce two artifacts, verified headlessly (14/14 checks).
+
+### 2026-10-18 — Phase 2: identity detection + flagging
+- **Smart duplicate detection** — every session land runs three tiers: identical normalized body (`duplicate-of`) → same frontmatter `code` → same title, case-folded (`revision-of`). Hit = auto-attached `graph.relationships` edge (`Auto-flagged on import <date> (<reason>)`) from new → old. Nothing merges, blocks, or overwrites — the relationship *is* the flag and *is* the triage queue (no new persistence).
+- **Visible flags** — flagged rows show an amber `⚑ → Old Title` chip; the artifact tree shows an amber dot; a `⚑ Revisions (N)` pill in the filter row filters the tree to flagged artifacts (empty state: "No flagged revisions.").
+- **Session log** — pump summary now includes flagged counts; still one action line per session.
+- **Tests** — 11 new unit tests for the detection tiers, self-skip, and relationship helpers (36/36 total).
+
+### 2026-10-18 — Phase 3: triage UI + colored diff + resolution tools
+- **RevisionTriageModal** — opened by clicking a flagged artifact while the `⚑ Revisions` filter is on (row click routes to triage, not detail; Escape/X close, single-modal rule). Each flagged pair shows: reason/type chip, meta delta chips (title/code/abstract/tags ±N), a dependency-free line diff of both bodies (green adds / red removes, LCS with prefix/suffix trim + degraded mode above 4M cells), and four actions.
+- **Resolution tools (post-import only)** — *Keep both (dismiss flag)* drops the relationship edge; *Overwrite old with new* records a pre-overwrite revision, adopts the carrier's content/meta onto the old id (old keeps identity + coordinates), re-serializes `yamlDocument`, records the post state (rollback-able), then deletes the carrier; *Delete new* / *Delete old* (window.confirm) with dangling-edge, focal-ids, tier-overrides, and selection scrub on every removal.
+- **Tests** — 5 line-diff tests incl. 200+ line body (46... 41/41 total).
+
+### 2026-10-18 — Phase 4: batch placement & relations
+- **Batch rules bar** (top of Local Files tab, set before/while adding files; read at each row-land): parent slug (datalist of existing codes), comma tags (union'd onto each artifact), bulk relationship `cites|belongs-to|responds-to|related → target artifact` (idempotent append).
+- **Per-row parent override** — any non-landed row's inspector (incl. failed → retry path) takes a slug override. Precedence locked: row override > frontmatter parent (declared intent) > batch default.
+- **Pure `applyImportRules`** in `utils/importRules.ts` — 7 unit tests cover the precedence, tag union, and idempotent relationship (48/48 total).
+- **Verified headlessly (39/39)** — landed artifact's Raw YAML carries batch parent + tag + `cites` edge; override input visible on failed row and persists. (Override-at-land proven by unit tests; fm lane lands too fast to race and AI lane is quota-blocked, so that one path is unit-covered rather than E2E.)
+- Phase 5 (Drive multi-select/folder-pick, folder drag-drop, concurrency) stays deferred per plan.

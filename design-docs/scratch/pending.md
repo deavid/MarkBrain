@@ -118,6 +118,9 @@
 
 ## Repo housekeeping (not urgent)
 
+- [ ] README — **hero copy fully locked** (`scratch/readme-copy.md`, 2026-10-18):
+      motto pairing + 3-paragraph description, all three parts LGTM'd by David.
+      README itself still to be written around that seed.
 - `package.json` still named `"react-example"` (AI Studio scaffold leftover).
 - README: **added 2026-10-17** (root `README.md`; front door only — docs stay
   source of truth). Same session added `design-docs/AGENT_RUNBOOK.md` +

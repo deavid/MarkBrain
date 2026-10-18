@@ -6,7 +6,7 @@ import { GoogleGenAI } from '@google/genai';
 
 // Layered env loading (env files have no native "import" — we layer them):
 //   precedence: real OS/runtime env  >  .env (personal, per-workspace)
-//               >  .env.shared (committed defaults, shared across workspaces)
+//               >  .env.shared (local defaults — gitignored, NEVER committed)
 // OS env wins because it's already set before dotenv runs; .env loads first
 // so its keys are never overwritten by .env.shared (override defaults false).
 dotenv.config({ quiet: true });

@@ -6,7 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
-!.env.shared
 firebase-applet-config.json
 !firebase-applet-config.json.example
 .aistudio/

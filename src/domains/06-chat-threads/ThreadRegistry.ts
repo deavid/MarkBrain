@@ -101,6 +101,12 @@ export class ThreadRegistry {
     const rawThreads = (input.threads || []).filter((t) => t && t.id);
     this.threads = rawThreads.length > 0 ? rawThreads.map((t) => ({ ...t })) : [makeDefaultThread()];
     this.folders = (input.folders || []).map((f) => ({ ...f }));
+    // Normalize dangling folder references (folder deleted elsewhere, bad import)
+    const folderIds = new Set(this.folders.map((f) => f.id));
+    this.threads = this.threads.map((t) => ({
+      ...t,
+      folderId: t.folderId && folderIds.has(t.folderId) ? t.folderId : null,
+    }));
 
     const known = new Set(this.threads.map((t) => t.id));
     const fallbackId = this.threads[0].id;
@@ -263,6 +269,64 @@ export class ThreadRegistry {
     const clean = title.replace(/\s+/g, ' ').trim();
     if (!clean) return;
     this.patch(threadId, { title: clean, titleState: 'manual' });
+  }
+
+  // ── Folders (one level deep — Inbox is folderId null) ─────────────────
+
+  createFolder(name: string): ThreadFolder {
+    const folder: ThreadFolder = {
+      id: `folder-${Date.now().toString(36)}-${rand()}`,
+      name: name.replace(/\s+/g, ' ').trim() || 'New Folder',
+      order: this.folders.reduce((max, f) => Math.max(max, f.order), -1) + 1,
+    };
+    this.folders.push(folder);
+    this.emit();
+    return folder;
+  }
+
+  renameFolder(folderId: string, name: string): void {
+    const clean = name.replace(/\s+/g, ' ').trim();
+    if (!clean) return;
+    const idx = this.folders.findIndex((f) => f.id === folderId);
+    if (idx === -1) return;
+    this.folders[idx] = { ...this.folders[idx], name: clean };
+    this.emit();
+  }
+
+  /**
+   * Delete a folder — its threads RETURN TO INBOX (never deleted with it).
+   * Dangling references are rehomed here in one pass before emit.
+   */
+  deleteFolder(folderId: string): void {
+    this.folders = this.folders.filter((f) => f.id !== folderId);
+    this.threads = this.threads.map((t) =>
+      t.folderId === folderId ? { ...t, folderId: null, updatedAt: Date.now() } : t
+    );
+    this.emit();
+  }
+
+  moveThreadToFolder(threadId: string, folderId: string | null): void {
+    if (folderId !== null && !this.folders.some((f) => f.id === folderId)) return;
+    this.patch(threadId, { folderId });
+  }
+
+  setThreadLifecycle(threadId: string, lifecycle: ChatThread['lifecycle']): void {
+    this.patch(threadId, { lifecycle });
+  }
+
+  /** Drag-reorder: place `dragId` immediately before `targetId`, renumber. */
+  reorderFolderBefore(dragId: string, targetId: string): void {
+    if (dragId === targetId) return;
+    const ordered = [...this.folders].sort((a, b) => a.order - b.order);
+    const from = ordered.findIndex((f) => f.id === dragId);
+    const to = ordered.findIndex((f) => f.id === targetId);
+    if (from === -1 || to === -1) return;
+    const [moved] = ordered.splice(from, 1);
+    const newTo = ordered.findIndex((f) => f.id === targetId);
+    ordered.splice(newTo === -1 ? ordered.length : newTo, 0, moved);
+    ordered.forEach((f, i) => (f.order = i));
+    this.folders = ordered;
+    this.emit();
   }
 
   /**

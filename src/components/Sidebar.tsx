@@ -13,6 +13,7 @@ import {
   FolderTree,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   X,
   ExternalLink,
   Database,
@@ -29,7 +30,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { ArtifactFolderTree } from './ArtifactFolderTree';
-import { ChatThread, ThreadRuntime } from '../domains/06-chat-threads';
+import { ChatThread, ThreadFolder, ThreadRuntime } from '../domains/06-chat-threads';
 
 export type ActiveView = 'chat' | 'graph';
 
@@ -72,12 +73,20 @@ interface SidebarProps {
   onSignOut?: () => void;
   // Chat threads (per project)
   threads?: ChatThread[];
+  folders?: ThreadFolder[];
   activeThreadId?: string;
   threadRuntimes?: Record<string, { state: ThreadRuntime; position: number }>;
   onSelectThread?: (threadId: string) => void;
-  onCreateThread?: () => void;
+  onCreateThread?: (folderId?: string | null) => void;
   onRenameThread?: (threadId: string, title: string) => void;
   onDeleteThread?: (threadId: string) => void;
+  onMoveThread?: (threadId: string, folderId: string | null) => void;
+  onArchiveThread?: (threadId: string) => void;
+  onUnarchiveThread?: (threadId: string) => void;
+  onCreateFolder?: (name: string) => void;
+  onRenameFolder?: (folderId: string, name: string) => void;
+  onDeleteFolder?: (folderId: string) => void;
+  onReorderFolders?: (dragId: string, targetId: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -111,12 +120,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentUser,
   onSignOut,
   threads = [],
+  folders = [],
   activeThreadId,
   threadRuntimes = {},
   onSelectThread,
   onCreateThread,
   onRenameThread,
   onDeleteThread,
+  onMoveThread,
+  onArchiveThread,
+  onUnarchiveThread,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onReorderFolders,
 }) => {
   // Inline accordion toggles (all expand inline in document flow, guaranteeing ZERO container clipping)
   const [projectAccordionOpen, setProjectAccordionOpen] = useState(false);
@@ -131,17 +148,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [threadMenu, setThreadMenu] = useState<{ x: number; y: number; threadId: string } | null>(null);
+  const [menuMoveOpen, setMenuMoveOpen] = useState(false);
+  const [folderMenu, setFolderMenu] = useState<{ x: number; y: number; folderId: string } | null>(null);
+  // Folder create/rename inline name box (one machine for both modes)
+  const [folderNameBox, setFolderNameBox] = useState<{ mode: 'create' | 'rename'; folderId?: string } | null>(null);
+  const [folderDraft, setFolderDraft] = useState('');
+  // Fold state per folder (default open; only explicit folds stay closed)
+  const [folderOpen, setFolderOpen] = useState<Record<string, boolean>>({});
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  // Drag & drop highlight target: 'inbox' | 'archived' | folderId
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
-  // Close the thread context menu on any outside pointerdown
+  // Drag payload MIME types (HTML5 dnd — no library)
+  const DRAG_THREAD = 'application/x-markbrain-thread';
+  const DRAG_FOLDER = 'application/x-markbrain-folder';
+
+  // Close the thread/folder context menus on any outside pointerdown
   useEffect(() => {
-    if (!threadMenu) return;
-    const onPointerDown = () => setThreadMenu(null);
+    if (!threadMenu && !folderMenu) return;
+    const onPointerDown = () => {
+      setThreadMenu(null);
+      setFolderMenu(null);
+      setMenuMoveOpen(false);
+    };
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [threadMenu]);
+  }, [threadMenu, folderMenu]);
 
   const beginThreadRename = (t: ChatThread) => {
     setThreadMenu(null);
+    setMenuMoveOpen(false);
     setRenamingThreadId(t.id);
     setRenameDraft(t.title);
   };
@@ -154,9 +190,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setRenamingThreadId(null);
   };
 
-  const visibleThreads = threads
-    .filter((t) => t.lifecycle === 'active')
-    .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  const beginFolderNameBox = (mode: 'create' | 'rename', folderId?: string, current?: string) => {
+    setFolderMenu(null);
+    setFolderNameBox({ mode, folderId });
+    setFolderDraft(current ?? '');
+  };
+
+  const commitFolderName = () => {
+    const box = folderNameBox;
+    setFolderNameBox(null);
+    if (!box) return;
+    const name = folderDraft.trim();
+    if (!name) return;
+    if (box.mode === 'create') {
+      logger.action('Sidebar', 'Created folder', { name });
+      onCreateFolder?.(name);
+    } else if (box.folderId) {
+      logger.action('Sidebar', 'Renamed folder', { folderId: box.folderId, name });
+      onRenameFolder?.(box.folderId, name);
+    }
+  };
+
+  // ── Grouping: Inbox (active, unfiled) · folders (ordered) · archived ──
+  const byActivity = (a: ChatThread, b: ChatThread) => b.lastActivityAt - a.lastActivityAt;
+  const activeThreads = threads.filter((t) => t.lifecycle === 'active');
+  const archivedThreads = threads.filter((t) => t.lifecycle === 'archived').sort(byActivity);
+  const inboxThreads = activeThreads.filter((t) => !t.folderId).sort(byActivity);
+  const foldersSorted = [...folders].sort((a, b) => a.order - b.order);
+  const threadsInFolder = (folderId: string) =>
+    activeThreads.filter((t) => t.folderId === folderId).sort(byActivity);
 
   const runtimeDot = (state?: ThreadRuntime) => {
     if (state === 'working')
@@ -173,6 +235,86 @@ export const Sidebar: React.FC<SidebarProps> = ({
         />
       );
     return null;
+  };
+
+  // One row renderer for Inbox / folder / archived lists (draggable + droppable)
+  const renderThreadRow = (t: ChatThread, opts: { dimmed?: boolean } = {}) => {
+    const isActive = t.id === activeThreadId;
+    const runtime = threadRuntimes[t.id];
+    return (
+      <div
+        key={t.id}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(DRAG_THREAD, t.id);
+          e.dataTransfer.effectAllowed = 'move';
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e) => {
+          // Drop a thread ON a thread → move it into the target's folder
+          e.preventDefault();
+          e.stopPropagation();
+          const draggedThread = e.dataTransfer.getData(DRAG_THREAD);
+          setDragOverTarget(null);
+          if (draggedThread && draggedThread !== t.id) {
+            logger.action('Sidebar', 'Move thread via row drop', { threadId: draggedThread, folderId: t.folderId });
+            onMoveThread?.(draggedThread, t.folderId);
+          }
+        }}
+        onClick={() => {
+          if (renamingThreadId === t.id) return;
+          logger.action('Sidebar', `Selected thread: ${t.title}`, { threadId: t.id });
+          onSelectThread?.(t.id);
+        }}
+        onDoubleClick={() => beginThreadRename(t)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setFolderMenu(null);
+          setThreadMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
+        }}
+        className={`w-full flex items-center gap-2 p-2 rounded-lg text-left text-xs transition-colors cursor-pointer group select-none ${
+          isActive
+            ? 'bg-[#182338] text-[#8ab1e0] font-semibold border border-[#223552]'
+            : 'hover:bg-[#0e1626] text-[#9bb0d1] border border-transparent'
+        } ${opts.dimmed ? 'opacity-70' : ''}`}
+        title={`${t.preview || t.title}${opts.dimmed ? ' (archived)' : ''}`}
+      >
+        {renamingThreadId === t.id ? (
+          <input
+            autoFocus
+            value={renameDraft}
+            onChange={(e) => setRenameDraft(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={commitThreadRename}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') commitThreadRename();
+              if (e.key === 'Escape') setRenamingThreadId(null);
+            }}
+            className="flex-1 min-w-0 bg-[#080d16] border border-[#3b82f6] rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
+          />
+        ) : (
+          <>
+            <span
+              className={`flex-1 min-w-0 truncate ${
+                t.titleState === 'placeholder' ? 'italic opacity-70' : ''
+              }`}
+            >
+              {t.title}
+            </span>
+            {runtime?.position > 0 && (
+              <span className="text-[9px] font-mono text-[#e0b96c] shrink-0 tabular-nums">
+                #{runtime.position}
+              </span>
+            )}
+            {runtimeDot(runtime?.state)}
+          </>
+        )}
+      </div>
+    );
   };
 
   const colorInfo = getTokenColor(totalTokens);
@@ -366,7 +508,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <MessageSquare className="w-4 h-4 text-[#5ad49b] shrink-0" />
                 <span className="text-xs font-semibold text-white font-mono">Threads</span>
-                <span className="text-[10px] font-mono text-[#526682]">({visibleThreads.length})</span>
+                <span className="text-[10px] font-mono text-[#526682]">({activeThreads.length})</span>
                 <span className="flex-1" />
                 {threadsOpen ? (
                   <ChevronUp className="w-3.5 h-3.5 text-[#556985] shrink-0" />
@@ -374,115 +516,362 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <ChevronDown className="w-3.5 h-3.5 text-[#556985] shrink-0" />
                 )}
               </button>
-              <button
-                onClick={() => {
-                  logger.action('Sidebar', 'Create new thread');
-                  onCreateThread?.();
-                }}
-                className="p-1.5 ml-1 rounded-lg bg-[#141d2d] hover:bg-[#1a273d] text-[#e05a66] border border-[#1d2d47] transition-colors cursor-pointer shrink-0"
-                title="New thread"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => {
+                    logger.action('Sidebar', 'New folder');
+                    beginFolderNameBox('create');
+                  }}
+                  className="p-1.5 rounded-lg bg-[#141d2d] hover:bg-[#1a273d] text-[#8ab1e0] border border-[#1d2d47] transition-colors cursor-pointer"
+                  title="New folder"
+                >
+                  <FolderKanban className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => {
+                    logger.action('Sidebar', 'Create new thread');
+                    onCreateThread?.();
+                  }}
+                  className="p-1.5 rounded-lg bg-[#141d2d] hover:bg-[#1a273d] text-[#e05a66] border border-[#1d2d47] transition-colors cursor-pointer"
+                  title="New thread"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
             {threadsOpen && (
               <div className="border-t border-[#131e33] bg-[#070b12] animate-in fade-in duration-100">
-                <div className="max-h-56 overflow-y-auto p-1 space-y-0.5">
-                  {visibleThreads.length === 0 && (
-                    <p className="text-[10px] font-mono text-[#526682] p-2">No threads yet.</p>
+                <div
+                  className="max-h-72 overflow-y-auto p-1 space-y-0.5"
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (dragOverTarget !== 'inbox') setDragOverTarget('inbox');
+                  }}
+                  onDragLeave={() => setDragOverTarget((d) => (d === 'inbox' ? null : d))}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const threadId = e.dataTransfer.getData(DRAG_THREAD);
+                    setDragOverTarget(null);
+                    if (threadId) {
+                      logger.action('Sidebar', 'Drop → Inbox', { threadId });
+                      onMoveThread?.(threadId, null);
+                    }
+                  }}
+                >
+                  {/* Inline folder name box (create / rename) */}
+                  {folderNameBox && folderNameBox.mode === 'create' && (
+                    <div className="p-1">
+                      <input
+                        autoFocus
+                        value={folderDraft}
+                        placeholder="Folder name…"
+                        onChange={(e) => setFolderDraft(e.target.value)}
+                        onBlur={commitFolderName}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === 'Enter') commitFolderName();
+                          if (e.key === 'Escape') setFolderNameBox(null);
+                        }}
+                        className="w-full bg-[#080d16] border border-[#3b82f6] rounded-lg px-2 py-1 text-xs text-white placeholder-[#556985] focus:outline-none"
+                      />
+                    </div>
                   )}
-                  {visibleThreads.map((t) => {
-                    const isActive = t.id === activeThreadId;
-                    const runtime = threadRuntimes[t.id];
+
+                  {/* Inbox label (drop target for unfiled) */}
+                  <div
+                    className={`flex items-center gap-1.5 px-1.5 pt-1 pb-0.5 rounded ${
+                      dragOverTarget === 'inbox' ? 'ring-1 ring-[#38bdf8]/70 bg-[#0c1a2b]' : ''
+                    }`}
+                  >
+                    <span className="text-[9px] font-mono uppercase tracking-wider text-[#526682]">
+                      Inbox
+                    </span>
+                    <span className="text-[9px] font-mono text-[#455770]">({inboxThreads.length})</span>
+                  </div>
+                  {inboxThreads.map((t) => renderThreadRow(t))}
+                  {inboxThreads.length === 0 && !folderNameBox && (
+                    <p className="text-[9px] font-mono text-[#455770] px-2 py-1">Drop threads here</p>
+                  )}
+
+                  {/* Folders (one level, ordered, collapsible) */}
+                  {foldersSorted.map((f) => {
+                    const open = folderOpen[f.id] !== false;
+                    const fThreads = threadsInFolder(f.id);
+                    const isRenaming =
+                      folderNameBox?.mode === 'rename' && folderNameBox.folderId === f.id;
                     return (
                       <div
-                        key={t.id}
-                        onClick={() => {
-                          if (renamingThreadId === t.id) return;
-                          logger.action('Sidebar', `Selected thread: ${t.title}`, { threadId: t.id });
-                          onSelectThread?.(t.id);
-                        }}
-                        onDoubleClick={() => beginThreadRename(t)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setThreadMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
-                        }}
-                        className={`w-full flex items-center gap-2 p-2 rounded-lg text-left text-xs transition-colors cursor-pointer group ${
-                          isActive
-                            ? 'bg-[#182338] text-[#8ab1e0] font-semibold border border-[#223552]'
-                            : 'hover:bg-[#0e1626] text-[#9bb0d1] border border-transparent'
+                        key={f.id}
+                        className={`rounded-lg ${
+                          dragOverTarget === f.id ? 'ring-1 ring-[#38bdf8]/70 bg-[#0c1a2b]' : ''
                         }`}
-                        title={t.preview || t.title}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDragOverTarget(f.id);
+                        }}
+                        onDragLeave={() => setDragOverTarget((d) => (d === f.id ? null : d))}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const threadId = e.dataTransfer.getData(DRAG_THREAD);
+                          const draggedFolder = e.dataTransfer.getData(DRAG_FOLDER);
+                          setDragOverTarget(null);
+                          if (threadId) {
+                            logger.action('Sidebar', `Drop → folder ${f.name}`, { threadId });
+                            onMoveThread?.(threadId, f.id);
+                          } else if (draggedFolder && draggedFolder !== f.id) {
+                            logger.action('Sidebar', 'Reorder folder', { dragId: draggedFolder, targetId: f.id });
+                            onReorderFolders?.(draggedFolder, f.id);
+                          }
+                        }}
                       >
-                        {renamingThreadId === t.id ? (
-                          <input
-                            autoFocus
-                            value={renameDraft}
-                            onChange={(e) => setRenameDraft(e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                            onBlur={commitThreadRename}
-                            onKeyDown={(e) => {
-                              e.stopPropagation();
-                              if (e.key === 'Enter') commitThreadRename();
-                              if (e.key === 'Escape') setRenamingThreadId(null);
-                            }}
-                            className="flex-1 min-w-0 bg-[#080d16] border border-[#3b82f6] rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
-                          />
-                        ) : (
-                          <>
-                            <span
-                              className={`flex-1 min-w-0 truncate ${
-                                t.titleState === 'placeholder' ? 'italic opacity-70' : ''
-                              }`}
-                            >
-                              {t.title}
-                            </span>
-                            {runtime?.position > 0 && (
-                              <span className="text-[9px] font-mono text-[#e0b96c] shrink-0 tabular-nums">
-                                #{runtime.position}
-                              </span>
-                            )}
-                            {runtimeDot(runtime?.state)}
-                          </>
+                        <div
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData(DRAG_FOLDER, f.id);
+                            e.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onClick={() => setFolderOpen((p) => ({ ...p, [f.id]: !open }))}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setThreadMenu(null);
+                            setFolderMenu({ x: e.clientX, y: e.clientY, folderId: f.id });
+                          }}
+                          className="w-full flex items-center gap-1.5 p-1.5 rounded-lg text-xs text-[#9bb0d1] hover:bg-[#0e1626] cursor-pointer select-none"
+                          title="Click to fold · drag to reorder · right-click for actions"
+                        >
+                          {open ? (
+                            <ChevronDown className="w-3 h-3 text-[#556985] shrink-0" />
+                          ) : (
+                            <ChevronUp className="w-3 h-3 text-[#556985] shrink-0" />
+                          )}
+                          <FolderKanban className="w-3.5 h-3.5 text-[#8ab1e0] shrink-0" />
+                          {isRenaming ? (
+                            <input
+                              autoFocus
+                              value={folderDraft}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setFolderDraft(e.target.value)}
+                              onBlur={commitFolderName}
+                              onKeyDown={(e) => {
+                                e.stopPropagation();
+                                if (e.key === 'Enter') commitFolderName();
+                                if (e.key === 'Escape') setFolderNameBox(null);
+                              }}
+                              className="flex-1 min-w-0 bg-[#080d16] border border-[#3b82f6] rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
+                            />
+                          ) : (
+                            <span className="flex-1 min-w-0 truncate font-semibold">{f.name}</span>
+                          )}
+                          <span className="text-[9px] font-mono text-[#526682]">({fThreads.length})</span>
+                        </div>
+                        {open && (
+                          <div className="pl-2 space-y-0.5 mt-0.5">
+                            {fThreads.map((t) => renderThreadRow(t))}
+                          </div>
                         )}
                       </div>
                     );
                   })}
+
+                  {/* Archived (collapsed by default, dimmed rows, drop target) */}
+                  {archivedThreads.length > 0 && (
+                    <div
+                      className={`mt-1 rounded-lg ${
+                        dragOverTarget === 'archived' ? 'ring-1 ring-[#e0b96c]/70 bg-[#1a1510]' : ''
+                      }`}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOverTarget('archived');
+                      }}
+                      onDragLeave={() => setDragOverTarget((d) => (d === 'archived' ? null : d))}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const threadId = e.dataTransfer.getData(DRAG_THREAD);
+                        setDragOverTarget(null);
+                        if (threadId) {
+                          logger.action('Sidebar', 'Drop → Archived', { threadId });
+                          onArchiveThread?.(threadId);
+                        }
+                      }}
+                    >
+                      <button
+                        onClick={() => setArchivedOpen((v) => !v)}
+                        className="w-full flex items-center gap-1.5 p-1.5 rounded-lg text-xs text-[#7d93b3] hover:bg-[#0e1626] cursor-pointer select-none"
+                        title="Archived threads — click to expand"
+                      >
+                        {archivedOpen ? (
+                          <ChevronDown className="w-3 h-3 text-[#556985] shrink-0" />
+                        ) : (
+                          <ChevronUp className="w-3 h-3 text-[#556985] shrink-0" />
+                        )}
+                        <Database className="w-3.5 h-3.5 text-[#556985] shrink-0" />
+                        <span className="flex-1 text-left">Archived</span>
+                        <span className="text-[9px] font-mono text-[#526682]">
+                          ({archivedThreads.length})
+                        </span>
+                      </button>
+                      {archivedOpen && (
+                        <div className="space-y-0.5 opacity-75 mt-0.5">
+                          {archivedThreads.map((t) => renderThreadRow(t, { dimmed: true }))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {threads.length === 0 && (
+                    <p className="text-[10px] font-mono text-[#526682] p-2">No threads yet.</p>
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {/* Thread context menu (Rename / Delete) */}
+          {/* Thread context menu — Rename / Move to / Archive / Delete */}
           {threadMenu && (
             <div
-              className="fixed z-[60] min-w-36 p-1.5 bg-[#0a0f19] border border-[#1a293e] rounded-xl shadow-xl animate-in fade-in duration-100"
+              className="fixed z-[60] min-w-40 p-1.5 bg-[#0a0f19] border border-[#1a293e] rounded-xl shadow-xl animate-in fade-in duration-100"
               style={{ left: threadMenu.x, top: threadMenu.y }}
               onPointerDown={(e) => e.stopPropagation()}
             >
-              <button
-                onClick={() => {
-                  const t = threads.find((x) => x.id === threadMenu.threadId);
-                  if (t) beginThreadRename(t);
-                }}
-                className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
-              >
-                Rename
-              </button>
-              <button
-                onClick={() => {
-                  const id = threadMenu.threadId;
-                  setThreadMenu(null);
-                  if (window.confirm('Delete this thread and all of its messages? This cannot be undone.')) {
-                    logger.action('Sidebar', 'Delete thread', { threadId: id });
-                    onDeleteThread?.(id);
-                  }
-                }}
-                className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#f28894] hover:bg-[#241417] transition-colors cursor-pointer"
-              >
-                Delete
-              </button>
+              {(() => {
+                const t = threads.find((x) => x.id === threadMenu.threadId);
+                return (
+                  <>
+                    <button
+                      onClick={() => {
+                        if (t) beginThreadRename(t);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      onClick={() => setMenuMoveOpen((v) => !v)}
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer flex items-center justify-between"
+                    >
+                      <span>Move to…</span>
+                      <ChevronRight className="w-3 h-3 text-[#556985]" />
+                    </button>
+                    {menuMoveOpen && t && (
+                      <div className="mt-0.5 mb-1 ml-2 pl-2 border-l border-[#1a293e] space-y-0.5">
+                        <button
+                          onClick={() => {
+                            onMoveThread?.(t.id, null);
+                            setThreadMenu(null);
+                            setMenuMoveOpen(false);
+                          }}
+                          className={`w-full px-2 py-1 rounded text-left text-[11px] font-mono transition-colors cursor-pointer ${
+                            !t.folderId ? 'text-[#38bdf8]' : 'text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white'
+                          }`}
+                        >
+                          Inbox
+                        </button>
+                        {foldersSorted.map((f) => (
+                          <button
+                            key={f.id}
+                            onClick={() => {
+                              onMoveThread?.(t.id, f.id);
+                              setThreadMenu(null);
+                              setMenuMoveOpen(false);
+                            }}
+                            className={`w-full px-2 py-1 rounded text-left text-[11px] font-mono transition-colors cursor-pointer truncate ${
+                              t.folderId === f.id
+                                ? 'text-[#38bdf8]'
+                                : 'text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white'
+                            }`}
+                          >
+                            {f.name}
+                          </button>
+                        ))}
+                        {foldersSorted.length === 0 && (
+                          <p className="text-[10px] text-[#455770] px-2 py-0.5">No folders yet</p>
+                        )}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (!t) return;
+                        if (t.lifecycle === 'archived') {
+                          logger.action('Sidebar', 'Unarchive thread', { threadId: t.id });
+                          onUnarchiveThread?.(t.id);
+                        } else {
+                          logger.action('Sidebar', 'Archive thread', { threadId: t.id });
+                          onArchiveThread?.(t.id);
+                        }
+                        setThreadMenu(null);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+                    >
+                      {t?.lifecycle === 'archived' ? 'Unarchive' : 'Archive'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const id = threadMenu.threadId;
+                        setThreadMenu(null);
+                        if (window.confirm('Delete this thread and all of its messages? This cannot be undone.')) {
+                          logger.action('Sidebar', 'Delete thread', { threadId: id });
+                          onDeleteThread?.(id);
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#f28894] hover:bg-[#241417] transition-colors cursor-pointer"
+                    >
+                      Delete
+                    </button>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* Folder context menu — Rename / New thread here / Delete */}
+          {folderMenu && (
+            <div
+              className="fixed z-[60] min-w-40 p-1.5 bg-[#0a0f19] border border-[#1a293e] rounded-xl shadow-xl animate-in fade-in duration-100"
+              style={{ left: folderMenu.x, top: folderMenu.y }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {(() => {
+                const f = folders.find((x) => x.id === folderMenu.folderId);
+                if (!f) return null;
+                return (
+                  <>
+                    <button
+                      onClick={() => beginFolderNameBox('rename', f.id, f.name)}
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      onClick={() => {
+                        setFolderMenu(null);
+                        logger.action('Sidebar', 'New thread in folder', { folderId: f.id });
+                        onCreateThread?.(f.id);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+                    >
+                      New thread here
+                    </button>
+                    <button
+                      onClick={() => {
+                        const id = folderMenu.folderId;
+                        setFolderMenu(null);
+                        if (window.confirm(`Delete folder "${f.name}"? Threads inside return to Inbox.`)) {
+                          logger.action('Sidebar', 'Delete folder', { folderId: id });
+                          onDeleteFolder?.(id);
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#f28894] hover:bg-[#241417] transition-colors cursor-pointer"
+                    >
+                      Delete folder
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           )}
 

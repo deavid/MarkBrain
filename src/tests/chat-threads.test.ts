@@ -270,6 +270,83 @@ describe('Runtime derivation', () => {
   });
 });
 
+describe('Folders & archive lifecycle', () => {
+  const reg = () => {
+    const r = new ThreadRegistry();
+    r.hydrate({ projectId: 'proj-1', threads: [], turns: [], chapters: [] });
+    return r;
+  };
+
+  it('create/rename/delete folder; delete rehomes threads to Inbox', () => {
+    const r = reg();
+    const f = r.createFolder('Research');
+    expect(r.getFolders()).toHaveLength(1);
+    expect(f.order).toBe(0);
+    const f2 = r.createFolder('Outlines');
+    expect(f2.order).toBe(1);
+
+    r.renameFolder(f.id, 'Deep Research');
+    expect(r.getFolders().find((x) => x.id === f.id)!.name).toBe('Deep Research');
+
+    const t = r.createThread({ title: 'T1' });
+    r.moveThreadToFolder(t.id, f.id);
+    expect(r.getThread(t.id)!.folderId).toBe(f.id);
+
+    // Folder dies → thread survives, returns to Inbox
+    r.deleteFolder(f.id);
+    expect(r.getThread(t.id)!.folderId).toBeNull();
+    expect(r.getFolders()).toHaveLength(1);
+    expect(r.getThread(t.id)).not.toBeNull();
+  });
+
+  it('moveThreadToFolder rejects unknown folders and supports null (Inbox)', () => {
+    const r = reg();
+    const f = r.createFolder('F');
+    const t = r.createThread();
+    r.moveThreadToFolder(t.id, 'nope');
+    expect(r.getThread(t.id)!.folderId).toBeNull();
+    r.moveThreadToFolder(t.id, f.id);
+    expect(r.getThread(t.id)!.folderId).toBe(f.id);
+    r.moveThreadToFolder(t.id, null);
+    expect(r.getThread(t.id)!.folderId).toBeNull();
+  });
+
+  it('reorderFolderBefore renumbers contiguously', () => {
+    const r = reg();
+    const a = r.createFolder('A'); // order 0
+    const b = r.createFolder('B'); // order 1
+    const c = r.createFolder('C'); // order 2
+    r.reorderFolderBefore(c.id, a.id); // C A B
+    expect(r.getFolders().sort((x, y) => x.order - y.order).map((f) => f.name)).toEqual([
+      'C',
+      'A',
+      'B',
+    ]);
+    expect(r.getFolders().sort((x, y) => x.order - y.order).map((f) => f.order)).toEqual([0, 1, 2]);
+    expect(b.order).toBeGreaterThanOrEqual(0); // b still tracked
+  });
+
+  it('archive/unarchive flips lifecycle and hydrate normalizes dangling folders', () => {
+    const r = reg();
+    const t = r.createThread({ title: 'Archivable' });
+    r.setThreadLifecycle(t.id, 'archived');
+    expect(r.getThread(t.id)!.lifecycle).toBe('archived');
+    r.setThreadLifecycle(t.id, 'active');
+    expect(r.getThread(t.id)!.lifecycle).toBe('active');
+
+    // hydrate: thread pointing at a folder that doesn't exist → Inbox
+    const r2 = new ThreadRegistry();
+    r2.hydrate({
+      projectId: 'proj-1',
+      threads: [{ ...makeDefaultThread(), id: 'X', folderId: 'ghost-folder' }],
+      folders: [],
+      turns: [],
+      chapters: [],
+    });
+    expect(r2.getThread('X')!.folderId).toBeNull();
+  });
+});
+
 describe('Compiler historyTurns override (background-thread context)', () => {
   it('compiles against explicit turns/chapters instead of the live domains', () => {
     const graph = new TopologicalGraphDomain([]);

@@ -1215,6 +1215,12 @@ export default function App() {
   const handleSendMessage = async (text: string) => {
     const threadId = threadRegistry.getActiveThreadId();
     if (!threadId) return;
+    const thread = threadRegistry.getThread(threadId);
+    if (thread?.lifecycle === 'archived') {
+      // Archived threads are readable; continuing one requires unarchiving.
+      if (!window.confirm('Unarchive and continue this thread?')) return;
+      threadRegistry.patch(threadId, { lifecycle: 'active' });
+    }
     noteSendIntent(threadId, text);
     enqueueJob({
       id: `job-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1374,11 +1380,13 @@ export default function App() {
         currentUser={currentUser}
         onSignOut={signOut}
         threads={threadRegistry.getThreads()}
+        folders={threadRegistry.getFolders()}
         activeThreadId={activeThreadId}
         threadRuntimes={threadRuntimes}
         onSelectThread={selectThread}
-        onCreateThread={() => {
-          createThread();
+        onCreateThread={(folderId) => {
+          const id = createThread();
+          if (folderId) threadRegistry.patch(id, { folderId });
           setActiveView('chat');
         }}
         onRenameThread={(id, title) => threadRegistry.rename(id, title)}
@@ -1386,6 +1394,13 @@ export default function App() {
           handleCancelQueued(id);
           deleteThread(id);
         }}
+        onMoveThread={(id, folderId) => threadRegistry.moveThreadToFolder(id, folderId)}
+        onArchiveThread={(id) => threadRegistry.setThreadLifecycle(id, 'archived')}
+        onUnarchiveThread={(id) => threadRegistry.setThreadLifecycle(id, 'active')}
+        onCreateFolder={(name) => threadRegistry.createFolder(name)}
+        onRenameFolder={(id, name) => threadRegistry.renameFolder(id, name)}
+        onDeleteFolder={(id) => threadRegistry.deleteFolder(id)}
+        onReorderFolders={(dragId, targetId) => threadRegistry.reorderFolderBefore(dragId, targetId)}
       />
 
       {/* Main Single-Focused Viewport - ZERO TOP BAR */}
@@ -1428,9 +1443,11 @@ export default function App() {
                   onStopGeneration={handleStopGeneration}
                   threadTitle={threadRegistry.getThread(activeThreadId)?.title || 'New thread'}
                   threadTitleState={threadRegistry.getThread(activeThreadId)?.titleState || 'placeholder'}
+                  threadArchived={threadRegistry.getThread(activeThreadId)?.lifecycle === 'archived'}
                   threadRuntime={threadRuntimes[activeThreadId]?.state || 'idle'}
                   queuePosition={threadRuntimes[activeThreadId]?.position || 0}
                   onRenameThread={(title) => threadRegistry.rename(activeThreadId, title)}
+                  onUnarchive={() => threadRegistry.setThreadLifecycle(activeThreadId, 'active')}
                   onRetry={handleRetryThread}
                   onCancelQueued={() => handleCancelQueued(activeThreadId)}
                   onOpenServerLogs={() => setIsServerLogsOpen(true)}

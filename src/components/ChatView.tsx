@@ -38,9 +38,11 @@ interface ChatViewProps {
   // Thread chrome (06-chat-threads)
   threadTitle?: string;
   threadTitleState?: 'placeholder' | 'auto' | 'manual';
+  threadArchived?: boolean;
   threadRuntime?: ThreadRuntime;
   queuePosition?: number;
   onRenameThread?: (title: string) => void;
+  onUnarchive?: () => void;
   onRetry?: () => void;
   onCancelQueued?: () => void;
 }
@@ -73,9 +75,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onSelectArtifact,
   threadTitle = 'New thread',
   threadTitleState = 'placeholder',
+  threadArchived = false,
   threadRuntime = 'idle',
   queuePosition = 0,
   onRenameThread,
+  onUnarchive,
   onRetry,
   onCancelQueued,
 }) => {
@@ -356,6 +360,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
           ) : null}
         </div>
       </div>
+
+      {/* Archived thread: readable, one click to continue */}
+      {threadArchived && (
+        <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-1.5 bg-[#0a0f19] border-b border-[#1a293e] text-[10px] font-mono text-[#7d93b3] shrink-0 animate-in fade-in duration-150">
+          <span className="truncate">
+            Archived — you can read it. Typing asks to unarchive first.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              onUnarchive?.();
+              logger.action('ChatView', 'Unarchived thread from banner', { title: threadTitle });
+            }}
+            className="px-2.5 py-1 rounded-lg bg-[#141d2d] hover:bg-[#1a273d] border border-[#1d2d47] text-[#8ab1e0] transition-colors cursor-pointer shrink-0"
+          >
+            Unarchive
+          </button>
+        </div>
+      )}
 
       {/* If project has zero messages, render the Centered Hero Input Composer */}
       {totalMessagesCount === 0 ? (

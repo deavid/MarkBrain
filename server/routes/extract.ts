@@ -1,33 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
-
-/** Robust model-JSON parse: strip illegal control chars (keep \\n/\\r/\\t),
- *  pull the outer {...} block, neutralize bad escapes. WHY: Gemini occasionally
- *  emits literal control characters / invalid escapes inside strings (observed:
- *  "Bad control character in string literal in JSON at position 1529") even with
- *  responseMimeType: application/json — a bare JSON.parse then 500s the import. */
-function parseModelJson(raw: string): unknown {
-  const cleaned = raw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    /* fall through to block extraction */
-  }
-  const start = cleaned.indexOf('{');
-  const end = cleaned.lastIndexOf('}');
-  if (start >= 0 && end > start) {
-    const body = cleaned.slice(start, end + 1);
-    try {
-      return JSON.parse(body);
-    } catch {
-      // Neutralize invalid escapes like \\x / \\. (valid JSON escapes untouched)
-      const fixed = body.replace(/\\(?:[^"\\/bfnrtu])/g, (m) => m.slice(1));
-      return JSON.parse(fixed);
-    }
-  }
-  throw new Error(`no JSON object found in model output (starts: ${JSON.stringify(cleaned.slice(0, 80))})`);
-}
+import { parseModelJson } from '../lib/modelJson';
 
 export function registerExtractRoutes(app: Express): void {
 // API: Extract structured YAML + Markdown artifact from raw TXT, MD, or Google Docs export

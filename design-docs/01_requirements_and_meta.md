@@ -161,6 +161,10 @@ hybrid (inferred + hand-authored) — see §5.
     visible per chapter; where the expensive part is, visible. Fine-tuning
     (ordering, detail level, injection) = wanted, low priority. Without the
     mirror, Principle 1 has no observable. See `MOBILE_UX_SPEC.md` §5.
+    *Clarified 2026-10-19 (David): "ordering" means **reordering the chat
+    itself** — send order = chat order, never a divergent payload playlist.
+    Wanted but **deferred** as a can of worms; rationale + worm list in
+    `09_CHAT_ARTIFACTS_PAYLOAD.md` §4.*
 12. **Context visibility seed:** tap the orb → popup with useful stats (cheap,
     explicitly wanted). The old "aperture-meter HUD" is AI-vibed — not a
     commitment.

@@ -1,5 +1,100 @@
 # Pending / open work
 
+## State (2026-10-19, ~09:45 — dev-orion studied (read-only) → `09_` rewritten as r2)
+
+- **Overlap check done (David prompted it):** `dev-orion` (tip `519b8ce`, 8
+  commits past our base `3367ea2`) has **mirror v1** landed — MirrorPanel is
+  the honest read-out (orb popup): totals `est.`, notes-in-context with reason
+  badges, chapters in send order, raw payload. Numbers single-source from
+  compiler `chapterBreakdown`/`noteBreakdown` (same XML strings as the prompt).
+  Also there: touch-target fails 10→0, 24px sweep decided *not now*, keyPoints
+  **not sent** (send-or-stop queued for David), package→`markbrain`, `STATUS.md`
+  cold-start snapshot, README hero. Worktree clean.
+- **`09_CHAT_ARTIFACTS_PAYLOAD.md` rewritten as r2** on that reality: control
+  mode is NOT a new payload view — it's MirrorPanel + a steering wheel (word
+  chip Full/Summary/Abstract/Label/Out/Auto + pin + "Not included" section +
+  `[+]` picker). Mirror popup stays **read-only on purpose** (keeps its 1:1
+  claim). r1's "lie-by-omission" fork **withdrawn** — the mirror *is* that
+  surface. Terminology aligned to code (`Label`, not r1's "Title"); naming debt
+  artifact/note/document flagged in 09 §9.
+- **Scoping gap found (homework punchline):** notes have full T0–T3 + override
+  + reasons in the compiler today; **chapters are binary** (active=full,
+  closed=summary) — chapter resolution handles = compiler feature work (tier
+  overrides + culling) before the UI can honestly offer them. Phase order in
+  09 §8: handles → `[+]` picker → Artifacts clean-swap → chapter compiler work
+  → deferred (reorder/presets/keyPoints).
+- **Git stance (unchanged law):** dev-orion read/inspected only. Merging those
+  8 commits into whatever we build on = David's job. Design assumes the base is
+  orion's tip; in conflicts take orion's MirrorPanel + optical-compiler
+  wholesale (honest rows beat re-estimating originals).
+
+## State (2026-10-19, ~09:30 — design conversation: library/payload reshape → new `09_` doc)
+
+- **Trigger:** David looked at the artifacts sidebar tree ("tiny, unusable, I
+  can't control things, don't know what I'm selecting, no easy way to select
+  resolution") and thought aloud toward `Chat | Artifacts` with folders|graph
+  modes inside artifacts. Asked me to do long homework (COOPERATION + motivation
+  re-read) and reshape the ideas together with him. Design-only session — **no
+  code**.
+- **The reshape (full record: `design-docs/09_CHAT_ARTIFACTS_PAYLOAD.md`):**
+  two objects — **library** (everything that exists; read/edit; folders|graph
+  lenses) vs **payload** (what gets compiled into the prompt); one presence
+  vocabulary (membership / resolution / focal — already exists as
+  `TierReason`/`nodeTiers`, just never got a usable face); rows *wear* their
+  resolution (the row is that much text) with one quiet word-chip menu
+  (Full/Summary/Abstract/Title/Out/Auto — no dials, per David).
+- **Settled by David this session:** clean swap `Chat|Artifacts` (replaces
+  Dialogue|Spatial graph; graph = a lens of the library); chat **control mode**
+  = the editable mirror (lands — "more or less what I had in mind"); per-row
+  minimal resolution control; **reorder = reorder THE CHAT** (send order = chat
+  order, no divergent playlist — my "two lenses" order proposal was WRONG and
+  is recorded as wrong in 09 §1) but **deferred as a can of worms** (worm list
+  in 09 §4: index-pair chapter windows, causality, active window, provenance
+  ranges, move granularity).
+- **Soft:** one home for granularity (control mode only; library keeps maybe a
+  quiet "in payload" dot) — David "might make some sense"; I lean hard yes.
+- **Surfaces sketch:** Chat = conversation (capture sacred) | control mode |
+  `[+]` picker (phone full-screen multi-select, desktop popup — David's own
+  counter-example). Artifacts = folders|graph, read/edit via existing modal.
+  Sidebar tiny tree **dies**. Reorder the chat = deferred; presets still
+  experiment-after-mirror; batching not asked.
+- **Doc consistency done:** `02_UI_REFACTOR_PLAN.md` got a supersession header;
+  `01_requirements_and_meta.md` §4.11 clarified (ordering = chat reorder,
+  deferred). `MOBILE_UX_SPEC.md` left closed (r5+ only) — its "control the
+  ordering" interpretation lives in 09 §6.
+- **Open asks left with David (09 §8):** control-mode entry point (sidebar vs
+  orb vs both); whether default chat should eventually show substrate artifacts
+  too (today it lies by omission — substrate is in the payload but invisible in
+  conversation view); strict library-clean vs quiet `+` while reading.
+- **Next:** David's reaction to 09 → revise doc → only then think about build
+  order. Nothing built this session.
+
+## State (2026-10-19, ~08:35 — autonomous session: touch-targets, mirror honesty, README; David offline)
+
+- David offline ("do work on your own; if you need my decisions, bad luck").
+  **Decisions I made and recorded (STATUS):** (1) 24px sweep = NOT now —
+  72 warns = 10 unique controls, all clear the hard-16 rule; a density
+  redesign of his LGTM'd mobile UI is his call → future joint design pass.
+  (2) Mirror v1 scope = my STATUS proposal (no veto) → executed. (3)
+  keyPoints = NOT displayed in the mirror — verified the compiler never
+  SENDS them (summary-only chapters, zero refs) → escalated as a payload
+  decision, queued in STATUS.
+- **Landed (new commits on the 6-commit history):** touch fails 10→0 —
+  graph controls live inside the zoom transform, sized 30px unscaled ≈17px
+  rendered (`216a477`) · package name react-example→markbrain (`150a338`)
+  · mirror v1: chapterBreakdown + reason chips + 'est.' label (`f054932`)
+  · mirror notes: noteBreakdown, rows 56+46=102 = subtotal (`a3fa36b`) —
+  NOTE: the suspected '0 tok' row was a thumbnail pixel misread (6 tok,
+  4×-verified), retracted, no bug · README assembled around the LOCKED hero
+  copy byte-for-byte + 10 stale-fact fixes (`4c1d47c`).
+- **Gates:** tsc clean · **98/98** · packs (07-43-46, 07-59-31, 08-15-13)
+  all: 13/13 journeys, geometry 0 fails, 0 errors, verdict AMBER = warns
+  only (accepted by decision above).
+- **Genuinely blocked on David now:** keyPoints send-or-stop · over-budget
+  policy · tokenCeiling setter · 24px design pass · manual-mode chips.
+  Not blocking (accepted/parked): split-corner empty-old-chapter, perf at
+  scale, Drive import (minor), M3/M4/M6 (parked with reasons).
+
 ## State (2026-10-19, ~08:05 — evidence harness merged + verified green)
 
 - **dev-pulsar's harness is in dev-orion** (fast-forward to `b3eff68` = my

@@ -1,5 +1,14 @@
 # UI TEARDOWN & REFACTOR PLAN (The "No Gimmicks" Layered UI)
 
+> **Partially superseded 2026-10-19 by `09_CHAT_ARTIFACTS_PAYLOAD.md`.** Two
+> things in this plan changed by David's thinking-out-loud, not by drift:
+> (1) "chat is the only permanent view" — Artifacts is now a first-class
+> clean-swap surface (library: folders|graph; read/edit), and chat gains a
+> **control mode** (the editable mirror); (2) the ArtifactsDesk kill stands
+> *narrowly* — the bulk filing desk stays dead, but a full-size library surface
+> and an in-chat payload picker (`[+]`) are wanted. Read 09 before acting on
+> §1/§2/§3 Layer D. Hard rules in §0 are untouched.
+
 ## 0. Hard Rules (David, 2026-10-17 — these override any tool habit)
 
 - **NO top bars. NO sticky headers.** They waste precious vertical space on

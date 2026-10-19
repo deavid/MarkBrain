@@ -1,49 +1,80 @@
 # MarkBrain
 
-**Optical Context Substrate & Dialogue Architecture** — a mobile-first studio
-for designing design systems: one project holds a chaptered dialogue, an
-artifact graph, and a token-budgeted context compiler, so you always control
-*what the LLM gets to see* (the actual pillar — see
-[`design-docs/scratch/motivation.md`](design-docs/scratch/motivation.md)).
+**Show me what the LLM sees.**
+
+*a thinking workbench for overflowing brains*
+
+Your brain floods. Ideas, threads, half-decisions, five projects tangled into
+one thought — and every tool built for "talking to an LLM" treats that flood
+as either a scrolling log to lose things in, or an excuse to spawn an
+expensive swarm of agents that burn your money and your afternoon. Chat
+assistants bury your best insights three hundred turns deep. Wikis make you
+stop thinking to go file things. Agent platforms are windows into a desktop
+computer — and they cost three API calls to say hello. None of them was built
+for the person with a phone in one hand and too many ideas in the other.
+
+MarkBrain is a thinking workbench: you dump thoughts in conversation, and
+everything of value crystallizes into living documents that keep the *why* —
+every artifact remembers the discussion that birthed it. Topics become a graph
+instead of a folder tree, so you can zoom from the whole forest down to one
+leaf without losing the view. And the thing it does that nothing else does:
+**it shows you what the LLM actually sees.** Same order, same contents —
+summarized material appears summarized to *you* too, tokens visible per
+chapter, the expensive parts lit up. You control that context directly: what's
+sharp, what's blurred, what's out of frame. No hidden orchestration deciding
+for you.
+
+It is deliberately not agentic. One Enter, one API call — no tool loops, no
+swarm, no model taking the wheel. That's taste, but it's also economics: this
+is meant to run *cheap*, slowly if it must, more like email than like a live
+demo — because it's a thinking tool, not a transaction. Mobile-first,
+genuinely: open it on the street, dump the thought, close the phone, come back
+to the reply. Desktop is a courtesy and that's fine. It's a personal tool,
+built out of need, still figuring out exactly what it wants to be when it
+grows up — and honest about that.
 
 > **Source of truth is [`design-docs/`](design-docs/).** Start with
 > `00_core_philosophy_soul.md` and `01_requirements_and_meta.md`; the
-> collaboration charter/state lives in `design-docs/scratch/`. This README is
-> just the front door.
+> charter/motivation/corrections live in `design-docs/scratch/`. For pending
+> work, start at [`design-docs/STATUS.md`](design-docs/STATUS.md) — dated
+> snapshot; when it disagrees with `design-docs/scratch/pending.md`, the
+> scratch wins. This README is just the front door; details live in the docs.
 
 ## Stack
 
 | Layer | What |
 |---|---|
 | Frontend | React 19 + Vite 8 + Tailwind 4, TypeScript, SPA in `src/` |
-| Backend | Express backend in `server/` (`app.ts` + `routes/` for chat, summarize, title, tts, extract, logs, health, auth, models + `providers/gemini.ts` + `lib/`), behind a 10L `server.ts` entry; mounts Vite (dev) or `dist/` (prod); owns the model catalog (`GET /api/models`) |
+| Backend | Express backend in `server/` (`app.ts` + `routes/` for chat, summarize, title, tts, extract, logs, health, auth, models + `providers/gemini.ts` + `lib/`), behind the 10-line `server.ts` entry; mounts Vite (dev) or `dist/` (prod); owns the model catalog (`GET /api/models`) |
 | Auth/DB | Firebase Auth (Google popup) + Firestore, per-user trees, rules in `firestore.rules`; or the Local branch (no account, IndexedDB) |
-| Domain logic | DDD-ish modules in `src/domains/` behind `DomainRegistry` — see `design-docs/03_DOMAIN_ARCHITECTURE_RULES.md` |
+| Domain logic | DDD-ish micro-domains in `src/domains/` behind `DomainRegistry` — see `design-docs/03_DOMAIN_ARCHITECTURE_RULES.md` |
 | Persistence | One port, two backends: Firestore (default) or local IndexedDB — `src/services/persistenceService.ts` is the only module that knows both exist. Canonical backup/restore JSON (Backup DB / Restore DB). |
 
 ## Run it
 
 ```bash
 npm install
-cp .env.example .env        # fill in secrets (a populated .env may already exist locally)
-bun run dev                # → http://localhost:$PORT  (PORT from .env, default 3030)
+cp .env.example .env        # fill in placeholders (a populated .env may already exist locally)
+bun run dev                 # → http://localhost:$PORT  (PORT from .env; code default 3000)
 ```
+
+Env is layered and loads in order — real OS/runtime env → `.env` →
+`.env.shared` → the canonical shared file in the parent worktree (earlier
+wins); `.env.example` documents the stack and lists every key.
 
 | Script | Does |
 |---|---|
-| `bun run dev` / `start` | `tsx server.ts` — API + Vite middleware on one port |
+| `bun run dev` / `bun run start` | `tsx server.ts` — API + Vite middleware on one port |
 | `npm run build` | `vite build` → `dist/` |
-| `npm run preview` | serve `dist/` |
+| `npm run preview` | `vite preview` — serve `dist/` |
 | `npm run lint` | `tsc --noEmit` |
-| `npm run test` | `vitest run` (`src/tests/user-journeys.test.ts`) |
+| `npm run test` | `vitest run` (13 files in `src/tests/`) |
 
 Notes:
 
 - `.env` needs at least `GEMINI_API_KEY` (server-side chat/stream/tts/extract
   endpoints) and the `FIREBASE_*` vars (injected into the client by
   `vite.config.ts`). `.env.example` lists everything.
-- Known state: `vitest` is declared but may be absent from `node_modules`
-  (stale install) — both `lint` and `test` need a full `npm install` first.
 - First screen is an auth gate with two branches: `Continue with Google`
   (cloud) and `Continue locally` (no account, this browser only). On a fresh
   account you land on Project Genesis, then the main studio. Projects are
@@ -61,16 +92,19 @@ server/routes/            # one file per endpoint group (chat, summarize, title,
                           # extract, logs, health, auth, models)
 server/providers/         # gemini.ts — provider adapter (OpenRouter lands beside it)
 server/lib/               # env, log, tokens, prompt, models
-src/App.tsx               # composition root (~600L): loader → AuthGate → Genesis → studio
+src/App.tsx               # composition root (~650L): loader → AuthGate → Genesis → studio
 src/ui/                   # feature slices: chat, artifacts, graph, workspace, context
                           # (Sidebar, ChatView, SpatialGraph, modals, gate… live here)
 src/application/          # orchestration: sendQueue, persistWorker, sessionMachine, snapshotLoader
 src/gateway/api.ts        # the only module in src/ allowed to call fetch('/api/…')
-src/domains/              # workspace, timeline, artifacts, chapters, graph, compiler,
-                          # stream protocol, chat-threads… (+ DomainRegistry)
-src/services/             # firebase, Google Drive/Docs import, persistenceService
-src/services/stores/      # ProjectStore port: projectStore.ts + firestoreStore, localStore, hydrate (typed snapshot)
-src/data/models.ts        # legacy AVAILABLE_MODELS — being replaced by GET /api/models
+src/domains/              # micro-domains behind DomainRegistry: workspace, artifact
+                          # document/versioning, dialogue timeline, chapter segmentation,
+                          # topological graph, chapter recalibration, optical compiler,
+                          # stream protocol, chat-threads
+src/services/             # firebase, Google Drive import, localBackend, persistenceService
+src/services/stores/      # ProjectStore port: projectStore.ts + firestoreStore, localStore, hydrate
+src/data/models.ts        # FALLBACK_MODEL — one constant while GET /api/models is in flight
+scripts/                  # evidence pack + headless capture/acceptance runners (see below)
 design-docs/              # the actual spec — see index in SCRATCH.md
 ```
 
@@ -123,11 +157,16 @@ are committed.
 | `01_requirements_and_meta.md` | requirements + the motivation section |
 | `02_UI_REFACTOR_PLAN.md` | UI layers (incl. zero-footprint telemetry) |
 | `03_DOMAIN_ARCHITECTURE_RULES.md` | domain & layer rules — amended 2026-10-18 to match the refactor (ui slices, gateway, server/, tests in `src/tests/`) |
-| `07_CODE_ORGANIZATION.md` | DDD/seams review + micro-domain proposal (REVIEW — not decided) |
+| `04_CRITICAL_FINDINGS.md` | full-app critical review, 2026-10-18 (frozen snapshot) |
+| `05_CLEANSE_DECISIONS.md` | cleanse decisions ledger (append-only) |
+| `06_GEMINI_3_8_FLASH_LATENCY.md` | latency probe notes |
+| `07_CODE_ORGANIZATION.md` | DDD/seams review + micro-domain proposal → executed (see its §10) |
+| `08_UNIFIED_DATA_MODEL.md` | type-collapse decision register + execution record |
 | `SYSTEM_ARCHITECTURE.md` | moving parts and how they meet |
 | `CONTEXT_COMPILER.md` | tiering/context-budget model (implementation choice, not doctrine) |
 | `STREAM_PROTOCOL.md` | chat streaming protocol |
 | `MOBILE_UX_SPEC.md` | mobile constraints & shipped chrome |
 | `AGENT_RUNBOOK.md` | run/mock/screenshot rig for agents |
 | `EVIDENCE_PACK.md` | browser testing methodology — evidence packs: journey suite + geometry audit + LLM screener contract |
+| `STATUS.md` | pending work + project context snapshot (dated; `scratch/pending.md` is the live log) |
 | `scratch/` | charter, ground-truth motivation, corrections, pending list |

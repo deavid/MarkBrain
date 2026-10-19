@@ -1,5 +1,138 @@
 # Pending / open work
 
+## State (2026-10-19, ~08:05 — evidence harness merged + verified green)
+
+- **dev-pulsar's harness is in dev-orion** (fast-forward to `b3eff68` = my
+  `bdd1156` + pulsar's 2 commits: `scripts/evidence.cjs` 881L,
+  `design-docs/EVIDENCE_PACK.md`, README testing-methodology section).
+  Pulsar rebased onto my work as David directed; merge touched only my branch.
+- **Ran the full 3-layer stack myself:** tsc 0 · vitest **92/92** ·
+  `node scripts/evidence.cjs` → pack `evidence/2026-10-19T06-59-06/`:
+  **13/13 journeys, 0 warns, 0 console/page/http errors**; audit **10 fails /
+  62 warns** (known touch-target backlog, doc'd in EVIDENCE_PACK §Known
+  findings) → verdict RED = geometry only. Journey 04 machine-confirmed the
+  split fix ("new chapter carries 7 msg(s)"). Pulsar's byte-identical claim
+  holds on my run too.
+- **NEW TESTING METHODOLOGY (now the law for UI work):** after any UI change →
+  `bunx tsc --noEmit && bunx vitest run` → `bun run dev && node
+  scripts/evidence.cjs` → screen `evidence/<ts>/summary.json` failures-first,
+  then only flagged artifacts. NO manual browsing (my probe-trip lesson; the
+  pack replaces it). Contract: `design-docs/EVIDENCE_PACK.md`.
+- **Open backlog (from pack):** 10 touch-fails — graph toolbar @768 (Pin 11px,
+  Connect 13px, Pull/Inspect 12px), mirror RAW-PAYLOAD toggle 13px @768+1440;
+  62 warns in the 16–24px WCAG band. Small, mechanical; next candidate work
+  whenever David says.
+- Server stopped; evidence/ gitignored; tree clean. Still-open items list
+  unchanged from below (mirror v1, over-budget, README copy, package name).
+
+## State (2026-10-18, ~22:00 — review-pickup: H1/M2/UX fixes landed; parked list explicit)
+
+- Post type-collapse, another conversation ran a full live-journey review
+  (26 screenshots, /tmp/orion-journeys/) and produced a risk map. David
+  dispatched me to pick up the slack. **Landed (this session):**
+  `75e5746` capture --full + post-mortems · `5517ce6` H1 (load error ≠ absence,
+  save gate stays closed on failure — was silent-wipe class) + M2 (legacy
+  meta backfill in hydrate: latencyMs/inputTokens/outputTokens) · `6ef540c`
+  split-at-clicked-message + available:false 'no key' badge + spec-export
+  3.0.0. Gate: **92/92**, tsc clean. Branch: 17 commits ahead of main.
+- **Parked (deliberate, with reasons in chat):** M4 cancel-chain-on-project-
+  switch (needs a call on cross-thread queued jobs), M3 ghost stream on
+  thread delete (pre-existing, quota-only), M6 stale tab across redeploy
+  (inherent), M10 tokenCeiling setter + launcher counts (feature gaps;
+  launcher badges were fabricated zeros anyway). Compression control stays
+  deleted (was a documented no-op). Open edge from FIX 1: clicking a
+  chapter's FIRST message yields an empty OLD chapter (label-mandated
+  semantics — clicked message = first of new); guard if it ever bothers.
+- **Still open from before:** mirror v1 (David: "should work into that soon"),
+  over-budget degradation, README hero copy rewrite, package.json name
+  ("react-example"), OpenRouter (parked by David).
+
+## State (2026-10-18, ~20:45 — type collapse executed (free reign), 07+08 fully landed)
+
+- David granted free reign ("leave the house better than it was") after the
+  type-swamp groundwork + narrative correction. Dual data model **killed**:
+  legacy ChatMessage/Chapter/GraphEdge/GraphNode/MessageMeta/useProjectProjection
+  all deleted; domain types (Turn/ChapterPartition/SemanticEdge) are the ONE
+  truth, screens read them via `groupTurnsByChapter` selector; meta is one
+  provider-neutral vocabulary (input/output/latency + TTFC + isFallback);
+  edges open-kind per 01 §4.8; severed data reconnected (keyPoints,
+  topicShiftReason, chips code/category, sidebar tokenCeiling); one client
+  estimator. 71/71 tests (3 new), capture green + visually confirmed.
+  Full decision register + beyond-register calls: `08_UNIFIED_DATA_MODEL.md`.
+- **Narrative law now in corrections.md** (hard feedback 20:01): reports are
+  stories; he doesn't read process; collapse questions before asking; if he
+  can't LGTM in one sitting, the report failed.
+- **Remaining opens (all optional, await David's direction):** mirror v1 work
+  ("should work into that soon" — not started), over-budget degradation
+  (compiler), OpenRouter adapter (parked/discarded for now), repo housekeeping
+  (README hero copy rewrite, package.json name still "react-example").
+- Context worked as intended: collapse ran as ONE subagent with full brief;
+  I only gated + committed. Future big work should follow the same shape.
+
+## State (2026-10-18, ~17:30 — code-organization review → `07_CODE_ORGANIZATION.md`; persona sessions start)
+
+- **Context:** David started persona-per-conversation ("Orion" here); these
+  conversations get reused + `/compact`ed. No standing objective this session —
+  he asked for my opinion on DDD/domains/code organization, "go crazy", then
+  asked for it as a detailed/ranty doc. Doc written: `design-docs/07_CODE_ORGANIZATION.md`.
+- **Answers from David (this session):** daily-driver bar = **capture + chat +
+  chapters on phone** ("yep, probably"). **TTS on phone = important though low
+  priority** (he's done the manual send-to-phone dance repeatedly). **Drive
+  import = minor** (already moved everything to a git folder of markdown).
+  **Mirror = "should work into that soon", NOT this session.** He's avoided the
+  chat for a while. Suspects Firebase/Local lack a real anticorruption layer —
+  review says: policy exists, structure doesn't (see doc §3). Announced
+  **OpenRouter coming soon** (not only Gemini) — needs a provider layer (doc §6).
+- **Headline findings (all verified against tree at 29d9800, evidence in doc):**
+  DDD skeleton partially landed (imports/levels clean inside `domains/`), but
+  rules 3 (per-domain tests — zero exist) and 4 (App.tsx 1075L does raw fetch)
+  violated; `04-presentation/` layout in `03` is fiction (only `telemetry/`
+  exists); `02-provenance-tracking` + `02-recursive-grouping` still dead; three
+  shapes of "a message" (two both named `Turn`), App maps turn→ChatMessage by
+  hand at 3 sites; `persistenceService` has no `ProjectStore` port (6 copy-pasted
+  backend switches, `any[]` snapshot boundary, kitchen-sink file); twin model
+  lists (`src/data/models.ts` vs `validModels` in `server.ts`) — the
+  twin-parser disease reborn for OpenRouter. **Parallel-agent pain concentrated
+  in 4 hot files: App.tsx, server.ts, DomainRegistry.tsx, types/index.ts.**
+- **Proposed order (NOT approved yet):** 1) split server.ts into routes/ ·
+  2) API client + server-owned model catalog · 3) ProjectStore port · 4) split
+  App.tsx along ui/* seams · 5) split DomainRegistry → wiring + application/ ·
+  6) cull dead domains + amend `03` · 7) OpenRouter provider adapter. Open
+  questions for David in doc §8.2 (ui slice count, message-type collapse depth,
+  shared types across the client/server line, per-domain tests fund-or-delete).
+- **Next:** David's verdict on 07 → if yes, ledger the execution in `05` (or a
+  new `08_` ledger) and start with server.ts split. Nothing executed this
+  session except the doc + README map row.
+- **EXECUTED (2026-10-18, ~18:30 — waves 1–4, all via subagents, all
+  committed on `dev-orion`, NOT pushed).** David's verdict: "the time is now"
+  (prod-quality push coming will stress the architecture); parallelism =
+  subagents under me, not worktrees; protect my context by driving everything
+  through delegates. Result (details + commit table in `07` §10):
+  - `809b9f7` server.ts 836L → 10L entry + `server/{app,routes×9,providers,lib}`.
+  - `a2ab03b` ProjectStore port (`services/stores/` — ONE dispatch, typed
+    snapshot: Turn[]/ChapterPartition[]/UAD[]/SemanticEdge[]/ChatThread[]…),
+    dead domains `02-provenance-tracking` + `02-recursive-grouping` deleted.
+  - `0b44f59` send-queue → `application/sendQueue.ts` (App 1685→1320).
+  - `553980d` `gateway/api.ts` — the ONLY `fetch('/api…')` site in src/
+    (enforced: rg check empty; rule 7 in amended `03`).
+  - `eabab0e` `4cc68eb` server-owned catalog + `GET /api/models`; client twin
+    `data/models.ts` reduced to one fallback constant.
+  - `e686e62` DomainRegistry 444→307 (`application/{persistWorker,
+    sessionMachine,snapshotLoader}`, public API unchanged).
+  - `97fc87a` App.tsx → **608L** composition root; `src/ui/{chat,artifacts,
+    graph,workspace,context}/`; `src/components/` GONE; `04-presentation/`
+    deleted (telemetry → ui/context).
+  - `44692fd` capture script reads the 3-layer env read-only (no more
+    hand-editing root .env — the FIREBASE_* gap from earlier today is closed).
+  - `26138ec` docs: `03` amended to match reality (rule 7 fetch/client-server
+    line; rule 3 tests-in-src/tests superseded), README shape, 07 §10 status.
+  - **Final gate:** tsc clean, vitest **68/68**, headless capture green on the
+    committed state (desktop + 390px mobile screenshots visually verified).
+- **Still open (from 07 §8.2):** type-swamp collapse (Turn/ChatMessage — needs
+  David's call), OpenRouter provider adapter (needs David's go — seam is ready:
+  `providers/`, catalog `provider` field, gateway). Note: worktree sessions
+  (nova/altair/…) are done; future parallelism = subagents here.
+
 ## State (2026-10-18, ~15:40 — import rework + persistence save-loss fix + env layering + history de-dup; worktree `dev-orion`)
 
 - **CRITICAL persistence bug — FIXED: imported artifacts vanished forever on

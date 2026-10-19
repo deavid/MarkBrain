@@ -88,6 +88,22 @@
   despair with mr AI Studio"; the codebase is evidence of attempts, not of
   settled intent.
 
+## Narrative law (David, 2026-10-18 20:01 — hard feedback)
+
+- **He does NOT read my process.** 30 minutes of thinking, 20 tool steps,
+  subagent reports — none of it transfers. Never present a result as if he
+  followed along ("the table above", "Q1–Q5", dense citation dumps). He said
+  he "barely read even the last turn."
+- **Reports are stories:** what happened → why it matters *to him* → what I
+  found (punchlines, not tables) → what I propose → **what I want from him.**
+  Flowing prose first; structure only after the story lands.
+- **Collapse questions before asking.** Take every open question, check it
+  against vision docs + prior decisions; anything already decided or pure
+  housekeeping I answer MYSELF and just report it. Come to him with the
+  minimum real asks, each in plain language with my recommendation.
+- **"I can't LGTM anything like this" = the report failed, not him.** If he
+  can't answer in one sitting, rewrite — don't defend.
+
 ## Instrumentation law (David, 2026-10-18)
 
 - **1 event per human action = guideline** (aspirational target).

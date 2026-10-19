@@ -16,7 +16,7 @@ artifact graph, and a token-budgeted context compiler, so you always control
 | Layer | What |
 |---|---|
 | Frontend | React 19 + Vite 8 + Tailwind 4, TypeScript, SPA in `src/` |
-| Backend | Single `server.ts` — Express, mounts Vite (dev) or `dist/` (prod), proxies Gemini (`@google/genai`) |
+| Backend | Express backend in `server/` (`app.ts` + `routes/` for chat, summarize, title, tts, extract, logs, health, auth, models + `providers/gemini.ts` + `lib/`), behind a 10L `server.ts` entry; mounts Vite (dev) or `dist/` (prod); owns the model catalog (`GET /api/models`) |
 | Auth/DB | Firebase Auth (Google popup) + Firestore, per-user trees, rules in `firestore.rules`; or the Local branch (no account, IndexedDB) |
 | Domain logic | DDD-ish modules in `src/domains/` behind `DomainRegistry` — see `design-docs/03_DOMAIN_ARCHITECTURE_RULES.md` |
 | Persistence | One port, two backends: Firestore (default) or local IndexedDB — `src/services/persistenceService.ts` is the only module that knows both exist. Canonical backup/restore JSON (Backup DB / Restore DB). |
@@ -52,15 +52,25 @@ Notes:
 ## Shape of the code
 
 ```
-server.ts                 # Express: /api/chat{,/stream,/cancel}, /api/summarize-chapter,
-                          # /api/tts, /api/extract-artifact-from-file, /api/health,
+server.ts                 # 10L entry (`tsx server.ts`) → server/
+server/                   # Express: /api/chat{,/stream,/cancel}, /api/summarize-chapter,
+                          # /api/title-thread, /api/tts, /api/extract-artifact-from-file,
+                          # /api/models (server-owned catalog), /api/health,
                           # /api/server-logs{,/stream,/clear}, /api/auth/config
-src/App.tsx               # screen flow: loader → AuthGate → Genesis → studio
-src/components/           # Sidebar, ChatView, SpatialGraph, modals, gate…
-src/domains/              # workspace, timeline, artifacts, chapters, graph,
-                          # compiler, stream protocol… (+ DomainRegistry)
-src/services/             # firebase, persistenceService (the storage port), Google Drive/Docs import
-src/data/models.ts        # AVAILABLE_MODELS (the old initialData.ts demo seeds are gone)
+server/routes/            # one file per endpoint group (chat, summarize, title, tts,
+                          # extract, logs, health, auth, models)
+server/providers/         # gemini.ts — provider adapter (OpenRouter lands beside it)
+server/lib/               # env, log, tokens, prompt, models
+src/App.tsx               # composition root (~600L): loader → AuthGate → Genesis → studio
+src/ui/                   # feature slices: chat, artifacts, graph, workspace, context
+                          # (Sidebar, ChatView, SpatialGraph, modals, gate… live here)
+src/application/          # orchestration: sendQueue, persistWorker, sessionMachine, snapshotLoader
+src/gateway/api.ts        # the only module in src/ allowed to call fetch('/api/…')
+src/domains/              # workspace, timeline, artifacts, chapters, graph, compiler,
+                          # stream protocol, chat-threads… (+ DomainRegistry)
+src/services/             # firebase, Google Drive/Docs import, persistenceService
+src/services/stores/      # ProjectStore port: projectStore.ts + firestoreStore, localStore, hydrate (typed snapshot)
+src/data/models.ts        # legacy AVAILABLE_MODELS — being replaced by GET /api/models
 design-docs/              # the actual spec — see index in SCRATCH.md
 ```
 
@@ -88,7 +98,8 @@ Chromium at a time (parallel runs OOM-killed the agent; see runbook).
 | `00_core_philosophy_soul.md` | what this is trying to be |
 | `01_requirements_and_meta.md` | requirements + the motivation section |
 | `02_UI_REFACTOR_PLAN.md` | UI layers (incl. zero-footprint telemetry) |
-| `03_DOMAIN_ARCHITECTURE_RULES.md` | domain module rules |
+| `03_DOMAIN_ARCHITECTURE_RULES.md` | domain & layer rules — amended 2026-10-18 to match the refactor (ui slices, gateway, server/, tests in `src/tests/`) |
+| `07_CODE_ORGANIZATION.md` | DDD/seams review + micro-domain proposal (REVIEW — not decided) |
 | `SYSTEM_ARCHITECTURE.md` | moving parts and how they meet |
 | `CONTEXT_COMPILER.md` | tiering/context-budget model (implementation choice, not doctrine) |
 | `STREAM_PROTOCOL.md` | chat streaming protocol |

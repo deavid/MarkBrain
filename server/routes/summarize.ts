@@ -11,8 +11,8 @@ app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
 
     if (!messages || messages.length === 0) {
       return res.json({
-        summary: `Empty chapter on ${title || 'Topic'}`,
-        keyPoints: [],
+        description: `An empty chapter${title ? ` titled "${title}"` : ''}.`,
+        summary: '',
       });
     }
 
@@ -20,20 +20,20 @@ app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
       .map((m: { role: string; content: string }) => `${m.role}: ${m.content}`)
       .join('\n');
 
+    let descriptionText = '';
     let summaryText = '';
-    let keyPoints: string[] = [];
 
     if (ai) {
       const prompt = `Summarize the following conversation chapter titled "${title}".
-Provide:
-1. A short summary (2-3 sentences) capturing what was actually discussed and decided.
-2. Up to 4 key points worth remembering from this stretch of conversation.
+The two texts are LAYERS of one recap and are read together — the summary continues the description, it does not restate it.
 
-Output format:
-SUMMARY: [summary]
-KEY POINTS:
-- [point 1]
-- [point 2]
+Provide:
+1. DESCRIPTION: 1-2 sentences — what this chapter is about.
+2. SUMMARY: several paragraphs — what was actually discussed, decided, and left open. Do not repeat the description.
+
+Output format (exactly):
+DESCRIPTION: [1-2 sentences]
+SUMMARY: [several paragraphs]
 
 Transcript:
 ${conversationTranscript}`;
@@ -47,24 +47,22 @@ ${conversationTranscript}`;
       });
 
       const raw = response.text || '';
-      const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]*?)(?=KEY POINTS:|$)/i);
-      summaryText = summaryMatch ? summaryMatch[1].trim() : raw.slice(0, 300);
-
-      const bulletMatches = raw.match(/- (.*)/g);
-      if (bulletMatches) {
-        keyPoints = bulletMatches.map((b) => b.replace(/^- \s*/, '').trim());
-      }
+      const descMatch = raw.match(/DESCRIPTION:\s*([\s\S]*?)(?=SUMMARY:|$)/i);
+      const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]*)$/i);
+      descriptionText = descMatch ? descMatch[1].trim() : '';
+      summaryText = summaryMatch ? summaryMatch[1].trim() : '';
+      // Failure-tolerant: if the model ignored the labels, keep its text as the
+      // summary rather than losing it, and let the description stay empty.
+      if (!summaryText) summaryText = raw.trim().slice(0, 2000);
     } else {
-      summaryText = `Chapter: ${title}.`;
-      keyPoints = [
-        'No API key set — this summary is a placeholder, not a real one.',
-      ];
+      descriptionText = `Chapter: ${title}.`;
+      summaryText = 'No API key set — this recap is a placeholder, not a real one.';
     }
 
     res.json({
+      description: descriptionText,
       summary: summaryText,
-      keyPoints,
-      tokens: estimateTokens(summaryText + keyPoints.join(' ')),
+      tokens: estimateTokens(descriptionText + summaryText),
     });
   } catch (err: unknown) {
     logServer('error', 'API:SUMMARIZE', `Error in /api/summarize-chapter: ${err instanceof Error ? err.message : err}`, err);

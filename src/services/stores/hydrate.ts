@@ -11,9 +11,10 @@ import type { ProjectSnapshot } from './projectStore';
 
 /**
  * Hydrate a raw stored artifact into canonical shape (domain model = source
- * of truth): ensure camelCase ids/dates exist and `current.t0..t3` tiers are
- * populated — synthesizing tiers from legacy flat description/summary/content
- * when missing. Extra legacy fields ride along untouched (nothing stripped).
+ * of truth): ensure camelCase ids/dates exist and the layered `current`
+ * fields (description/summary/body) are populated — from the legacy tier
+ * names (description/summary/body) or flat fields when missing.
+ * Extra legacy fields ride along untouched (nothing stripped).
  */
 export function hydrateArtifact(raw: any, projectId: string): any {
   const cur = raw?.current || {};
@@ -22,7 +23,7 @@ export function hydrateArtifact(raw: any, projectId: string): any {
     ...raw,
     id: raw?.id || `art-${Math.random().toString(36).slice(2, 10)}`,
     workspaceId: raw?.workspaceId ?? raw?.workspace_id ?? projectId,
-    title: raw?.title ?? cur.t0_label ?? 'Untitled',
+    title: raw?.title ?? cur.t0_label ?? cur.title ?? 'Untitled',
     code: raw?.code ?? '',
     category: raw?.category ?? 'note',
     tags: Array.isArray(raw?.tags) ? raw.tags : [],
@@ -39,11 +40,12 @@ export function hydrateArtifact(raw: any, projectId: string): any {
           ? raw.updated_at
           : Date.now(),
     current: {
-      t0_label: cur.t0_label ?? raw?.title ?? 'Untitled',
-      t1_abstract: cur.t1_abstract ?? flatDesc,
-      t2_summary: cur.t2_summary ?? raw?.summary ?? '',
-      t3_body: cur.t3_body ?? raw?.content ?? '',
+      description: cur.description ?? cur.description ?? flatDesc,
+      summary: cur.summary ?? cur.summary ?? raw?.summary ?? '',
+      body: cur.body ?? cur.body ?? raw?.content ?? '',
     },
+    // `resolution` was an artifact-level husk the compiler never read; drop it.
+    resolution: undefined,
   };
 }
 
@@ -54,8 +56,8 @@ function isCanonical(raw: any): boolean {
       raw.workspaceId !== undefined &&
       raw.createdAt !== undefined &&
       raw.current &&
-      raw.current.t0_label !== undefined &&
-      raw.current.t3_body !== undefined
+      raw.current.description !== undefined &&
+      raw.current.body !== undefined
   );
 }
 
@@ -123,6 +125,23 @@ export function hydrateSnapshot(snap: ProjectSnapshot): ProjectSnapshot {
     );
   }
 
+  // Chapters: legacy snapshots carry `topicShiftReason` (the model's 1-sentence
+  // essence, misfiled) and `keyPoints` (never sent). Map the first onto the
+  // description layer; granularity stays absent so the resolver defaults it
+  // (open → full, closed → summary).
+  const chapters = Array.isArray(snap.chapters)
+    ? (snap.chapters.map((c: any) => {
+        if (!c || typeof c !== 'object') return c;
+        const { topicShiftReason, keyPoints, ...rest } = c;
+        return {
+          ...rest,
+          ...(rest.description === undefined && typeof topicShiftReason === 'string'
+            ? { description: topicShiftReason }
+            : {}),
+        };
+      }) as ProjectSnapshot['chapters'])
+    : snap.chapters;
+
   const turnCounters = { healed: 0, seen: 0 };
   const turns = healTurns(snap.turns as any, turnCounters) as ProjectSnapshot['turns'];
   const threads = Array.isArray(snap.threads)
@@ -138,5 +157,5 @@ export function hydrateSnapshot(snap: ProjectSnapshot): ProjectSnapshot {
     );
   }
 
-  return { ...snap, artifacts, turns, threads };
+  return { ...snap, artifacts, chapters, turns, threads };
 }

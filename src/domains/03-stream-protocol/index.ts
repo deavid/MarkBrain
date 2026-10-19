@@ -75,13 +75,16 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
     if (match) {
       const attrsStr = match[1];
       const titleMatch = /title=["']([^"']+)["']/i.exec(attrsStr);
-      const abstractMatch = /abstract=["']([^"']+)["']/i.exec(attrsStr);
+      // `description` is the settled word; `abstract` is the legacy attribute
+      // some models still emit from older prompts — accepted, never preferred.
+      const descriptionMatch =
+        /description=["']([^"']+)["']/i.exec(attrsStr) || /abstract=["']([^"']+)["']/i.exec(attrsStr);
       const summaryMatch = /summary=["']([^"']+)["']/i.exec(attrsStr);
 
       if (titleMatch) {
         topicShift = {
           title: titleMatch[1],
-          abstract: abstractMatch ? abstractMatch[1] : undefined,
+          description: descriptionMatch ? descriptionMatch[1] : undefined,
           summary: summaryMatch ? summaryMatch[1] : undefined,
         };
         this.handlers.onTopicShiftDetected?.forEach((fn) => fn(topicShift!));
@@ -134,12 +137,14 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       const id = idAttr ? idAttr[1] : `art-${Date.now()}-${artifactUpserts.length}`;
       const type = (typeAttr ? typeAttr[1] : 'document') as any;
 
-      const absMatch = /<abstract>([\s\S]*?)<\/abstract>/i.exec(inner);
+      const descMatch =
+        /<description>([\s\S]*?)<\/description>/i.exec(inner) ||
+        /<abstract>([\s\S]*?)<\/abstract>/i.exec(inner);
       const sumMatch = /<summary>([\s\S]*?)<\/summary>/i.exec(inner);
       const bodyMatch = /<content>([\s\S]*?)<\/content>/i.exec(inner);
 
-      const abstractText = absMatch ? absMatch[1].trim() : (sumMatch ? sumMatch[1].trim() : title);
-      const summaryText = sumMatch ? sumMatch[1].trim() : abstractText;
+      const descriptionText = descMatch ? descMatch[1].trim() : '';
+      const summaryText = sumMatch ? sumMatch[1].trim() : descriptionText;
       const bodyText = bodyMatch ? bodyMatch[1].trim() : inner.trim();
 
       const up: ExtractedArtifactUpsert = {
@@ -147,10 +152,9 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
         title,
         type: type === 'chapter' ? 'chapter' : 'document',
         content: {
-          t0_label: title,
-          t1_abstract: abstractText,
-          t2_summary: summaryText,
-          t3_body: bodyText,
+          description: descriptionText,
+          summary: summaryText,
+          body: bodyText,
         },
       };
       artifactUpserts.push(up);
@@ -164,28 +168,28 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       const block = cbMatch[1];
       const titleMatch = block.match(/title:\s*(.*)/i);
       const typeMatch = block.match(/type:\s*(.*)/i);
-      const abstractMatch = block.match(/abstract:\s*(.*)/i);
+      const descriptionMatch = block.match(/description:\s*(.*)/i) || block.match(/abstract:\s*(.*)/i);
 
       const bodyText = block
         .replace(/title:.*\n/i, '')
         .replace(/type:.*\n/i, '')
+        .replace(/description:.*\n/i, '')
         .replace(/abstract:.*\n/i, '')
         .replace(/highConcept:.*\n/i, '')
         .trim();
 
       const title = titleMatch ? titleMatch[1].trim() : 'Extracted note';
       const type = (typeMatch ? typeMatch[1].trim() : 'document') as any;
-      const abstractText = abstractMatch ? abstractMatch[1].trim() : 'Extracted note.';
+      const descriptionText = descriptionMatch ? descriptionMatch[1].trim() : '';
 
       const up: ExtractedArtifactUpsert = {
         id: `art-${Date.now()}-${artifactUpserts.length}`,
         title,
         type: type === 'chapter' ? 'chapter' : 'document',
         content: {
-          t0_label: title,
-          t1_abstract: abstractText,
-          t2_summary: abstractText,
-          t3_body: bodyText || block,
+          description: descriptionText,
+          summary: descriptionText,
+          body: bodyText || block,
         },
       };
       artifactUpserts.push(up);

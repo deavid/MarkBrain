@@ -19,7 +19,7 @@ export function createGraphHandlers(params: GraphHandlerParams) {
       artifactsDomain.upsertArtifact({
         ...art,
         id: art.id,
-        title: art.title || art.current?.t0_label || 'Untitled',
+        title: art.title || art.title || 'Untitled',
         graph: {
           ...art.graph,
           x,

@@ -50,7 +50,7 @@ describe('Split at clicked message', () => {
     expect(oldCh.endIndex).toBe(1);
     expect(newCh.startIndex).toBe(1);
     expect(newCh.status).toBe('active');
-    expect(newCh.topicShiftReason).toBe('User split chapter boundary');
+    expect(newCh.granularity).toBe('full');
 
     // The new chapter is non-empty and opens with the clicked message.
     const newTurns = timeline.getTurnSlice(newCh.startIndex, newCh.endIndex);
@@ -70,7 +70,7 @@ describe('Split at clicked message', () => {
     expect(chapters).toHaveLength(2);
     const newCh = chapters[1];
     expect(newCh.startIndex).toBe(0);
-    expect(newCh.topicShiftReason).toBe('User split chapter boundary');
+    expect(newCh.granularity).toBe('full');
     expect(timeline.getTurnSlice(newCh.startIndex, newCh.endIndex).map((t) => t.id)).toEqual([
       turns[0].id,
       turns[1].id,
@@ -95,7 +95,7 @@ describe('Split at clicked message', () => {
       status: 'completed',
       startIndex: 1,
       endIndex: 2,
-      topicShiftReason: 'User split chapter boundary',
+      granularity: 'full',
     });
     // The active chapter is untouched — same identity, same window.
     expect(c2.id).toBe(activeChapterId);

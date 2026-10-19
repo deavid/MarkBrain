@@ -28,7 +28,7 @@ export interface ExtractedArtifact {
   type: string;
   code?: string;
   category?: string;
-  abstract?: string;
+  description?: string;
   summary?: string;
   content?: string;
   isHighConcept?: boolean;

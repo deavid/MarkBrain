@@ -11,7 +11,7 @@ const art = (over: Partial<Artifact> = {}): Artifact =>
     title: 'T',
     tags: ['own'],
     graph: {},
-    current: { t0_label: 'T', t1_abstract: '', t2_summary: '', t3_body: 'body' },
+    current: { t0_label: 'T', description: '', summary: '', body: 'body' },
     ...over,
   }) as unknown as Artifact;
 

@@ -1,5 +1,6 @@
 import type { DomainContextValue } from '../../domains/DomainRegistry';
-import type { Artifact, ResolutionTier, AbstractionLevel } from '../../types';
+import type { Artifact } from '../../types';
+import type { Granularity } from '../../domains/granularity';
 import { serializeArtifactToYamlDoc } from '../../utils/yamlArtifactParser';
 import { detectImportFlag, flagRelationship, ImportFlag } from '../../utils/importDetect';
 import { logger } from '../../utils/logger';
@@ -10,6 +11,8 @@ export interface ArtifactHandlerParams {
   artifactsDomain: DomainContextValue['artifacts'];
   versioning: DomainContextValue['versioning'];
   workspace: DomainContextValue['workspace'];
+  threadRegistry: DomainContextValue['threadRegistry'];
+  activeThreadId: string;
   activeProjectId: string;
   currentContainer: WorkspaceContainer | null | undefined;
   triggerReRender: () => void;
@@ -26,6 +29,8 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     artifactsDomain,
     versioning,
     workspace,
+    threadRegistry,
+    activeThreadId,
     activeProjectId,
     currentContainer,
     triggerReRender,
@@ -35,62 +40,33 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     setTriageFocusId,
   } = params;
 
-  // Pinned Focal Artifacts & Tier Overrides
-  const focalArtifactIds = currentContainer?.focalArtifactIds || [];
-  const manualTierOverrides = currentContainer?.tierOverrides || {};
+  // ── Attachments (per chat; the artifact's granularity lives HERE) ────────
 
-  const handleToggleFocusArtifact = (artId: string) => {
-    if (!currentContainer) return;
-    const prev = currentContainer.focalArtifactIds || [];
-    const next = prev.includes(artId) ? prev.filter((id: string) => id !== artId) : [...prev, artId];
-    workspace.saveContainer({
-      ...currentContainer,
-      focalArtifactIds: next,
-    });
+  /** Attach to the ACTIVE chat at full — "you attach it because you want it read". */
+  const handleAttachArtifact = (artifactId: string) => {
+    const added = threadRegistry.attachArtifact(activeThreadId, artifactId, 'full');
+    if (!added) {
+      logger.warn('App', `Attach: ${artifactId} not attached (unknown thread or artifact)`);
+      return;
+    }
+    logger.action('App', `Attached artifact ${artifactId} to chat ${activeThreadId}`);
     triggerReRender();
   };
 
-  const handleChangeTierOverride = (artId: string, tier: ResolutionTier | null) => {
-    if (!currentContainer) return;
-    const nextOverrides = { ...currentContainer.tierOverrides };
-    if (tier === null) {
-      delete nextOverrides[artId];
-    } else {
-      nextOverrides[artId] = tier;
-    }
-    workspace.saveContainer({
-      ...currentContainer,
-      tierOverrides: nextOverrides,
-    });
+  const handleSetAttachmentGranularity = (artifactId: string, granularity: Granularity) => {
+    threadRegistry.setAttachmentGranularity(activeThreadId, artifactId, granularity);
+    logger.action('App', `Attachment granularity: ${artifactId} → ${granularity}`);
     triggerReRender();
   };
 
-  // Update Artifact Resolution
-  const handleUpdateArtifactResolution = (
-    artifactId: string,
-    resolution: AbstractionLevel
-  ) => {
-    const art = artifactsDomain.getArtifact(artifactId);
-    if (art) {
-      artifactsDomain.upsertArtifact({
-        ...art,
-        id: art.id,
-        title: art.title,
-        resolution,
-      });
-    }
-  };
-
-  const handleUpdateAllArtifactsResolution = (resolution: AbstractionLevel) => {
-    const all = artifactsDomain.listArtifacts();
-    all.forEach((art) => {
-      artifactsDomain.upsertArtifact({
-        ...art,
-        id: art.id,
-        title: art.title,
-        resolution,
-      });
-    });
+  /**
+   * Attach-on-save: an artifact the user saves from a turn belongs to the chat
+   * it was born in, otherwise the model loses it the moment the turn stops
+   * being verbatim.
+   */
+  const attachArtifactToActiveChat = (artifactId: string) => {
+    threadRegistry.attachArtifact(activeThreadId, artifactId, 'full');
+    triggerReRender();
   };
 
   // Update Artifact Content (auto-records version history in domain)
@@ -98,7 +74,7 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     const art = artifactsDomain.getArtifact(artifactId);
     if (art) {
       versioning.recordRevision(art.id, newContent, 'Direct manual specification edit');
-      artifactsDomain.updateTiers(art.id, { t3_body: newContent });
+      artifactsDomain.updateLayers(art.id, { body: newContent });
     }
   };
 
@@ -107,18 +83,13 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     // Idempotent by title (review P1 #7): extracted notes are already
     // auto-upserted via onArtifact with a different id — "Save as Artifact"
     // must update that record, not create a second copy.
-    const title = (newArt.title || newArt.current?.t0_label || '').trim();
+    const title = (newArt.title || '').trim();
     const existing = !title
       ? undefined
-      : artifactsDomain
-        .listArtifacts()
-        .find(
-          (a) =>
-            (a.title || a.current?.t0_label || '').trim() === title
-        );
+      : artifactsDomain.listArtifacts().find((a) => (a.title || '').trim() === title);
     artifactsDomain.upsertArtifact({
       id: existing?.id ?? newArt.id,
-      title: newArt.title || newArt.current?.t0_label || 'Untitled',
+      title: newArt.title || 'Untitled',
       workspaceId: activeProjectId,
       code: newArt.code || newArt.id,
       type: newArt.type === 'chapter' ? 'chapter' : 'document',
@@ -126,10 +97,9 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
       isHighConcept: Boolean(newArt.isHighConcept),
       color: newArt.color,
       current: newArt.current || {
-        t0_label: newArt.title || 'Untitled',
-        t1_abstract: '',
-        t2_summary: '',
-        t3_body: '',
+        description: '',
+        summary: '',
+        body: '',
       },
       tags: newArt.tags || [],
       createdAt: existing?.createdAt ?? newArt.createdAt ?? Date.now(),
@@ -145,7 +115,6 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
         if (typeof newArt.graph?.y === 'number') g.y = newArt.graph.y;
         return g;
       })(),
-      resolution: newArt.resolution,
     });
     setSelectedArtifactId(existing?.id ?? newArt.id);
   };
@@ -164,20 +133,20 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     }
     const flag = detectImportFlag(
       {
-        title: newArt.title || newArt.current?.t0_label || '',
+        title: newArt.title,
         code: newArt.code,
-        body: newArt.current?.t3_body || '',
+        body: newArt.current?.body || '',
       },
       artifactsDomain.listArtifacts().map((a) => ({
         id: a.id,
-        title: a.title || a.current?.t0_label || '',
+        title: a.title,
         code: a.code,
-        body: a.current?.t3_body || '',
+        body: a.current?.body || '',
       }))
     );
     artifactsDomain.upsertArtifact({
       id,
-      title: newArt.title || newArt.current?.t0_label || 'Untitled',
+      title: newArt.title || 'Untitled',
       workspaceId: activeProjectId,
       code: newArt.code || id,
       type: newArt.type === 'chapter' ? 'chapter' : 'document',
@@ -185,10 +154,9 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
       isHighConcept: Boolean(newArt.isHighConcept),
       color: newArt.color,
       current: newArt.current || {
-        t0_label: newArt.title || 'Untitled',
-        t1_abstract: '',
-        t2_summary: '',
-        t3_body: '',
+        description: '',
+        summary: '',
+        body: '',
       },
       tags: newArt.tags || [],
       createdAt: newArt.createdAt ?? Date.now(),
@@ -212,7 +180,6 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
         if (relationships.length > 0) g.relationships = relationships;
         return g;
       })(),
-      resolution: newArt.resolution,
     });
     return { id, flag };
   };
@@ -239,26 +206,9 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
         relationships: rels.filter((r) => r.target !== deletedId),
       });
     });
-    // One saveContainer for BOTH focal + tier scrub — two sync calls would
-    // race on the same stale currentContainer snapshot.
-    if (
-      currentContainer &&
-      ((currentContainer.focalArtifactIds || []).includes(deletedId) ||
-        (currentContainer.tierOverrides && deletedId in currentContainer.tierOverrides))
-    ) {
-      const nextContainer = { ...currentContainer };
-      if ((nextContainer.focalArtifactIds || []).includes(deletedId)) {
-        nextContainer.focalArtifactIds = (nextContainer.focalArtifactIds || []).filter(
-          (i: string) => i !== deletedId
-        );
-      }
-      if (nextContainer.tierOverrides && deletedId in nextContainer.tierOverrides) {
-        const overrides = { ...nextContainer.tierOverrides };
-        delete overrides[deletedId];
-        nextContainer.tierOverrides = overrides;
-      }
-      workspace.saveContainer(nextContainer);
-    }
+    // Dangling attachments die with the artifact (no user-facing detach exists;
+    // this is garbage collection on deletion only).
+    threadRegistry.purgeArtifact(deletedId);
     if (selectedArtifactId === deletedId) setSelectedArtifactId(null);
     if (triageFocusId === deletedId) setTriageFocusId(null);
   };
@@ -277,8 +227,8 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     const oldArt = artifactsDomain.getArtifact(oldId);
     const newArt = artifactsDomain.getArtifact(newId);
     if (!oldArt || !newArt || oldId === newId) return;
-    const oldBody = oldArt.current?.t3_body || '';
-    const newBody = newArt.current?.t3_body || '';
+    const oldBody = oldArt.current?.body || '';
+    const newBody = newArt.current?.body || '';
 
     // 1) Snapshot pre-overwrite state (rollback target; content == state at record time).
     versioning.recordRevision(oldId, oldBody, 'Pre-overwrite snapshot (import triage)');
@@ -311,7 +261,6 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
       isHighConcept: Boolean(newArt.isHighConcept),
       tags: newArt.tags,
       current: newArt.current,
-      resolution: newArt.resolution || oldArt.resolution,
       graph,
       updatedAt: Date.now(),
     };
@@ -341,10 +290,9 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
   };
 
   return {
-    handleToggleFocusArtifact,
-    handleChangeTierOverride,
-    handleUpdateArtifactResolution,
-    handleUpdateAllArtifactsResolution,
+    handleAttachArtifact,
+    handleSetAttachmentGranularity,
+    attachArtifactToActiveChat,
     handleUpdateArtifactContent,
     handleAddArtifact,
     handleImportArtifact,

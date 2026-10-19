@@ -57,10 +57,7 @@ export class WorkspaceDomain implements IWorkspaceDomain {
     const container: WorkspaceContainer = {
       metadata: meta,
       activeChapterId: `chap-${Date.now()}-1`,
-      focalArtifactIds: [],
-      opticalMode: 'autofocus',
       tokenCeiling: 32000,
-      tierOverrides: {},
     };
     this.projects.set(id, container);
     this.emit({ type: 'projectCreated', project: meta });
@@ -127,10 +124,7 @@ export class WorkspaceDomain implements IWorkspaceDomain {
       const container: WorkspaceContainer = {
         metadata: meta,
         activeChapterId: snap.chapters?.[0]?.id || `chap-${id}-1`,
-        focalArtifactIds: [],
-        opticalMode: 'autofocus',
         tokenCeiling: 32000,
-        tierOverrides: {},
       };
       this.projects.set(id, container);
     });

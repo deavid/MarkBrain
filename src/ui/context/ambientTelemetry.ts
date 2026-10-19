@@ -5,7 +5,6 @@ export interface AmbientTelemetryData {
   activeChapterTokens: number;
   olderChaptersTokens: number;
   substrateTokens: number;
-  opticalMode: 'autofocus' | 'manual' | 'myopia';
 }
 
 export function computeAmbientColor(ratio: number): { hex: string; glow: string; textClass: string } {

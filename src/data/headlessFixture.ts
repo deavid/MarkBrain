@@ -19,13 +19,34 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
     'Synthetic headless-capture fixture. Not demo data: loads only via ?fixture=1 in dev.',
   color: '#5d87b8',
   updatedAt: 1760000000000,
+  // One thread with ONE attachment; journey 14 attaches the second through
+  // the picker, which is the only proof that the flow is wired end to end.
+  threads: [
+    {
+      id: 'thread-fx-1',
+      folderId: null,
+      title: 'Fixture Thread',
+      titleState: 'manual',
+      titleVersion: 2,
+      createdAt: 1760000000000,
+      updatedAt: 1760000000003,
+      lastActivityAt: 1760000000003,
+      lifecycle: 'active',
+      lastOutcome: 'ok',
+      preview: 'Fixture turn: what does a headless capture need to see?',
+      attachments: [
+        { artifactId: 'art-fx-alpha', granularity: 'full', addedAt: 1760000000000 },
+      ],
+    },
+  ],
   chapters: [
     {
       id: 'chap-fx-1',
       workspaceId: 'proj-fixture',
       title: 'Chapter 1: Fixture Genesis',
       summary: 'Synthetic chapter for headless capture.',
-      keyPoints: [],
+      description: '',
+      granularity: 'full',
       status: 'active',
       startIndex: 0,
       createdAt: 1760000000000,
@@ -73,10 +94,9 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
       category: 'note',
       isHighConcept: true,
       current: {
-        t0_label: 'Fixture Alpha',
-        t1_abstract: 'Synthetic artifact A for graph rendering.',
-        t2_summary: 'Synthetic summary A.',
-        t3_body: 'Synthetic body A — proves artifact detail surfaces render.',
+        description: 'Synthetic artifact A for graph rendering.',
+        summary: 'Synthetic summary A.',
+        body: 'Synthetic body A — proves artifact detail surfaces render.',
       },
       tags: ['fixture', 'headless'],
       createdAt: 1760000000000,
@@ -92,10 +112,9 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
       category: 'note',
       isHighConcept: false,
       current: {
-        t0_label: 'Fixture Beta',
-        t1_abstract: 'Synthetic artifact B for graph rendering.',
-        t2_summary: 'Synthetic summary B.',
-        t3_body: 'Synthetic body B.',
+        description: 'Synthetic artifact B for graph rendering.',
+        summary: 'Synthetic summary B.',
+        body: 'Synthetic body B.',
       },
       tags: ['fixture'],
       createdAt: 1760000000000,

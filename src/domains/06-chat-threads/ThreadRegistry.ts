@@ -1,6 +1,9 @@
 import type { Turn } from '../01-dialogue-timeline';
 import type { ChapterPartition } from '../02-chapter-segmentation';
+import type { Granularity } from '../granularity';
+import { normalizeGranularity, sealedGranularity } from '../granularity';
 import {
+  ChatAttachment,
   ChatThread,
   ThreadFolder,
   makeDefaultThread,
@@ -23,6 +26,24 @@ export interface ThreadHydrateInput {
 }
 
 const rand = () => Math.random().toString(36).slice(2, 6);
+
+/** Legacy/foreign snapshots: attachment arrays may be absent or half-formed. */
+function normalizeAttachments(raw: unknown): ChatAttachment[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: ChatAttachment[] = [];
+  for (const item of raw as any[]) {
+    if (!item || typeof item.artifactId !== 'string' || !item.artifactId) continue;
+    if (seen.has(item.artifactId)) continue;
+    seen.add(item.artifactId);
+    out.push({
+      artifactId: item.artifactId,
+      granularity: normalizeGranularity(item.granularity, 'full'),
+      addedAt: typeof item.addedAt === 'number' ? item.addedAt : Date.now(),
+    });
+  }
+  return out;
+}
 
 /**
  * ThreadRegistry — owner of thread/folder metadata + the content of every
@@ -75,6 +96,71 @@ export class ThreadRegistry {
     return this.threads.find((t) => t.id === id) || null;
   }
 
+  /** Attachments of a thread (defaults to the active one), in attach order. */
+  getAttachments(threadId?: string): ChatAttachment[] {
+    const id = threadId || this.activeId;
+    return [...(this.getThread(id)?.attachments || [])];
+  }
+
+  // ── Attachments (per chat — the unit that carries granularity) ─────────
+
+  /**
+   * Attach an artifact to a chat. Idempotent: an already-attached artifact is
+   * left exactly as it is (RE-ATTACHING never resets a user's granularity).
+   */
+  attachArtifact(
+    threadId: string,
+    artifactId: string,
+    granularity: Granularity = 'full'
+  ): ChatAttachment | null {
+    const idx = this.threads.findIndex((t) => t.id === threadId);
+    if (idx === -1 || !artifactId) return null;
+    const thread = this.threads[idx];
+    const existing = thread.attachments.find((a) => a.artifactId === artifactId);
+    if (existing) return existing;
+    const attachment: ChatAttachment = { artifactId, granularity, addedAt: Date.now() };
+    this.threads[idx] = {
+      ...thread,
+      attachments: [...thread.attachments, attachment],
+      updatedAt: Date.now(),
+    };
+    this.emit();
+    return attachment;
+  }
+
+  setAttachmentGranularity(
+    threadId: string,
+    artifactId: string,
+    granularity: Granularity
+  ): void {
+    const idx = this.threads.findIndex((t) => t.id === threadId);
+    if (idx === -1) return;
+    const thread = this.threads[idx];
+    if (!thread.attachments.some((a) => a.artifactId === artifactId)) return;
+    this.threads[idx] = {
+      ...thread,
+      attachments: thread.attachments.map((a) =>
+        a.artifactId === artifactId ? { ...a, granularity } : a
+      ),
+      updatedAt: Date.now(),
+    };
+    this.emit();
+  }
+
+  /**
+   * The artifact left the library — drop every dangling attachment. This is
+   * garbage collection on artifact deletion, NOT a user-facing "detach".
+   */
+  purgeArtifact(artifactId: string): void {
+    let changed = false;
+    this.threads = this.threads.map((t) => {
+      if (!t.attachments.some((a) => a.artifactId === artifactId)) return t;
+      changed = true;
+      return { ...t, attachments: t.attachments.filter((a) => a.artifactId !== artifactId) };
+    });
+    if (changed) this.emit();
+  }
+
   /** Content of a NON-active thread (auto-seeds genesis chapter). Null for the active one. */
   getInactiveContent(threadId: string): ThreadContent | null {
     if (threadId === this.activeId) return null;
@@ -99,7 +185,10 @@ export class ThreadRegistry {
     this.inactive.clear();
 
     const rawThreads = (input.threads || []).filter((t) => t && t.id);
-    this.threads = rawThreads.length > 0 ? rawThreads.map((t) => ({ ...t })) : [makeDefaultThread()];
+    this.threads =
+      rawThreads.length > 0
+        ? rawThreads.map((t) => ({ ...t, attachments: normalizeAttachments(t.attachments) }))
+        : [makeDefaultThread()];
     this.folders = (input.folders || []).map((f) => ({ ...f }));
     // Normalize dangling folder references (folder deleted elsewhere, bad import)
     const folderIds = new Set(this.folders.map((f) => f.id));
@@ -211,6 +300,7 @@ export class ThreadRegistry {
       lifecycle: 'active',
       lastOutcome: 'ok',
       preview: '',
+      attachments: [],
       ...partial,
     };
     this.threads.unshift(thread);
@@ -396,7 +486,8 @@ export class ThreadRegistry {
     threadId: string,
     title: string,
     startIndex: number,
-    reason?: string
+    description?: string,
+    summary?: string
   ): ChapterPartition | null {
     if (threadId === this.activeId) return null;
     const target = this.getInactiveContent(threadId);
@@ -405,6 +496,7 @@ export class ThreadRegistry {
       if (c.status === 'active') {
         c.status = 'completed';
         if (c.endIndex === undefined) c.endIndex = startIndex;
+        c.granularity = sealedGranularity(c.granularity);
       }
     });
     const chapter: ChapterPartition = {
@@ -412,9 +504,11 @@ export class ThreadRegistry {
       workspaceId: this.projectId,
       threadId,
       title,
+      description: description || '',
+      summary: summary || '',
+      granularity: 'full',
       status: 'active',
       startIndex,
-      topicShiftReason: reason,
       createdAt: Date.now(),
     };
     target.chapters.push(chapter);

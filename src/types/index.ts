@@ -8,7 +8,7 @@
 import type { UniversalArtifactDocument } from '../domains/01-artifact-document/types';
 
 // ── Domain re-exports (single source of truth lives in the domains) ─────────
-export type { ResolutionTier } from '../domains/01-artifact-document/types';
+export type { Granularity, ArtifactLayer } from '../domains/granularity';
 export type { Turn, TurnMeta, ExtractedArtifact } from '../domains/01-dialogue-timeline/types';
 export type { ChapterPartition } from '../domains/02-chapter-segmentation/types';
 export type {
@@ -21,14 +21,6 @@ export type Artifact = UniversalArtifactDocument;
 
 // ── UI-only shapes ──────────────────────────────────────────────────────────
 
-/**
- * Why an artifact received its compiled tier — mirrors the optical compiler
- * domain (same boundary convention as ResolutionTier) so components can label
- * manual pin / forced override / ancestor backbone / automatic depth-of-field
- * without importing across the domain layer.
- */
-export type TierReason = 'pin' | 'fallback' | 'override' | 'ancestor' | 'radius' | 'culled';
-
 export interface ModelOption {
   id: string;
   name: string;
@@ -40,7 +32,6 @@ export interface ModelOption {
   costMultiplier?: number;
 }
 
-export type AbstractionLevel = 'full' | 'summary' | 'description' | 'title' | 'excluded';
 export type ArtifactType = 'document' | 'chapter' | (string & {});
 export type ArtifactCategory = string;
 /** The artifact's `graph` field shape (import/UI parsing only). */

@@ -27,8 +27,8 @@ export function serializeArtifactToYamlDoc(art: Artifact): string {
     title: art.title,
     type: art.type || 'note',
     category: art.category || 'note',
-    description: art.current?.t1_abstract || '',
-    summary: art.current?.t2_summary || '',
+    description: art.current?.description || '',
+    summary: art.current?.summary || '',
     graph: {
       parent: art.graph?.parent || null,
       children: art.graph?.children || [],
@@ -37,7 +37,6 @@ export function serializeArtifactToYamlDoc(art: Artifact): string {
       x: art.graph?.x ?? 0,
       y: art.graph?.y ?? 0,
     },
-    resolution: art.resolution || 'full',
     updated_at: art.updatedAt ?? Date.now(),
   };
 
@@ -46,7 +45,7 @@ export function serializeArtifactToYamlDoc(art: Artifact): string {
   }
 
   const yamlString = YAML.stringify(frontmatterData).trim();
-  const markdownBody = (art.current?.t3_body || '').trim();
+  const markdownBody = (art.current?.body || '').trim();
 
   return `---\n${yamlString}\n---\n\n${markdownBody}\n`;
 }
@@ -99,16 +98,14 @@ export function parseYamlArtifactDoc(
         category: (parsedData.category as ArtifactCategory) || 'note',
         isHighConcept: Boolean(graphData.is_high_concept),
         current: {
-          t0_label: title,
-          t1_abstract: artDesc,
-          t2_summary: artSumm,
-          t3_body: markdownPart,
+          description: artDesc,
+          summary: artSumm,
+          body: markdownPart,
         },
         tags: Array.isArray(parsedData.tags) ? parsedData.tags : ['yaml-imported'],
         createdAt: parseTime(parsedData.created_at, now),
         updatedAt: parseTime(parsedData.updated_at, now),
         graph: graphData,
-        resolution: parsedData.resolution || 'full',
       };
 
       return {
@@ -149,10 +146,9 @@ export function parseYamlArtifactDoc(
     category: 'note',
     isHighConcept: false,
     current: {
-      t0_label: firstHeading,
-      t1_abstract: desc,
-      t2_summary: summ,
-      t3_body: trimmed,
+      description: desc,
+      summary: summ,
+      body: trimmed,
     },
     tags: ['raw-import'],
     createdAt: now,
@@ -162,7 +158,6 @@ export function parseYamlArtifactDoc(
       relationships: [],
       is_high_concept: false,
     },
-    resolution: 'full',
   };
 
   return {

@@ -2,7 +2,8 @@ import { RelationKind } from '../02-topological-graph';
 
 export interface ExtractedTopicShift {
   title: string;
-  abstract?: string;
+  /** 1–2 sentences: what the new chapter is about (level 2 of the cut). */
+  description?: string;
   summary?: string;
 }
 
@@ -11,10 +12,9 @@ export interface ExtractedArtifactUpsert {
   title: string;
   type: 'document' | 'chapter';
   content: {
-    t0_label: string;
-    t1_abstract: string;
-    t2_summary: string;
-    t3_body: string;
+    description: string;
+    summary: string;
+    body: string;
   };
 }
 

@@ -112,8 +112,8 @@ Let me know if you would like to tune the saturation threshold.
       expect(art.id).toBe('art-lens-spec');
       expect(art.title).toBe('Optical Lens State Machine');
       expect(art.type).toBe('document');
-      expect(art.content.t1_abstract).toContain('Formal state machine specifications');
-      expect(art.content.t3_body).toContain('state Autofocus');
+      expect(art.content.description).toContain('Formal state machine specifications');
+      expect(art.content.body).toContain('state Autofocus');
 
       // Extracted topic shift must be detected
       expect(result.topicShift).toBeDefined();

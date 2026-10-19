@@ -138,6 +138,6 @@ describe('hydrateSnapshot — legacy turn meta backfill', () => {
     const turnWarns = warnSpy.mock.calls.filter((c: unknown[]) => String(c[1]).includes('turns'));
     expect(artifactWarns).toHaveLength(1); // existing per-load aggregation preserved
     expect(turnWarns).toHaveLength(1);
-    expect((out.artifacts as any)[0].current.t1_abstract).toBe('flat'); // legacy flat → tier mapping intact
+    expect((out.artifacts as any)[0].current.description).toBe('flat'); // legacy flat → tier mapping intact
   });
 });

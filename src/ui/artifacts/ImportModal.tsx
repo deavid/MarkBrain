@@ -224,8 +224,8 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       if (data.artifact) {
         setArtifactTitle(data.artifact.title || filename);
         setArtifactCode(data.artifact.code || filename.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
-        setArtifactDescription(data.artifact.current?.t1_abstract || data.artifact.description || '');
-        setArtifactSummary(data.artifact.current?.t2_summary || data.artifact.summary || '');
+        setArtifactDescription(data.artifact.current?.description || data.artifact.description || '');
+        setArtifactSummary(data.artifact.current?.summary || data.artifact.summary || '');
         setArtifactType((data.artifact.type as ArtifactType) || 'note');
         setIsHighConcept(Boolean(data.artifact.graph?.is_high_concept));
         setParentCode(data.artifact.graph?.parent || '');
@@ -236,7 +236,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           setArtifactTags(['imported-gdoc', 'note']);
         }
 
-        const extractedBody = data.artifact.current?.t3_body || data.artifact.content;
+        const extractedBody = data.artifact.current?.body || data.artifact.content;
         if (extractedBody) {
           setUploadContent(extractedBody);
         }
@@ -295,8 +295,8 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       if (parsed.hasFrontmatter) {
         setArtifactTitle(parsed.artifact.title || '');
         setArtifactCode(parsed.artifact.code || '');
-        setArtifactDescription(parsed.artifact.current?.t1_abstract || '');
-        setArtifactSummary(parsed.artifact.current?.t2_summary || '');
+        setArtifactDescription(parsed.artifact.current?.description || '');
+        setArtifactSummary(parsed.artifact.current?.summary || '');
         setArtifactType(parsed.artifact.type);
         setArtifactTags(parsed.artifact.tags || []);
         setIsHighConcept(Boolean(parsed.artifact.isHighConcept));
@@ -412,10 +412,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       category: 'note',
       isHighConcept,
       current: {
-        t0_label: baseTitle,
-        t1_abstract: desc,
-        t2_summary: summ,
-        t3_body: uploadContent,
+        description: desc,
+        summary: summ,
+        body: uploadContent,
       },
       tags: artifactTags.length > 0 ? artifactTags : ['google-docs', artifactType],
       createdAt: now,
@@ -426,7 +425,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
         relationships: [],
         is_high_concept: isHighConcept,
       },
-      resolution: 'full',
     };
 
     onImportArtifact(fullArtifact);
@@ -451,10 +449,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       isHighConcept,
       tags: artifactTags,
       current: {
-        t0_label: title,
-        t1_abstract: desc,
-        t2_summary: summ,
-        t3_body: uploadContent,
+        description: desc,
+        summary: summ,
+        body: uploadContent,
       },
       createdAt: now,
       updatedAt: now,
@@ -462,7 +459,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
         parent: parentCode || undefined,
         is_high_concept: isHighConcept,
       },
-      resolution: 'full',
     };
     return serializeArtifactToYamlDoc(tempArt);
   }, [

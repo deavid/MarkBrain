@@ -3,7 +3,10 @@ import { IDialogueTimelineDomain } from '../01-dialogue-timeline';
 import { summarizeChapter } from '../../gateway/api';
 
 export interface IChapterRecalibrationDomain {
-  recalibrateSummary(chapterId: string, steeringPrompt?: string): Promise<{ summary: string; keyPoints: string[] }>;
+  recalibrateSummary(
+    chapterId: string,
+    steeringPrompt?: string
+  ): Promise<{ description: string; summary: string }>;
 }
 
 export class ChapterRecalibrationDomain implements IChapterRecalibrationDomain {
@@ -15,7 +18,7 @@ export class ChapterRecalibrationDomain implements IChapterRecalibrationDomain {
   async recalibrateSummary(
     chapterId: string,
     steeringPrompt?: string
-  ): Promise<{ summary: string; keyPoints: string[] }> {
+  ): Promise<{ description: string; summary: string }> {
     const chapter = this.segmentation.getChapter(chapterId);
     if (!chapter) throw new Error(`Chapter ${chapterId} not found`);
 
@@ -29,14 +32,14 @@ export class ChapterRecalibrationDomain implements IChapterRecalibrationDomain {
         steeringPrompt,
       });
       const data = await res.json();
-      const summary = data.summary || 'Summary recalibrated.';
-      const keyPoints = data.keyPoints || [];
-      this.segmentation.updateSummary(chapterId, summary, keyPoints);
-      return { summary, keyPoints };
+      const description = data.description || '';
+      const summary = data.summary || '';
+      this.segmentation.updateLevels(chapterId, { description, summary });
+      return { description, summary };
     } catch {
-      const fallback = `Recalibrated invariants for ${chapter.title}.`;
-      this.segmentation.updateSummary(chapterId, fallback, []);
-      return { summary: fallback, keyPoints: [] };
+      const fallback = `Recap of ${chapter.title}.`;
+      this.segmentation.updateLevels(chapterId, { summary: fallback });
+      return { description: chapter.description || '', summary: fallback };
     }
   }
 }

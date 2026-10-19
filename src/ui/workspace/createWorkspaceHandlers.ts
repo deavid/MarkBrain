@@ -9,11 +9,9 @@ export interface WorkspaceHandlerParams {
   triggerReRender: () => void;
   setActiveView: (view: ActiveView) => void;
   setIsProjectLauncherOpen: (open: boolean) => void;
-  opticalMode: 'autofocus' | 'manual' | 'myopia';
 }
 
-// Workspace/project CRUD + optical-mode handlers.
-// Moved verbatim from App.tsx — same names, same signatures.
+// Workspace/project CRUD handlers (the optical-mode toggle died with Focus).
 export function createWorkspaceHandlers(params: WorkspaceHandlerParams) {
   const {
     workspace,
@@ -21,28 +19,7 @@ export function createWorkspaceHandlers(params: WorkspaceHandlerParams) {
     triggerReRender,
     setActiveView,
     setIsProjectLauncherOpen,
-    opticalMode,
   } = params;
-
-  const setOpticalMode = (mode: 'autofocus' | 'manual' | 'myopia') => {
-    if (currentContainer) {
-      workspace.saveContainer({
-        ...currentContainer,
-        opticalMode: mode,
-      });
-      triggerReRender();
-    }
-  };
-
-  const cycleOpticalMode = () => {
-    const next =
-      opticalMode === 'autofocus'
-        ? 'manual'
-        : opticalMode === 'manual'
-        ? 'myopia'
-        : 'autofocus';
-    setOpticalMode(next);
-  };
 
   // Select Project & Launch Chat
   const handleSelectProjectAndLaunchChat = (projId: string) => {
@@ -65,8 +42,6 @@ export function createWorkspaceHandlers(params: WorkspaceHandlerParams) {
   };
 
   return {
-    setOpticalMode,
-    cycleOpticalMode,
     handleSelectProjectAndLaunchChat,
     handleCreateProject,
   };

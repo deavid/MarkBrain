@@ -1,18 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { X, ChevronDown, ChevronUp } from 'lucide-react';
-import { Artifact, ChapterTurns, TierReason } from '../../types';
-import { getArtifactTokenVariants } from '../../utils/tokenCalculator';
+import { X, ChevronDown, ChevronUp, Plus } from 'lucide-react';
+import type { Artifact, ChapterTurns } from '../../types';
+import type { Granularity } from '../../domains/granularity';
+import { GRANULARITY_LABEL, GRANULARITY_ORDER, cutIncludes } from '../../domains/granularity';
 import { estimateTokens } from '../../utils/estimateTokens';
 import { computeAmbientColor } from './ambientTelemetry';
 
 /**
  * Mirror v1 (MOBILE_UX_SPEC.md §5): "Show me what the LLM will see."
- * One panel, opened by tapping the orb:
- *   1. totals vs ceiling (the orb's stats — first brick)
- *   2. notes in context, tier + tokens (knowledge_substrate order)
- *   3. chapters in send order with token counts (full turns vs summary,
- *      exactly how 03-optical-compiler will emit them)
- *   4. raw payload — the literal compiledPrompt + systemInstruction (1:1)
+ *
+ * It is the payload, in send order:
+ *   1. totals vs ceiling
+ *   2. attached artifacts — each at its granularity (the row IS the cut)
+ *   3. chapters — each at its granularity, in chat order
+ *   4. raw payload (literal compiledPrompt + systemInstruction)
+ *
+ * The mirror is no longer read-only: granularity is the one knob, and this is
+ * where you turn it. There is no pin, no reason badge, no out/culled section —
+ * an artifact is attached or it is not in the payload at all.
  */
 interface MirrorPanelProps {
   open: boolean;
@@ -27,61 +32,59 @@ interface MirrorPanelProps {
         historyTokens: number;
         totalTokens: number;
       };
-      nodeDistribution: {
-        tier3Count: number;
-        tier2Count: number;
-        tier1Count: number;
-        tier0Count: number;
-        culledCount: number;
-      };
-      /** Compiler's per-chapter numbers — absent only on pre-breakdown payloads (fallback below). */
+      granularityDistribution?: Record<Granularity, number>;
+      /** Compiler's per-artifact numbers — absent only on pre-breakdown payloads. */
+      attachmentBreakdown?: Array<{
+        artifactId: string;
+        title: string;
+        granularity: Granularity;
+        tokens: number;
+      }>;
+      /** Compiler's per-chapter numbers — absent only on pre-breakdown payloads. */
       chapterBreakdown?: Array<{
         chapterId: string;
         title: string;
-        mode: 'full' | 'summary';
-        tokens: number;
-      }>;
-      /** Compiler's per-note numbers — absent only on pre-breakdown payloads (fallback below). */
-      noteBreakdown?: Array<{
-        artifactId: string;
-        title: string;
-        tier: number;
+        granularity: Granularity;
         tokens: number;
       }>;
     };
-    nodeTiers: Record<string, { tier: number | 'culled'; distance: number; reason?: TierReason }>;
   };
   artifacts: Artifact[];
   /** Chapters with their turns — the shared selector (02-chapter-segmentation/selectors). */
   chapters: ChapterTurns[];
   ceiling: number;
+  onSetAttachmentGranularity: (artifactId: string, granularity: Granularity) => void;
+  onSetChapterGranularity: (chapterId: string, granularity: Granularity) => void;
+  onOpenAttachmentPicker: () => void;
 }
 
-const TIER_LABEL: Record<string, string> = {
-  3: 'Full',
-  2: 'Summary',
-  1: 'Abstract',
-  0: 'Label',
-  culled: 'Out',
-};
-const TIER_CLASS: Record<string, string> = {
-  3: 'text-[#e05a66]',
-  2: 'text-[#e0b96c]',
-  1: 'text-[#5ad49b]',
-  0: 'text-[#5d87b8]',
-  culled: 'text-[#4f5f78]',
-};
-// Reason vocabulary matches ArtifactDetailModal's tier-reason chips (one naming),
-// rendered quieter here: muted border badge, and always a non-interactive span —
-// status text, not a control (a <24px button would add audit warns anyway).
-const REASON_LABEL: Record<TierReason, string> = {
-  pin: 'manual pin',
-  fallback: 'auto focus',
-  override: 'forced',
-  ancestor: 'ancestor',
-  radius: 'auto',
-  culled: 'culled',
-};
+/** Four-word control — the only knob. 24px tall: clears the touch rule. */
+const GranularityChips: React.FC<{
+  value: Granularity;
+  onChange: (g: Granularity) => void;
+  label: string;
+}> = ({ value, onChange, label }) => (
+  <div className="flex items-center gap-1">
+    {GRANULARITY_ORDER.map((g) => {
+      const active = g === value;
+      return (
+        <button
+          key={g}
+          onClick={() => onChange(g)}
+          aria-label={`${label}: ${GRANULARITY_LABEL[g]}`}
+          aria-pressed={active}
+          className={`min-h-[24px] px-1.5 py-0.5 rounded text-[10px] border cursor-pointer transition-colors ${
+            active
+              ? 'border-[#2f4a6b] bg-[#16273c] text-[#9dc2ec]'
+              : 'border-[#162132] text-[#5d748f] hover:text-[#8ab1e0]'
+          }`}
+        >
+          {GRANULARITY_LABEL[g]}
+        </button>
+      );
+    })}
+  </div>
+);
 
 export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   open,
@@ -90,6 +93,9 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   artifacts,
   chapters,
   ceiling,
+  onSetAttachmentGranularity,
+  onSetChapterGranularity,
+  onOpenAttachmentPicker,
 }) => {
   const [showRaw, setShowRaw] = useState(false);
 
@@ -107,49 +113,49 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   if (!open) return null;
 
   const tb = compiled.telemetry.tokenBreakdown;
-  const dist = compiled.telemetry.nodeDistribution;
+  const dist = compiled.telemetry.granularityDistribution;
   const ratio = Math.min(1, tb.totalTokens / Math.max(1, ceiling));
   const color = computeAmbientColor(ratio);
 
-  // Notes: exactly the substrate order — culled excluded, counted out
-  const inContext = artifacts.filter((a) => {
-    const t = compiled.nodeTiers[a.id]?.tier;
-    return t !== undefined && t !== 'culled';
-  });
-  const outCount = artifacts.length - inContext.length;
+  const byId = new Map(artifacts.map((a) => [a.id, a]));
 
-  // Notes: read the compiler's own per-note entries (telemetry.noteBreakdown) —
-  // same assembled XML, same estimator, so rows sum to the "notes" subtotal by
-  // construction. The local tier-text estimate survives ONLY as a defensive
-  // fallback for payloads compiled before noteBreakdown existed.
-  const noteById = new Map(
-    (compiled.telemetry.noteBreakdown ?? []).map((e) => [e.artifactId, e])
-  );
+  // Attachments: exactly the compiler's substrate order. A dangling entry
+  // (artifact deleted mid-render) is skipped and simply shows as gone.
+  const attachmentRows = (compiled.telemetry.attachmentBreakdown ?? [])
+    .map((entry) => ({ entry, artifact: byId.get(entry.artifactId) }))
+    .filter((row) => Boolean(row.artifact));
 
-  // Chapters: read the compiler's own per-chapter entries (telemetry.chapterBreakdown)
-  // — same assembled text, same estimator, so rows agree with the totals above by
-  // construction. The local estimate survives ONLY as a defensive fallback for
-  // payloads compiled before chapterBreakdown existed.
-  const breakdownById = new Map(
-    (compiled.telemetry.chapterBreakdown ?? []).map((e) => [e.chapterId, e])
-  );
-  const chapterRows = chapters.map(({ chapter, ongoing, turns }) => {
-    const entry = breakdownById.get(chapter.id);
-    const mode: 'full' | 'summary' = entry ? entry.mode : ongoing ? 'full' : 'summary';
+  // Chapters: the compiler's per-chapter entries, keyed back to the selector
+  // rows so the row can say what the cut actually contains.
+  const chapterById = new Map((compiled.telemetry.chapterBreakdown ?? []).map((e) => [e.chapterId, e]));
+  const chapterRows = chapters.map(({ chapter, turns }) => {
+    const entry = chapterById.get(chapter.id);
+    const granularity: Granularity = chapter.granularity ?? (entry?.granularity ?? 'full');
+    // Fallback only for payloads compiled before chapterBreakdown existed.
     const tokens = entry
       ? entry.tokens
-      : mode === 'full'
-        ? turns.reduce((n, t) => n + estimateTokens(t.content), 0)
-        : estimateTokens(chapter.summary || `Recap of ${chapter.title}.`);
-    return {
-      id: chapter.id,
-      title: chapter.title,
-      mode,
-      tokens,
-      turns: turns.length,
-      summary: chapter.summary,
-    };
+      : estimateTokens(
+          [
+            chapter.title,
+            cutIncludes(granularity, 'description') ? chapter.description : '',
+            cutIncludes(granularity, 'summary') ? chapter.summary : '',
+            cutIncludes(granularity, 'body')
+              ? turns.map((t) => t.content).join('\n\n')
+              : '',
+          ]
+            .filter(Boolean)
+            .join('\n\n')
+        );
+    return { chapter, granularity, tokens, turnCount: turns.length };
   });
+
+  const cutSummary = (g: Granularity, turnCount: number): string => {
+    const parts = ['title'];
+    if (cutIncludes(g, 'description')) parts.push('description');
+    if (cutIncludes(g, 'summary')) parts.push('summary');
+    if (cutIncludes(g, 'body')) parts.push(`${turnCount} turn${turnCount === 1 ? '' : 's'} verbatim`);
+    return parts.join(' + ');
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-[#0a0e17]/85 backdrop-blur-sm flex items-center justify-center p-3" onClick={onClose}>
@@ -182,71 +188,69 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#8297b5]">
               <span>system {tb.systemTokens}</span>
-              <span>notes {tb.substrateTokens}</span>
+              <span>artifacts {tb.substrateTokens}</span>
               <span>chapters {tb.historyTokens}</span>
             </div>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#556985]">
-              <span className="text-[#e05a66]">■ full {dist.tier3Count}</span>
-              <span className="text-[#e0b96c]">■ summary {dist.tier2Count}</span>
-              <span className="text-[#5ad49b]">■ abstract {dist.tier1Count}</span>
-              <span className="text-[#5d87b8]">■ label {dist.tier0Count}</span>
-              <span className="text-[#4f5f78]">■ out {dist.culledCount}</span>
+            {dist && (
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#556985]">
+                <span className="text-[#e05a66]">■ full {dist.full}</span>
+                <span className="text-[#e0b96c]">■ summary {dist.summary}</span>
+                <span className="text-[#5ad49b]">■ description {dist.description}</span>
+                <span className="text-[#5d87b8]">■ title {dist.title}</span>
+              </div>
+            )}
+          </section>
+
+          {/* 2 · Attachments */}
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-[#6b82a3]">2 · Attached artifacts</span>
+              <button
+                onClick={onOpenAttachmentPicker}
+                title="Attach an artifact to this chat"
+                className="flex items-center gap-1 min-h-[24px] px-2 rounded border border-[#1d2d44] text-[10px] text-[#8ab1e0] hover:bg-[#162132] cursor-pointer"
+              >
+                <Plus className="w-3 h-3" /> Attach
+              </button>
             </div>
-          </section>
-
-          {/* 2 · Notes (knowledge_substrate) */}
-          <section className="space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wider text-[#6b82a3]">2 · Notes in context</div>
-            {inContext.length === 0 && <p className="text-[#4f5f78]">No notes in context.</p>}
-            {inContext.map((a) => {
-              const tier = compiled.nodeTiers[a.id]?.tier ?? 'culled';
-              const reason = compiled.nodeTiers[a.id]?.reason;
-              // Compiler's assembled-XML number when present; local tier-text
-              // estimate only as the pre-breakdown defensive fallback.
-              const entry = noteById.get(a.id);
-              let tokens: number;
-              if (entry) {
-                tokens = entry.tokens;
-              } else {
-                const v = getArtifactTokenVariants(a);
-                tokens =
-                  tier === 3 ? v.full : tier === 2 ? v.summary : tier === 1 ? v.description : v.title;
-              }
-              return (
-                <div key={a.id} className="flex items-center justify-between gap-2 py-0.5 border-b border-[#0e1522] last:border-0">
-                  <span className="truncate text-[#cad8eb]">{a.title}</span>
-                  <span className="flex items-center gap-2 shrink-0">
-                    <span className={`text-[10px] ${TIER_CLASS[String(tier)]}`}>{TIER_LABEL[String(tier)]}</span>
-                    {reason && (
-                      <span className="text-[9px] text-[#4f5f78] border border-[#162132] rounded px-1 py-0.5 leading-none shrink-0">
-                        {REASON_LABEL[reason]}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-[#556985] w-12 text-right">{tokens} tok</span>
-                  </span>
+            {attachmentRows.length === 0 && (
+              <p className="text-[#4f5f78]">
+                Nothing attached — this chat sends its chapters only.
+              </p>
+            )}
+            {attachmentRows.map(({ entry, artifact }) => (
+              <div key={entry.artifactId} className="py-1.5 border-b border-[#0e1522] last:border-0 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[#cad8eb]">{artifact!.title}</span>
+                  <span className="text-[10px] text-[#556985] shrink-0">{entry.tokens} tok</span>
                 </div>
-              );
-            })}
-            {outCount > 0 && <p className="text-[10px] text-[#4f5f78]">{outCount} note{outCount === 1 ? '' : 's'} out of context</p>}
+                <GranularityChips
+                  value={entry.granularity}
+                  label={`Granularity for ${artifact!.title}`}
+                  onChange={(g) => onSetAttachmentGranularity(entry.artifactId, g)}
+                />
+              </div>
+            ))}
           </section>
 
-          {/* 3 · Chapters (conversation_chapters) — send order */}
-          <section className="space-y-1.5">
+          {/* 3 · Chapters — send order */}
+          <section className="space-y-2">
             <div className="text-[10px] uppercase tracking-wider text-[#6b82a3]">3 · Chapters, in send order</div>
             {chapterRows.map((c, i) => (
-              <div key={c.id} className="flex items-start justify-between gap-2 py-1 border-b border-[#0e1522] last:border-0">
-                <div className="min-w-0">
-                  <span className="text-[10px] text-[#4f5f78] mr-1.5">{i + 1}.</span>
-                  <span className="text-[#cad8eb]">{c.title}</span>
-                  <div className="text-[10px] text-[#556985] ml-5">
-                    {c.mode === 'full'
-                      ? `full · ${c.turns} turn${c.turns === 1 ? '' : 's'} verbatim`
-                      : c.summary
-                        ? 'summary only'
-                        : 'summary (recap fallback)'}
+              <div key={c.chapter.id} className="py-1.5 border-b border-[#0e1522] last:border-0 space-y-1">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="text-[10px] text-[#4f5f78] mr-1.5">{i + 1}.</span>
+                    <span className="text-[#cad8eb]">{c.chapter.title}</span>
+                    <div className="text-[10px] text-[#556985] ml-5">{cutSummary(c.granularity, c.turnCount)}</div>
                   </div>
+                  <span className="text-[10px] text-[#8297b5] shrink-0 mt-0.5">{c.tokens} tok</span>
                 </div>
-                <span className="text-[10px] text-[#8297b5] shrink-0 mt-0.5">{c.tokens} tok</span>
+                <GranularityChips
+                  value={c.granularity}
+                  label={`Granularity for chapter ${c.chapter.title}`}
+                  onChange={(g) => onSetChapterGranularity(c.chapter.id, g)}
+                />
               </div>
             ))}
           </section>
@@ -255,7 +259,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
           <section className="space-y-1.5">
             <button
               onClick={() => setShowRaw(!showRaw)}
-              className="flex items-center gap-1 min-h-[17px] text-[10px] uppercase tracking-wider text-[#6b82a3] hover:text-[#8ab1e0] cursor-pointer"
+              className="flex items-center gap-1 min-h-[24px] text-[10px] uppercase tracking-wider text-[#6b82a3] hover:text-[#8ab1e0] cursor-pointer"
             >
               {showRaw ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
               4 · Raw payload (literal)

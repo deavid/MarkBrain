@@ -121,54 +121,6 @@ export function getTokenColor(tokens: number): TokenColorInfo {
 // cannot drift.
 export { estimateTokens };
 
-/**
- * Calculates token variants for an artifact across all abstraction levels
- */
-export function getArtifactTokenVariants(artifact: Artifact): {
-  current: number;
-  full: number;
-  summary: number;
-  description: number;
-  title: number;
-  excluded: number;
-} {
-  const full = estimateTokens(artifact.current?.t3_body || '');
-  const summary = estimateTokens(artifact.current?.t2_summary || artifact.current?.t1_abstract || '');
-  const description = estimateTokens(artifact.current?.t1_abstract || '');
-  const title = estimateTokens(artifact.title || '');
-  const excluded = 0;
-
-  const resolution = artifact.resolution || 'full';
-  let current = full;
-  switch (resolution) {
-    case 'excluded':
-      current = 0;
-      break;
-    case 'title':
-      current = title;
-      break;
-    case 'description':
-      current = description;
-      break;
-    case 'summary':
-      current = summary;
-      break;
-    case 'full':
-    default:
-      current = full;
-      break;
-  }
-
-  return {
-    current,
-    full,
-    summary,
-    description,
-    title,
-    excluded,
-  };
-}
-
 // ── Export (domain shapes — chapters arrive as the chapter-turns selector) ──
 
 /** Everything an export needs from one project — domain types + selector output. */
@@ -212,10 +164,10 @@ export function exportToMarkdown(project: ProjectExportInput): string {
   md += `## Durable Artifacts (${project.artifacts.length})\n\n`;
   for (const art of project.artifacts) {
     md += `### ${art.title} (\`${art.code || art.id}\`)\n`;
-    md += `**Type:** ${art.type} | **High Concept:** ${art.isHighConcept ? 'Yes' : 'No'} | **Resolution:** ${art.resolution}\n\n`;
-    md += `**Description:** ${art.current?.t1_abstract}\n\n`;
-    md += `**Summary:** ${art.current?.t2_summary}\n\n`;
-    md += `\`\`\`markdown\n${art.current?.t3_body}\n\`\`\`\n\n`;
+    md += `**Type:** ${art.type} | **High Concept:** ${art.isHighConcept ? 'Yes' : 'No'}\n\n`;
+    md += `**Description:** ${art.current?.description}\n\n`;
+    md += `**Summary:** ${art.current?.summary}\n\n`;
+    md += `\`\`\`markdown\n${art.current?.body}\n\`\`\`\n\n`;
   }
 
   md += `---\n\n## Project Chapters & History\n\n`;
@@ -223,13 +175,6 @@ export function exportToMarkdown(project: ProjectExportInput): string {
     md += `### ${chapter.title}\n`;
     if (chapter.summary) {
       md += `> **Executive Summary:** ${chapter.summary}\n\n`;
-    }
-    if (chapter.keyPoints && chapter.keyPoints.length > 0) {
-      md += `**Key Invariants:**\n`;
-      for (const kp of chapter.keyPoints) {
-        md += `- ${kp}\n`;
-      }
-      md += `\n`;
     }
     for (const turn of turns) {
       md += `**${turn.role === 'user' ? 'User' : 'MarkBrain'}** (${new Date(turn.timestamp).toLocaleTimeString()}):\n`;
@@ -257,16 +202,16 @@ export function exportToYAML(project: ProjectExportInput): string {
         title: a.title,
         type: a.type,
         is_high_concept: a.isHighConcept ?? false,
-        resolution: a.resolution,
-        description: a.current?.t1_abstract,
-        summary: a.current?.t2_summary,
-        content: a.current?.t3_body,
+        description: a.current?.description,
+        summary: a.current?.summary,
+        content: a.current?.body,
       })),
       chapters: project.chapters.map(({ chapter, turns }) => ({
         id: chapter.id,
         title: chapter.title,
+        description: chapter.description || null,
         summary: chapter.summary || null,
-        key_points: chapter.keyPoints || [],
+        granularity: chapter.granularity || null,
         messages_count: turns.length,
       })),
       spatial_graph: {

@@ -92,9 +92,11 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Chat threads: metadata + inactive-thread content. Single instance —
   // re-hydrated on every project switch (snapshot load effect below).
   const threadRegistry = useMemo(() => new ThreadRegistry(), []);
+  // The compiler reads ONLY the chat's attachments + chapters. The graph is a
+  // library lens now, not a context mechanism — it is never passed here.
   const compiler = useMemo(
-    () => new OpticalCompilerDomain(graph, artifacts, segmentation, timeline),
-    [graph, artifacts, segmentation, timeline]
+    () => new OpticalCompilerDomain(artifacts, segmentation, timeline),
+    [artifacts, segmentation, timeline]
   );
 
   // ── Project snapshot hydration (application/snapshotLoader) ───────────

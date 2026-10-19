@@ -1,5 +1,6 @@
 import type { DomainContextValue } from '../../domains/DomainRegistry';
 import { isChapterOngoing } from '../../domains/02-chapter-segmentation';
+import type { Granularity } from '../../domains/granularity';
 import { summarizeChapter } from '../../gateway/api';
 import { logger } from '../../utils/logger';
 
@@ -50,11 +51,11 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
       return;
     }
 
-    segmentation.splitChapter(target.id, splitIndex, title, 'User split chapter boundary');
+    segmentation.splitChapter(target.id, splitIndex, title);
   };
 
-  // Summarize Chapter — the server returns summary + keyPoints; both go
-  // through to the domain (keyPoints used to be discarded at this writer).
+  // Summarize Chapter — the server returns the chapter's description (level 2)
+  // and summary (level 3); both land on the chapter.
   const handleSummarizeChapter = async (chapterId: string) => {
     const target = segmentation.getChapter(chapterId);
     if (!target) {
@@ -73,18 +74,26 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
         throw new Error(`summarize-chapter HTTP ${res.status}${errBody?.error ? `: ${errBody.error}` : ''}`);
       }
       const data = await res.json();
-      segmentation.updateSummary(
-        chapterId,
-        data.summary,
-        Array.isArray(data.keyPoints) ? data.keyPoints : undefined
-      );
+      segmentation.updateLevels(chapterId, {
+        description: typeof data.description === 'string' ? data.description : undefined,
+        summary: typeof data.summary === 'string' ? data.summary : undefined,
+      });
     } catch (err) {
       logger.error('App', `Failed to summarize chapter ${chapterId}`, err);
     }
   };
 
+  /**
+   * The chapter row's granularity control. The compiler honors all four
+   * values (`resolveChapterGranularity`), so this is never a menu that lies.
+   */
+  const handleSetChapterGranularity = (chapterId: string, granularity: Granularity) => {
+    segmentation.setGranularity(chapterId, granularity);
+  };
+
   return {
     handleDeclareChapter,
     handleSummarizeChapter,
+    handleSetChapterGranularity,
   };
 }

@@ -1,10 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import {
-  Artifact,
-  ResolutionTier,
-  SemanticEdge,
-  RelationKind,
-} from '../../types';
+import { Artifact, SemanticEdge, RelationKind } from '../../types';
 import {
   ZoomIn,
   ZoomOut,
@@ -15,8 +10,6 @@ import {
   RotateCcw,
   Link as LinkIcon,
   Plus,
-  Pin,
-  FolderTree,
 } from 'lucide-react';
 
 /**
@@ -60,10 +53,6 @@ interface SpatialGraphProps {
   onAddEdge: (sourceId: string, targetId: string, kind: RelationKind, weight?: number) => void;
   onUpdateNodePosition: (artifactId: string, x: number, y: number) => void;
   onBatchUpdateNodePositions: (positions: Array<{ artifactId: string; x: number; y: number }>) => void;
-  focalIds?: string[];
-  onToggleFocus?: (artId: string) => void;
-  nodeTiers?: Record<string, { tier: ResolutionTier | 'culled'; distance: number }>;
-  onOpenArtifactTree?: () => void;
 }
 
 export const SpatialGraph: React.FC<SpatialGraphProps> = ({
@@ -74,10 +63,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
   onAddEdge,
   onUpdateNodePosition,
   onBatchUpdateNodePositions,
-  focalIds = [],
-  onToggleFocus,
-  nodeTiers = {},
-  onOpenArtifactTree,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -116,7 +101,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         id: art.id,
         artifact: art,
         artifactId: art.id,
-        title: art.title || art.current?.t0_label || 'Untitled',
+        title: art.title || art.title || 'Untitled',
         type: art.type,
         x: art.graph?.x ?? 300 + (idx % 5) * 180,
         y: art.graph?.y ?? 200 + Math.floor(idx / 5) * 120,
@@ -457,16 +442,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
           <Sparkles className="w-3.5 h-3.5 text-[#e65a6c]" />
           <span>Auto-Space</span>
         </button>
-        {onOpenArtifactTree && (
-          <button
-            onClick={onOpenArtifactTree}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#101726] hover:bg-[#182338] text-xs font-medium text-[#e0b96c] border border-[#1e2a3e] transition-colors cursor-pointer"
-            title="Open Artifacts Hierarchy & Outliner Tree"
-          >
-            <FolderTree className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Folder Tree</span>
-          </button>
-        )}
       </div>
 
       {/* Linking status banner */}
@@ -606,9 +581,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
           const art = node.artifact;
           const tags = node.tags || art.tags || [];
           const artColor = art?.color || '#5d87b8';
-          const tierInfo = art && nodeTiers ? nodeTiers[art.id] : undefined;
-          const isInContext = tierInfo ? tierInfo.tier !== 'culled' : false;
-          const isFocal = art && focalIds ? focalIds.includes(art.id) : false;
 
           return (
             <div
@@ -616,10 +588,8 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
               style={{
                 transform: `translate(${node.x}px, ${node.y}px)`,
                 width: '220px',
-                borderColor: isFocal ? '#38bdf8' : isSelected ? '#e05a66' : `${artColor}44`,
-                boxShadow: isFocal
-                  ? '0 0 16px rgba(56, 189, 248, 0.25)'
-                  : `0 4px 16px -2px ${artColor}15`,
+                borderColor: isSelected ? '#e05a66' : `${artColor}44`,
+                boxShadow: `0 4px 16px -2px ${artColor}15`,
               }}
               onPointerDown={(e) => handleNodePointerDown(e, node)}
               className={`absolute pointer-events-auto rounded-xl p-3 border backdrop-blur-md cursor-grab active:cursor-grabbing transition-[border-color,box-shadow] select-none bg-[#101726]/95 hover:border-[#2f4368] ${
@@ -638,49 +608,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1 shrink-0">
-                  {art && (
-                    <span
-                      className={`px-1.5 py-0.2 rounded text-[9px] font-semibold border ${
-                        isFocal
-                          ? 'bg-[#0c243b] text-[#38bdf8] border-[#1d4d73]'
-                          : isInContext
-                          ? 'bg-[#0f221a] text-[#5ad49b] border-[#1d4533]'
-                          : 'bg-[#1e1316] text-[#e05a66] border-[#3d1921]'
-                      }`}
-                      title={
-                        isFocal
-                          ? 'Focal Point (Sharpest prompt resolution)'
-                          : isInContext
-                          ? `Ingested in prompt at Tier ${tierInfo?.tier}`
-                          : 'Culled (Excluded from prompt window)'
-                      }
-                    >
-                      {isFocal ? 'Focal T3' : isInContext ? `In T${tierInfo?.tier}` : 'Out'}
-                    </span>
-                  )}
-
-                  {onToggleFocus && art && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleFocus(art.id);
-                      }}
-                      className={`p-1 flex items-center justify-center min-w-[30px] min-h-[30px] rounded transition-colors cursor-pointer ${
-                        isFocal
-                          ? 'text-[#38bdf8] bg-[#0c1f30]'
-                          : 'text-[#4e6382] hover:text-[#9bb0d1]'
-                      }`}
-                      title={
-                        isFocal
-                          ? 'Unpin — remove manual focus (automatic depth-of-field may still include it)'
-                          : 'Pin — manually include at full focus'
-                      }
-                    >
-                      <Pin className={`w-3 h-3 ${isFocal ? 'fill-current' : ''}`} />
-                    </button>
-                  )}
-                </div>
               </div>
 
               {/* Title */}
@@ -717,23 +644,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                 </button>
 
                 <div className="flex items-center gap-1">
-                  {onToggleFocus && art && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleFocus(art.id);
-                      }}
-                      className={`px-1.5 py-0.5 flex items-center justify-center min-h-[30px] rounded text-[10px] font-mono transition-colors cursor-pointer border ${
-                        isFocal
-                          ? 'bg-[#0f2438] text-[#38bdf8] border-[#1d4c73]'
-                          : 'bg-[#121c2d] text-[#7d93b3] hover:text-[#eef4fc] border-[#1a273e]'
-                      }`}
-                      title={isFocal ? 'Release focus' : 'Pull node into context'}
-                    >
-                      {isFocal ? 'Focused' : 'Pull'}
-                    </button>
-                  )}
-
                   {node.artifactId && (
                     <button
                       onClick={(e) => {

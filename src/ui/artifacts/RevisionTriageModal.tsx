@@ -105,15 +105,15 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
             pairs.map((pair) => {
               const { newArt, oldArt, relType, reason } = pair;
               const lines = diffLines(
-                oldArt.current?.t3_body || '',
-                newArt.current?.t3_body || ''
+                oldArt.current?.body || '',
+                newArt.current?.body || ''
               );
               const stats = diffStats(lines);
 
               const metaChips: string[] = [];
               if ((newArt.title || '') !== (oldArt.title || '')) metaChips.push('title changed');
               if ((newArt.code || '') !== (oldArt.code || '')) metaChips.push('code changed');
-              if ((newArt.current?.t1_abstract || '') !== (oldArt.current?.t1_abstract || ''))
+              if ((newArt.current?.description || '') !== (oldArt.current?.description || ''))
                 metaChips.push('abstract changed');
               const newTags = new Set(newArt.tags || []);
               const oldTags = new Set(oldArt.tags || []);

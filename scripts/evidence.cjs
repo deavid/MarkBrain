@@ -180,9 +180,9 @@ async function journey(page, id, caption, fn) {
         await page.keyboard.press('Escape');
         const stop = page.locator('[title="Stop generating"]').first();
         if (await stop.isVisible({ timeout: 500 }).catch(() => false)) await stop.click({ timeout: 3000 });
-        const dialogue = page.getByText('Dialogue', { exact: false }).first();
+        const chatTab = page.getByRole('button', { name: /^Chat$/ }).first();
         if (!(await page.locator('textarea').first().isVisible().catch(() => false))) {
-          await dialogue.click({ timeout: 3000 }).catch(() => {});
+          await chatTab.click({ timeout: 3000 }).catch(() => {});
         }
         await page.waitForTimeout(700);
         log('  ↺ recovered for next journey');
@@ -524,7 +524,8 @@ async function main() {
   // ── J1 boot ───────────────────────────────────────────────────────────────
   await journey(page, '01-boot', 'Boot fixture → studio renders with content', async (page) => {
     const txt = await bodyText();
-    check(/Dialogue/.test(txt), 'Dialogue tab visible');
+    check(/Chat/.test(txt), 'Chat tab visible');
+    check(/Artifacts/.test(txt), 'Artifacts tab visible');
     check(/Chapter|Genesis/i.test(txt), 'fixture chapter content rendered');
     check(/fixture/i.test(txt), 'fixture project loaded');
     await shot(page, 'boot-studio');
@@ -619,34 +620,34 @@ async function main() {
   });
 
   // ── J5 summarize ──────────────────────────────────────────────────────────
-  await journey(page, '05-chapter-summarize', 'Abstract panel → Summarize → summary + key points', async (page) => {
+  await journey(page, '05-chapter-summarize', 'Recap panel → Summarize → description + summary', async (page) => {
     const panelReady = async () => {
       const txt = await bodyText();
       if (await page.getByRole('button', { name: 'Summarize with Gemini' }).first().isVisible().catch(() => false)) return 'button';
-      if (/Executive Abstract/i.test(txt)) return 'summary';
+      if (/Chapter recap/i.test(txt)) return 'summary';
       return null;
     };
     let state = await panelReady();
     for (let i = 0; i < 6 && !state; i++) {
-      const abstracts = page.getByRole('button', { name: /Abstract/ });
+      const abstracts = page.getByRole('button', { name: /Recap/ });
       const n = await abstracts.count();
       if (!n) break;
       await abstracts.nth(i % n).click().catch(() => {});
-      step('click', `Abstract toggle #${i % n}`);
+      step('click', `Recap toggle #${i % n}`);
       await page.waitForTimeout(400);
       state = await panelReady();
     }
     if (state === 'button') {
       await page.getByRole('button', { name: 'Summarize with Gemini' }).first().click();
       step('click', 'Summarize with Gemini');
-      await page.getByText('Executive Abstract').first().waitFor({ state: 'visible', timeout: 30_000 });
-      step('wait', 'Executive Abstract panel');
+      await page.getByText('Chapter recap').first().waitFor({ state: 'visible', timeout: 30_000 });
+      step('wait', 'Chapter recap panel');
       check(true, 'summarize produced summary panel');
     } else if (state === 'summary') {
       step('observe', 'summary already present (fixture or earlier journey) — panel renders it');
       check(true, 'summary panel present');
     } else {
-      fail(`abstract panel never reached (no Summarize button, no Executive Abstract; body: ${(await bodyText()).slice(0, 200)})`);
+      fail(`recap panel never reached (no Summarize button, no Chapter recap; body: ${(await bodyText()).slice(0, 200)})`);
     }
     await shot(page, 'summarized');
   });
@@ -671,39 +672,66 @@ async function main() {
     check(/evidence thread/.test(await bodyText()), 'thread-two reply landed');
     await shot(page, 'thread-two');
     // switch back via sidebar row
-    await page.locator('aside').getByText('Main', { exact: true }).first().click({ timeout: 5000 });
+    await page.locator('aside').getByText('Fixture Thread', { exact: true }).first().click({ timeout: 5000 });
     await page.waitForTimeout(1000);
-    step('click', 'sidebar thread: Main');
+    step('click', 'sidebar thread: Fixture Thread');
     const txt = await bodyText();
     check(/EVIDENCE-OK/.test(txt), 'original thread content restored after switch-back');
     await shot(page, 'back-to-main');
   });
 
   // ── J7 mirror ─────────────────────────────────────────────────────────────
-  await journey(page, '07-mirror', 'Tap orb → mirror shows payload/notes/chapters/raw', async (page) => {
+  await journey(page, '07-mirror', 'Tap orb → mirror shows payload, attachments at granularity, chapters, raw', async (page) => {
     const orb = page.locator('[title*="tap to see what the LLM will see"]');
     await orb.click({ timeout: 5000 });
     step('click', 'saturation orb');
     await page.getByText('What the LLM will see').first().waitFor({ state: 'visible', timeout: 5000 });
     const txt = await bodyText();
     check(/Payload/i.test(txt), 'payload section');
+    check(/Attached artifacts/i.test(txt), 'attachments section');
     check(/Chapters, in send order|CHAPTERS/i.test(txt), 'chapters section');
+    check(/Fixture Artifact Alpha/.test(txt), 'fixture attachment row');
+    check(/Title|Description|Summary|Full/.test(txt), 'granularity control present');
     check(/Raw payload|RAW PAYLOAD/i.test(txt), 'raw payload section');
     await shot(page, 'mirror');
     await ariaSnap(page, '07-mirror');
     await page.keyboard.press('Escape');
   });
 
+  // ── J14 attach from the picker ────────────────────────────────────────────
+  await journey(page, '14-attach-from-picker', 'Mirror → [+] Attach → artifact enters this chat', async (page) => {
+    const orb = page.locator('[title*="tap to see what the LLM will see"]');
+    await orb.click({ timeout: 5000 });
+    await page.getByText('What the LLM will see').first().waitFor({ state: 'visible', timeout: 5000 });
+    check(!/Fixture Artifact Beta/.test(await bodyText()), 'Beta starts outside the payload');
+    await page.locator('[title="Attach an artifact to this chat"]').click({ timeout: 5000 });
+    step('click', '[+] Attach');
+    await page.getByText('Attach artifacts').first().waitFor({ state: 'visible', timeout: 5000 });
+    await page.getByRole('button', { name: 'Attach Fixture Artifact Beta' }).click({ timeout: 5000 });
+    step('click', 'attach Fixture Artifact Beta');
+    await page.waitForTimeout(400);
+    await shot(page, 'picker-attached');
+    await page.locator('[title="Close picker"]').click({ timeout: 5000 });
+    await page.waitForTimeout(400);
+    const txt = await bodyText();
+    check(/Fixture Artifact Beta/.test(txt), 'Beta now listed in the payload');
+    check(/Attached artifacts/i.test(txt), 'attachments section still present');
+    await shot(page, 'mirror-after-attach');
+    await page.keyboard.press('Escape');
+  });
+
   // ── J8 graph ──────────────────────────────────────────────────────────────
-  await journey(page, '08-spatial-graph', 'Graph view renders artifacts + edges', async (page) => {
-    await page.getByText('Spatial Graph', { exact: false }).first().click();
+  await journey(page, '08-artifacts-graph', 'Artifacts library → Graph lens renders artifacts + edges', async (page) => {
+    await page.getByRole('button', { name: /Artifacts/ }).first().click();
+    await page.waitForTimeout(600);
+    await page.getByRole('button', { name: /^Graph$/ }).first().click();
     await page.waitForTimeout(2500);
     const txt = await bodyText();
     check(/Fixture Artifact Alpha/.test(txt), 'artifact node Alpha');
     check(/Fixture Artifact Beta/.test(txt), 'artifact node Beta');
     await shot(page, 'graph');
     await ariaSnap(page, '08-graph');
-    await page.getByText('Dialogue', { exact: false }).first().click();
+    await page.getByRole('button', { name: /^Chat$/ }).first().click();
     await page.waitForTimeout(800);
   });
 
@@ -817,11 +845,15 @@ async function main() {
     await auditSurface(page, vp.name, 'chat');
 
     if (DESKTOP.has(vp.name)) {
-      // graph
-      await page.getByText('Spatial Graph', { exact: false }).first().click().catch(() => {});
+      // artifacts library (folders lens)
+      await page.getByRole('button', { name: /Artifacts/ }).first().click().catch(() => {});
+      await page.waitForTimeout(900);
+      await auditSurface(page, vp.name, 'artifacts');
+      // graph lens
+      await page.getByRole('button', { name: /^Graph$/ }).first().click().catch(() => {});
       await page.waitForTimeout(2500);
       await auditSurface(page, vp.name, 'graph');
-      await page.getByText('Dialogue', { exact: false }).first().click().catch(() => {});
+      await page.getByRole('button', { name: /^Chat$/ }).first().click().catch(() => {});
       await page.waitForTimeout(700);
       // export modal
       try {

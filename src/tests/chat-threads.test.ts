@@ -357,7 +357,6 @@ describe('Folders & archive lifecycle', () => {
 
 describe('Compiler historyTurns override (background-thread context)', () => {
   it('compiles against explicit turns/chapters instead of the live domains', () => {
-    const graph = new TopologicalGraphDomain([]);
     const artifacts = new ArtifactDocumentDomain('proj-1', []);
     const segmentation = new ChapterSegmentationDomain('proj-1', [
       chapter('live-chapter', 'ACTIVE'),
@@ -365,14 +364,13 @@ describe('Compiler historyTurns override (background-thread context)', () => {
     const timeline = new DialogueTimelineDomain('proj-1', [
       turn('live-1', 'user', 'VISIBLE-THREAD-CONTENT'),
     ]);
-    const compiler = new OpticalCompilerDomain(graph, artifacts, segmentation, timeline);
+    const compiler = new OpticalCompilerDomain(artifacts, segmentation, timeline);
 
     const historyTurns = [turn('bg-1', 'user', 'BACKGROUND-THREAD-CONTENT')];
     const historyChapters = [chapter('bg-chapter', 'BG', 0)];
 
     const compiled = compiler.compile({
-      focalIds: [],
-      opticalMode: 'autofocus',
+      attachments: [],
       historyTurns,
       historyChapters,
     });
@@ -383,7 +381,7 @@ describe('Compiler historyTurns override (background-thread context)', () => {
     expect(compiled.compiledPrompt).not.toContain('live-chapter');
 
     // Without overrides the live domains still win (unchanged behavior)
-    const liveCompiled = compiler.compile({ focalIds: [], opticalMode: 'autofocus' });
+    const liveCompiled = compiler.compile({ attachments: [] });
     expect(liveCompiled.compiledPrompt).toContain('VISIBLE-THREAD-CONTENT');
   });
 

@@ -75,36 +75,6 @@ export class TopologicalGraphDomain implements ITopologicalGraphDomain {
     return Infinity;
   }
 
-  computeDistancesFromFocal(focalIds: string[], allNodeIds: string[]): Record<string, number> {
-    const distances: Record<string, number> = {};
-    for (const id of allNodeIds) distances[id] = Infinity;
-
-    const queue: Array<{ id: string; dist: number }> = [];
-    const visited = new Set<string>();
-
-    for (const fid of focalIds) {
-      distances[fid] = 0;
-      queue.push({ id: fid, dist: 0 });
-      visited.add(fid);
-    }
-
-    while (queue.length > 0) {
-      const curr = queue.shift()!;
-      for (const neighbor of this.getNeighbors(curr.id)) {
-        const nextDist = curr.dist + 1;
-        if (nextDist < distances[neighbor]) {
-          distances[neighbor] = nextDist;
-        }
-        if (!visited.has(neighbor)) {
-          visited.add(neighbor);
-          queue.push({ id: neighbor, dist: nextDist });
-        }
-      }
-    }
-
-    return distances;
-  }
-
   getAncestors(nodeId: string): string[] {
     const ancestors = new Set<string>();
     const queue = [nodeId];

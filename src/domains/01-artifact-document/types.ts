@@ -1,10 +1,21 @@
-export type ResolutionTier = 0 | 1 | 2 | 3;
+/**
+ * Artifact document — a stored thought unit in the library.
+ *
+ * Its content is stored as LAYERS of one document (not as alternative texts):
+ * `title` lives on the artifact, and `description → summary → body` are written
+ * to be read together. Granularity picks where the document is cut
+ * (see `../granularity`). The artifact itself carries NO granularity: that
+ * belongs to the attachment in a chat.
+ */
 
-export interface MultiResolutionTiers {
-  t0_label: string;
-  t1_abstract: string;
-  t2_summary: string;
-  t3_body: string;
+/** The three layered text fields (level 1 — the title — is `title` below). */
+export interface ArtifactLayers {
+  /** ~200 words. Second layer: what this is, continuing from the title. */
+  description: string;
+  /** ~2000 words. Third layer: the substance, continuing from the description. */
+  summary: string;
+  /** The source text (markdown / verbatim document). */
+  body: string;
 }
 
 export interface UniversalArtifactDocument {
@@ -16,7 +27,7 @@ export interface UniversalArtifactDocument {
   category: string;
   isHighConcept: boolean;
   color?: string;
-  current: MultiResolutionTiers;
+  current: ArtifactLayers;
   tags: string[];
   createdAt: number;
   updatedAt: number;
@@ -29,7 +40,6 @@ export interface UniversalArtifactDocument {
     relationships?: Array<{ target: string; type: string; note?: string }>;
     [key: string]: any;
   };
-  resolution?: any;
   yamlDocument?: string;
 }
 

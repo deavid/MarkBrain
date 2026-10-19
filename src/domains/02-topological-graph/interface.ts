@@ -3,7 +3,6 @@ import { SemanticEdge, RelationKind, GraphEvent } from './types';
 export interface ITopologicalGraphDomain {
   // Queries
   getHopDistance(sourceId: string, targetId: string): number;
-  computeDistancesFromFocal(focalIds: string[], allNodeIds: string[]): Record<string, number>;
   getNeighbors(nodeId: string): string[];
   getAncestors(nodeId: string): string[];
   listEdges(): SemanticEdge[];

@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { ModelOption } from './types';
 import { FALLBACK_MODEL } from './data/models';
 import { Sidebar, ActiveView } from './ui/workspace/Sidebar';
-import { SpatialGraph } from './ui/graph/SpatialGraph';
 import { ChatView } from './ui/chat/ChatView';
 import { ChatErrorBoundary } from './ui/workspace/ChatErrorBoundary';
 import { AuthGate } from './ui/workspace/AuthGate';
@@ -11,6 +10,8 @@ import { ProjectGenesis } from './ui/workspace/ProjectGenesis';
 import { ProjectLauncher } from './ui/workspace/ProjectLauncher';
 import { ServerLogsModal } from './ui/workspace/ServerLogsModal';
 import { ArtifactDetailModal } from './ui/artifacts/ArtifactDetailModal';
+import { ArtifactsLibraryView } from './ui/artifacts/ArtifactsLibraryView';
+import { AttachmentPicker } from './ui/chat/AttachmentPicker';
 import { ImportModal } from './ui/artifacts/ImportModal';
 import { ExportModal } from './ui/artifacts/ExportModal';
 import { RevisionTriageModal } from './ui/artifacts/RevisionTriageModal';
@@ -26,7 +27,7 @@ import type { SendQueueDeps } from './application/sendQueue';
 import { chatCancel, titleThread, models as fetchModels } from './gateway/api';
 
 // Feature-slice modules — handlers/projections extracted from this file
-import { useOpticalContext } from './ui/context/useOpticalContext';
+import { useContextPayload } from './ui/context/useContextPayload';
 import { groupTurnsByChapter } from './domains/02-chapter-segmentation';
 import type { ProjectExportInput } from './utils/tokenCalculator';
 import { createWorkspaceHandlers } from './ui/workspace/createWorkspaceHandlers';
@@ -126,10 +127,7 @@ export default function App() {
     };
   }, []);
 
-  // Optical Mode state from current container or default
-  const opticalMode = currentContainer?.opticalMode || 'autofocus';
-
-  // Active View: 'chat' | 'graph' | 'artifacts' | 'tokens'
+  // Active View: 'chat' | 'artifacts'
   const [activeView, setActiveView] = useState<ActiveView>('chat');
 
   // Modals & Project Launcher state
@@ -140,6 +138,7 @@ export default function App() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isMirrorOpen, setIsMirrorOpen] = useState(false);
+  const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   // Phase 3: triage modal — non-null = open, value = flagged pair to focus.
@@ -148,16 +147,14 @@ export default function App() {
   // Full-database backup / restore trigger + handlers → ui/workspace slice
   const { importDbFileRef, handleExportDatabase, dbImportInput } = useDatabaseTransfer();
 
-  // Workspace/project CRUD + optical-mode handlers → ui/workspace slice
-  const { cycleOpticalMode, handleSelectProjectAndLaunchChat, handleCreateProject } =
-    createWorkspaceHandlers({
-      workspace,
-      currentContainer,
-      triggerReRender,
-      setActiveView,
-      setIsProjectLauncherOpen,
-      opticalMode,
-    });
+  // Workspace/project CRUD handlers → ui/workspace slice
+  const { handleSelectProjectAndLaunchChat, handleCreateProject } = createWorkspaceHandlers({
+    workspace,
+    currentContainer,
+    triggerReRender,
+    setActiveView,
+    setIsProjectLauncherOpen,
+  });
 
   // ── Serial generation queue ────────────────────────────────────────────────
   // One stream at a time (Gemini quota + serial by design). Sends in other
@@ -194,17 +191,13 @@ export default function App() {
     clearThreadUnread,
   } = useThreadUi({ sendQueue, threadRegistry, tick });
 
-  // Pinned Focal Artifacts & Tier Overrides
-  const focalArtifactIds = currentContainer?.focalArtifactIds || [];
-  const manualTierOverrides = currentContainer?.tierOverrides || {};
-
-  // Optical Context compile + ambient telemetry → ui/context slice
-  const { compiledContext, ambientTelemetry } = useOpticalContext({
+  // The payload for THIS chat: its attachments (each at its granularity) and
+  // its chapters. Nothing is included by proximity — see 09 §1c.
+  const activeAttachments = threadRegistry.getAttachments(activeThreadId);
+  const { compiledContext, ambientTelemetry } = useContextPayload({
     compiler,
     currentContainer,
-    focalArtifactIds,
-    manualTierOverrides,
-    opticalMode,
+    attachments: activeAttachments,
     tick,
   });
 
@@ -232,11 +225,11 @@ export default function App() {
     edges: domainEdges,
   };
 
-  // Artifact CRUD / pin & tier overrides / import landing / Phase-3 triage
-  // → ui/artifacts slice (same handler names ChatView/Sidebar/modals already bind)
+  // Artifact CRUD / attachment (attach + granularity) / import landing /
+  // Phase-3 triage → ui/artifacts slice
   const {
-    handleToggleFocusArtifact,
-    handleChangeTierOverride,
+    handleAttachArtifact,
+    handleSetAttachmentGranularity,
     handleAddArtifact,
     handleImportArtifact,
     handleTriageKeepBoth,
@@ -246,6 +239,8 @@ export default function App() {
     artifactsDomain,
     versioning,
     workspace,
+    threadRegistry,
+    activeThreadId,
     activeProjectId,
     currentContainer,
     triggerReRender,
@@ -262,8 +257,8 @@ export default function App() {
   const { handleUpdateNodePosition, handleBatchUpdateNodePositions, handleAddEdge } =
     createGraphHandlers({ artifactsDomain, graph });
 
-  // Chapter declare/summarize handlers → ui/chat slice
-  const { handleDeclareChapter, handleSummarizeChapter } =
+  // Chapter declare/summarize/granularity handlers → ui/chat slice
+  const { handleDeclareChapter, handleSummarizeChapter, handleSetChapterGranularity } =
     createChapterHandlers({ timeline, segmentation });
 
   // ── Publish deps for application/sendQueue.ts ──────────────────────────────
@@ -301,10 +296,7 @@ export default function App() {
       model: selectedModel,
       projectId: activeProjectId,
       projectTitle: projectMeta.name,
-      focalIds: focalArtifactIds,
-      opticalMode,
       tokenCeiling: currentContainer?.tokenCeiling || 32000,
-      tierOverrides: manualTierOverrides,
     }),
   };
 
@@ -374,33 +366,18 @@ export default function App() {
         projects={domainProjectsList}
         activeProject={projectMeta}
         artifacts={domainArtifacts}
-        tokenCeiling={currentContainer?.tokenCeiling || 32000}
         onSelectProject={(p) => workspace.setActiveProject(p.id)}
         selectedModel={selectedModel}
         availableModels={availableModels}
         onSelectModel={setSelectedModel}
-        totalTokens={ambientTelemetry.totalTokens}
-        activeView={activeView === 'graph' ? 'graph' : 'chat'}
+        activeView={activeView}
         onChangeView={(v) => setActiveView(v)}
-        opticalMode={opticalMode}
-        onToggleOpticalMode={cycleOpticalMode}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenImport={() => setIsImportOpen(true)}
         onExportDatabase={handleExportDatabase}
         onImportDatabase={() => importDbFileRef.current?.click()}
         onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
         onOpenServerLogs={() => setIsServerLogsOpen(true)}
-        onSelectArtifact={(art) => setSelectedArtifactId(art.id)}
-        selectedArtifactId={selectedArtifactId}
-        onToggleFocus={handleToggleFocusArtifact}
-        focalIds={focalArtifactIds}
-        nodeTiers={compiledContext.nodeTiers}
-        onChangeTierOverride={handleChangeTierOverride}
-        tierOverrides={manualTierOverrides}
-        onTriageArtifact={(id) => {
-          logger.action('App', `Open revision triage focused on ${id}`);
-          setTriageFocusId(id);
-        }}
         currentUser={currentUser}
         onSignOut={signOut}
         threads={threadRegistry.getThreads()}
@@ -436,26 +413,25 @@ export default function App() {
       <main className="flex-1 h-full min-h-0 min-w-0 flex flex-col overflow-hidden relative p-0 m-0">
         {/* Base Conversation & Graph Canvas (Takes 100% of vertical height) */}
         <div className="flex-1 h-full min-h-0 min-w-0 flex flex-col relative overflow-hidden p-0 m-0">
-          {activeView === 'graph' ? (
-            <div className="w-full h-full min-h-0 flex-1 relative flex flex-col">
-              <SpatialGraph
-                projectId={projectMeta.id}
-                artifacts={domainArtifacts}
-                edges={domainEdges}
-                onSelectArtifact={(art) => {
-                  logger.action('App', `Spatial graph artifact selected: ${art.id}`);
-                  setSelectedArtifactId(art.id);
-                  setActiveView('chat');
-                }}
-                onAddEdge={handleAddEdge}
-                onUpdateNodePosition={handleUpdateNodePosition}
-                onBatchUpdateNodePositions={handleBatchUpdateNodePositions}
-                focalIds={focalArtifactIds}
-                onToggleFocus={handleToggleFocusArtifact}
-                nodeTiers={compiledContext.nodeTiers}
-                onOpenArtifactTree={() => setIsSidebarOpen(true)}
-              />
-            </div>
+          {activeView === 'artifacts' ? (
+            <ArtifactsLibraryView
+              projectId={projectMeta.id}
+              artifacts={domainArtifacts}
+              edges={domainEdges}
+              onSelectArtifact={(art) => {
+                logger.action('Artifacts', `Open artifact ${art.id} from the library`);
+                setSelectedArtifactId(art.id);
+              }}
+              onAddEdge={handleAddEdge}
+              onUpdateNodePosition={handleUpdateNodePosition}
+              onBatchUpdateNodePositions={handleBatchUpdateNodePositions}
+              onOpenSidebar={() => setIsSidebarOpen(true)}
+              onOpenImport={() => setIsImportOpen(true)}
+              onTriageArtifact={(id) => {
+                logger.action('App', `Open revision triage focused on ${id}`);
+                setTriageFocusId(id);
+              }}
+            />
           ) : (
             <div className="w-full h-full min-h-0 flex-1 flex flex-col">
               <ChatErrorBoundary
@@ -486,10 +462,7 @@ export default function App() {
                   onAddArtifactToProject={handleAddArtifact}
                   onSummarizeChapter={handleSummarizeChapter}
                   onDeclareChapter={handleDeclareChapter}
-                  onNavigateToGraph={() => {
-                    logger.action('App', 'Navigate from chat to graph view');
-                    setActiveView('graph');
-                  }}
+                  onSetChapterGranularity={handleSetChapterGranularity}
                   onSelectArtifact={(art) => {
                     logger.action('App', `Chat artifact card selected: ${art.id}`);
                     setSelectedArtifactId(art.id);
@@ -534,6 +507,21 @@ export default function App() {
             artifacts={domainArtifacts}
             chapters={chapterGroups}
             ceiling={ambientTelemetry.ceiling}
+            onSetAttachmentGranularity={handleSetAttachmentGranularity}
+            onSetChapterGranularity={handleSetChapterGranularity}
+            onOpenAttachmentPicker={() => {
+              logger.action('App', 'Open attachment picker');
+              setIsAttachmentPickerOpen(true);
+            }}
+          />
+          <AttachmentPicker
+            open={isAttachmentPickerOpen}
+            onClose={() => setIsAttachmentPickerOpen(false)}
+            artifacts={domainArtifacts}
+            attachments={activeAttachments}
+            onAttach={(id) => {
+              handleAttachArtifact(id);
+            }}
           />
         </div>
 
@@ -629,13 +617,11 @@ export default function App() {
               artifact={art}
               history={versioning.getHistory(art.id)}
               onClose={() => setSelectedArtifactId(null)}
-              isInContext={focalArtifactIds.includes(art.id)}
-              contextTier={compiledContext.nodeTiers[art.id]?.tier ?? 'culled'}
-              onToggleInContext={handleToggleFocusArtifact}
-              onChangeTierOverride={handleChangeTierOverride}
-              tierOverride={manualTierOverrides[art.id] ?? null}
-              tierReason={compiledContext.nodeTiers[art.id]?.reason}
-              tierDistance={compiledContext.nodeTiers[art.id]?.distance}
+              attachmentGranularity={
+                activeAttachments.find((a) => a.artifactId === art.id)?.granularity ?? null
+              }
+              onAttach={handleAttachArtifact}
+              onSetAttachmentGranularity={handleSetAttachmentGranularity}
             />
           );
         })()

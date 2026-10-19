@@ -28,7 +28,6 @@ import {
   type Artifact,
   type ExtractedArtifact,
   type ModelOption,
-  type ResolutionTier,
 } from '../types';
 import { estimateTokens } from '../utils/estimateTokens';
 import type { TurnMeta } from '../domains/01-dialogue-timeline/types';
@@ -54,10 +53,7 @@ export interface TurnSendContext {
   model: ModelOption;
   projectId: string;
   projectTitle: string;
-  focalIds: string[];
-  opticalMode: 'autofocus' | 'manual' | 'myopia';
   tokenCeiling: number;
-  tierOverrides: Record<string, ResolutionTier>;
 }
 
 /** React glue + fetch/confirm call sites that remain owned by App.tsx. */
@@ -320,10 +316,10 @@ export class SendQueue {
       // Compile against THIS thread's turns/chapters (historyTurns override) —
       // background jobs must never leak the visible thread's context.
       compiled = deps.compiler.compile({
-        focalIds: ctx.focalIds,
-        opticalMode: ctx.opticalMode,
+        // Per-thread attachments, read at job time: a chain can span threads,
+        // and each payload must carry THAT thread's attachments only.
+        attachments: deps.threadRegistry.getAttachments(threadId),
         tokenCeiling: ctx.tokenCeiling,
-        tierOverrides: ctx.tierOverrides,
         log: true, // once-per-send lifecycle log (display memo must stay silent)
         historyTurns: this.turnsOf(deps, threadId),
         historyChapters: this.chaptersOf(deps, threadId),
@@ -366,13 +362,19 @@ export class SendQueue {
           },
           onTopicShift: (shift) => {
             if (this.isActiveThread(deps, threadId)) {
-              deps.segmentation.declareNewChapter(shift.title, deps.timeline.count(), shift.abstract);
+              deps.segmentation.declareNewChapter(
+                shift.title,
+                deps.timeline.count(),
+                shift.description,
+                shift.summary
+              );
             } else {
               deps.threadRegistry.declareChapterInactive(
                 threadId,
                 shift.title,
                 this.turnsOf(deps, threadId).length,
-                shift.abstract
+                shift.description,
+                shift.summary
               );
             }
             deps.triggerReRender();
@@ -380,19 +382,20 @@ export class SendQueue {
           onArtifact: (u) => {
             const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
             const existing = deps.artifacts.getArtifact(code) || deps.artifacts.getArtifact(u.id);
+            let artifactId = existing?.id || u.id || '';
 
             if (existing) {
               deps.versioning.recordRevision(
                 existing.id,
-                u.content.t3_body,
-                `Update from chat: ${u.content.t1_abstract}`
+                u.content.body,
+                `Update from chat: ${u.content.description}`
               );
             } else {
               const now = Date.now();
               const artTitle = u.title || 'Extracted note';
-              const artDesc = u.content.t1_abstract || 'Extracted note.';
-              const artSumm = u.content.t2_summary || artDesc;
-              const artContent = u.content.t3_body || `# ${artTitle}\n\nExtracted note.`;
+              const artDesc = u.content.description || '';
+              const artSumm = u.content.summary || '';
+              const artContent = u.content.body || `# ${artTitle}`;
               const artColor = getMellowPastelColor(code);
 
               const newArtifact: Artifact = {
@@ -405,10 +408,9 @@ export class SendQueue {
                 color: artColor,
                 isHighConcept: false,
                 current: {
-                  t0_label: artTitle,
-                  t1_abstract: artDesc,
-                  t2_summary: artSumm,
-                  t3_body: artContent,
+                  description: artDesc,
+                  summary: artSumm,
+                  body: artContent,
                 },
                 tags: ['chat-extracted', u.type || 'note'],
                 createdAt: now,
@@ -418,13 +420,18 @@ export class SendQueue {
                   x: 300,
                   y: 200,
                 },
-                resolution: 'full',
               };
-              deps.artifacts.upsertArtifact({
+              const saved = deps.artifacts.upsertArtifact({
                 ...newArtifact,
                 yamlDocument: serializeArtifactToYamlDoc(newArtifact),
               });
+              artifactId = saved.id;
             }
+            // The artifact was born (or updated) in THIS chat: attach it to
+            // this chat, so the model keeps seeing it once the announcing turn
+            // is no longer verbatim in context. Idempotent — re-extraction
+            // never resets a granularity the user lowered.
+            if (artifactId) deps.threadRegistry.attachArtifact(threadId, artifactId, 'full');
             deps.triggerReRender();
           },
         }
@@ -437,9 +444,9 @@ export class SendQueue {
         type: u.type,
         code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
         category: u.type === 'chapter' ? 'chapter' : 'note',
-        abstract: u.content.t1_abstract,
-        summary: u.content.t2_summary,
-        content: u.content.t3_body,
+        description: u.content.description,
+        summary: u.content.summary,
+        content: u.content.body,
         isHighConcept: false,
       }));
 

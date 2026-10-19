@@ -1,6 +1,9 @@
 import { IChapterSegmentationDomain } from './interface';
 import { ChapterPartition, SegmentationEvent } from './types';
+import { Granularity, sealedGranularity } from '../granularity';
 import { logger } from '../../utils/logger';
+
+const makeChapterId = () => `chap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
   private chapters: ChapterPartition[] = [];
@@ -25,23 +28,31 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     return this.chapters.find((c) => c.status === 'active') || this.chapters[this.chapters.length - 1] || null;
   }
 
-  declareNewChapter(title: string, startIndex: number, reason?: string): ChapterPartition {
-    logger.info('Segmentation', `Declare new chapter "${title}" at turn #${startIndex}`, { reason });
-    // Close existing active chapter
+  declareNewChapter(
+    title: string,
+    startIndex: number,
+    description?: string,
+    summary?: string
+  ): ChapterPartition {
+    logger.info('Segmentation', `Declare new chapter "${title}" at turn #${startIndex}`, { description });
+    // Seal the open chapter: full → summary; a manual title/description stays.
     this.chapters.forEach((c) => {
       if (c.status === 'active') {
         c.status = 'completed';
         if (c.endIndex === undefined) c.endIndex = startIndex;
+        c.granularity = sealedGranularity(c.granularity);
       }
     });
 
     const newChapter: ChapterPartition = {
-      id: `chap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: makeChapterId(),
       workspaceId: this.workspaceId,
       title,
+      description: description || '',
+      summary: summary || '',
+      granularity: 'full',
       status: 'active',
       startIndex,
-      topicShiftReason: reason,
       createdAt: Date.now(),
     };
 
@@ -50,7 +61,12 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     return newChapter;
   }
 
-  splitChapter(chapterId: string, splitIndex: number, newTitle: string, reason?: string): ChapterPartition {
+  splitChapter(
+    chapterId: string,
+    splitIndex: number,
+    newTitle: string,
+    description?: string
+  ): ChapterPartition {
     const targetIdx = this.chapters.findIndex((c) => c.id === chapterId);
     if (targetIdx === -1) throw new Error(`Chapter ${chapterId} not found`);
 
@@ -58,6 +74,7 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     const prevEnd = target.endIndex;
     target.endIndex = splitIndex;
     target.status = 'completed';
+    target.granularity = sealedGranularity(target.granularity);
 
     // A stale/absent end (the ongoing rule runs the last chapter to the latest
     // turn regardless of endIndex) means the new chapter owns the tail — never
@@ -65,13 +82,15 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     const newEnd = prevEnd !== undefined && prevEnd > splitIndex ? prevEnd : undefined;
 
     const newChapter: ChapterPartition = {
-      id: `chap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: makeChapterId(),
       workspaceId: this.workspaceId,
       title: newTitle,
+      description: description || '',
+      summary: '',
+      granularity: 'full',
       status: newEnd === undefined ? 'active' : 'completed',
       startIndex: splitIndex,
       endIndex: newEnd,
-      topicShiftReason: reason,
       createdAt: Date.now(),
     };
 
@@ -90,20 +109,37 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     this.emit({ type: 'boundaryShifted', chapterId, newStartIndex });
   }
 
-  updateSummary(chapterId: string, summary: string, keyPoints?: string[]): void {
+  updateLevels(chapterId: string, levels: { description?: string; summary?: string }): void {
     const chapter = this.chapters.find((c) => c.id === chapterId);
     if (!chapter) {
-      logger.warn('Segmentation', `updateSummary: unknown chapter ${chapterId} — ignored`);
+      logger.warn('Segmentation', `updateLevels: unknown chapter ${chapterId} — ignored`);
       return;
     }
-    chapter.summary = summary;
-    if (keyPoints) chapter.keyPoints = keyPoints;
-    this.emit({ type: 'chapterSummaryUpdated', chapterId, summary, keyPoints });
+    if (levels.description !== undefined) chapter.description = levels.description;
+    if (levels.summary !== undefined) chapter.summary = levels.summary;
+    this.emit({
+      type: 'chapterLevelsUpdated',
+      chapterId,
+      description: chapter.description,
+      summary: chapter.summary,
+    });
+  }
+
+  setGranularity(chapterId: string, granularity: Granularity): void {
+    const chapter = this.chapters.find((c) => c.id === chapterId);
+    if (!chapter) {
+      logger.warn('Segmentation', `setGranularity: unknown chapter ${chapterId} — ignored`);
+      return;
+    }
+    chapter.granularity = granularity;
+    this.emit({ type: 'chapterGranularityChanged', chapterId, granularity });
   }
 
   closeChapter(chapterId: string): void {
     const chapter = this.chapters.find((c) => c.id === chapterId);
-    if (chapter) chapter.status = 'completed';
+    if (!chapter) return;
+    chapter.status = 'completed';
+    chapter.granularity = sealedGranularity(chapter.granularity);
   }
 
   loadChapters(chapters: ChapterPartition[]): void {

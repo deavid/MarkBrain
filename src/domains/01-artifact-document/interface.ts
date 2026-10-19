@@ -1,14 +1,16 @@
-import { UniversalArtifactDocument, ArtifactDocumentEvent, ResolutionTier } from './types';
+import { UniversalArtifactDocument, ArtifactLayers, ArtifactDocumentEvent } from './types';
+import type { Granularity } from '../granularity';
 
 export interface IArtifactDocumentDomain {
   // Queries
   getArtifact(id: string): UniversalArtifactDocument | null;
   listArtifacts(): UniversalArtifactDocument[];
-  getTierContent(id: string, tier: ResolutionTier): string;
+  /** The artifact's text cut at `granularity` (title+description+summary+body, cut). */
+  getContentAtGranularity(id: string, granularity: Granularity): string;
 
   // Commands
   upsertArtifact(doc: Partial<UniversalArtifactDocument> & { id: string; title: string }): UniversalArtifactDocument;
-  updateTiers(id: string, tiers: Partial<UniversalArtifactDocument['current']>): void;
+  updateLayers(id: string, layers: Partial<ArtifactLayers>): void;
   deleteArtifact(id: string): void;
   loadArtifacts(docs: UniversalArtifactDocument[]): void;
 

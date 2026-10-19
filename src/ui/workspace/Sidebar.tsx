@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ModelOption, Artifact, ResolutionTier, TierReason } from '../../types';
+import { ModelOption, Artifact } from '../../types';
 import type { ProjectMetadata } from '../../domains/00-workspace/types';
-import { getTokenColor } from '../../utils/tokenCalculator';
 import { logger } from '../../utils/logger';
 import {
   Brain,
@@ -30,10 +29,9 @@ import {
   Save,
   RotateCcw,
 } from 'lucide-react';
-import { ArtifactFolderTree } from '../artifacts/ArtifactFolderTree';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 
-export type ActiveView = 'chat' | 'graph';
+export type ActiveView = 'chat' | 'artifacts';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -45,12 +43,8 @@ interface SidebarProps {
   selectedModel: ModelOption;
   availableModels: ModelOption[];
   onSelectModel: (m: ModelOption) => void;
-  totalTokens: number;
-  tokenCeiling: number;
   activeView: ActiveView;
   onChangeView: (view: ActiveView) => void;
-  opticalMode?: 'autofocus' | 'manual' | 'myopia';
-  onToggleOpticalMode?: () => void;
   onOpenExport: () => void;
   onOpenImport: () => void;
   // Full-database backup / restore (canonical format — works on any backend)
@@ -58,19 +52,6 @@ interface SidebarProps {
   onImportDatabase: () => void;
   onOpenProjectLauncher: () => void;
   onOpenServerLogs?: () => void;
-  // Artifact Tree & Focus capabilities
-  onSelectArtifact?: (art: Artifact) => void;
-  selectedArtifactId?: string | null;
-  onToggleFocus?: (artId: string) => void;
-  /** Phase 3: flagged-row click in Revisions mode opens triage instead of detail. */
-  onTriageArtifact?: (artId: string) => void;
-  focalIds?: string[];
-  nodeTiers?: Record<
-    string,
-    { tier: ResolutionTier | 'culled'; distance: number; reason?: TierReason }
-  >;
-  onChangeTierOverride?: (artId: string, tier: ResolutionTier | null) => void;
-  tierOverrides?: Record<string, ResolutionTier>;
   // Firebase Auth & account
   currentUser?: { displayName?: string | null; email?: string | null; photoURL?: string | null } | null;
   onSignOut?: () => void;
@@ -105,26 +86,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedModel,
   availableModels,
   onSelectModel,
-  totalTokens,
-  tokenCeiling,
   activeView,
   onChangeView,
-  opticalMode = 'autofocus',
-  onToggleOpticalMode,
   onOpenExport,
   onOpenImport,
   onExportDatabase,
   onImportDatabase,
   onOpenProjectLauncher,
   onOpenServerLogs,
-  onSelectArtifact,
-  selectedArtifactId,
-  onToggleFocus,
-  onTriageArtifact,
-  focalIds = [],
-  nodeTiers = {},
-  onChangeTierOverride,
-  tierOverrides,
   currentUser,
   onSignOut,
   threads = [],
@@ -148,9 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Inline accordion toggles (all expand inline in document flow, guaranteeing ZERO container clipping)
   const [projectAccordionOpen, setProjectAccordionOpen] = useState(false);
   const [modelAccordionOpen, setModelAccordionOpen] = useState(false);
-  const [opticalAccordionOpen, setOpticalAccordionOpen] = useState(true);
   const [cloudAccordionOpen, setCloudAccordionOpen] = useState(true);
-  const [artifactsTreeOpen, setArtifactsTreeOpen] = useState(true);
   const [ioToolsOpen, setIoToolsOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(true);
 
@@ -332,7 +299,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     );
   };
 
-  const colorInfo = getTokenColor(totalTokens);
 
   return (
     <>
@@ -401,7 +367,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          {/* Block 1: View Navigation Switcher (Dialogue Canvas vs Spatial Graph) */}
+          {/* Block 1: View Navigation Switcher (Chat vs the Artifacts library) */}
           <div className="p-1 bg-[#0c121e] border border-[#131e2e] rounded-xl flex items-center gap-1">
             <button
               onClick={() => {
@@ -415,21 +381,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }`}
             >
               <MessageSquare className="w-3.5 h-3.5" />
-              <span>Dialogue</span>
+              <span>Chat</span>
             </button>
             <button
               onClick={() => {
-                logger.action('Sidebar', 'Switch view to graph');
-                onChangeView('graph');
+                logger.action('Sidebar', 'Switch view to artifacts');
+                onChangeView('artifacts');
               }}
               className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-mono font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeView === 'graph'
+                activeView === 'artifacts'
                   ? 'bg-[#18253b] text-[#8ab1e0] border border-[#223654] shadow-xs'
                   : 'text-[#5d7394] hover:text-[#c4d7f2]'
               }`}
             >
-              <Compass className="w-3.5 h-3.5" />
-              <span>Spatial Graph</span>
+              <FolderTree className="w-3.5 h-3.5" />
+              <span>Artifacts{artifacts.length > 0 ? ` · ${artifacts.length}` : ''}</span>
             </button>
           </div>
 
@@ -1067,145 +1033,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </button>
                   </div>
                 )}
-              </div>
-            )}
-          </div>
-
-          {/* Block 5: Optical Context Engine & Token Gauge */}
-          <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
-            <button
-              onClick={() => {
-                const nextState = !opticalAccordionOpen;
-                logger.action('Sidebar', `Toggle optical accordion: ${nextState ? 'opened' : 'closed'}`);
-                setOpticalAccordionOpen(nextState);
-              }}
-              className="w-full flex items-center justify-between p-2.5 text-left transition-colors hover:bg-[#0f182a] cursor-pointer"
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="p-1.5 rounded-lg bg-[#141d2d] border border-[#1e2b40] text-[#e0b96c] shrink-0">
-                  <Layers className="w-4 h-4 text-[#e0b96c]" />
-                </div>
-                <div className="min-w-0">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985] block">
-                    Optical Engine
-                  </span>
-                  <span className="text-xs font-semibold text-white capitalize block">
-                    {opticalMode} Mode
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 text-[#556985]">
-                <span className={`text-[10px] font-mono font-semibold ${colorInfo.textClass}`}>
-                  {totalTokens < 1000 ? totalTokens : `${Math.round(totalTokens / 1000)}k`} tok
-                </span>
-                {opticalAccordionOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              </div>
-            </button>
-
-            {opticalAccordionOpen && (
-              <div className="p-2.5 border-t border-[#131e33] bg-[#070b12] space-y-2.5 animate-in fade-in duration-100">
-                {/* Optical Mode Cycle Button */}
-                {onToggleOpticalMode && (
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-[#526682] block">
-                      Depth-of-Field Lens
-                    </span>
-                    <button
-                      onClick={() => {
-                        logger.action('Sidebar', 'Cycle optical mode');
-                        onToggleOpticalMode();
-                      }}
-                      className={`w-full flex items-center justify-between p-2 rounded-xl border text-xs font-mono transition-all cursor-pointer ${
-                        opticalMode === 'autofocus'
-                          ? 'bg-[#0f1929] border-[#1d314d] text-[#8ab1e0]'
-                          : opticalMode === 'manual'
-                          ? 'bg-[#141f33] border-[#1e3252] text-[#93c5fd]'
-                          : 'bg-[#241c0c] border-[#423214] text-[#e0b96c]'
-                      }`}
-                      title="Click to cycle optical depth-of-field mode (Autofocus -> Manual -> Myopia)"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-current" />
-                        <span className="font-semibold uppercase tracking-wider text-[11px]">
-                          {opticalMode === 'autofocus'
-                            ? '◎ Autofocus'
-                            : opticalMode === 'manual'
-                            ? '⦿ Manual Focus'
-                            : '◐ Myopia Mode'}
-                        </span>
-                      </div>
-                      <span className="text-[10px] opacity-75">Cycle ↺</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Token Meter Summary */}
-                <div className="p-2 rounded-xl bg-[#0a0f19] border border-[#131e30] space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-[#526682]">
-                      Active Token Footprint
-                    </span>
-                    <span className={`text-xs font-mono font-semibold ${colorInfo.textClass}`}>
-                      {Math.round(totalTokens).toLocaleString()} tok
-                    </span>
-                  </div>
-                  <div className="w-full bg-[#111929] h-1.5 rounded-full overflow-hidden">
-                    <div
-                      className="h-full transition-all duration-300"
-                      style={{
-                        width: `${Math.min(100, (totalTokens / Math.max(1, tokenCeiling)) * 100)}%`,
-                        backgroundColor: colorInfo.hex,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Block 6: Artifact tree */}
-          <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
-            <button
-              onClick={() => {
-                const nextState = !artifactsTreeOpen;
-                logger.action('Sidebar', `Toggle artifact tree accordion: ${nextState ? 'opened' : 'closed'}`);
-                setArtifactsTreeOpen(nextState);
-              }}
-              className="w-full flex items-center justify-between p-2.5 text-left transition-colors hover:bg-[#0f182a] cursor-pointer"
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <FolderTree className="w-4 h-4 text-[#8ab1e0] shrink-0" />
-                <span className="text-xs font-semibold text-white font-mono">
-                  Artifacts
-                </span>
-                <span className="text-[10px] font-mono text-[#526682]">
-                  ({artifacts.length})
-                </span>
-              </div>
-              {artifactsTreeOpen ? <ChevronUp className="w-3.5 h-3.5 text-[#556985]" /> : <ChevronDown className="w-3.5 h-3.5 text-[#556985]" />}
-            </button>
-
-            {artifactsTreeOpen && (
-              <div className="p-2 border-t border-[#131e33] bg-[#070b12] animate-in fade-in duration-100">
-                <div className="max-h-56 overflow-y-auto pr-1">
-                  <ArtifactFolderTree
-                    artifacts={artifacts}
-                    selectedArtifactId={selectedArtifactId}
-                    onSelectArtifact={(art) => {
-                      logger.action('Sidebar', `Selected artifact: ${art.title} (${art.id})`);
-                      onSelectArtifact?.(art);
-                    }}
-                    onToggleFocus={(artId) => {
-                      logger.action('Sidebar', `Toggled focus for artifact: ${artId}`);
-                      onToggleFocus?.(artId);
-                    }}
-                    onTriageArtifact={onTriageArtifact}
-                    focalIds={focalIds}
-                    nodeTiers={nodeTiers}
-                    onChangeTierOverride={onChangeTierOverride}
-                    tierOverrides={tierOverrides}
-                  />
-                </div>
               </div>
             )}
           </div>

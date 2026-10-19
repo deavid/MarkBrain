@@ -12,7 +12,7 @@
  * Supported: ATX headings, hr, fenced code blocks, blockquotes, ordered /
  * unordered lists (with indentation-based nesting), pipe tables, paragraphs,
  * `code`, **bold**, *italic*, ~~strikethrough~~, [links](…), ![images](…).
- * Deliberately NOT supported: underscore emphasis (`t3_body` must stay
+ * Deliberately NOT supported: underscore emphasis (`body` must stay
  * literal), raw HTML, reference-style links.
  */
 

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Artifact, ResolutionTier, TierReason } from '../../types';
+import { Artifact } from '../../types';
+import type { Granularity } from '../../domains/granularity';
+import { GRANULARITY_LABEL, GRANULARITY_ORDER } from '../../domains/granularity';
 import {
   X,
   FileCode,
@@ -22,31 +24,25 @@ import { renderMarkdown } from '../../utils/markdown';
 interface ArtifactDetailModalProps {
   artifact: Artifact;
   onClose: () => void;
-  isInContext: boolean;
-  contextTier: ResolutionTier | 'culled';
-  onToggleInContext: (artId: string) => void;
-  onChangeTierOverride?: (artId: string, tier: ResolutionTier | null) => void;
+  /**
+   * This artifact's attachment to the ACTIVE chat, or null when it is not
+   * attached. Granularity lives on the attachment (per chat) — never on the
+   * artifact.
+   */
+  attachmentGranularity: Granularity | null;
+  onAttach: (artifactId: string) => void;
+  onSetAttachmentGranularity: (artifactId: string, granularity: Granularity) => void;
   /** Version history from the versioning domain (source of truth — artifacts no longer embed history) */
   history?: Array<{ version: number; timestamp: number; changeSummary: string }>;
-  /** Manual tier override currently forced for this artifact, if any. */
-  tierOverride?: ResolutionTier | null;
-  /** Why the compiled tier is what it is (pin / override / ancestor / radius / …). */
-  tierReason?: TierReason;
-  /** Hop distance from the nearest focal point (used in the reason chip). */
-  tierDistance?: number;
 }
 
 export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   artifact,
   onClose,
-  isInContext,
-  contextTier,
-  onToggleInContext,
-  onChangeTierOverride,
+  attachmentGranularity,
+  onAttach,
+  onSetAttachmentGranularity,
   history = [],
-  tierOverride,
-  tierReason,
-  tierDistance,
 }) => {
   const [activeTab, setActiveTab] = useState<'content' | 'metadata' | 'history'>('content');
   const [bodyView, setBodyView] = useState<'rendered' | 'raw'>('rendered');
@@ -61,69 +57,11 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  const title = artifact.title || artifact.current?.t0_label || artifact.id;
-  const abstract = artifact.current?.t1_abstract || '';
-  const summary = artifact.current?.t2_summary || '';
-  const body = artifact.current?.t3_body || '';
+  const title = artifact.title || artifact.title || artifact.id;
+  const description = artifact.current?.description || '';
+  const summary = artifact.current?.summary || '';
+  const body = artifact.current?.body || '';
   const artColor = artifact.color || '#5d87b8';
-
-  // Provenance chip: answers "why is this artifact at this tier?" at a glance.
-  const reasonChip = (() => {
-    switch (tierReason) {
-      case 'pin':
-        return {
-          label: 'manual pin',
-          title: 'Manually pinned — compiled at full focus regardless of distance.',
-          cls: 'bg-[#0f2438] text-[#38bdf8] border-[#1d4c73]',
-        };
-      case 'fallback':
-        return {
-          label: 'auto focus',
-          title: "Nothing is pinned, so the compiler fell back to its default focal point.",
-          cls: 'bg-[#0a1e18] text-[#5ad49b] border-[#14372a]',
-        };
-      case 'override':
-        return {
-          label: 'forced',
-          title: 'Manual tier override — this level is forced regardless of distance.',
-          cls: 'bg-[#241c0d] text-[#e0b96c] border-[#4d3a24]',
-        };
-      case 'ancestor':
-        return {
-          label: 'ancestor',
-          title: 'Ancestor backbone — kept at Tier ≥ 1 because it is an ancestor of a focal artifact.',
-          cls: 'bg-[#1a1430] text-[#a78bfa] border-[#2f2654]',
-        };
-      case 'radius': {
-        const hops =
-          typeof tierDistance === 'number' && Number.isFinite(tierDistance)
-            ? ` · ${tierDistance} hop${tierDistance === 1 ? '' : 's'}`
-            : '';
-        return {
-          label: `auto${hops}`,
-          title:
-            'Automatic depth-of-field — pulled in because it sits within 3 hops of a focal point, not because you pinned it.',
-          cls: 'bg-[#131d2e] text-[#8ab1e0] border-[#1a283e]',
-        };
-      }
-      case 'culled':
-        return {
-          label: 'culled',
-          title: 'Outside the focus radius (more than 3 hops from any focal point) — not compiled into the prompt.',
-          cls: 'bg-[#1f1618] text-[#e05a66] border-[#421d22]',
-        };
-      default:
-        return null;
-    }
-  })();
-
-  const tierLabels: Record<ResolutionTier | 'culled', { name: string; desc: string }> = {
-    3: { name: 'Tier 3 (Full Verbatim)', desc: 'Sharpest focus. Complete markdown body ingested into prompt.' },
-    2: { name: 'Tier 2 (Summary)', desc: 'Mid focus. Key invariants and executive summary.' },
-    1: { name: 'Tier 1 (Abstract)', desc: 'Low focus. High-level concept essence & boundaries.' },
-    0: { name: 'Tier 0 (Index Title)', desc: 'Peripheral presence. Title and tags only.' },
-    culled: { name: 'Culled (Out of Context)', desc: 'Excluded from LLM prompt window.' },
-  };
 
   const modalNode = (
     <div className={`fixed inset-0 z-[9999] bg-black/90 backdrop-blur-md flex items-center justify-center select-text w-screen h-screen ${
@@ -180,79 +118,54 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           </div>
         </div>
 
-        {/* Action Toolbar: In/Out of context & Detail Level */}
+        {/* Attachment toolbar — the ONLY context control, and it belongs to
+            THIS chat. Not attached = not in this chat's payload (there is no
+            "excluded" state and no detach). */}
         <div className="p-3 bg-[#080d16] border-b border-[#131d2f] flex flex-wrap items-center justify-between gap-2.5">
-          {/* MANUAL state: what YOU chose (pin in/out of the focal window) */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => onToggleInContext(artifact.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-medium border transition-all cursor-pointer ${
-                isInContext
-                  ? 'bg-[#0f2438] border-[#1d4c73] text-[#38bdf8] shadow-sm'
-                  : 'bg-[#141924] border-[#1f2638] text-[#7185a3] hover:text-[#9bb0d1]'
-              }`}
-              title={
-                isInContext
-                  ? 'Manually pinned — click to unpin from the focal window'
-                  : 'Not manually pinned — click to pin at full focus (the prompt may still include it automatically; see status)'
-              }
-            >
-              <Pin className={`w-3.5 h-3.5 ${isInContext ? 'fill-current' : ''}`} />
-              <span>{isInContext ? 'Pinned' : 'Not pinned'}</span>
-            </button>
-
-            {/* COMPUTED state: what the LLM prompt actually contains, and WHY */}
-            <span className="text-[11px] font-mono text-[#556985] hidden sm:flex items-center gap-1.5 flex-wrap">
-              <span>Prompt:</span>
-              <strong className="text-[#a4bddf]">
-                {contextTier === 'culled'
-                  ? 'excluded'
-                  : tierLabels[contextTier]?.name || contextTier}
-              </strong>
-              {reasonChip && (
-                <span
-                  className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold uppercase tracking-wide ${reasonChip.cls}`}
-                  title={reasonChip.title}
-                >
-                  {reasonChip.label}
-                </span>
-              )}
-            </span>
-          </div>
-
-          {/* Change Detail Level (Resolution Tier Override) */}
-          {onChangeTierOverride && (
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] font-mono text-[#556985] mr-1">Force:</span>
-              {([3, 2, 1, 0] as ResolutionTier[]).map((t) => {
-                const isActive = tierOverride === t;
-                return (
-                  <button
-                    key={t}
-                    onClick={() => onChangeTierOverride(artifact.id, t)}
-                    className={`px-2 py-1 rounded-lg text-[10px] font-mono transition-all cursor-pointer border ${
-                      isActive
-                        ? 'bg-[#1d2d47] text-[#e0eeff] font-bold border-[#2d4770]'
-                        : 'bg-[#0a0f19] text-[#6b82a3] border-[#131d2e] hover:bg-[#121c2e] hover:text-[#8ab1e0]'
-                    }`}
-                    title={`Force this artifact to ${tierLabels[t].name} in the compiled context`}
-                  >
-                    T{t}
-                  </button>
-                );
-              })}
+          {attachmentGranularity === null ? (
+            <div className="flex items-center gap-2 flex-wrap">
               <button
-                onClick={() => onChangeTierOverride(artifact.id, null)}
-                className={`px-1.5 py-1 rounded-lg text-[9px] font-mono transition-colors cursor-pointer ${
-                  tierOverride == null
-                    ? 'bg-[#1d2d47] text-[#e0eeff] font-bold border border-[#2d4770]'
-                    : 'text-[#556985] hover:text-[#9bb0d1] border border-transparent'
-                }`}
-                title="Reset tier to automatic depth-of-field calculation"
+                onClick={() => onAttach(artifact.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-medium border bg-[#141924] border-[#1f2638] text-[#9bb0d1] hover:text-white hover:border-[#2a3d5c] transition-colors cursor-pointer"
+                title="Attach this artifact to the current chat (at Full)"
               >
-                Auto
+                <Pin className="w-3.5 h-3.5" />
+                <span>Attach to this chat</span>
               </button>
+              <span className="text-[11px] font-mono text-[#556985]">
+                Not in this chat&apos;s payload.
+              </span>
             </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-mono text-[#556985]">
+                  In this chat at
+                </span>
+                <strong className="text-[11px] font-mono text-[#a4bddf]">
+                  {GRANULARITY_LABEL[attachmentGranularity]}
+                </strong>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-mono text-[#556985] mr-1">Send:</span>
+                {GRANULARITY_ORDER.map((g) => {
+                  const isActive = attachmentGranularity === g;
+                  return (
+                    <button
+                      key={g}
+                      onClick={() => onSetAttachmentGranularity(artifact.id, g)}
+                      className={`min-h-[24px] px-2 rounded-lg text-[10px] font-mono transition-all cursor-pointer border ${
+                        isActive
+                          ? 'bg-[#1d2d47] text-[#e0eeff] font-bold border-[#2d4770]'
+                          : 'bg-[#0a0f19] text-[#6b82a3] border-[#131d2e] hover:bg-[#121c2e] hover:text-[#8ab1e0]'
+                      }`}
+                    >
+                      {GRANULARITY_LABEL[g]}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
 
@@ -276,7 +189,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                 : 'border-transparent text-[#6b82a3] hover:text-[#9bb0d1]'
             }`}
           >
-            Tier Fields & YAML
+            Layers & YAML
           </button>
           {history.length > 0 && (
             <button
@@ -296,13 +209,13 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-[#cad8eb] leading-relaxed">
           {activeTab === 'content' && (
             <div className="space-y-4">
-              {/* Executive Abstract */}
-              {abstract && (
+              {/* Description layer */}
+              {description && (
                 <div className="p-3 rounded-xl bg-[#0e1626] border border-[#16233a] space-y-1">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#8ab1e0] font-semibold block">
-                    Tier 1 • Abstract
+                    Description
                   </span>
-                  <p className="text-[#b5cae6] text-[11px] leading-relaxed">{abstract}</p>
+                  <p className="text-[#b5cae6] text-[11px] leading-relaxed">{description}</p>
                 </div>
               )}
 
@@ -310,7 +223,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
               {summary && (
                 <div className="p-3 rounded-xl bg-[#0e1626] border border-[#16233a] space-y-1">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#e0b96c] font-semibold block">
-                    Tier 2 • Executive Summary
+                    Summary
                   </span>
                   <div className="text-[#cad8eb] text-[11px] whitespace-pre-wrap leading-relaxed">
                     {summary}
@@ -322,7 +235,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
               <div className="p-3.5 rounded-xl bg-[#080d16] border border-[#111928] space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#5ad49b] font-semibold">
-                    Tier 3 • Full Markdown Body
+                    Body
                   </span>
                   <div className="flex items-center gap-0.5 bg-[#050810] border border-[#111928] rounded-lg p-0.5 shrink-0">
                     <button

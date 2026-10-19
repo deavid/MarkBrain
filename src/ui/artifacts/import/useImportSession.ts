@@ -154,16 +154,14 @@ function buildArtifactFromExtraction(
     category: ex.category || 'note',
     isHighConcept: Boolean(ex.graph?.is_high_concept),
     current: {
-      t0_label: title,
-      t1_abstract: ex.current?.t1_abstract || ex.description || '',
-      t2_summary: ex.current?.t2_summary || ex.summary || '',
-      t3_body: ex.current?.t3_body || ex.content || fallbackBody,
+      description: ex.current?.description || ex.description || '',
+      summary: ex.current?.summary || ex.summary || '',
+      body: ex.current?.body || ex.content || fallbackBody,
     },
     tags: Array.isArray(ex.tags) && ex.tags.length > 0 ? ex.tags : ['imported', 'note'],
     createdAt: now,
     updatedAt: now,
     graph,
-    resolution: 'full',
   };
 }
 

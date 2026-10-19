@@ -296,9 +296,9 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                           <div className="text-xs font-mono text-[#eef4fc] font-semibold">
                             {row.artifact.title}
                           </div>
-                          {row.artifact.current?.t1_abstract && (
+                          {row.artifact.current?.description && (
                             <div className="text-[11px] text-[#8297b5]">
-                              {row.artifact.current.t1_abstract}
+                              {row.artifact.current.description}
                             </div>
                           )}
                           <div className="flex flex-wrap gap-1.5">
@@ -312,8 +312,8 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                             ))}
                           </div>
                           <pre className="bg-[#090d14] p-2.5 rounded-lg border border-[#080d15] text-[11px] font-mono text-[#9bb0d1] max-h-56 overflow-y-auto whitespace-pre-wrap">
-                            {(row.artifact.current?.t3_body || '').slice(0, 4000)}
-                            {(row.artifact.current?.t3_body || '').length > 4000 ? '\n…' : ''}
+                            {(row.artifact.current?.body || '').slice(0, 4000)}
+                            {(row.artifact.current?.body || '').length > 4000 ? '\n…' : ''}
                           </pre>
                         </div>
                       )}

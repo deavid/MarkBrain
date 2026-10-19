@@ -1,4 +1,5 @@
 import { ChapterPartition, SegmentationEvent } from './types';
+import type { Granularity } from '../granularity';
 
 export interface IChapterSegmentationDomain {
   // Queries
@@ -7,10 +8,23 @@ export interface IChapterSegmentationDomain {
   getActiveChapter(): ChapterPartition | null;
 
   // Commands
-  declareNewChapter(title: string, startIndex: number, reason?: string): ChapterPartition;
-  splitChapter(chapterId: string, splitIndex: number, newTitle: string, reason?: string): ChapterPartition;
+  /** Opens a chapter; seals the previous one (full → summary, manual choice kept). */
+  declareNewChapter(
+    title: string,
+    startIndex: number,
+    description?: string,
+    summary?: string
+  ): ChapterPartition;
+  splitChapter(
+    chapterId: string,
+    splitIndex: number,
+    newTitle: string,
+    description?: string
+  ): ChapterPartition;
   shiftBoundary(chapterId: string, newStartIndex: number): void;
-  updateSummary(chapterId: string, summary: string, keyPoints?: string[]): void;
+  /** Fill in the chapter's text layers (description = level 2, summary = level 3). */
+  updateLevels(chapterId: string, levels: { description?: string; summary?: string }): void;
+  setGranularity(chapterId: string, granularity: Granularity): void;
   closeChapter(chapterId: string): void;
   loadChapters(chapters: ChapterPartition[]): void;
 

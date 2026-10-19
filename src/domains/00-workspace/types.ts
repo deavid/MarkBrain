@@ -8,13 +8,16 @@ export interface ProjectMetadata {
   updatedAt: number;
 }
 
+/**
+ * Project container. Context control does NOT live here: artifacts enter a
+ * payload through a per-chat attachment (06-chat-threads), so a fresh chat is
+ * genuinely empty. (`focalArtifactIds` / `tierOverrides` / `opticalMode` were
+ * the Focus machinery and are gone — see design-docs/TERMINOLOGY.md.)
+ */
 export interface WorkspaceContainer {
   metadata: ProjectMetadata;
   activeChapterId: string;
-  focalArtifactIds: string[];
-  opticalMode: 'autofocus' | 'manual' | 'myopia';
   tokenCeiling: number;
-  tierOverrides: Record<string, number>;
 }
 
 export type WorkspaceEvent =

@@ -3,7 +3,7 @@
  *
  * Load-bearing invariants:
  * - untrusted artifact bodies can never inject HTML (escape-first pipeline)
- * - underscore identifiers like `t3_body` must stay literal (no _em_ rules)
+ * - underscore identifiers like `body` must stay literal (no _em_ rules)
  * - unsafe link schemes (javascript:, data:) are never emitted as anchors
  */
 import { describe, it, expect } from 'vitest';
@@ -26,9 +26,9 @@ describe('renderMarkdown', () => {
   });
 
   it('keeps underscore identifiers literal (no italic false-positives)', () => {
-    const html = renderMarkdown('Use t3_body and t1_abstract fields.');
+    const html = renderMarkdown('Use body and description fields.');
     expect(html).not.toContain('<em>');
-    expect(html).toContain('t3_body and t1_abstract');
+    expect(html).toContain('body and description');
   });
 
   it('escapes raw HTML in paragraphs', () => {

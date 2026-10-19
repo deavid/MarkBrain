@@ -12,10 +12,25 @@
  * Everything in this file is pure — unit-tested without any domain/storage.
  */
 
+import type { Granularity } from '../granularity';
+
 export type ThreadLifecycle = 'active' | 'archived';
 
 /** How the thread title came to be. 'manual' is a permanent user lock. */
 export type ThreadTitleState = 'placeholder' | 'auto' | 'manual';
+
+/**
+ * An artifact used in a chat. The ATTACHMENT carries the granularity — the
+ * same artifact can be `title` in one chat and `full` in another.
+ *
+ * One-way on purpose: there is no detach and no excluded state (David,
+ * 2026-10-19). The only knob is granularity, floor = title (a mention).
+ */
+export interface ChatAttachment {
+  artifactId: string;
+  granularity: Granularity;
+  addedAt: number;
+}
 
 export interface ChatThread {
   id: string;
@@ -32,6 +47,11 @@ export interface ChatThread {
   lastOutcome: 'ok' | 'error' | 'interrupted';
   /** First ~100 chars of the latest user message (row subtitle). */
   preview: string;
+  /**
+   * Artifacts used in THIS chat, in attach order. Empty = nothing but the
+   * conversation is sent. Legacy snapshots hydrate to [] (see ThreadRegistry).
+   */
+  attachments: ChatAttachment[];
 }
 
 export interface ThreadFolder {
@@ -66,6 +86,7 @@ export function makeNewThread(partial: Partial<ChatThread> = {}): ChatThread {
     lifecycle: 'active',
     lastOutcome: 'ok',
     preview: '',
+    attachments: [],
     ...partial,
   };
 }
@@ -89,8 +110,9 @@ export function makeGenesisChapter(projectId: string, threadId: string) {
     workspaceId: projectId,
     threadId,
     title: 'Genesis Chapter',
+    description: '',
     summary: '',
-    keyPoints: [] as string[],
+    granularity: 'full' as const,
     status: 'active' as const,
     startIndex: 0,
     createdAt: Date.now(),

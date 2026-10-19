@@ -37,7 +37,7 @@ export function buildCompiledPrompt(payload: any): string {
   if (chapterSummaries && chapterSummaries.length > 0) {
     prompt += `--- PREVIOUS CHAPTER SUMMARIES (Compressed Memory) ---\n`;
     for (const chap of chapterSummaries) {
-      prompt += `[Chapter: ${chap.title}]\nSummary: ${chap.summary}\nKey Points: ${(chap.keyPoints || []).join('; ')}\n\n`;
+      prompt += `[Chapter: ${chap.title}]\n${chap.description ? `Description: ${chap.description}\n` : ''}Summary: ${chap.summary}\n\n`;
     }
   }
 

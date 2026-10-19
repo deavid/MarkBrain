@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import { logger } from '../../utils/logger';
 import { ThreadRuntime } from '../../domains/06-chat-threads';
+import type { Granularity } from '../../domains/granularity';
+import { GRANULARITY_LABEL, GRANULARITY_ORDER } from '../../domains/granularity';
 import { tts } from '../../gateway/api';
 
 interface ChatViewProps {
@@ -43,7 +45,8 @@ interface ChatViewProps {
   onAddArtifactToProject: (artifact: Artifact) => void;
   onSummarizeChapter: (chapterId: string) => Promise<void>;
   onDeclareChapter: (messageId: string, title: string) => void;
-  onNavigateToGraph: () => void;
+  /** Chapter granularity — the one knob; the compiler honors all four. */
+  onSetChapterGranularity?: (chapterId: string, granularity: Granularity) => void;
   onSelectArtifact?: (artifact: Artifact | ExtractedArtifact) => void;
   // Thread chrome (06-chat-threads)
   threadTitle?: string;
@@ -81,7 +84,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onAddArtifactToProject,
   onSummarizeChapter,
   onDeclareChapter,
-  onNavigateToGraph,
+  onSetChapterGranularity,
   onSelectArtifact,
   threadTitle = 'New thread',
   threadTitleState = 'placeholder',
@@ -425,7 +428,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       ) : (
         /* Unified Vertical Chat Feed with Episodic Chapters - ZERO TOP BAR */
         <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4 space-y-4">
-          {chapters.map(({ chapter, ongoing: isOngoing, turns }, chapterIndex) => {
+          {chapters.map(({ chapter, ongoing: isOngoing, granularity, turns }, chapterIndex) => {
           const isCollapsed = collapsedChapterIds[chapter.id] ?? false;
           const isSummaryExpanded = expandedSummaryIds[chapter.id] ?? false;
 
@@ -473,18 +476,40 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     {chapter.title}
                   </h3>
 
-                  {chapter.topicShiftReason && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#131b29] text-[#7d93b3] font-mono border border-[#1b263b] shrink-0">
-                      {chapter.topicShiftReason.length > 25 ? 'Shift' : chapter.topicShiftReason}
-                    </span>
-                  )}
                 </div>
 
-                {/* Chapter Actions: Abstract & Collapse */}
+                {/* Chapter Actions: granularity (what gets sent) + recap + collapse */}
                 <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                   <span className="text-[10px] font-mono text-[#556985] hidden sm:inline mr-1">
                     {turns.length} msg{turns.length !== 1 ? 's' : ''}
                   </span>
+
+                  {onSetChapterGranularity && (
+                    <div className="flex items-center gap-0.5">
+                      {GRANULARITY_ORDER.map((g) => {
+                        const active = (chapter.granularity ?? granularity) === g;
+                        return (
+                          <button
+                            key={g}
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              onSetChapterGranularity(chapter.id, g);
+                            }}
+                            aria-pressed={active}
+                            aria-label={`Send chapter ${chapterIndex + 1} as ${GRANULARITY_LABEL[g]}`}
+                            className={`min-h-[24px] px-1.5 rounded text-[10px] font-mono border cursor-pointer transition-colors ${
+                              active
+                                ? 'border-[#2f4a6b] bg-[#16273c] text-[#9dc2ec]'
+                                : 'border-[#111929] text-[#5d748f] hover:text-[#8ab1e0]'
+                            }`}
+                          >
+                            {GRANULARITY_LABEL[g]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   <button
                     type="button"
@@ -497,9 +522,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         ? 'bg-[#182337] text-[#8ab1e0] border-[#223552]'
                         : 'bg-[#090d16] text-[#7d93b3] border-[#111929] hover:text-[#eef4fc]'
                     }`}
-                    title="Toggle executive summary"
+                    title="Toggle the chapter recap (description + summary)"
                   >
-                    {isSummaryExpanded ? 'Hide Abstract' : 'Abstract'}
+                    {isSummaryExpanded ? 'Hide Recap' : 'Recap'}
                   </button>
 
                   <button
@@ -526,15 +551,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {chapter.summary ? (
                     <div className="text-xs text-[#b8cce6] leading-relaxed bg-[#0d1424] p-3 rounded-xl border border-[#141f33]">
                       <div className="font-semibold text-[10px] text-[#8ab1e0] mb-1 font-mono uppercase tracking-wider">
-                        Executive Abstract & System Invariants:
+                        Chapter recap
                       </div>
-                      <p>{chapter.summary}</p>
-                      {chapter.keyPoints && chapter.keyPoints.length > 0 && (
-                        <ul className="list-disc list-inside mt-2 space-y-0.5 text-[11px] text-[#9bb0d1]">
-                          {chapter.keyPoints.map((kp, kIdx) => (
-                            <li key={kIdx}>{kp}</li>
-                          ))}
-                        </ul>
+                      {chapter.description && (
+                        <p className="text-[#dbe7f6]">{chapter.description}</p>
+                      )}
+                      {chapter.summary && (
+                        <p className="mt-1.5">{chapter.summary}</p>
                       )}
                     </div>
                   ) : (
@@ -549,6 +572,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </div>
                   )}
 
+                </div>
+              )}
+
+              {/* Honest payload strip: this chapter is sent at its granularity,
+                  so the messages below are NOT in the payload. The chat stays
+                  the conversation (scroll is not compaction); the mirror shows
+                  the payload itself. */}
+              {granularity !== 'full' && (
+                <div className="px-3 sm:px-5 py-2 bg-[#0b1220] border-b border-[#121c2d] text-[10px] font-mono text-[#7d93b3]">
+                  Sent to the model as <span className="text-[#9dc2ec]">{GRANULARITY_LABEL[granularity]}</span> —
+                  these messages are shown for reading, not sent.
                 </div>
               )}
 
@@ -682,7 +716,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                       </span>
                                     </div>
                                     <div className="text-[11px] text-[#869ab8] line-clamp-1 mt-0.5">
-                                      {art.abstract || art.summary}
+                                      {art.description || art.summary}
                                     </div>
                                   </div>
 
@@ -700,8 +734,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                       onClick={() => {
                                         const now = Date.now();
                                         const title = art.title || 'Extracted note';
-                                        const desc = art.abstract || art.summary || 'Extracted note.';
-                                        const summ = art.summary || art.abstract || 'Extracted note summary.';
+                                        const desc = art.description || '';
+                                        const summ = art.summary || '';
                                         const body = art.content || `# ${title}\n\nExtracted note.`;
                                         const fullArtifact: Artifact = {
                                           id: `art-${now}-${idx}`,
@@ -709,10 +743,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                           type: 'document',
                                           color: '#5d87b8',
                                           current: {
-                                            t0_label: title,
-                                            t1_abstract: desc,
-                                            t2_summary: summ,
-                                            t3_body: body,
+                                            description: desc,
+                                            summary: summ,
+                                            body: body,
                                           },
                                           code:
                                             art.code ||
@@ -720,8 +753,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                           title,
                                           category: art.category || 'note',
                                           isHighConcept: Boolean(art.isHighConcept),
-                                          resolution: 'full',
-                                          tags: ['manual-pin'],
+                                          tags: ['chat-extracted'],
                                           createdAt: now,
                                           updatedAt: now,
                                         };

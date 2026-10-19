@@ -1,20 +1,35 @@
-import { ITopologicalGraphDomain } from '../02-topological-graph';
-import { IArtifactDocumentDomain, ResolutionTier } from '../01-artifact-document';
+import { IArtifactDocumentDomain } from '../01-artifact-document';
+import type { UniversalArtifactDocument } from '../01-artifact-document';
 import {
   IChapterSegmentationDomain,
   ChapterPartition,
   isChapterOngoing,
+  resolveChapterGranularity,
   sliceChapterTurns,
 } from '../02-chapter-segmentation';
 import { IDialogueTimelineDomain, Turn } from '../01-dialogue-timeline';
+import type { ChatAttachment } from '../06-chat-threads';
+import { Granularity, cutIncludes } from '../granularity';
 import { logger } from '../../utils/logger';
 import { estimateTokens } from '../../utils/estimateTokens';
 
+/**
+ * The Context Compiler — one turn does everything: it takes the chat's
+ * attachments (each at its own granularity) and the chat's chapters (each at
+ * its own granularity) and emits the exact text the model receives.
+ *
+ * There is no distance, no radius, no focal point, no culling and no ancestor
+ * backbone. An artifact reaches the model only because a chat attached it;
+ * a chapter is always in, at a size the user picked (floor: title).
+ * (Focus was eradicated — design-docs/TERMINOLOGY.md §Eradicated.)
+ *
+ * Granularity is a CUT, not a substitution: each level contains the shorter
+ * ones plus one layer (`../granularity`).
+ */
 export interface OpticalCompilerOptions {
-  focalIds: string[];
-  opticalMode: 'autofocus' | 'manual' | 'myopia';
+  /** The target chat's attachments, in attach order. Empty = no artifacts sent. */
+  attachments: ChatAttachment[];
   tokenCeiling?: number;
-  tierOverrides?: Record<string, ResolutionTier>;
   /**
    * Thread-aware compile: compile against an EXPLICIT turn list instead of
    * the live timeline domain. Used by the serial generation queue to build
@@ -33,19 +48,19 @@ export interface OpticalCompilerOptions {
   log?: boolean;
 }
 
+/** One attachment as compiled into <knowledge_substrate> — mirror reads these. */
+export interface AttachmentBreakdownEntry {
+  artifactId: string;
+  title: string;
+  granularity: Granularity;
+  tokens: number;
+}
+
 /** One chapter as compiled into <conversation_chapters> — mirror reads these. */
 export interface ChapterBreakdownEntry {
   chapterId: string;
   title: string;
-  mode: 'full' | 'summary';
-  tokens: number;
-}
-
-/** One note as compiled into <knowledge_substrate> — mirror reads these. */
-export interface NoteBreakdownEntry {
-  artifactId: string;
-  title: string;
-  tier: ResolutionTier;
+  granularity: Granularity;
   tokens: number;
 }
 
@@ -56,221 +71,156 @@ export interface ContextTelemetry {
     historyTokens: number;
     totalTokens: number;
   };
-  nodeDistribution: {
-    tier3Count: number;
-    tier2Count: number;
-    tier1Count: number;
-    tier0Count: number;
-    culledCount: number;
-  };
+  /** How many rows (artifacts + chapters) sit at each granularity. */
+  granularityDistribution: Record<Granularity, number>;
   /**
-   * One entry per chapter INCLUDED in <conversation_chapters>, in send order.
-   * `tokens` is the estimate of that chapter's actual assembled XML (the very
-   * text pushed into historyParts), via the shared estimateTokens — so the
-   * mirror can display the compiler's numbers instead of re-deriving them.
-   *
-   * Rounding tolerance: entries and historyTokens both ceil per chapter over
-   * the same strings, so Σentries === historyTokens exactly today. If history
-   * were ever estimated as one whole block instead (ceil-of-whole vs
-   * ceil-per-chapter), the sum would drift by <1 token per chapter — callers
-   * and tests therefore tolerate |Σ − historyTokens| ≤ chapterBreakdown.length.
-   */
-  chapterBreakdown: ChapterBreakdownEntry[];
-  /**
-   * One entry per note INCLUDED in <knowledge_substrate>, in substrate order.
-   * `tokens` is the estimate of that note's actual assembled XML (the very
+   * One entry per artifact INCLUDED in <knowledge_substrate>, in attach order.
+   * `tokens` is the estimate of that artifact's actual assembled XML (the very
    * text pushed into substrateParts), via the shared estimateTokens — so the
    * mirror can display the compiler's numbers instead of re-deriving them.
    *
-   * Rounding tolerance: entries and substrateTokens both ceil per note over
+   * Rounding tolerance: entries and substrateTokens both ceil per artifact over
    * the same strings, so Σentries === substrateTokens exactly today. If
-   * substrate were ever estimated as one whole block instead (ceil-of-whole
-   * vs ceil-per-note), the sum would drift by <1 token per note — callers
-   * and tests therefore tolerate |Σ − substrateTokens| ≤ noteBreakdown.length.
+   * substrate were ever estimated as one whole block instead, the sum could
+   * drift by <1 token per artifact.
    */
-  noteBreakdown: NoteBreakdownEntry[];
+  attachmentBreakdown: AttachmentBreakdownEntry[];
+  /**
+   * One entry per chapter INCLUDED in <conversation_chapters>, in send order.
+   * Same single-source rule as above: Σentries === historyTokens today.
+   */
+  chapterBreakdown: ChapterBreakdownEntry[];
 }
 
-/** Why an artifact received its compiled tier (surfaced in the UI). */
-export type TierReason =
-  | 'pin' // explicitly pinned focal artifact
-  | 'fallback' // compiler default focal (nothing pinned / no active chapter)
-  | 'override' // manual tier override
-  | 'ancestor' // ancestor backbone (minimum Tier 1)
-  | 'radius' // automatic depth-of-field by distance
-  | 'culled'; // outside the focus radius
-
-export interface CompiledOpticalPayload {
+export interface CompiledContextPayload {
   compiledPrompt: string;
   systemInstruction: string;
   telemetry: ContextTelemetry;
-  nodeTiers: Record<string, { tier: ResolutionTier | 'culled'; distance: number; reason: TierReason }>;
 }
 
 export interface IOpticalCompilerDomain {
-  compile(options: OpticalCompilerOptions): CompiledOpticalPayload;
+  compile(options: OpticalCompilerOptions): CompiledContextPayload;
+}
+
+/** One line of the cut, indented for the substrate block. */
+function artifactXml(art: UniversalArtifactDocument, granularity: Granularity): string {
+  const lines: string[] = [];
+  const withDescription = cutIncludes(granularity, 'description') && Boolean(art.current?.description);
+  const withSummary = cutIncludes(granularity, 'summary') && Boolean(art.current?.summary);
+  const withBody = cutIncludes(granularity, 'body') && Boolean(art.current?.body);
+
+  lines.push(`  <artifact id="${art.id}" granularity="${granularity}">`);
+  lines.push(`    <title>${art.title}</title>`);
+  if (withDescription) lines.push(`    <description>${art.current.description}</description>`);
+  if (withSummary) {
+    lines.push(`    <summary>`);
+    lines.push(`${art.current.summary}`);
+    lines.push(`    </summary>`);
+  }
+  if (withBody) {
+    lines.push(`    <content>`);
+    lines.push(`${art.current.body}`);
+    lines.push(`    </content>`);
+  }
+  lines.push(`  </artifact>`);
+  return lines.join('\n');
+}
+
+/** One chapter of the cut — same shape rule as artifacts. */
+function chapterXml(
+  chap: ChapterPartition,
+  granularity: Granularity,
+  turns: Turn[]
+): string {
+  const lines: string[] = [];
+  const withDescription = cutIncludes(granularity, 'description') && Boolean(chap.description);
+  const withSummary = cutIncludes(granularity, 'summary') && Boolean(chap.summary);
+  const withTurns = cutIncludes(granularity, 'body');
+
+  lines.push(`  <chapter id="${chap.id}" granularity="${granularity}" status="${chap.status}">`);
+  lines.push(`    <title>${chap.title}</title>`);
+  if (withDescription) lines.push(`    <description>${chap.description}</description>`);
+  if (withSummary) {
+    lines.push(`    <summary>`);
+    lines.push(`${chap.summary}`);
+    lines.push(`    </summary>`);
+  }
+  if (withTurns) {
+    const turnsXml = turns
+      .map((t) => `      <turn role="${t.role}">\n${t.content}\n      </turn>`)
+      .join('\n');
+    lines.push(`    <turns>`);
+    lines.push(turnsXml);
+    lines.push(`    </turns>`);
+  }
+  lines.push(`  </chapter>`);
+  return lines.join('\n');
 }
 
 export class OpticalCompilerDomain implements IOpticalCompilerDomain {
   constructor(
-    private graph: ITopologicalGraphDomain,
     private artifacts: IArtifactDocumentDomain,
     private segmentation: IChapterSegmentationDomain,
     private timeline: IDialogueTimelineDomain
   ) {}
 
-  compile(options: OpticalCompilerOptions): CompiledOpticalPayload {
-    const mode = options.opticalMode || 'autofocus';
+  compile(options: OpticalCompilerOptions): CompiledContextPayload {
     const ceiling = options.tokenCeiling || 32000;
-    const allArtifacts = this.artifacts.listArtifacts();
-    const allDocIds = allArtifacts.map((a) => a.id);
+    const chapters = options.historyChapters ?? this.segmentation.listChapters();
 
-    // 1. Identify Focal Points
-    // historyChapters overrides both the chapter list and the focal lookup
-    // (background-thread jobs must not read the active thread's chapters).
-    const chapterList = options.historyChapters ?? this.segmentation.listChapters();
-    const activeChapter = options.historyChapters
-      ? chapterList.find((c) => c.status === 'active') ??
-        chapterList[chapterList.length - 1] ??
-        null
-      : this.segmentation.getActiveChapter();
-    const effectiveFocalIds =
-      options.focalIds.length > 0
-        ? options.focalIds
-        : activeChapter
-        ? [activeChapter.id]
-        : allDocIds.slice(0, 1);
-
-    // 2. Compute Distances
-    const distances = this.graph.computeDistancesFromFocal(effectiveFocalIds, allDocIds);
-
-    // 3. Assign Raw Tiers (each with provenance so the UI can explain WHY)
-    const nodeTiers: Record<
-      string,
-      { tier: ResolutionTier | 'culled'; distance: number; reason: TierReason }
-    > = {};
-    // 'pin' = user pinned it; 'fallback' = compiler's default focal point
-    const focalReason = (id: string): TierReason =>
-      options.focalIds.includes(id) ? 'pin' : 'fallback';
-    const ancestors = new Set<string>();
-    effectiveFocalIds.forEach((fid) => {
-      this.graph.getAncestors(fid).forEach((a) => ancestors.add(a));
-    });
-
-    for (const art of allArtifacts) {
-      const dist = distances[art.id] ?? Infinity;
-
-      // Check manual override
-      if (options.tierOverrides && options.tierOverrides[art.id] !== undefined) {
-        nodeTiers[art.id] = { tier: options.tierOverrides[art.id], distance: dist, reason: 'override' };
-        continue;
-      }
-
-      if (mode === 'myopia') {
-        if (effectiveFocalIds.includes(art.id)) {
-          nodeTiers[art.id] = { tier: 2, distance: 0, reason: focalReason(art.id) };
-        } else if (dist <= 2) {
-          nodeTiers[art.id] = { tier: 1, distance: dist, reason: 'radius' };
-        } else if (dist === 3) {
-          nodeTiers[art.id] = { tier: 0, distance: dist, reason: 'radius' };
-        } else {
-          nodeTiers[art.id] = { tier: 'culled', distance: dist, reason: 'culled' };
-        }
-        continue;
-      }
-
-      // Standard Optics
-      if (effectiveFocalIds.includes(art.id)) {
-        nodeTiers[art.id] = { tier: 3, distance: 0, reason: focalReason(art.id) };
-      } else if (dist === 1) {
-        nodeTiers[art.id] = { tier: 2, distance: 1, reason: 'radius' };
-      } else if (dist === 2) {
-        nodeTiers[art.id] = { tier: 1, distance: 2, reason: 'radius' };
-      } else if (dist === 3) {
-        nodeTiers[art.id] = { tier: 0, distance: 3, reason: 'radius' };
-      } else {
-        nodeTiers[art.id] = { tier: 'culled', distance: dist, reason: 'culled' };
-      }
-
-      // Ancestor backbone preservation
-      if (ancestors.has(art.id)) {
-        const cur = nodeTiers[art.id].tier;
-        if (cur === 'culled' || cur === 0) {
-          nodeTiers[art.id] = { tier: 1, distance: dist, reason: 'ancestor' };
-        }
-      }
-    }
-
-    // 4. Build Substrate XML
+    // 1. Attachments — exactly what this chat attached, at its own granularity.
     const substrateParts: string[] = [];
     let substrateTokens = 0;
-    // Per-note telemetry: recorded from the SAME xml strings pushed into
-    // substrateParts (see tolerance note on ContextTelemetry.noteBreakdown).
-    const noteBreakdown: NoteBreakdownEntry[] = [];
+    const attachmentBreakdown: AttachmentBreakdownEntry[] = [];
+    const distribution: Record<Granularity, number> = {
+      title: 0,
+      description: 0,
+      summary: 0,
+      full: 0,
+    };
 
-    for (const art of allArtifacts) {
-      const tInfo = nodeTiers[art.id];
-      if (!tInfo || tInfo.tier === 'culled') continue;
-
-      const isFocal = effectiveFocalIds.includes(art.id);
-      let xml = '';
-      if (tInfo.tier === 3) {
-        xml = `  <artifact id="${art.id}" type="document" tier="3"${isFocal ? ' focus="true"' : ''}>\n    <title>${art.title}</title>\n    <content>\n${art.current.t3_body}\n    </content>\n  </artifact>`;
-      } else if (tInfo.tier === 2) {
-        xml = `  <artifact id="${art.id}" type="document" tier="2" distance="${tInfo.distance}">\n    <title>${art.title}</title>\n    <summary>\n${art.current.t2_summary}\n    </summary>\n  </artifact>`;
-      } else if (tInfo.tier === 1) {
-        xml = `  <artifact id="${art.id}" type="document" tier="1" distance="${tInfo.distance}">\n    <title>${art.title}</title>\n    <abstract>${art.current.t1_abstract}</abstract>\n  </artifact>`;
-      } else {
-        xml = `  <artifact id="${art.id}" type="document" tier="0" title="${art.title}" distance="${tInfo.distance}" />`;
-      }
-
+    for (const attachment of options.attachments || []) {
+      const art = this.artifacts.getArtifact(attachment.artifactId);
+      if (!art) continue; // dangling attachment (artifact deleted) — silently skipped
+      const granularity = attachment.granularity;
+      const xml = artifactXml(art, granularity);
       substrateParts.push(xml);
-      const noteTokens = estimateTokens(xml);
-      substrateTokens += noteTokens;
-      noteBreakdown.push({
+      const tokens = estimateTokens(xml);
+      substrateTokens += tokens;
+      distribution[granularity]++;
+      attachmentBreakdown.push({
         artifactId: art.id,
         title: art.title,
-        tier: tInfo.tier as ResolutionTier,
-        tokens: noteTokens,
+        granularity,
+        tokens,
       });
     }
 
-    // 5. Build Chapters & Timeline XML — same ongoing rule + turn windows as
-    // the mirror's chapter rows (selectors in 02-chapter-segmentation), so the
-    // "what the LLM sees" display cannot drift from this compile.
-    const chapters = chapterList;
+    // 2. Chapters — always in, each at its own granularity, chat order.
     const historyParts: string[] = [];
     let historyTokens = 0;
-    // Per-chapter telemetry: recorded from the SAME xml strings pushed into
-    // historyParts (see tolerance note on ContextTelemetry.chapterBreakdown).
     const chapterBreakdown: ChapterBreakdownEntry[] = [];
 
     chapters.forEach((chap, cIdx) => {
-      const isOngoing = isChapterOngoing(chapters, cIdx);
-      // Same windowing rule as groupTurnsByChapter: ongoing → to latest turn.
-      const turns = options.historyTurns
-        ? sliceChapterTurns(options.historyTurns, chap, isOngoing)
-        : this.timeline.getTurnSlice(chap.startIndex, isOngoing ? undefined : chap.endIndex);
-
-      if (isOngoing) {
-        // Full verbatim turns for active chapter
-        const turnsXml = turns
-          .map((t) => `      <turn role="${t.role}">\n${t.content}\n      </turn>`)
-          .join('\n');
-        const xml = `  <chapter id="${chap.id}" tier="3" status="active">\n    <title>${chap.title}</title>\n    <turns>\n${turnsXml}\n    </turns>\n  </chapter>`;
-        historyParts.push(xml);
-        const chapterTokens = estimateTokens(xml);
-        historyTokens += chapterTokens;
-        chapterBreakdown.push({ chapterId: chap.id, title: chap.title, mode: 'full', tokens: chapterTokens });
-      } else {
-        // Closed chapters compressed to Tier 2 summary
-        const summ = chap.summary || `Recap of ${chap.title}.`;
-        const xml = `  <chapter id="${chap.id}" tier="2" status="completed">\n    <title>${chap.title}</title>\n    <summary>\n${summ}\n    </summary>\n  </chapter>`;
-        historyParts.push(xml);
-        const chapterTokens = estimateTokens(xml);
-        historyTokens += chapterTokens;
-        chapterBreakdown.push({ chapterId: chap.id, title: chap.title, mode: 'summary', tokens: chapterTokens });
-      }
+      const ongoing = isChapterOngoing(chapters, cIdx);
+      const granularity = resolveChapterGranularity(chap, ongoing);
+      // Only read turns when the cut actually includes them.
+      const turns = cutIncludes(granularity, 'body')
+        ? options.historyTurns
+          ? sliceChapterTurns(options.historyTurns, chap, ongoing)
+          : this.timeline.getTurnSlice(chap.startIndex, ongoing ? undefined : chap.endIndex)
+        : [];
+      const xml = chapterXml(chap, granularity, turns);
+      historyParts.push(xml);
+      const chapterTokens = estimateTokens(xml);
+      historyTokens += chapterTokens;
+      distribution[granularity]++;
+      chapterBreakdown.push({
+        chapterId: chap.id,
+        title: chap.title,
+        granularity,
+        tokens: chapterTokens,
+      });
     });
 
     const substrateBlock = `<knowledge_substrate>\n${substrateParts.join('\n\n')}\n</knowledge_substrate>`;
@@ -279,28 +229,27 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const compiledPrompt = `${substrateBlock}\n\n${historyBlock}`;
     const systemInstruction = `You are MarkBrain, a thinking partner for a brain that overflows with ideas. Collect thoughts before they evaporate, keep them organized, and keep the forest in view. Talk WITH the user — direct, plain-spoken, no corporate filler.
 Ground your thinking directly in the provided notes and conversation chapters.
+Notes arrive at the size the user chose; an artifact without a <description>, <summary> or <content> was cut short on purpose — do not ask for the rest.
 Emit functional XML tags when appropriate:
-- <topic_shift title="New Chapter Title" abstract="1-sentence essence" summary="Key points of this shift" />
-- <artifact_upsert id="unique_id" title="Note Title" type="document"><abstract>...</abstract><summary>...</summary><content>...</content></artifact_upsert>
+- <topic_shift title="New Chapter Title" description="1-2 sentences: what this chapter is about" />
+- <artifact_upsert id="unique_id" title="Note Title" type="document"><description>...</description><summary>...</summary><content>...</content></artifact_upsert>
 - <link source="id1" target="id2" kind="relates_to|refines|parent_of|child_of|born_from" />`;
 
     const systemTokens = estimateTokens(systemInstruction);
     const totalTokens = systemTokens + substrateTokens + historyTokens;
 
-    // Node distribution calculation
-    const counts = { tier3Count: 0, tier2Count: 0, tier1Count: 0, tier0Count: 0, culledCount: 0 };
-    Object.values(nodeTiers).forEach((t) => {
-      if (t.tier === 3) counts.tier3Count++;
-      else if (t.tier === 2) counts.tier2Count++;
-      else if (t.tier === 1) counts.tier1Count++;
-      else if (t.tier === 0) counts.tier0Count++;
-      else counts.culledCount++;
-    });
-
     if (options.log) {
-      logger.info('Compiler', `Compiled context: ${totalTokens} tokens (ceiling ${ceiling})`, counts);
+      logger.info(
+        'Compiler',
+        `Compiled context: ${totalTokens} tokens (ceiling ${ceiling}, ${attachmentBreakdown.length} attached, ${chapterBreakdown.length} chapters)`,
+        distribution
+      );
       if (totalTokens > ceiling) {
-        logger.warn('Compiler', `Compiled prompt exceeds token ceiling (${totalTokens} > ${ceiling}) — no degradation path exists yet`, counts);
+        logger.warn(
+          'Compiler',
+          `Compiled prompt exceeds token ceiling (${totalTokens} > ${ceiling}) — no degradation path exists yet`,
+          distribution
+        );
       }
     }
 
@@ -314,11 +263,10 @@ Emit functional XML tags when appropriate:
           historyTokens,
           totalTokens,
         },
-        nodeDistribution: counts,
+        granularityDistribution: distribution,
+        attachmentBreakdown,
         chapterBreakdown,
-        noteBreakdown,
       },
-      nodeTiers,
     };
   }
 }

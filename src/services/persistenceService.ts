@@ -1,43 +1,27 @@
-import { db, auth, handleFirestoreError, OperationType } from './firebase';
-import { doc, getDoc, getDocs, setDoc, deleteDoc, collection } from 'firebase/firestore';
 import { logger } from '../utils/logger';
 import { sanitizeForStorage } from '../utils/storageSanitize';
 import { HEADLESS_FIXTURE } from '../data/headlessFixture';
-import {
-  localListProjects,
-  localLoadProject,
-  localPutProject,
-  localReplaceAll,
-  localDeleteProject,
-} from './localBackend';
+import type { ChapterPartition } from '../domains/02-chapter-segmentation/types';
+import { firestoreStore } from './stores/firestoreStore';
+import { localStore } from './stores/localStore';
+import { hydrateSnapshot } from './stores/hydrate';
+import type { ProjectStore, ProjectSnapshot } from './stores/projectStore';
 
-export interface ProjectSnapshot {
-  projectId: string;
-  turns: any[];
-  chapters: any[];
-  artifacts: any[];
-  edges: any[];
-  updatedAt: number;
-  // Chat threads (see domains/06-chat-threads). Optional on load — the
-  // registry backfills legacy snapshots; always written on save.
-  threads?: any[];
-  folders?: any[];
-  activeThreadId?: string;
-  // Present on list/create docs (mapped into workspace metadata):
-  name?: string;
-  codeName?: string;
-  description?: string;
-  color?: string;
-}
+export type { ProjectSnapshot } from './stores/projectStore';
 
 /**
  * ── The port ─────────────────────────────────────────────────────────────
  * persistenceService is the SINGLE module that knows more than one storage
- * backend exists. Everything else in the app calls these functions and stays
- * backend-agnostic:
+ * backend exists — and even it only dispatches ONCE, through getStore().
+ * Everything else in the app calls these functions and stays backend-agnostic:
  *
- *   - 'firestore' (default): Storage IS Firebase — per-user rules tree.
- *   - 'local': IndexedDB (localBackend.ts) — no account, this browser only.
+ *   - 'firestore' (default): Storage IS Firebase — per-user rules tree
+ *     (stores/firestoreStore.ts).
+ *   - 'local': IndexedDB (stores/localStore.ts → localBackend.ts) — no
+ *     account, this browser only.
+ *
+ * The ProjectStore port (stores/projectStore.ts) is the anticorruption
+ * boundary: CRUD shape only, no Firebase and no IndexedDB types leak upward.
  *
  * The backend choice is a meta-key in localStorage (markbrain:backend) —
  * meta-use of localStorage, not a data mirror. Data lives in exactly one
@@ -65,6 +49,15 @@ export function setBackend(backend: StorageBackend): void {
     logger.warn('Persistence', 'setBackend: storage write failed — backend choice not persisted');
   }
   logger.info('Persistence', `Backend → ${backend}`);
+}
+
+/**
+ * THE single dispatch point. Read per call — setBackend() can flip the
+ * backend at runtime (sign-in gate: Local space vs Google), so a cached
+ * store would go stale; never memoize the result.
+ */
+function getStore(): ProjectStore {
+  return getBackend() === 'local' ? localStore : firestoreStore;
 }
 
 /**
@@ -117,102 +110,7 @@ export async function saveProjectSnapshot(
     color: snapshot.color,
   });
 
-  if (getBackend() === 'local') {
-    await localPutProject(fullSnapshot);
-    logger.info('Persistence', `Saved project snapshot to IndexedDB`, { projectId });
-    return;
-  }
-
-  const currentUser = auth.currentUser;
-  if (!currentUser) return;
-
-  const docPath = `users/${currentUser.uid}/projects/${projectId}`;
-  try {
-    const projectRef = doc(db, 'users', currentUser.uid, 'projects', projectId);
-    await setDoc(
-      projectRef,
-      {
-        ...fullSnapshot,
-        userId: currentUser.uid,
-        userEmail: currentUser.email,
-      },
-      { merge: true }
-    );
-    logger.info('Persistence', `Saved project snapshot to Firestore`, { uid: currentUser.uid, projectId });
-  } catch (err: any) {
-    logger.warn('Persistence', `Firestore save error for ${projectId}`, err);
-    if (err?.code === 'permission-denied') {
-      handleFirestoreError(err, OperationType.WRITE, docPath);
-    }
-  }
-}
-
-/**
- * Hydrate a raw stored artifact into canonical shape (domain model = source
- * of truth): ensure camelCase ids/dates exist and `current.t0..t3` tiers are
- * populated — synthesizing tiers from legacy flat description/summary/content
- * when missing. Extra legacy fields ride along untouched (nothing stripped).
- */
-function hydrateArtifact(raw: any, projectId: string): any {
-  const cur = raw?.current || {};
-  const flatDesc = raw?.description ?? raw?.abstract ?? '';
-  return {
-    ...raw,
-    id: raw?.id || `art-${Math.random().toString(36).slice(2, 10)}`,
-    workspaceId: raw?.workspaceId ?? raw?.workspace_id ?? projectId,
-    title: raw?.title ?? cur.t0_label ?? 'Untitled',
-    code: raw?.code ?? '',
-    category: raw?.category ?? 'note',
-    tags: Array.isArray(raw?.tags) ? raw.tags : [],
-    createdAt:
-      typeof raw?.createdAt === 'number'
-        ? raw.createdAt
-        : typeof raw?.created_at === 'number'
-          ? raw.created_at
-          : Date.now(),
-    updatedAt:
-      typeof raw?.updatedAt === 'number'
-        ? raw.updatedAt
-        : typeof raw?.updated_at === 'number'
-          ? raw.updated_at
-          : Date.now(),
-    current: {
-      t0_label: cur.t0_label ?? raw?.title ?? 'Untitled',
-      t1_abstract: cur.t1_abstract ?? flatDesc,
-      t2_summary: cur.t2_summary ?? raw?.summary ?? '',
-      t3_body: cur.t3_body ?? raw?.content ?? '',
-    },
-  };
-}
-
-/** True when the record is already canonical — no hydration needed. */
-function isCanonical(raw: any): boolean {
-  return Boolean(
-    raw &&
-      raw.workspaceId !== undefined &&
-      raw.createdAt !== undefined &&
-      raw.current &&
-      raw.current.t0_label !== undefined &&
-      raw.current.t3_body !== undefined
-  );
-}
-
-/** Normalize every artifact in a loaded snapshot; one warn per project load. */
-function hydrateSnapshot(snap: ProjectSnapshot): ProjectSnapshot {
-  let backfilled = 0;
-  const artifacts = (snap.artifacts || []).map((raw: any) => {
-    if (isCanonical(raw)) return raw;
-    backfilled++;
-    return hydrateArtifact(raw, snap.projectId);
-  });
-  if (backfilled > 0) {
-    logger.warn(
-      'Persistence',
-      `Backfilled ${backfilled}/${artifacts.length} artifacts missing canonical tier fields (legacy flat records)`,
-      { projectId: snap.projectId }
-    );
-  }
-  return { ...snap, artifacts };
+  await getStore().save(fullSnapshot);
 }
 
 /**
@@ -233,28 +131,7 @@ async function loadSnapshotRaw(
     return projectId === HEADLESS_FIXTURE.projectId ? HEADLESS_FIXTURE : null;
   }
 
-  if (getBackend() === 'local') {
-    return localLoadProject(projectId);
-  }
-
-  const currentUser = auth.currentUser;
-  if (!currentUser) return null;
-
-  const docPath = `users/${currentUser.uid}/projects/${projectId}`;
-  try {
-    const projectRef = doc(db, 'users', currentUser.uid, 'projects', projectId);
-    const docSnap = await getDoc(projectRef);
-    if (docSnap.exists()) {
-      return docSnap.data() as ProjectSnapshot;
-    }
-    return null;
-  } catch (err: any) {
-    logger.warn('Persistence', `Firestore load failed for ${projectId}`, err);
-    if (err?.code === 'permission-denied') {
-      handleFirestoreError(err, OperationType.GET, docPath);
-    }
-    return null;
-  }
+  return getStore().load(projectId);
 }
 
 /**
@@ -265,27 +142,7 @@ async function loadSnapshotRaw(
 export async function listUserProjects(): Promise<ProjectSnapshot[]> {
   if (isFixtureMode()) return [HEADLESS_FIXTURE];
 
-  if (getBackend() === 'local') {
-    const list = await localListProjects();
-    logger.info('Persistence', `Listed ${list.length} local IndexedDB projects`);
-    return list;
-  }
-
-  const currentUser = auth.currentUser;
-  if (!currentUser) return [];
-  try {
-    const projectsCol = collection(db, 'users', currentUser.uid, 'projects');
-    const snap = await getDocs(projectsCol);
-    const list: ProjectSnapshot[] = [];
-    snap.forEach((d) => {
-      list.push(d.data() as ProjectSnapshot);
-    });
-    logger.info('Persistence', `Listed ${list.length} Firestore projects for user ${currentUser.uid}`);
-    return list;
-  } catch (err: any) {
-    logger.warn('Persistence', `Failed to list projects for user ${currentUser.uid}:`, err);
-    return [];
-  }
+  return getStore().list();
 }
 
 /**
@@ -307,6 +164,9 @@ export async function createCloudProject(meta: {
     chapters: [
       {
         id: genesisChapterId,
+        // Legacy field: the genesis chapter ships `projectId`, never the
+        // domain's workspaceId. Stored bytes are frozen — cast only, zero
+        // runtime effect (see the assertion closing this literal).
         projectId: meta.id,
         title: 'Genesis Chapter',
         summary: '',
@@ -314,30 +174,12 @@ export async function createCloudProject(meta: {
         status: 'active',
         startIndex: 0,
         createdAt: Date.now(),
-      },
+      } as unknown as ChapterPartition, // type-only — erased at runtime
     ],
     artifacts: [],
     edges: [],
     updatedAt: Date.now(),
   };
-
-  if (getBackend() === 'local') {
-    const full: ProjectSnapshot = {
-      ...snapshot,
-      name: meta.name,
-      codeName: meta.codeName,
-      description: meta.description,
-      color: meta.color || '#3b82f6',
-    };
-    await localPutProject(full);
-    logger.info('Persistence', `Created new local project "${meta.name}" (${meta.id})`);
-    return full; // meta included — WorkspaceDomain maps snap.name → display
-  }
-
-  const currentUser = auth.currentUser;
-  if (!currentUser) {
-    throw new Error('Cannot create a project without an active Google session.');
-  }
   const withMeta: ProjectSnapshot = {
     ...snapshot,
     name: meta.name,
@@ -345,13 +187,8 @@ export async function createCloudProject(meta: {
     description: meta.description,
     color: meta.color || '#3b82f6',
   };
-  const projectRef = doc(db, 'users', currentUser.uid, 'projects', meta.id);
-  await setDoc(projectRef, {
-    ...withMeta,
-    userId: currentUser.uid,
-  });
 
-  logger.info('Persistence', `Created new cloud project "${meta.name}" (${meta.id})`, { uid: currentUser.uid });
+  await getStore().create(withMeta);
   return withMeta; // meta included — WorkspaceDomain maps snap.name → display
 }
 
@@ -363,27 +200,7 @@ export async function createCloudProject(meta: {
 export async function deleteProject(projectId: string): Promise<void> {
   if (isCaptureMode()) return; // capture/fixture runs never write
 
-  if (getBackend() === 'local') {
-    await localDeleteProject(projectId);
-    logger.info('Persistence', `Deleted project ${projectId} from IndexedDB`);
-    return;
-  }
-
-  const currentUser = auth.currentUser;
-  if (!currentUser) {
-    throw new Error('Sign in with Google before deleting cloud projects.');
-  }
-  const docPath = `users/${currentUser.uid}/projects/${projectId}`;
-  try {
-    await deleteDoc(doc(db, 'users', currentUser.uid, 'projects', projectId));
-    logger.info('Persistence', `Deleted project ${projectId} from Firestore`, { uid: currentUser.uid });
-  } catch (err: any) {
-    logger.warn('Persistence', `Firestore delete failed for ${projectId}`, err);
-    if (err?.code === 'permission-denied') {
-      handleFirestoreError(err, OperationType.WRITE, docPath);
-    }
-    throw err;
-  }
+  await getStore().delete(projectId);
 }
 
 /**
@@ -451,32 +268,6 @@ export function parseDatabaseExport(json: string): DatabaseExport {
 export async function importDatabase(data: DatabaseExport): Promise<number> {
   if (isCaptureMode()) return 0; // capture/fixture runs never write
 
-  if (getBackend() === 'local') {
-    await localReplaceAll(data.projects);
-    logger.info('Persistence', `Imported ${data.projects.length} project(s) into IndexedDB (full replace)`);
-    return data.projects.length;
-  }
-
-  const currentUser = auth.currentUser;
-  if (!currentUser) {
-    throw new Error('Sign in with Google before importing into Firestore.');
-  }
-  try {
-    for (const p of data.projects) {
-      const projectRef = doc(db, 'users', currentUser.uid, 'projects', p.projectId);
-      await setDoc(
-        projectRef,
-        { ...p, userId: currentUser.uid, userEmail: currentUser.email },
-        { merge: true }
-      );
-    }
-  } catch (err: any) {
-    logger.warn('Persistence', `Firestore import failed: ${err}`, err);
-    if (err?.code === 'permission-denied') {
-      handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}/projects`);
-    }
-    throw err;
-  }
-  logger.info('Persistence', `Imported ${data.projects.length} project(s) into Firestore`, { uid: currentUser.uid });
+  await getStore().replaceAll(data.projects);
   return data.projects.length;
 }

@@ -1,9 +1,10 @@
 /**
  * localBackend — IndexedDB adapter for the Local branch.
  *
- * PRIVATE to persistenceService: no other module may import this file.
- * The branching knowledge lives in persistenceService; this is just the
- * second implementation behind the same canonical ProjectSnapshot model.
+ * PRIVATE to stores/localStore: no other module may import this file.
+ * The branching knowledge lives in persistenceService (one dispatch through
+ * the ProjectStore port); this is just the IndexedDB half behind the same
+ * canonical ProjectSnapshot model.
  *
  * DB:    markbrain-local
  * Store: projects (keyPath: projectId)
@@ -13,7 +14,7 @@
  * Why IndexedDB and not localStorage: 5MB quota dies on artifacts + turns
  * + graph. Same primitive Firebase's own auth persistence prefers.
  */
-import type { ProjectSnapshot } from './persistenceService';
+import type { ProjectSnapshot } from './stores/projectStore';
 
 const DB_NAME = 'markbrain-local';
 const DB_VERSION = 1;

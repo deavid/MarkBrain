@@ -5,8 +5,7 @@ import { ArtifactDocumentDomain, IArtifactDocumentDomain } from './01-artifact-d
 import { ArtifactVersioningDomain, IArtifactVersioningDomain } from './01-artifact-versioning';
 import { TopologicalGraphDomain, ITopologicalGraphDomain } from './02-topological-graph';
 import { ChapterSegmentationDomain, IChapterSegmentationDomain } from './02-chapter-segmentation';
-import { ProvenanceTrackingDomain, IProvenanceTrackingDomain } from './02-provenance-tracking';
-import { RecursiveGroupingDomain, IRecursiveGroupingDomain } from './02-recursive-grouping';
+
 import { StreamProtocolDomain, IStreamProtocolDomain } from './03-stream-protocol';
 import { ChapterRecalibrationDomain, IChapterRecalibrationDomain } from './03-chapter-recalibration';
 import { OpticalCompilerDomain, IOpticalCompilerDomain } from './03-optical-compiler';
@@ -37,8 +36,7 @@ export interface DomainContextValue {
   versioning: IArtifactVersioningDomain;
   graph: ITopologicalGraphDomain;
   segmentation: IChapterSegmentationDomain;
-  provenance: IProvenanceTrackingDomain;
-  grouping: IRecursiveGroupingDomain;
+  
   stream: IStreamProtocolDomain;
   recalibration: IChapterRecalibrationDomain;
   compiler: IOpticalCompilerDomain;
@@ -81,8 +79,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const versioning = useMemo(() => new ArtifactVersioningDomain(), []);
   const graph = useMemo(() => new TopologicalGraphDomain([]), []);
   const segmentation = useMemo(() => new ChapterSegmentationDomain(activeProjectId, []), [activeProjectId]);
-  const provenance = useMemo(() => new ProvenanceTrackingDomain(), []);
-  const grouping = useMemo(() => new RecursiveGroupingDomain(), []);
+  
   const stream = useMemo(() => new StreamProtocolDomain(), []);
   const recalibration = useMemo(
     () => new ChapterRecalibrationDomain(segmentation, timeline),
@@ -396,8 +393,6 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       versioning,
       graph,
       segmentation,
-      provenance,
-      grouping,
       stream,
       recalibration,
       compiler,
@@ -421,8 +416,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       versioning,
       graph,
       segmentation,
-      provenance,
-      grouping,
+      
       stream,
       recalibration,
       compiler,

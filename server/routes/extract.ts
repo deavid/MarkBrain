@@ -2,11 +2,45 @@ import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 
+/** Robust model-JSON parse: strip illegal control chars (keep \\n/\\r/\\t),
+ *  pull the outer {...} block, neutralize bad escapes. WHY: Gemini occasionally
+ *  emits literal control characters / invalid escapes inside strings (observed:
+ *  "Bad control character in string literal in JSON at position 1529") even with
+ *  responseMimeType: application/json — a bare JSON.parse then 500s the import. */
+function parseModelJson(raw: string): unknown {
+  const cleaned = raw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    /* fall through to block extraction */
+  }
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    const body = cleaned.slice(start, end + 1);
+    try {
+      return JSON.parse(body);
+    } catch {
+      // Neutralize invalid escapes like \\x / \\. (valid JSON escapes untouched)
+      const fixed = body.replace(/\\(?:[^"\\/bfnrtu])/g, (m) => m.slice(1));
+      return JSON.parse(fixed);
+    }
+  }
+  throw new Error(`no JSON object found in model output (starts: ${JSON.stringify(cleaned.slice(0, 80))})`);
+}
+
 export function registerExtractRoutes(app: Express): void {
 // API: Extract structured YAML + Markdown artifact from raw TXT, MD, or Google Docs export
 app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) => {
   try {
-    const { content, filename = 'document.md', projectTitle = 'Project', fileType = 'doc' } = req.body;
+    const {
+      content,
+      filename = 'document.md',
+      projectTitle = 'Project',
+      fileType = 'doc',
+      previousError,
+      previousOutput,
+    } = req.body;
     if (!content || !content.trim()) {
       return res.status(400).json({ error: 'Content is required' });
     }
@@ -48,6 +82,13 @@ Respond ONLY with a JSON object in this exact schema:
   "content": "Full markdown specification body"
 }
 
+${previousError ? `
+RETRY — your previous attempt produced invalid JSON: ${String(previousError).slice(0, 500)}
+Here is that invalid output; fix it and do not repeat its mistakes:
+${String(previousOutput || '(no output captured)').slice(0, 2000)}
+` : ''}
+Output rules: STRICT JSON only — no markdown fences, no commentary. Inside strings, escape newlines as \\n, tabs as \\t, quotes as \\"; never emit literal control characters.
+
 Raw Input Document (${filename}):
 ${content.slice(0, 24000)}`;
 
@@ -60,7 +101,18 @@ ${content.slice(0, 24000)}`;
         },
       });
 
-      const parsed = JSON.parse(response.text || '{}');
+      let parsed: Record<string, any>;
+      try {
+        parsed = parseModelJson(response.text || '') as Record<string, any>;
+      } catch (parseErr) {
+        // Hand the raw text back so the client's Retry can be failure-aware.
+        const detail = parseErr instanceof Error ? parseErr.message : String(parseErr);
+        logServer('warn', 'API:EXTRACT', `Invalid model JSON (${detail}) — returning raw for failure-aware retry`);
+        return res.status(502).json({
+          error: `Model returned invalid JSON: ${detail}`,
+          raw: (response.text || '').slice(0, 20000),
+        });
+      }
       if (!Array.isArray(parsed.tags) || parsed.tags.length === 0) {
         parsed.tags = ['google-docs', 'imported-note', parsed.code || 'note'];
       }

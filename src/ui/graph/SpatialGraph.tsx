@@ -135,42 +135,10 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
     [domainEdges]
   );
 
-  // Compute tentative cross-links based on shared tags across artifacts/nodes
-  const tentativeLinks = useMemo(() => {
-    const results: TentativeLink[] = [];
-
-    const existingPairs = new Set(
-      edges.map((e) => `${e.sourceId}--${e.targetId}`)
-    );
-
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const n1 = nodes[i];
-        const n2 = nodes[j];
-        if (
-          existingPairs.has(`${n1.id}--${n2.id}`) ||
-          existingPairs.has(`${n2.id}--${n1.id}`)
-        ) {
-          continue;
-        }
-
-        // Match tags from node.tags or corresponding artifact
-        const tags1 = (n1.tags || n1.artifact.tags || []).map((t) => t.toLowerCase());
-        const tags2 = (n2.tags || n2.artifact.tags || []).map((t) => t.toLowerCase());
-
-        const shared = tags1.filter((t) => tags2.includes(t));
-        if (shared.length > 0) {
-          results.push({
-            id: `tentative-${n1.id}-${n2.id}`,
-            sourceNode: n1,
-            targetNode: n2,
-            sharedTags: shared,
-          });
-        }
-      }
-    }
-    return results;
-  }, [nodes, edges]);
+  // Tags are NOT connections (2026-10-19): shared-tag "tentative cross-links"
+  // meshed the graph into noise — removed. Real edges come only from explicit
+  // relationships; kept as a stable [] so dependent renders stay inert.
+  const tentativeLinks = useMemo<TentativeLink[]>(() => [], []);
 
   // Fit View to nodes (ONLY called when explicitly clicked or on initial load)
   const fitViewToNodes = useCallback(() => {

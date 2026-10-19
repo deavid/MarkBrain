@@ -29,6 +29,10 @@ export interface ExtractArtifactFromFileRequest {
   filename: string;
   projectTitle: string;
   fileType: 'gdoc' | 'doc';
+  /** Failure-aware retry: last error message from a failed extraction. */
+  previousError?: string;
+  /** Failure-aware retry: raw (invalid) model output from that attempt. */
+  previousOutput?: string;
 }
 
 export interface ExtractArtifactFromFileInit {
@@ -48,6 +52,8 @@ export function extractArtifactFromFile(
       filename: params.filename,
       projectTitle: params.projectTitle,
       fileType: params.fileType,
+      previousError: params.previousError,
+      previousOutput: params.previousOutput,
     }),
   });
 }

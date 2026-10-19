@@ -33,6 +33,9 @@ export interface ImportRow {
   /** Phase-4 per-row parent override — beats frontmatter + batch at land time. */
   parentOverride?: string;
   error?: string;
+  /** Failure-aware retry: last extraction error + raw invalid model output. */
+  lastExtractError?: string;
+  lastExtractRaw?: string;
 }
 
 export interface ImportSessionApi {
@@ -56,18 +59,30 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 async function extractFromGemini(
   content: string,
   filename: string,
-  projectTitle: string
+  projectTitle: string,
+  previous?: { error?: string; raw?: string }
 ): Promise<Record<string, any>> {
   const res = await extractArtifactFromFile(
-    { content, filename, projectTitle, fileType: 'doc' },
+    {
+      content,
+      filename,
+      projectTitle,
+      fileType: 'doc',
+      // Failure-aware retry: give the model its last error + invalid output so
+      // it can correct itself instead of deterministically re-failing.
+      previousError: previous?.error,
+      previousOutput: previous?.raw,
+    },
     { signal: AbortSignal.timeout(120_000) }
   );
   if (!res.ok) {
     // Server wraps failures as {error: string} — surface the real reason
     // (e.g. Gemini quota text) instead of a bare HTTP code.
     let msg = `Extraction HTTP ${res.status}`;
+    let rawOut: string | undefined;
     try {
       const body = await res.json();
+      rawOut = typeof body?.raw === 'string' ? body.raw : undefined;
       const raw = typeof body?.error === 'string' ? body.error : body?.error?.message;
       if (typeof raw === 'string' && raw.trim()) {
         if (/quota|RESOURCE_EXHAUSTED/i.test(raw)) {
@@ -83,7 +98,9 @@ async function extractFromGemini(
     } catch {
       /* keep the HTTP-code fallback */
     }
-    throw new Error(msg);
+    const failure: Error & { raw?: string } = new Error(msg);
+    if (rawOut) failure.raw = rawOut;
+    throw failure;
   }
   const data = await res.json();
   if (!data.artifact) throw new Error(data.error || 'Extraction returned no artifact');
@@ -228,7 +245,10 @@ export function useImportSession(
                 r.id === next.id ? { ...r, status: 'extracting' as const, lane: 'ai' as const } : r
               )
             );
-            const ex = await extractFromGemini(next.content, next.fileName, proj.name);
+            const ex = await extractFromGemini(next.content, next.fileName, proj.name, {
+              error: next.lastExtractError,
+              raw: next.lastExtractRaw,
+            });
             const built = buildArtifactFromExtraction(
               ex,
               next.content,
@@ -263,8 +283,20 @@ export function useImportSession(
               ? err.message
               : 'Import failed';
           logger.warn('ImportSession', `${next.fileName}: ${msg}`, timedOut ? undefined : err);
+          const errRaw = err instanceof Error ? (err as { raw?: string }).raw : undefined;
           commit((rs) =>
-            rs.map((r) => (r.id === next.id ? { ...r, status: 'failed' as const, error: msg } : r))
+            rs.map((r) =>
+              r.id === next.id
+                ? {
+                    ...r,
+                    status: 'failed' as const,
+                    error: msg,
+                    // Failure context for the next Retry (failure-aware loop).
+                    lastExtractError: msg,
+                    ...(errRaw ? { lastExtractRaw: errRaw } : {}),
+                  }
+                : r
+            )
           );
         }
       }

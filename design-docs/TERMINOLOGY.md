@@ -23,6 +23,10 @@
 
 ## 0. DECIDED (David, 2026-10-19) — these words are settled
 
+> **Built 2026-10-19 night.** `granularity`, `attachment`, `artifact` and the
+> Focus eradication are code now (see `09_…` §11). The inventory below still
+> lists the *other* collisions for a sitting with David.
+
 | Concept | The word | Dies |
 |---|---|---|
 | How much of an artifact/chapter goes into a chat | **Granularity** | tier, level, resolution, T0–T3 |

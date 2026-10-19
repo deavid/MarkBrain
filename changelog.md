@@ -2,6 +2,70 @@
 
 All notable changes to MarkBrain. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-10-19 — attachment model: granularity belongs to the chat
+
+The payload stops being "whatever the compiler guesses from graph proximity".
+An artifact enters a conversation only by being **attached to it**, at a
+granularity that belongs to the attachment — so the same artifact can be
+`title` in one chat and `full` in another. Focus (pin / focal / radius /
+depth-of-field / ancestor backbone / cull) is deleted, not hidden.
+
+**Why it mattered beyond tidiness:** with nothing pinned, the old fallback
+focal point was the *active chapter's id*, which is not a graph node — every
+artifact sat at infinite distance, so out of the box the prompt contained zero
+notes. The only way to get one in was to pin, i.e. the husk was load-bearing.
+
+### Added
+- **Attachments** (`domains/06-chat-threads`): `ChatAttachment { artifactId,
+  granularity, addedAt }` on `ChatThread`; `attachArtifact` (default `full`,
+  idempotent — never resets a granularity the user lowered),
+  `setAttachmentGranularity`, `purgeArtifact` (GC on artifact deletion).
+  No detach, no excluded state (floor = title), per `TERMINOLOGY.md` §0.
+- **Granularity** (`domains/granularity.ts`): one axis, four words, one cut
+  rule (`cutIncludes`): title → +description → +summary → +body / verbatim
+  turns, cumulative (Option A, David 2026-10-19). Internal weights 10/20/30/100
+  never reach the UI.
+- **Four-level chapters**: `ChapterPartition.description` + `.granularity`;
+  `resolveChapterGranularity` (explicit wins; open → full, closed → summary);
+  sealing steps full → summary but keeps a manual choice. New chapters are
+  born `full` with the description the model already emitted in
+  `<topic_shift description|abstract="…">`.
+- **Library surface**: `Chat | Artifacts` top-level swap; `ArtifactsLibraryView`
+  with floating `Folders | Graph` lenses (graph demoted to a lens), search,
+  grouped rows, flagged-import badge.
+- **`[+]` attachment picker** (full-screen sheet on phones) and attach actions
+  in the artifact detail modal ("Attach to this chat").
+- **`attachments.test.ts`** (7) + rewritten `optical-compiler.test.ts` (13)
+  covering the cut, per-chat isolation, chapter defaults/sealing, breakdown
+  parity and dangling attachments.
+
+### Changed
+- **Compiler** (`03-optical-compiler`): inputs are
+  `{ attachments, historyTurns?, historyChapters?, tokenCeiling? }` — the graph
+  domain is no longer a dependency. Telemetry: `attachmentBreakdown`,
+  `chapterBreakdown.granularity`, `granularityDistribution`. Rows are still
+  recorded from the assembled XML strings (Σrows = subtotal).
+- **Mirror** is the steering wheel: attachment/chapter rows carry the
+  four-word control and the compiler's own token cost; `[+] Attach`; raw
+  payload unchanged. Reason badges / out-count are gone.
+- **Artifacts** stored as layers `{ description, summary, body }` (the title is
+  the artifact's own field); `resolution` removed; legacy `t0..t3` hydrated on
+  load. `topicShiftReason` → `description`; `keyPoints` deleted (never sent,
+  never displayed).
+- **`/api/summarize-chapter`** returns `{ description, summary }` as continuing
+  layers; `recalibrateSummary` writes both.
+- **Chat**: chapter header carries the granularity control; a chapter sent
+  below `full` shows an honest strip ("these messages are shown for reading,
+  not sent") — scroll is not compaction, the mirror is the payload. The old
+  "Abstract" toggle is now "Recap" (description + summary).
+- **Deleted**: `ArtifactFolderTree` (crammed sidebar tree), the optical-mode
+  toggle, pin/pull buttons in the graph, tier overrides/pins in the detail
+  modal, `getArtifactTokenVariants`, the graph's `computeDistancesFromFocal`.
+
+### Gates
+- `tsc --noEmit` clean · **111/111** vitest · evidence **GREEN**:
+  13/13 journeys, 0 geometry fails/warns, 0 console/page/http errors.
+
 ## 2026-10-18 — stable → main (12 commits, 52 files, +3301/−1202)
 
 Pulled `main` (`a997fc5..3c7493e`) into `dev-nova` and compared against `stable`. Everything below landed on `main` since the `stable` tag.

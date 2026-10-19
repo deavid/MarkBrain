@@ -1,5 +1,10 @@
 # 09 — CHAT, ARTIFACTS, AND THE PAYLOAD (`09_CHAT_ARTIFACTS_PAYLOAD.md`)
 
+> **r5 — 2026-10-19 night: SHIPPED.** The attachment model, the four-value
+> cut, chapter granularity, the Focus eradication and the `Chat | Artifacts`
+> swap are **built on `dev-altair`** (details in §11). This doc stays the
+> reference for *why*; the code + its tests are the reference for *what*.
+>
 > **r4 — 2026-10-19 night.** **§1c is the attachment-model spec — the spine.**
 > If code and §1c disagree, §1c is what we are building toward.
 >
@@ -422,3 +427,63 @@ my lean is whatever David calls them when he yaps — probably *artifacts*, with
 4. **Chapter rows before the compiler work:** show the honest binary
    (full/summary only), or hide chapter handles until §8.4? Lean: honest
    binary — a truthful row beats a disabled fake menu.
+
+---
+
+## 11. What actually shipped (2026-10-19 night)
+
+Built in one slice on `dev-altair`, gated green (`tsc`, 111/111 vitest,
+evidence pack 13/13 journeys, 0 geometry fails, 0 console/page/http errors).
+
+**Data**
+- `ChatAttachment { artifactId, granularity, addedAt }` on `ChatThread`
+  (`06-chat-threads`). Attach at *full*, idempotent, per chat; no detach.
+  Artifact deletion purges dangling attachments (`purgeArtifact`).
+- `UniversalArtifactDocument.current` is now `{ description, summary, body }`
+  — the title is the artifact's own field (no duplicated `t0_label`).
+  `resolution` (an artifact-level husk nothing read) is gone.
+  Legacy snapshots hydrate from `t0..t3` in `stores/hydrate.ts`.
+- `ChapterPartition` gained `description` + `granularity`; `keyPoints` and
+  `topicShiftReason` are gone (`topicShiftReason` backfills into
+  `description`, because that is what it actually was: the model's
+  topic-shift *essence*, rendered as a "Shift" chip).
+- `WorkspaceContainer` lost `focalArtifactIds`, `tierOverrides`, `opticalMode`.
+
+**Compiler** (`03-optical-compiler`)
+- Inputs are `{ attachments, historyTurns?, historyChapters?, tokenCeiling? }`.
+  No graph, no distance, no radius, no pins, no culling, no ancestors.
+- The cut is cumulative, as decided (Option A): `title` → `+description` →
+  `+summary` → `+body` / verbatim turns. `domains/granularity.ts` holds the ONE
+  cut rule (`cutIncludes`), shared by compiler, previews and UI.
+- `ContextTelemetry`: `attachmentBreakdown` (was `noteBreakdown`),
+  `chapterBreakdown` with `granularity` (was `mode`), `granularityDistribution`.
+  Rows are still recorded from the assembled XML strings, so Σrows = subtotal.
+
+**Chapters**
+- `resolveChapterGranularity(chapter, open)` — explicit wins, else open → full,
+  closed → summary. `isChapterOngoing` is now purely geometric (which turns a
+  chapter owns).
+- Sealing (`declareNewChapter`, `splitChapter`, `closeChapter`) steps
+  `full → summary` and **keeps a manual title/description choice**.
+- New chapters are born `full` with the description the model emitted in
+  `<topic_shift description="…">` (legacy `abstract=` accepted).
+- `/api/summarize-chapter` now returns `{ description, summary }` (layers that
+  continue each other), and `recalibrateSummary` writes both. keyPoints died.
+
+**UI**
+- `Chat | Artifacts` replaces `Dialogue | Spatial Graph`. Artifacts is a
+  full-size library with floating `Folders | Graph` lenses; the crammed
+  sidebar tree, the optical-mode toggle and the whole artifact-tier menu are
+  gone. `ArtifactFolderTree` is deleted.
+- Chapter rows carry the four-word granularity control; the chat shows an
+  honest strip when a chapter is sent below `full` (the messages stay readable
+  — scroll is not compaction — but the payload is the mirror's job).
+- Mirror is the steering wheel now: totals, attached artifacts (each with its
+  granularity control + token cost), chapters in send order (same control),
+  `[+ Attach]` picker, raw payload. No reason badges, no out/culled section.
+- Artifact detail: "Attach to this chat" + the four-word control replaces
+  pin/tier. The library itself has no context controls.
+
+**Known gaps** (`TODO.md`): closed chapters may have no summary until someone
+presses Summarize; import prompts don't yet state the cut contract; model
+picker still exists although "no model selection" was decided.

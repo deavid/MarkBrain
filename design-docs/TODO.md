@@ -8,88 +8,98 @@
 > **What this is not:** the live project state (that's `scratch/pending.md`) or
 > the architecture story (`STATUS.md`, `09_…`). When in doubt, an item here
 > should cite the doc or decision that spawned it.
->
-> Born 2026-10-19, David: *"note it down in design-docs in a new file for
-> bugs/todo or something like that. Someone will pick up the slack soon."*
 
 ---
 
-## Decided, not built
+## Done — 2026-10-19 night: the attachment slice (all six original items)
 
-### 1. Compiler: give chapters real granularity (four values), not a two-branch guess
-**Spawned by:** David, 2026-10-19 — *"Machine needs to do four, not two"* and
-*"App is not even near production… no state to conserve. We get to decide
-everything."*
+Items 1–2, 4–6 of the previous list are **built** (commits on `dev-altair`).
+The payload is now: this chat's attachments (each at its own granularity) +
+this chat's chapters (each at its own granularity). Nothing is included by
+distance. Details in `09_CHAT_ARTIFACTS_PAYLOAD.md` §11 and `changelog.md`.
 
-Today `03-optical-compiler` knows exactly two shapes for a chapter — verbatim
-turns for the open chapter, summary for every closed one. The rule in code
-(`02-chapter-segmentation/selectors.ts` `isChapterOngoing`):
-`status === 'active' || index === chapters.length - 1` → full, else summary.
-
-Target: granularity **title / description / summary / full** (David's words;
-"description" replaces the old "abstract"). **No hidden/excluded state**
-(decided 2026-10-19) — a chapter is either in the chat or it isn't.
-
-Blockers/notes:
-- `ChapterPartition` has `title` + `summary` (+ stored-but-never-sent
-  `keyPoints`) — **there is no short-description field**. Needs one (or a
-  derivation) before "title + short description" is honest.
-- The compiler needs a per-chapter level decision (user-forced or auto) wired
-  into `chapterBreakdown` telemetry so the mirror/control rows stay truthful.
-- Ties into the keyPoints send-or-stop decision (`STATUS.md`) — what lives at
-  the "long summary" level depends on it.
-
-### 2. Chapter row: label → real granularity control
-**Spawned by:** the same conversation. Once (1) lands, the chapter row's
-read-only label becomes the actual menu (the four granularities). Until
-then the row shows the level as status only — **do not ship a menu the compiler
-can't honor** (that's the killed compression-toggle lie, `corrections.md`).
-
-### 3. Terminology pass
-**Spawned by:** David, 2026-10-19 — *"maybe I need to sit down to redo all the
-terms and meanings because it's all messed up."*
-**Inventory written:** `design-docs/TERMINOLOGY.md` — every term, meaning today,
-where it stretches, candidates, plus the 5 worst offenders. Next: David sits
-and settles it term by term. Not decided.
-
-### 4. Chapter resolution rule — extend & refactor
-**Spawned by:** David, 2026-10-19 — the current rule (`isChapterOngoing`:
-`status==='active' || last chapter` → verbatim, else summary) *"makes sense…
-it's simple, it's not enough… needs to be extended and refactored entirely at
-some point."* Ties to item 1: the rule must become a real per-chapter level
-decision (four levels + hidden), not a two-branch guess.
-
-### 5. Attachment model — granularity per chat
-**Spawned by:** David, 2026-10-19 — *"the granularity belongs to the attachment
-in the chat, not to the artifact on itself."*
-An **attachment** = (chat, artifact) with its own granularity: title /
-description / summary / full. Same artifact, different chats → different
-granularities. **Nothing in the code models this today**: the compiler computes
-granularity from graph distance, and there is no attachment entity. This is a
-data-model change (persistence + compiler + control surface), not a UI tweak.
-**No detach** (David, 2026-10-19) — attaching is one-way for now; the only knob
-is granularity, floor *title*.
-
-### 6. Remove the Focus machinery (pin / distance / radius)
-**Spawned by:** David, 2026-10-19 — Focus is eradicated (`TERMINOLOGY.md`
-§Eradicated). The compiler's `focalIds`, `TierReason`
-(pin/fallback/ancestor/radius/culled), the distance/radius BFS, and the
-detail-modal / tree **pin** UI are all the unborn Focus feature. They come out
-of the compiler and the UI, replaced by manual per-attachment granularity.
-Don't surface them — remove them.
+- ~~Compiler: four chapter granularities~~ → `03-optical-compiler` emits
+  title / description / summary / full, cumulative (a cut, not a swap).
+- ~~Chapter row: real granularity control~~ → the chat header and the mirror
+  both carry the four-word control; the compiler honors it.
+- ~~Chapter resolution rule~~ → `resolveChapterGranularity()` + explicit
+  `chapter.granularity`; sealing steps full → summary and keeps a manual choice.
+- ~~Attachment model~~ → `ChatAttachment` on `ChatThread`, per chat, attach at
+  full, no detach, no excluded state. `ThreadRegistry.attachArtifact` /
+  `setAttachmentGranularity` / `purgeArtifact`.
+- ~~Remove Focus machinery~~ → `nodeTiers`, `TierReason`, pins, overrides,
+  radius BFS, ancestor backbone, `opticalMode` and its sidebar toggle are gone.
+  The graph is a library lens only.
+- **Bonus found in the code and fixed:** the model's `<topic_shift>` already
+  carries `abstract` (= what the new chapter is about) and `summary`; the first
+  was being stored as `topicShiftReason` (and rendered as a "Shift" chip) and
+  the second was dropped. New chapters are now born with a description; the
+  legacy field is backfilled in `hydrate.ts`.
 
 ---
 
-## Bugs
+## Open — decided or discovered, not built
 
-*(none recorded yet — but note `09` §1c open problem #1, the in-turn vs
-attachment duplication, which will bite at implementation.)*
+### 1. Chapters have no summary until someone presses Summarize
+A chapter closes on a topic shift; nothing summarizes the chapter that just
+ended. `description` is seeded by the model's topic-shift turn, `summary` is
+only produced by the explicit `/api/summarize-chapter` call. A closed chapter
+therefore often sends `title + description` while claiming granularity
+`summary` (the mirror shows the real token cost, so it is not a lie — but the
+level is empty).
+**Options:** auto-summarize on seal (costs a call per chapter, background),
+or lower the default for a summary-less chapter to `description` on seal.
+Not decided.
+
+### 2. Import/extraction prompts don't state the cut contract
+`/api/extract-artifact-from-file` asks for "description: a few phrases" and
+"summary: a few paragraphs" separately. They are close to the cut, but the
+prompt does not tell the model *not to repeat* the previous layer. Same for
+`<artifact_upsert>` in the compiler's system instruction. Worth aligning when
+we touch those prompts — otherwise "read together" degrades into three
+restatements.
+
+### 3. Terminology sitting (unchanged)
+`TERMINOLOGY.md` §1–§5 inventory is still the agenda. §0 (granularity /
+attachment / artifact / Focus eradication) is now *code*, not prose. Remaining
+offenders: tier/level in stale docs, workspace vs project, control mode,
+compaction (display vs payload), telemetry (numbers vs ambient).
+
+### 4. Model picker vs "no model selection"
+`TERMINOLOGY.md` §0 kills model selection ("it's Gemini Flash Lite"). The
+sidebar model picker and `/api/models` still exist (journey 11 exercises them).
+Remove when the provider story settles — it is a UI + server contract change,
+not part of the attachment work.
+
+### 5. Chat shows turns even when the chapter isn't sent that way
+Deliberate call in this slice: the chat stays the conversation (scroll is not
+compaction) and shows an honest strip — *"Sent to the model as Summary — these
+messages are shown for reading, not sent."* The mirror is the payload.
+Alternative (chapter body renders its cut) was rejected for now because legacy
+chapters often have no summary, which would hide content behind nothing.
+Revisit if the strip reads as noise.
+
+### 6. `full` sends the whole cut (Option A) — token cost
+Confirmed by David (2026-10-19): at `full`, title + description + summary +
+body / verbatim turns are all sent, because the layers are written to be read
+together. If real artifacts turn out to repeat themselves, revisit whether
+`full` should drop the summary layer.
+
+### 7. Detail modal edits only the body
+`ArtifactDetailModal` shows description/summary but the editable field is the
+body (raw YAML/rendered). Editing the description/summary layers by hand is
+not wired. Low priority; imports set them.
+
+### 8. No detach (accepted, not a bug)
+`TERMINOLOGY.md` §0: attaching is one-way, floor = title. Artifact deletion
+garbage-collects dangling attachments. If "attach forever" gets annoying in
+practice, the change is a new feature, not a fix.
 
 ---
 
 ## See also
 - `scratch/pending.md` — live state, newest first.
 - `STATUS.md` — cold-start snapshot + queued decisions (keyPoints, over-budget,
-  tokenCeiling, 24px pass).
-- `09_CHAT_ARTIFACTS_PAYLOAD.md` — the chat/artifacts/payload reshape this
-  file's items 1–2 come from.
+  tokenCeiling, 24px pass). Note: keyPoints are now **deleted** (were never
+  sent); over-budget + tokenCeiling setter remain open.
+- `09_CHAT_ARTIFACTS_PAYLOAD.md` — the reshape this slice implements.

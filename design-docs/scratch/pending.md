@@ -1,5 +1,44 @@
 # Pending / open work
 
+## State (2026-10-19, ~23:30 — ATTACHMENT SLICE SHIPPED on dev-altair)
+
+- **What landed** (see `09` §11 + `changelog.md` for the full list): the
+  attachment model (`ChatAttachment` per `ChatThread`, granularity on the
+  attachment), the cumulative four-value cut (`domains/granularity.ts`), four
+  chapter levels with a real resolver + sealing rule, compiler rewritten to
+  `{attachments, chapters}` (no graph/distance/pins/radius/ancestors/culling),
+  mirror as the steering wheel (granularity controls + `[+]` picker), chapter
+  rows with the same control, `Chat | Artifacts` swap with a full library
+  (Folders|Graph lenses), artifact detail attach control, keyPoints +
+  topicShiftReason + `resolution` + `opticalMode` + `getArtifactTokenVariants`
+  deleted, `ArtifactFolderTree` deleted.
+- **Two code findings that changed the work** (worth keeping):
+  1. The model's `<topic_shift>` already carried both `abstract` and `summary`;
+     the first was filed as `topicShiftReason` (rendered as a "Shift" chip) and
+     the second was thrown away. A new chapter can therefore be born with a
+     description — no extra call.
+  2. The in-turn-vs-attachment duplication problem (§1c open #1) does **not**
+     exist in this codebase: stored turns are demuxed clean, so the model's
+     `<artifact_upsert>` XML never survives into the transcript. Attach-on-
+     extraction therefore needs no suppression mechanic. The problem returns
+     only if we decide the raw chunk should stay in the transcript.
+- **Decisions taken inside the slice** (David pre-approved the shape, these are
+  the joints I had to pick): full = cumulative cut (he confirmed Option A
+  explicitly); chat keeps showing turns with an honest strip when a chapter is
+  sent below full (chapter body rendering its cut was rejected — legacy
+  chapters may have no summary, which would hide content behind nothing);
+  scale of the "description" producer = the model's topic-shift sentence.
+- **Gates:** tsc clean · **111/111** · evidence GREEN 13/13, 0 geometry, 0
+  errors. Pack: `evidence/2026-10-19T22-24-59/` (gitignored).
+- **Open, in TODO.md:** chapters have no summary until someone presses
+  Summarize (auto-on-seal undecided); import/extraction prompts don't state the
+  cut contract; model picker still exists though "no model selection" was
+  decided; detail modal only edits the body; no detach (accepted).
+- **Not touched:** over-budget degradation, tokenCeiling setter, keyPoints
+  (now deleted — item closed), 24px pass, OpenRouter, email, reorder (still
+  deferred with its worm list in 09 §5), presets/auto-pull (Mode 2).
+
+
 ## State (2026-10-19, ~09:45 — dev-orion studied (read-only) → `09_` rewritten as r2)
 
 - **Overlap check done (David prompted it):** `dev-orion` (tip `519b8ce`, 8

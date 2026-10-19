@@ -1,7 +1,15 @@
 # CONTEXT COMPILER SPECIFICATION (`CONTEXT_COMPILER.md`)
 
-> Reframed 2026-10-17: this is an **implementation spec** for the current
-> compiler (code: `src/domains/03-optical-compiler/`). The algorithm is a
+> **SUPERSEDED 2026-10-19 (attachment model).** Distance-graded resolution,
+> tiers, pins, radius, ancestors and culling are **gone**. The compiler now
+> emits exactly (a) this chat's attachments at their own granularity and
+> (b) this chat's chapters at theirs. Vocabulary: `TERMINOLOGY.md` §0.
+> Shipped behavior: `09_CHAT_ARTIFACTS_PAYLOAD.md` §11 + the code and its
+> tests. Everything below that describes tiers/distances/reasons is history,
+> kept so the old shape can be recognised if it tries to come back.
+>
+> ~~Reframed 2026-10-17~~: this *was* an implementation spec for the compiler
+> (code: `src/domains/03-optical-compiler/`). The algorithm is a
 > current choice, not doctrine. "Optical" is a historical codename matching the
 > directory; the camera analogy is explained exactly once, in
 > `00_core_philosophy_soul.md` §5 — don't extend it.

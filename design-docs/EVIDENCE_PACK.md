@@ -88,8 +88,12 @@ For every interactive element (`button, a[href], input, textarea, select,
 |---|---|
 | **occluded** — center point lands on a *different control* (not a full-bleed backdrop) | fail |
 | **partial-coverage** — fewer than 6 of 9 sampled points clickable | fail |
-| **touch-too-small** — min dimension < 16px | fail |
-| **touch-small** — min dimension < 24px (WCAG 2.5.8 AA) | warn |
+| **touch-too-small** — min dimension < 12px | fail |
+| **touch-small** — min dimension < 16px (project thresholds, David 2026-10-19) | warn |
+
+Touch-target rule (current, since 2026-10-19): **min dimension <12px = fail,
+<16px = warn** — a deliberate relaxation of WCAG 2.5.8's 16/24 cutoffs, decided
+by David 2026-10-19 for a more lenient audit.
 | **control-overlap** — intersection > 25% of the smaller of two foreground targets | fail |
 
 Elements *behind* a full-bleed overlay (modal backdrop, open mobile drawer
@@ -179,11 +183,20 @@ Found the hard way while building this — each is now a design decision, not a 
 Produced by the runner — the reference example of what a pack flags;
 **re-check the latest pack rather than trusting this list**:
 
+> **Thresholds changed 2026-10-19** (David): touch-target rule is now
+> **fail <12px, warn <16px** (was fail <16, warn <24 per WCAG 2.5.8). The
+> findings below were measured under the **old** rules and are kept factual
+> as a historical reference; under the current rule most of them would no
+> longer flag.
+
 - **fail · graph toolbar target sizes (768×1024)** — `Pin` 11px, `Connect Edge`
-  13px, `Pull node into context` / `Inspect specification` 12px (`< 16px` hard min).
+  13px, `Pull node into context` / `Inspect specification` 12px (`< 16px` hard min
+  under the old rule; only `Pin` 11px would still fail today).
 - **fail · mirror `RAW PAYLOAD (LITERAL)` toggle 13px** (768 + 1440).
 - **62 warns** across the matrix: interactive targets between 16–24px
-  (WCAG 2.5.8 AA wants ≥ 24) — chat icon rows, sidebar accordions, etc.
+  (WCAG 2.5.8 AA wants ≥ 24 — the rule in force when measured) — chat icon
+  rows, sidebar accordions, etc. Under the current 12/16 rule these would not
+  warn.
 
 Everything else: journeys 13/13, zero warnings, no console/page/http errors,
 no occlusion fails, no control-overlap fails at any viewport, mobile 350/390 clean.

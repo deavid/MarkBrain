@@ -698,7 +698,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                         e.stopPropagation();
                         onToggleFocus(art.id);
                       }}
-                      className={`p-1 rounded transition-colors cursor-pointer ${
+                      className={`p-1 flex items-center justify-center min-w-[30px] min-h-[30px] rounded transition-colors cursor-pointer ${
                         isFocal
                           ? 'text-[#38bdf8] bg-[#0c1f30]'
                           : 'text-[#4e6382] hover:text-[#9bb0d1]'
@@ -741,7 +741,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                     e.stopPropagation();
                     setLinkingSourceNode(node);
                   }}
-                  className="flex items-center gap-1 p-1 rounded hover:bg-[#1a263b] text-[#9bb0d1] transition-colors cursor-pointer"
+                  className="flex items-center gap-1 p-1 min-h-[30px] rounded hover:bg-[#1a263b] text-[#9bb0d1] transition-colors cursor-pointer"
                   title="Connect Edge"
                 >
                   <LinkIcon className="w-3 h-3 text-[#5d87b8]" />
@@ -755,7 +755,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                         e.stopPropagation();
                         onToggleFocus(art.id);
                       }}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors cursor-pointer border ${
+                      className={`px-1.5 py-0.5 flex items-center justify-center min-h-[30px] rounded text-[10px] font-mono transition-colors cursor-pointer border ${
                         isFocal
                           ? 'bg-[#0f2438] text-[#38bdf8] border-[#1d4c73]'
                           : 'bg-[#121c2d] text-[#7d93b3] hover:text-[#eef4fc] border-[#1a273e]'
@@ -772,7 +772,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                         e.stopPropagation();
                         if (art) onSelectArtifact(art);
                       }}
-                      className="px-2 py-0.5 rounded bg-[#1e2a3f] hover:bg-[#283854] text-[#8ab1e0] text-[10px] font-medium border border-[#263752] transition-colors cursor-pointer"
+                      className="px-2 py-0.5 flex items-center justify-center min-h-[30px] rounded bg-[#1e2a3f] hover:bg-[#283854] text-[#8ab1e0] text-[10px] font-medium border border-[#263752] transition-colors cursor-pointer"
                       title="Inspect specification"
                     >
                       Spec

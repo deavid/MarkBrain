@@ -30,8 +30,10 @@ const VIEWPORTS = [
   { w: 1440, h: 900, name: '1440x900' }, // desktop
 ];
 const DESKTOP = new Set(['768x1024', '1440x900']);
-const MIN_TOUCH = 24;    // WCAG 2.5.8 (target size, AA: 24px min)
-const HARD_MIN = 16;
+// Touch-target thresholds: min dimension <12px = fail, <16px = warn
+// (project thresholds, David 2026-10-19; superseded WCAG 2.5.8 16/24).
+const MIN_TOUCH = 16;
+const HARD_MIN = 12;
 const COVERAGE_MIN_HITS = 6; // of 9 sampled points
 const OVERLAP_RATIO = 0.25;  // fail if intersection > 25% of smaller target
 

@@ -11,3 +11,6 @@ firebase-applet-config.json
 .aistudio/
 catall.sh
 test-domains.ts
+
+# Evidence packs (scripts/evidence.cjs — machine-gathered, LLM-screened)
+evidence/

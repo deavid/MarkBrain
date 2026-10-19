@@ -81,6 +81,7 @@ network/storage layer, Firestore held so nothing real is touched:
 
 ```bash
 npm i --prefix /tmp/pw playwright-core    # one-time
+node scripts/evidence.cjs                 # ★ full evidence pack: journey suite + geometry audit
 node scripts/headless-capture.cjs         # → chat/graph/mobile PNGs (fixture mode, offline)
 node scripts/headless-capture.cjs --real  # real-data mode: live auth + live Firestore reads, writes no-op
 node scripts/roundtrip-test.cjs           # acceptance: export → fresh browser → import → same UI
@@ -90,6 +91,29 @@ node scripts/delete-test.cjs              # acceptance: project deletion + confi
 Mechanics, gotchas, selector map, and caveats: **[`design-docs/AGENT_RUNBOOK.md`](design-docs/AGENT_RUNBOOK.md)**.
 One rule to remember: capture/test runs are strictly **serial** — one
 Chromium at a time (parallel runs OOM-killed the agent; see runbook).
+
+### Testing methodology
+
+Three layers, cheapest gate first:
+
+1. **`bunx tsc --noEmit`** — type gate.
+2. **`bunx vitest run`** (`src/tests/`) — unit/journey logic: domain behavior,
+   selectors, persistence codecs, stream telemetry contracts.
+3. **`node scripts/evidence.cjs`** — *browser evidence pack* for anything the
+   first two can't see: a deterministic 13-journey Playwright suite (send/
+   stream/stop, split, summarize, threads, mirror, graph, export/import, model
+   picker, mobile, forced-error retry) plus a geometry/occlusion audit across
+   4 viewports (min phone 350 → desktop). It writes
+   `evidence/<timestamp>/` — `summary.json` (failures first), checkpoint
+   screenshots, annotated failure clips, step logs — for **LLM or human
+   screening** instead of manual browsing. No image comparison, no LLM inside
+   the runner. Pack format, screener contract, and current known findings:
+   **[`design-docs/EVIDENCE_PACK.md`](design-docs/EVIDENCE_PACK.md)**.
+
+Journeys activate handlers via JS clicks and let the audit own hit-testing, so
+"the flow works" and "the target is clickable" are judged independently.
+Evidence packs are gitignored (`evidence/`); only the harness and its contract
+are committed.
 
 ## Design docs map
 
@@ -105,4 +129,5 @@ Chromium at a time (parallel runs OOM-killed the agent; see runbook).
 | `STREAM_PROTOCOL.md` | chat streaming protocol |
 | `MOBILE_UX_SPEC.md` | mobile constraints & shipped chrome |
 | `AGENT_RUNBOOK.md` | run/mock/screenshot rig for agents |
+| `EVIDENCE_PACK.md` | browser testing methodology — evidence packs: journey suite + geometry audit + LLM screener contract |
 | `scratch/` | charter, ground-truth motivation, corrections, pending list |

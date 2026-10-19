@@ -104,6 +104,24 @@
 - **"I can't LGTM anything like this" = the report failed, not him.** If he
   can't answer in one sitting, rewrite — don't defend.
 
+## Anomaly budget + overlap check (David, 2026-10-18 21:45 post-mortem — "why did you spend so many tokens on nothing?")
+
+- **One finding = one discriminating test.** During the visual review the
+  empty edge-label chip consumed ~6 probe rounds (DOM dumps, fontconfig,
+  second browser). Probe #1 already proved "plain app-less SVG text fails too
+  → not our code." That verdict ENDS the task: note "rig environment
+  artifact," report, move on. Root-cause chasing past the verdict is
+  curiosity on David's budget — stop or ask first.
+- **Investigation loops ≥2 probes in MY context are wrong by default.**
+  Cap, report interim, or delegate the probe loop to a subagent. "Protect
+  your context / stay high level" applies to debugging, not just edits.
+- **Overlap check before deep work:** he runs parallel persona conversations;
+  sessions are blind to each other. The whole visual review was finished in
+  ANOTHER conversation while I ground on. Before sinking into a task:
+  "is another conversation already on this?" — one cheap question.
+- **Finish-ability test:** if the verdict was reachable 2 probes ago, every
+  probe since was me optimizing for certainty instead of for finishing.
+
 ## Instrumentation law (David, 2026-10-18)
 
 - **1 event per human action = guideline** (aspirational target).

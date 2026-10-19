@@ -385,6 +385,54 @@ async function main() {
   // Stage 1: chat / dialogue view (default).
   await shot('chat-view');
 
+  // Stage 1b–1e (--full only): interactive surfaces — mirror, artifact
+  // detail, thread switcher, export modal. One browser, serial, each stage
+  // best-effort (failure logged, journey continues) per the OOM law.
+  if (process.argv.includes('--full')) {
+    // 1b: mirror (tap orb → MirrorPanel — the pillar surface).
+    try {
+      await page.locator('[title*="tap to see what the LLM will see"]').first().click({ timeout: 5000 });
+      await page.waitForTimeout(1500);
+      await shot('mirror');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+    } catch (e) { log('mirror shot failed:', String(e).slice(0, 200)); }
+
+    // 1c: artifact detail modal (default = Rendered markdown).
+    try {
+      await page.getByText('Fixture Artifact Alpha', { exact: false }).first().click({ timeout: 5000 });
+      await page.waitForTimeout(1500);
+      await shot('artifact-detail');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+    } catch (e) { log('artifact modal shot failed:', String(e).slice(0, 200)); }
+
+    // 1d: thread switcher (Ctrl+K / Cmd+K).
+    try {
+      await page.keyboard.press('Control+k');
+      await page.waitForTimeout(1000);
+      await shot('thread-switcher');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+    } catch (e) { log('switcher shot failed:', String(e).slice(0, 200)); }
+
+    // 1e: export modal (sidebar I/O accordion starts CLOSED → expand, then
+    // Export; the block is below the fold → scroll both).
+    try {
+      const ioHeader = page.getByText('Import / Export I/O', { exact: false }).first();
+      await ioHeader.scrollIntoViewIfNeeded({ timeout: 4000 });
+      await ioHeader.click({ timeout: 4000 });
+      await page.waitForTimeout(500);
+      const exportBtn = page.getByRole('button', { name: 'Export', exact: true }).first();
+      await exportBtn.scrollIntoViewIfNeeded({ timeout: 4000 });
+      await exportBtn.click({ timeout: 5000 });
+      await page.waitForTimeout(1500);
+      await shot('export-modal');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+    } catch (e) { log('export modal shot failed:', String(e).slice(0, 200)); }
+  }
+
   // Stage 2: spatial graph view.
   try {
     await page.getByText('Spatial Graph', { exact: false }).first().click({ timeout: 5000 });

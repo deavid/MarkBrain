@@ -25,8 +25,8 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     return this.chapters.find((c) => c.status === 'active') || this.chapters[this.chapters.length - 1] || null;
   }
 
-  declareNewChapter(title: string, startIndex: number, reason?: string, color?: string): ChapterPartition {
-    logger.info('Segmentation', `Declare new chapter "${title}" at turn #${startIndex}`, { reason, color });
+  declareNewChapter(title: string, startIndex: number, reason?: string): ChapterPartition {
+    logger.info('Segmentation', `Declare new chapter "${title}" at turn #${startIndex}`, { reason });
     // Close existing active chapter
     this.chapters.forEach((c) => {
       if (c.status === 'active') {
@@ -42,7 +42,6 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
       status: 'active',
       startIndex,
       topicShiftReason: reason,
-      color,
       createdAt: Date.now(),
     };
 
@@ -51,7 +50,7 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     return newChapter;
   }
 
-  splitChapter(chapterId: string, splitIndex: number, newTitle: string): ChapterPartition {
+  splitChapter(chapterId: string, splitIndex: number, newTitle: string, reason?: string): ChapterPartition {
     const targetIdx = this.chapters.findIndex((c) => c.id === chapterId);
     if (targetIdx === -1) throw new Error(`Chapter ${chapterId} not found`);
 
@@ -60,13 +59,19 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     target.endIndex = splitIndex;
     target.status = 'completed';
 
+    // A stale/absent end (the ongoing rule runs the last chapter to the latest
+    // turn regardless of endIndex) means the new chapter owns the tail — never
+    // an end at/before its start, which would slice to an empty/inverted window.
+    const newEnd = prevEnd !== undefined && prevEnd > splitIndex ? prevEnd : undefined;
+
     const newChapter: ChapterPartition = {
       id: `chap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       workspaceId: this.workspaceId,
       title: newTitle,
-      status: prevEnd === undefined ? 'active' : 'completed',
+      status: newEnd === undefined ? 'active' : 'completed',
       startIndex: splitIndex,
-      endIndex: prevEnd,
+      endIndex: newEnd,
+      topicShiftReason: reason,
       createdAt: Date.now(),
     };
 

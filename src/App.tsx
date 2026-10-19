@@ -27,7 +27,8 @@ import { chatCancel, titleThread, models as fetchModels } from './gateway/api';
 
 // Feature-slice modules — handlers/projections extracted from this file
 import { useOpticalContext } from './ui/context/useOpticalContext';
-import { useProjectProjection } from './ui/workspace/useProjectProjection';
+import { groupTurnsByChapter } from './domains/02-chapter-segmentation';
+import type { ProjectExportInput } from './utils/tokenCalculator';
 import { createWorkspaceHandlers } from './ui/workspace/createWorkspaceHandlers';
 import { useDatabaseTransfer } from './ui/workspace/useDatabaseTransfer';
 import { createArtifactHandlers } from './ui/artifacts/createArtifactHandlers';
@@ -207,18 +208,29 @@ export default function App() {
     tick,
   });
 
-  // Project list + active Project model snapshots → ui/workspace slice
-  const { domainProjectsList, activeProject } = useProjectProjection({
-    workspace,
-    artifactsDomain,
-    segmentation,
-    timeline,
-    graph,
-    activeProjectId,
-    currentContainer,
-    selectedModel,
-    tick,
-  });
+  // Domain reads + selectors — NO projection layer (08_UNIFIED_DATA_MODEL.md D6).
+  // tick re-derives after domain events; shapes below are domain types and the
+  // chapter-turns selector output, so the mirror/compiler read the same bytes.
+  const domainProjectsList = workspace.listProjects();
+  const projectMeta = currentContainer?.metadata ?? {
+    id: activeProjectId || 'default-workspace',
+    name: 'Untitled Project',
+    codeName: 'IDEAS',
+    description: 'A space for thinking out loud.',
+    color: '#3b82f6',
+    createdAt: 0,
+    updatedAt: 0,
+  };
+  const chapterGroups = groupTurnsByChapter(timeline, segmentation, projectMeta.id);
+  const domainArtifacts = artifactsDomain.listArtifacts();
+  const domainEdges = graph.listEdges();
+  void tick; // re-render trigger for domain events
+  const activeProjectExport: ProjectExportInput = {
+    meta: projectMeta,
+    artifacts: domainArtifacts,
+    chapters: chapterGroups,
+    edges: domainEdges,
+  };
 
   // Artifact CRUD / pin & tier overrides / import landing / Phase-3 triage
   // → ui/artifacts slice (same handler names ChatView/Sidebar/modals already bind)
@@ -244,14 +256,14 @@ export default function App() {
   });
 
   // Session lives at App level: closing ImportModal keeps the queue processing.
-  const importSession = useImportSession(activeProject, handleImportArtifact);
+  const importSession = useImportSession(projectMeta, handleImportArtifact);
 
   // Graph node/edge handlers → ui/graph slice
   const { handleUpdateNodePosition, handleBatchUpdateNodePositions, handleAddEdge } =
     createGraphHandlers({ artifactsDomain, graph });
 
-  // Chapter declare/summarize/compression handlers → ui/chat slice
-  const { handleDeclareChapter, handleSummarizeChapter, handleToggleChapterCompressionMode } =
+  // Chapter declare/summarize handlers → ui/chat slice
+  const { handleDeclareChapter, handleSummarizeChapter } =
     createChapterHandlers({ timeline, segmentation });
 
   // ── Publish deps for application/sendQueue.ts ──────────────────────────────
@@ -288,7 +300,7 @@ export default function App() {
     getContext: () => ({
       model: selectedModel,
       projectId: activeProjectId,
-      projectTitle: activeProject.name,
+      projectTitle: projectMeta.name,
       focalIds: focalArtifactIds,
       opticalMode,
       tokenCeiling: currentContainer?.tokenCeiling || 32000,
@@ -360,7 +372,9 @@ export default function App() {
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen((prev) => !prev)}
         projects={domainProjectsList}
-        activeProject={activeProject}
+        activeProject={projectMeta}
+        artifacts={domainArtifacts}
+        tokenCeiling={currentContainer?.tokenCeiling || 32000}
         onSelectProject={(p) => workspace.setActiveProject(p.id)}
         selectedModel={selectedModel}
         availableModels={availableModels}
@@ -425,7 +439,9 @@ export default function App() {
           {activeView === 'graph' ? (
             <div className="w-full h-full min-h-0 flex-1 relative flex flex-col">
               <SpatialGraph
-                project={activeProject}
+                projectId={projectMeta.id}
+                artifacts={domainArtifacts}
+                edges={domainEdges}
                 onSelectArtifact={(art) => {
                   logger.action('App', `Spatial graph artifact selected: ${art.id}`);
                   setSelectedArtifactId(art.id);
@@ -450,7 +466,8 @@ export default function App() {
                 onOpenServerLogs={() => setIsServerLogsOpen(true)}
               >
                 <ChatView
-                  project={activeProject}
+                  project={projectMeta}
+                  chapters={chapterGroups}
                   onSendMessage={handleSendMessage}
                   isLoading={isChatLoading}
                   streamingStatus={isChatLoading ? streamingStatus : null}
@@ -468,7 +485,6 @@ export default function App() {
                   onOpenServerLogs={() => setIsServerLogsOpen(true)}
                   onAddArtifactToProject={handleAddArtifact}
                   onSummarizeChapter={handleSummarizeChapter}
-                  onToggleChapterCompressionMode={handleToggleChapterCompressionMode}
                   onDeclareChapter={handleDeclareChapter}
                   onNavigateToGraph={() => {
                     logger.action('App', 'Navigate from chat to graph view');
@@ -515,8 +531,8 @@ export default function App() {
               setIsMirrorOpen(false);
             }}
             compiled={compiledContext}
-            artifacts={activeProject.artifacts}
-            chapters={activeProject.chapters}
+            artifacts={domainArtifacts}
+            chapters={chapterGroups}
             ceiling={ambientTelemetry.ceiling}
           />
         </div>
@@ -566,7 +582,8 @@ export default function App() {
       {/* Import Modal */}
       {isImportOpen && (
         <ImportModal
-          project={activeProject}
+          project={projectMeta}
+          artifacts={domainArtifacts}
           onClose={() => setIsImportOpen(false)}
           onImportArtifact={handleAddArtifact}
           session={importSession}
@@ -581,7 +598,7 @@ export default function App() {
       {/* Revision triage modal (Phase 3 — post-import duplicate/flag resolution) */}
       {triageFocusId !== null && (
         <RevisionTriageModal
-          artifacts={activeProject.artifacts}
+          artifacts={domainArtifacts}
           focusId={triageFocusId}
           onClose={() => {
             logger.action('App', 'Close revision triage');
@@ -597,7 +614,7 @@ export default function App() {
       {isExportOpen && (
         <ExportModal
           projects={domainProjectsList}
-          activeProject={activeProject}
+          activeProject={activeProjectExport}
           onClose={() => setIsExportOpen(false)}
         />
       )}
@@ -605,7 +622,7 @@ export default function App() {
       {/* Full-Screen Artifact Detail Modal */}
       {selectedArtifactId && (
         (() => {
-          const art = activeProject.artifacts.find((a) => a.id === selectedArtifactId);
+          const art = domainArtifacts.find((a) => a.id === selectedArtifactId);
           if (!art) return null;
           return (
             <ArtifactDetailModal

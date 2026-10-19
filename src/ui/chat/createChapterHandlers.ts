@@ -1,4 +1,5 @@
 import type { DomainContextValue } from '../../domains/DomainRegistry';
+import { isChapterOngoing } from '../../domains/02-chapter-segmentation';
 import { summarizeChapter } from '../../gateway/api';
 import { logger } from '../../utils/logger';
 
@@ -7,20 +8,53 @@ export interface ChapterHandlerParams {
   segmentation: DomainContextValue['segmentation'];
 }
 
-// Chapter declare/summarize/compression handlers — moved verbatim from App.tsx.
+// Chapter declare/summarize handlers.
 export function createChapterHandlers(params: ChapterHandlerParams) {
   const { timeline, segmentation } = params;
 
-  // Declare New Chapter
-  const handleDeclareChapter = (
-    _messageId: string,
-    title: string
-  ) => {
-    const currentTurnsCount = timeline.count();
-    segmentation.declareNewChapter(title, currentTurnsCount, 'User split chapter boundary');
+  // Declare New Chapter — the split happens AT the clicked message. The
+  // button promises "Split into new chapter starting at this message", so the
+  // clicked turn becomes the FIRST turn of the new chapter (never a chapter
+  // spawned at the thread end while the clicked spot does nothing).
+  const handleDeclareChapter = (messageId: string, title: string) => {
+    const splitIndex = timeline.getTurns().findIndex((t) => t.id === messageId);
+    if (splitIndex === -1) {
+      logger.warn('App', `Split chapter: message ${messageId} not found in timeline — ignored`);
+      return;
+    }
+
+    // The chat surface can render a synthesized genesis window (no registered
+    // chapters yet) — materialize it so there is a real chapter to split and
+    // the messages before the click stay owned by a window.
+    if (segmentation.listChapters().length === 0) {
+      segmentation.declareNewChapter('Genesis Chapter', 0);
+    }
+
+    const chapters = segmentation.listChapters();
+    // Locate the chapter whose window contains the click. Containment mirrors
+    // the selector rule (02-chapter-segmentation/selectors): an ongoing
+    // chapter — active or last in the list — runs to the latest turn.
+    let targetIdx = -1;
+    for (let i = 0; i < chapters.length; i++) {
+      if (chapters[i].startIndex <= splitIndex) targetIdx = i;
+      else break; // chapters are ordered by startIndex
+    }
+    if (targetIdx === -1) {
+      logger.warn('App', `Split chapter: no chapter starts at/before turn ${splitIndex} — ignored`);
+      return;
+    }
+    const target = chapters[targetIdx];
+    const ongoing = isChapterOngoing(chapters, targetIdx);
+    if (!ongoing && target.endIndex !== undefined && splitIndex >= target.endIndex) {
+      logger.warn('App', `Split chapter: turn ${splitIndex} lies outside chapter ${target.id} — ignored`);
+      return;
+    }
+
+    segmentation.splitChapter(target.id, splitIndex, title, 'User split chapter boundary');
   };
 
-  // Summarize Chapter
+  // Summarize Chapter — the server returns summary + keyPoints; both go
+  // through to the domain (keyPoints used to be discarded at this writer).
   const handleSummarizeChapter = async (chapterId: string) => {
     const target = segmentation.getChapter(chapterId);
     if (!target) {
@@ -39,23 +73,18 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
         throw new Error(`summarize-chapter HTTP ${res.status}${errBody?.error ? `: ${errBody.error}` : ''}`);
       }
       const data = await res.json();
-      segmentation.updateSummary(chapterId, data.summary);
+      segmentation.updateSummary(
+        chapterId,
+        data.summary,
+        Array.isArray(data.keyPoints) ? data.keyPoints : undefined
+      );
     } catch (err) {
       logger.error('App', `Failed to summarize chapter ${chapterId}`, err);
     }
   };
 
-  // Toggle Chapter Compression
-  const handleToggleChapterCompressionMode = (
-    _chapterId: string,
-    _mode: 'summary' | 'full' | 'dropped'
-  ) => {
-    // Retained for component contract compatibility
-  };
-
   return {
     handleDeclareChapter,
     handleSummarizeChapter,
-    handleToggleChapterCompressionMode,
   };
 }

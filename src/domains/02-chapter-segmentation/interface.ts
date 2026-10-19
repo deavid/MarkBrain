@@ -7,8 +7,8 @@ export interface IChapterSegmentationDomain {
   getActiveChapter(): ChapterPartition | null;
 
   // Commands
-  declareNewChapter(title: string, startIndex: number, reason?: string, color?: string): ChapterPartition;
-  splitChapter(chapterId: string, splitIndex: number, newTitle: string): ChapterPartition;
+  declareNewChapter(title: string, startIndex: number, reason?: string): ChapterPartition;
+  splitChapter(chapterId: string, splitIndex: number, newTitle: string, reason?: string): ChapterPartition;
   shiftBoundary(chapterId: string, newStartIndex: number): void;
   updateSummary(chapterId: string, summary: string, keyPoints?: string[]): void;
   closeChapter(chapterId: string): void;

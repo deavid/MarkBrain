@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Project, Artifact, ResolutionTier, TierReason } from '../../types';
+import { Artifact, ResolutionTier, TierReason } from '../../types';
 import { isFlaggedArtifact } from '../../utils/importDetect';
 import {
   Folder,
@@ -60,7 +60,7 @@ const REASON_BADGE: Record<
 };
 
 interface ArtifactFolderTreeProps {
-  project: Project;
+  artifacts: Artifact[];
   selectedArtifactId?: string | null;
   onSelectArtifact: (art: Artifact) => void;
   onToggleFocus?: (artId: string) => void;
@@ -79,7 +79,7 @@ interface ArtifactFolderTreeProps {
 }
 
 export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
-  project,
+  artifacts,
   selectedArtifactId,
   onSelectArtifact,
   onToggleFocus,
@@ -105,8 +105,8 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
 
   // Phase 2: artifacts auto-flagged as possible re-imports (revision-of/duplicate-of)
   const flaggedCount = useMemo(
-    () => project.artifacts.filter(isFlaggedArtifact).length,
-    [project.artifacts]
+    () => artifacts.filter(isFlaggedArtifact).length,
+    [artifacts]
   );
 
   const toggleFolder = (folderName: string) => {
@@ -118,7 +118,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
     const ids = new Set<string>();
     // An artifact is in context if its tier is assigned (0, 1, 2, 3) and not 'culled',
     // or if it is in focalIds
-    project.artifacts.forEach((art) => {
+    artifacts.forEach((art) => {
       const tierInfo = nodeTiers[art.id];
       if (focalIds.includes(art.id)) {
         ids.add(art.id);
@@ -127,11 +127,11 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
       }
     });
     return ids;
-  }, [project.artifacts, nodeTiers, focalIds]);
+  }, [artifacts, nodeTiers, focalIds]);
 
   // Filter and group artifacts
   const filteredArtifacts = useMemo(() => {
-    return project.artifacts.filter((art) => {
+    return artifacts.filter((art) => {
       // 1. Text filter
       if (filterText.trim()) {
         const q = filterText.toLowerCase();
@@ -156,7 +156,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
       }
       return true;
     });
-  }, [project.artifacts, filterText, contextFilter, revisionsOnly, inContextArtifactIds]);
+  }, [artifacts, filterText, contextFilter, revisionsOnly, inContextArtifactIds]);
 
   // Group by category
   const groupedArtifacts = useMemo(() => {
@@ -209,7 +209,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                 : 'bg-[#070b12] text-[#6b82a3] hover:text-[#9bb0d1]'
             }`}
           >
-            All ({project.artifacts.length})
+            All ({artifacts.length})
           </button>
           <button
             onClick={() => setContextFilter('in_context')}
@@ -229,7 +229,7 @@ export const ArtifactFolderTree: React.FC<ArtifactFolderTreeProps> = ({
                 : 'bg-[#070b12] text-[#6b82a3] hover:text-[#9bb0d1]'
             }`}
           >
-            Out ({project.artifacts.length - inContextArtifactIds.size})
+            Out ({artifacts.length - inContextArtifactIds.size})
           </button>
           <button
             onClick={() => setRevisionsOnly((v) => !v)}

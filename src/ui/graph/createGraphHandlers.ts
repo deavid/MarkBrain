@@ -1,19 +1,20 @@
 import type { DomainContextValue } from '../../domains/DomainRegistry';
-import type { GraphEdge } from '../../types';
+import type { RelationKind } from '../../types';
 
 export interface GraphHandlerParams {
   artifactsDomain: DomainContextValue['artifacts'];
   graph: DomainContextValue['graph'];
 }
 
-// Graph node/edge handlers — moved verbatim from App.tsx.
+// Graph node/edge handlers. Ids arrive as ARTIFACT ids — the view-local
+// `node-` prefix convention lives inside SpatialGraph (it never leaks here),
+// and the edge kind is already a valid open-vocabulary RelationKind (D5).
 export function createGraphHandlers(params: GraphHandlerParams) {
   const { artifactsDomain, graph } = params;
 
   // Node position handlers
-  const handleUpdateNodePosition = (nodeId: string, x: number, y: number) => {
-    const artId = nodeId.replace(/^node-/, '');
-    const art = artifactsDomain.getArtifact(artId);
+  const handleUpdateNodePosition = (artifactId: string, x: number, y: number) => {
+    const art = artifactsDomain.getArtifact(artifactId);
     if (art) {
       artifactsDomain.upsertArtifact({
         ...art,
@@ -29,20 +30,18 @@ export function createGraphHandlers(params: GraphHandlerParams) {
   };
 
   const handleBatchUpdateNodePositions = (
-    updates: Array<{ nodeId: string; x: number; y: number }>
+    updates: Array<{ artifactId: string; x: number; y: number }>
   ) => {
     updates.forEach((u) => {
-      handleUpdateNodePosition(u.nodeId, u.x, u.y);
+      handleUpdateNodePosition(u.artifactId, u.x, u.y);
     });
   };
 
-  // Add Edge
-  const handleAddEdge = (edge: GraphEdge) => {
-    const sArtId = edge.sourceNodeId ? edge.sourceNodeId.replace(/^node-/, '') : '';
-    const tArtId = edge.targetNodeId ? edge.targetNodeId.replace(/^node-/, '') : '';
-
-    if (sArtId && tArtId) {
-      graph.addEdge(sArtId, tArtId, (edge.label as any) || 'relates_to', edge.strength || 1.0);
+  // Add Edge — kind is open-vocabulary (KNOWN_RELATION_KINDS is the suggested
+  // set), so whatever SpatialGraph authors is stored verbatim.
+  const handleAddEdge = (sourceId: string, targetId: string, kind: RelationKind, weight?: number) => {
+    if (sourceId && targetId) {
+      graph.addEdge(sourceId, targetId, kind, weight ?? 1.0);
     }
   };
 

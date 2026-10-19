@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Project } from '../../types';
-import { exportToJSON, exportToMarkdown, exportToYAML } from '../../utils/tokenCalculator';
+import type { ProjectMetadata } from '../../domains/00-workspace/types';
+import {
+  exportToJSON,
+  exportToMarkdown,
+  exportToYAML,
+  type ProjectExportInput,
+} from '../../utils/tokenCalculator';
 import { Download, Copy, Check, X, FileText, Code, FileJson } from 'lucide-react';
 
 interface ExportModalProps {
-  projects: Project[];
-  activeProject: Project;
+  projects: ProjectMetadata[];
+  /** Domain-shaped export payload (App composes it from domain reads + selectors). */
+  activeProject: ProjectExportInput;
   onClose: () => void;
 }
 
@@ -52,7 +58,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${activeProject.codeName}-markbrain-spec.${ext}`;
+    a.download = `${activeProject.meta.codeName || activeProject.meta.id}-markbrain-spec.${ext}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

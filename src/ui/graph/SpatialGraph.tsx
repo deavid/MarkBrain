@@ -1,5 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Project, GraphNode, GraphEdge, Artifact, ResolutionTier } from '../../types';
+import {
+  Artifact,
+  ResolutionTier,
+  SemanticEdge,
+  RelationKind,
+} from '../../types';
 import {
   ZoomIn,
   ZoomOut,
@@ -14,19 +19,47 @@ import {
   FolderTree,
 } from 'lucide-react';
 
+/**
+ * View-local shapes — x/y layout state lives HERE (a view concern), built
+ * from domain inputs (UniversalArtifactDocument[] + SemanticEdge[]). Shared
+ * legacy GraphNode/GraphEdge types are dead (08_UNIFIED_DATA_MODEL.md D5);
+ * the old `node-` id prefix convention died with them — view nodes are keyed
+ * by artifact id, and handlers receive artifact ids.
+ */
+interface ViewNode {
+  id: string; // = artifact id
+  artifact: Artifact;
+  artifactId: string;
+  title: string;
+  type: string;
+  x: number;
+  y: number;
+  tags?: string[];
+}
+
+interface ViewEdge {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  kind: string;
+}
+
 export interface TentativeLink {
   id: string;
-  sourceNode: GraphNode;
-  targetNode: GraphNode;
+  sourceNode: ViewNode;
+  targetNode: ViewNode;
   sharedTags: string[];
 }
 
 interface SpatialGraphProps {
-  project: Project;
+  projectId: string;
+  artifacts: Artifact[];
+  edges: SemanticEdge[];
   onSelectArtifact: (artifact: Artifact) => void;
-  onAddEdge: (edge: GraphEdge) => void;
-  onUpdateNodePosition: (nodeId: string, x: number, y: number) => void;
-  onBatchUpdateNodePositions: (positions: Array<{ nodeId: string; x: number; y: number }>) => void;
+  /** Artifact ids + open-vocabulary kind — whatever this UI authors is a valid kind (mapped below). */
+  onAddEdge: (sourceId: string, targetId: string, kind: RelationKind, weight?: number) => void;
+  onUpdateNodePosition: (artifactId: string, x: number, y: number) => void;
+  onBatchUpdateNodePositions: (positions: Array<{ artifactId: string; x: number; y: number }>) => void;
   focalIds?: string[];
   onToggleFocus?: (artId: string) => void;
   nodeTiers?: Record<string, { tier: ResolutionTier | 'culled'; distance: number }>;
@@ -34,7 +67,9 @@ interface SpatialGraphProps {
 }
 
 export const SpatialGraph: React.FC<SpatialGraphProps> = ({
-  project,
+  projectId,
+  artifacts,
+  edges: domainEdges,
   onSelectArtifact,
   onAddEdge,
   onUpdateNodePosition,
@@ -68,30 +103,44 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
   const physicsFrameRef = useRef<number | null>(null);
 
   // Edge linking mode
-  const [linkingSourceNode, setLinkingSourceNode] = useState<GraphNode | null>(null);
+  const [linkingSourceNode, setLinkingSourceNode] = useState<ViewNode | null>(null);
   const [mouseCanvasPos, setMouseCanvasPos] = useState({ x: 0, y: 0 });
 
   // Selected node
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  const nodes = project.nodes;
-  const edges = project.edges;
+  // View adapter: domain artifacts + edges → x/y view shapes.
+  const nodes: ViewNode[] = useMemo(
+    () =>
+      artifacts.map((art, idx) => ({
+        id: art.id,
+        artifact: art,
+        artifactId: art.id,
+        title: art.title || art.current?.t0_label || 'Untitled',
+        type: art.type,
+        x: art.graph?.x ?? 300 + (idx % 5) * 180,
+        y: art.graph?.y ?? 200 + Math.floor(idx / 5) * 120,
+        tags: art.tags,
+      })),
+    [artifacts]
+  );
+  const edges: ViewEdge[] = useMemo(
+    () =>
+      domainEdges.map((e) => ({
+        id: e.id,
+        sourceId: e.sourceId,
+        targetId: e.targetId,
+        kind: e.kind,
+      })),
+    [domainEdges]
+  );
 
   // Compute tentative cross-links based on shared tags across artifacts/nodes
   const tentativeLinks = useMemo(() => {
-    const results: Array<{
-      id: string;
-      sourceNode: GraphNode;
-      targetNode: GraphNode;
-      sharedTags: string[];
-    }> = [];
+    const results: TentativeLink[] = [];
 
     const existingPairs = new Set(
-      edges.map((e) => {
-        const s = e.sourceNodeId || e.source || '';
-        const t = e.targetNodeId || e.target || '';
-        return `${s}--${t}`;
-      })
+      edges.map((e) => `${e.sourceId}--${e.targetId}`)
     );
 
     for (let i = 0; i < nodes.length; i++) {
@@ -106,10 +155,8 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         }
 
         // Match tags from node.tags or corresponding artifact
-        const art1 = project.artifacts.find((a) => a.id === n1.artifactId);
-        const art2 = project.artifacts.find((a) => a.id === n2.artifactId);
-        const tags1 = (n1.tags || art1?.tags || []).map((t) => t.toLowerCase());
-        const tags2 = (n2.tags || art2?.tags || []).map((t) => t.toLowerCase());
+        const tags1 = (n1.tags || n1.artifact.tags || []).map((t) => t.toLowerCase());
+        const tags2 = (n2.tags || n2.artifact.tags || []).map((t) => t.toLowerCase());
 
         const shared = tags1.filter((t) => tags2.includes(t));
         if (shared.length > 0) {
@@ -123,7 +170,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       }
     }
     return results;
-  }, [nodes, edges, project.artifacts]);
+  }, [nodes, edges]);
 
   // Fit View to nodes (ONLY called when explicitly clicked or on initial load)
   const fitViewToNodes = useCallback(() => {
@@ -169,7 +216,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       initialFitDoneRef.current = true;
       setTimeout(() => fitViewToNodes(), 60);
     }
-  }, [project.id, fitViewToNodes, nodes.length]);
+  }, [projectId, fitViewToNodes, nodes.length]);
 
   // Mouse Wheel Zooming (native scroll wheel)
   const handleWheel = (e: React.WheelEvent) => {
@@ -207,7 +254,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
 
   // Force-Directed Physics Engine (JS animated layout)
   const runPhysicsStep = useCallback(
-    (currentNodes: GraphNode[]): Array<{ nodeId: string; x: number; y: number }> => {
+    (currentNodes: ViewNode[]): Array<{ id: string; x: number; y: number }> => {
       const nodeMap = new Map(currentNodes.map((n) => [n.id, { ...n, vx: 0, vy: 0 }]));
       const kRepulsion = 18000;
       const kSpring = 0.04;
@@ -239,12 +286,8 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
 
       // 2. Attractive spring forces along edges
       for (const edge of edges) {
-        const sId = edge.sourceNodeId || edge.source;
-        const tId = edge.targetNodeId || edge.target;
-        if (!sId || !tId) continue;
-
-        const sNode = nodeMap.get(sId);
-        const tNode = nodeMap.get(tId);
+        const sNode = nodeMap.get(edge.sourceId);
+        const tNode = nodeMap.get(edge.targetId);
         if (!sNode || !tNode) continue;
 
         const dx = tNode.x - sNode.x;
@@ -265,12 +308,12 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       // 3. Apply velocities (excluding currently dragged node)
       return nodeArr.map((n) => {
         if (n.id === draggingNodeId) {
-          return { nodeId: n.id, x: n.x, y: n.y };
+          return { id: n.id, x: n.x, y: n.y };
         }
         const vx = Math.min(Math.max(n.vx * damping, -25), 25);
         const vy = Math.min(Math.max(n.vy * damping, -25), 25);
         return {
-          nodeId: n.id,
+          id: n.id,
           x: Math.round(n.x + vx),
           y: Math.round(n.y + vy),
         };
@@ -287,10 +330,12 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
     const animateStep = () => {
       if (stepsLeft <= 0) return;
       const updates = runPhysicsStep(currentNodesState);
-      onBatchUpdateNodePositions(updates);
+      onBatchUpdateNodePositions(
+        updates.map((u) => ({ artifactId: u.id, x: u.x, y: u.y }))
+      );
 
       currentNodesState = currentNodesState.map((n) => {
-        const match = updates.find((u) => u.nodeId === n.id);
+        const match = updates.find((u) => u.id === n.id);
         return match ? { ...n, x: match.x, y: match.y } : n;
       });
 
@@ -360,7 +405,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
   };
 
   // Node Drag Start Handler
-  const handleNodePointerDown = (e: React.PointerEvent, node: GraphNode) => {
+  const handleNodePointerDown = (e: React.PointerEvent, node: ViewNode) => {
     e.stopPropagation();
     if (linkingSourceNode) {
       handleCompleteEdge(node);
@@ -377,25 +422,15 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
     };
   };
 
-  // Complete Edge connection
-  const handleCompleteEdge = (targetNode: GraphNode) => {
+  // Complete Edge connection — the UI intent "references" maps to the domain
+  // kind 'relates_to' (open vocabulary, KNOWN_RELATION_KINDS is the suggested set).
+  const handleCompleteEdge = (targetNode: ViewNode) => {
     if (!linkingSourceNode || linkingSourceNode.id === targetNode.id) {
       setLinkingSourceNode(null);
       return;
     }
 
-    const newEdge: GraphEdge = {
-      id: `edge-${Date.now()}`,
-      sourceNodeId: linkingSourceNode.id,
-      targetNodeId: targetNode.id,
-      sourceProjectId: project.id,
-      targetProjectId: project.id,
-      label: 'references',
-      isCrossProject: false,
-      type: 'dependency',
-    };
-
-    onAddEdge(newEdge);
+    onAddEdge(linkingSourceNode.id, targetNode.id, 'relates_to');
     setLinkingSourceNode(null);
   };
 
@@ -487,10 +522,8 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       >
         <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
           {edges.map((edge) => {
-            const sId = edge.sourceNodeId || edge.source;
-            const tId = edge.targetNodeId || edge.target;
-            const sourceNode = nodes.find((n) => n.id === sId);
-            const targetNode = nodes.find((n) => n.id === tId);
+            const sourceNode = nodes.find((n) => n.id === edge.sourceId);
+            const targetNode = nodes.find((n) => n.id === edge.targetId);
             if (!sourceNode || !targetNode) return null;
 
             const sx = sourceNode.x + 105;
@@ -528,7 +561,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                   fontSize="9"
                   fontFamily="monospace"
                 >
-                  {edge.label}
+                  {edge.kind}
                 </text>
               </g>
             );
@@ -602,8 +635,8 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       >
         {nodes.map((node) => {
           const isSelected = selectedNodeId === node.id;
-          const art = project.artifacts.find((a) => a.id === node.artifactId);
-          const tags = node.tags || art?.tags || [];
+          const art = node.artifact;
+          const tags = node.tags || art.tags || [];
           const artColor = art?.color || '#5d87b8';
           const tierInfo = art && nodeTiers ? nodeTiers[art.id] : undefined;
           const isInContext = tierInfo ? tierInfo.tier !== 'culled' : false;
@@ -770,8 +803,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
 
           {/* Node tags */}
           {(() => {
-            const art = project.artifacts.find((a) => a.id === selectedNode.artifactId);
-            const tags = selectedNode.tags || art?.tags || [];
+            const tags = selectedNode.tags || selectedNode.artifact.tags || [];
             if (tags.length === 0) return null;
             return (
               <div className="flex flex-wrap gap-1 mb-2.5">
@@ -813,16 +845,8 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                       </div>
                       <button
                         onClick={() => {
-                          onAddEdge({
-                            id: `edge-${Date.now()}-tentative`,
-                            sourceProjectId: project.id,
-                            targetProjectId: project.id,
-                            sourceNodeId: selectedNode.id,
-                            targetNodeId: otherNode.id,
-                            label: `#${tLink.sharedTags[0]}`,
-                            type: 'related',
-                            strength: 0.6,
-                          });
+                          // Shared-tag intent maps to the domain kind 'relates_to'.
+                          onAddEdge(selectedNode.id, otherNode.id, 'relates_to', 0.6);
                         }}
                         className="px-2 py-0.5 rounded bg-[#2b1f14] hover:bg-[#422e1c] text-[#f5c276] border border-[#523311] shrink-0 font-mono text-[9px] font-bold cursor-pointer"
                       >
@@ -838,7 +862,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
           {selectedNode.artifactId && (
             <button
               onClick={() => {
-                const art = project.artifacts.find((a) => a.id === selectedNode.artifactId);
+                const art = selectedNode.artifact;
                 if (art) onSelectArtifact(art);
               }}
               className="w-full py-1.5 bg-[#a33945] hover:bg-[#b8424f] text-white rounded-lg text-xs font-semibold shadow-md transition-colors"

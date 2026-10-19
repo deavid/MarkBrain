@@ -26,9 +26,12 @@ import type { DomainContextValue } from '../domains/DomainRegistry';
 import {
   getMellowPastelColor,
   type Artifact,
+  type ExtractedArtifact,
   type ModelOption,
   type ResolutionTier,
 } from '../types';
+import { estimateTokens } from '../utils/estimateTokens';
+import type { TurnMeta } from '../domains/01-dialogue-timeline/types';
 import { serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 import { logger } from '../utils/logger';
 import { placeholderTitle, sampleTurnsForTitle, titlePipelineStep } from '../domains/06-chat-threads';
@@ -208,8 +211,8 @@ export class SendQueue {
     threadId: string,
     role: 'user' | 'assistant' | 'system',
     content: string,
-    extractedArtifacts?: any[],
-    meta?: any
+    extractedArtifacts?: ExtractedArtifact[],
+    meta?: TurnMeta
   ) {
     if (this.isActiveThread(deps, threadId)) {
       return deps.timeline.appendTurn(role, content, extractedArtifacts, meta);
@@ -219,7 +222,12 @@ export class SendQueue {
     return turn;
   }
 
-  private updateTurnInThread(deps: SendQueueDeps, threadId: string, turnId: string, partial: any) {
+  private updateTurnInThread(
+    deps: SendQueueDeps,
+    threadId: string,
+    turnId: string,
+    partial: { content?: string; extractedArtifacts?: ExtractedArtifact[]; meta?: TurnMeta }
+  ) {
     if (this.isActiveThread(deps, threadId)) deps.timeline.updateTurn(turnId, partial);
     else deps.threadRegistry.updateInactiveTurn(threadId, turnId, partial);
   }
@@ -338,7 +346,7 @@ export class SendQueue {
                 model: status.model || ctx.model.name,
                 isStreaming: true,
                 streamState: status.state,
-                durationMs: status.elapsedMs,
+                latencyMs: status.elapsedMs,
               },
             });
             deps.triggerReRender();
@@ -393,7 +401,7 @@ export class SendQueue {
                 code,
                 title: artTitle,
                 type: u.type === 'chapter' ? 'chapter' : 'document',
-                category: 'note',
+                category: u.type === 'chapter' ? 'chapter' : 'note',
                 color: artColor,
                 isHighConcept: false,
                 current: {
@@ -423,22 +431,25 @@ export class SendQueue {
       );
 
       // Finalize assistant turn with clean reply, extracted artifacts, and real Gemini API telemetry
-      const extractedList = result.artifacts.map((u) => ({
+      const extractedList: ExtractedArtifact[] = result.artifacts.map((u) => ({
+        id: u.id,
         title: u.title,
         type: u.type,
+        code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
+        category: u.type === 'chapter' ? 'chapter' : 'note',
         abstract: u.content.t1_abstract,
         summary: u.content.t2_summary,
         content: u.content.t3_body,
-        highConcept: false,
+        isHighConcept: false,
       }));
 
       const isInterrupted = controller.signal.aborted;
       const estPrompt =
-        result.telemetry?.promptTokens ??
-        Math.max(1, Math.ceil((compiled.compiledPrompt?.length || 0) / 4));
+        result.telemetry?.inputTokens ??
+        Math.max(1, estimateTokens(compiled.compiledPrompt || ''));
       const estCand =
-        result.telemetry?.candidatesTokens ??
-        Math.max(1, Math.ceil(((result.cleanReply || streamedContent)?.length || 0) / 4));
+        result.telemetry?.outputTokens ??
+        Math.max(1, estimateTokens(result.cleanReply || streamedContent || ''));
       const totalTok = result.telemetry?.totalTokens ?? (estPrompt + estCand);
 
       this.updateTurnInThread(deps, threadId, assistantTurnId, {
@@ -453,17 +464,14 @@ export class SendQueue {
         extractedArtifacts: extractedList,
         meta: {
           model: result.telemetry?.model || ctx.model.name,
-          promptTokens: estPrompt,
-          candidatesTokens: estCand,
-          totalTokens: totalTok,
           inputTokens: estPrompt,
           outputTokens: estCand,
-          durationMs: result.telemetry?.durationMs,
+          totalTokens: totalTok,
+          latencyMs: result.telemetry?.latencyMs,
           timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
-          rawMetadata: result.telemetry?.rawMetadata,
+          isFallback: result.telemetry?.isFallback ?? true,
           isStreaming: false,
           streamState: isInterrupted ? 'interrupted' : 'completed',
-          interrupted: isInterrupted,
         },
       });
       deps.threadRegistry.patch(threadId, {
@@ -481,23 +489,18 @@ export class SendQueue {
       if (!isInterrupted) this.maybeRetitle(chain, threadId);
     } catch (err: any) {
       if (err.name === 'AbortError' || controller.signal.aborted) {
-        const estPrompt = Math.max(
-          1,
-          Math.ceil(compiled?.telemetry?.tokenBreakdown?.totalTokens || 120)
-        );
-        const estCand = Math.max(1, Math.ceil((streamedContent?.length || 0) / 4));
+        const estPrompt = Math.max(1, compiled?.telemetry?.tokenBreakdown?.totalTokens || 120);
+        const estCand = Math.max(1, estimateTokens(streamedContent || ''));
         this.updateTurnInThread(deps, threadId, assistantTurnId, {
           content: streamedContent || '',
           meta: {
             model: ctx.model.name,
             isStreaming: false,
             streamState: 'interrupted',
-            interrupted: true,
-            promptTokens: estPrompt,
-            candidatesTokens: estCand,
-            totalTokens: estPrompt + estCand,
             inputTokens: estPrompt,
             outputTokens: estCand,
+            totalTokens: estPrompt + estCand,
+            isFallback: true,
           },
         });
         deps.threadRegistry.patch(threadId, {
@@ -506,7 +509,7 @@ export class SendQueue {
         });
         logger.info('App', 'Turn interrupted by user', {
           threadId,
-          promptTokens: estPrompt,
+          inputTokens: estPrompt,
           partialTokens: estCand,
         });
       } else {

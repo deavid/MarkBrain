@@ -58,10 +58,10 @@ describe('MarkBrain Core User Journeys & Invariants Suite', () => {
         content: 'Completed architectural synthesis.',
         meta: {
           model: 'gemini-3.5-flash-lite',
-          promptTokens: 120,
-          candidatesTokens: 45,
+          inputTokens: 120,
+          outputTokens: 45,
           totalTokens: 165,
-          durationMs: 420,
+          latencyMs: 420,
         },
       });
 
@@ -147,7 +147,7 @@ Let me know if you would like to tune the saturation threshold.
       expect(result.telemetry).toBeDefined();
       expect(result.telemetry!.model).toBe('gemini-3.5-flash-lite');
       // Token counts must be non-zero estimates, never 0 in 0 out
-      expect(result.telemetry!.promptTokens).toBeGreaterThan(0);
+      expect(result.telemetry!.inputTokens).toBeGreaterThan(0);
       expect(result.telemetry!.totalTokens).toBeGreaterThan(0);
     });
   });

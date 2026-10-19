@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, ChevronDown, ChevronUp } from 'lucide-react';
-import { Artifact, Chapter } from '../../types';
-import { estimateTokens, getArtifactTokenVariants } from '../../utils/tokenCalculator';
+import { Artifact, ChapterTurns } from '../../types';
+import { getArtifactTokenVariants } from '../../utils/tokenCalculator';
+import { estimateTokens } from '../../utils/estimateTokens';
 import { computeAmbientColor } from './ambientTelemetry';
 
 /**
@@ -37,7 +38,8 @@ interface MirrorPanelProps {
     nodeTiers: Record<string, { tier: number | 'culled'; distance: number }>;
   };
   artifacts: Artifact[];
-  chapters: Chapter[];
+  /** Chapters with their turns — the shared selector (02-chapter-segmentation/selectors). */
+  chapters: ChapterTurns[];
   ceiling: number;
 }
 
@@ -91,14 +93,21 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   });
   const outCount = artifacts.length - inContext.length;
 
-  // Chapters: same rule as 03-optical-compiler — active/last = full turns,
-  // completed = summary only
-  const chapterRows = chapters.map((c, i) => {
-    const isOngoing = c.status === 'active' || i === chapters.length - 1;
-    const tokens = isOngoing
-      ? c.messages.reduce((n, m) => n + estimateTokens(m.content), 0)
-      : estimateTokens(c.summary || `Recap of ${c.title}.`);
-    return { id: c.id, title: c.title, isOngoing, tokens, turns: c.messages.length, summary: c.summary };
+  // Chapters: same rule/window as 03-optical-compiler (shared selectors) —
+  // ongoing = full turns, completed = summary only. Same estimator too, so
+  // these rows cannot drift from the compiler totals above.
+  const chapterRows = chapters.map(({ chapter, ongoing, turns }) => {
+    const tokens = ongoing
+      ? turns.reduce((n, t) => n + estimateTokens(t.content), 0)
+      : estimateTokens(chapter.summary || `Recap of ${chapter.title}.`);
+    return {
+      id: chapter.id,
+      title: chapter.title,
+      isOngoing: ongoing,
+      tokens,
+      turns: turns.length,
+      summary: chapter.summary,
+    };
   });
 
   return (

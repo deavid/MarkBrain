@@ -1,5 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Project, ChatMessage, Artifact, Chapter, getMellowPastelColor } from '../../types';
+import {
+  Artifact,
+  ChapterTurns,
+  ExtractedArtifact,
+  Turn,
+  getMellowPastelColor,
+} from '../../types';
+import type { ProjectMetadata } from '../../domains/00-workspace/types';
 import {
   Sparkles,
   Send,
@@ -23,7 +30,9 @@ import { ThreadRuntime } from '../../domains/06-chat-threads';
 import { tts } from '../../gateway/api';
 
 interface ChatViewProps {
-  project: Project;
+  project: ProjectMetadata;
+  /** Chapters with their turns — the shared selector (02-chapter-segmentation/selectors). */
+  chapters: ChapterTurns[];
   onSendMessage: (text: string) => Promise<void>;
   isLoading: boolean;
   streamingStatus?: string | null;
@@ -33,10 +42,9 @@ interface ChatViewProps {
   onOpenServerLogs?: () => void;
   onAddArtifactToProject: (artifact: Artifact) => void;
   onSummarizeChapter: (chapterId: string) => Promise<void>;
-  onToggleChapterCompressionMode: (chapterId: string, mode: 'summary' | 'full' | 'dropped') => void;
   onDeclareChapter: (messageId: string, title: string) => void;
   onNavigateToGraph: () => void;
-  onSelectArtifact?: (artifact: Artifact) => void;
+  onSelectArtifact?: (artifact: Artifact | ExtractedArtifact) => void;
   // Thread chrome (06-chat-threads)
   threadTitle?: string;
   threadTitleState?: 'placeholder' | 'auto' | 'manual';
@@ -63,6 +71,7 @@ const CHAPTER_PASTEL_COLORS = [
 
 export const ChatView: React.FC<ChatViewProps> = ({
   project,
+  chapters,
   onSendMessage,
   isLoading,
   streamingStatus,
@@ -71,7 +80,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onOpenServerLogs,
   onAddArtifactToProject,
   onSummarizeChapter,
-  onToggleChapterCompressionMode,
   onDeclareChapter,
   onNavigateToGraph,
   onSelectArtifact,
@@ -92,9 +100,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const heroInputRef = useRef<HTMLTextAreaElement>(null);
   const prevMessagesCountRef = useRef<number>(0);
 
-  // Total messages count across chapters (safe navigation against undefined)
-  const totalMessagesCount = (project.chapters || []).reduce(
-    (acc, chap) => acc + (chap.messages ? chap.messages.length : 0),
+  // Total turn count across chapter windows (safe navigation against undefined)
+  const totalMessagesCount = (chapters || []).reduce(
+    (acc, grp) => acc + (grp.turns ? grp.turns.length : 0),
     0
   );
 
@@ -190,7 +198,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   // TTS Handler with explicit waiting indicator
-  const handlePlayTTS = async (message: ChatMessage) => {
+  const handlePlayTTS = async (message: Turn) => {
     logger.action('ChatView', 'Toggle TTS Audio playback', { messageId: message.id });
     if (playingMessageId === message.id) {
       if (audioRef.current) {
@@ -272,12 +280,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // Retry affordance: only for the LAST assistant message when the thread is
   // idle (not working/queued) and that reply died (error/interrupted).
-  const lastChapter = project.chapters[project.chapters.length - 1];
-  const lastMessage = lastChapter?.messages[lastChapter.messages.length - 1];
+  const lastGroup = chapters[chapters.length - 1];
+  const lastMessage = lastGroup?.turns[lastGroup.turns.length - 1];
   const lastMessageFailed =
     lastMessage?.role === 'assistant' &&
-    (Boolean(lastMessage.meta?.interrupted) ||
-      lastMessage.meta?.streamState === 'error' ||
+    (lastMessage.meta?.streamState === 'error' ||
       lastMessage.meta?.streamState === 'interrupted');
   const showRetry =
     Boolean(onRetry) &&
@@ -418,15 +425,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
       ) : (
         /* Unified Vertical Chat Feed with Episodic Chapters - ZERO TOP BAR */
         <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4 space-y-4">
-          {project.chapters.map((chapter, chapterIndex) => {
+          {chapters.map(({ chapter, ongoing: isOngoing, turns }, chapterIndex) => {
           const isCollapsed = collapsedChapterIds[chapter.id] ?? false;
           const isSummaryExpanded = expandedSummaryIds[chapter.id] ?? false;
-          const compression = chapter.compressionMode || (chapter.isSummarized ? 'summary' : 'full');
-          const isLastChapter = chapterIndex === project.chapters.length - 1;
-          const isOngoing = chapter.status === 'active' || isLastChapter;
 
           // Pick mellow dark pastel color for nuance
-          const chapColor = chapter.color || getMellowPastelColor(chapter.id || chapterIndex);
+          const chapColor = getMellowPastelColor(chapter.id || chapterIndex);
           const pastel = CHAPTER_PASTEL_COLORS[chapterIndex % CHAPTER_PASTEL_COLORS.length];
 
           return (
@@ -479,7 +483,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 {/* Chapter Actions: Abstract & Collapse */}
                 <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                   <span className="text-[10px] font-mono text-[#556985] hidden sm:inline mr-1">
-                    {chapter.messages.length} msg{chapter.messages.length !== 1 ? 's' : ''}
+                    {turns.length} msg{turns.length !== 1 ? 's' : ''}
                   </span>
 
                   <button
@@ -545,49 +549,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </div>
                   )}
 
-                  {/* Memory Depth Selector */}
-                  <div className="flex items-center justify-between text-[10px] font-mono text-[#788fa8] pt-1">
-                    <span>Context Ingestion State:</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => onToggleChapterCompressionMode(chapter.id, 'full')}
-                        className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                          compression === 'full'
-                            ? 'bg-[#182338] text-[#8ab1e0] font-semibold border border-[#243552]'
-                            : 'bg-[#090d15] text-[#556985] hover:text-[#9bb0d1]'
-                        }`}
-                      >
-                        Full Verbatim
-                      </button>
-                      <button
-                        onClick={() => onToggleChapterCompressionMode(chapter.id, 'summary')}
-                        className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                          compression === 'summary'
-                            ? 'bg-[#182338] text-[#8ab1e0] font-semibold border border-[#243552]'
-                            : 'bg-[#090d15] text-[#556985] hover:text-[#9bb0d1]'
-                        }`}
-                      >
-                        Summary (T2)
-                      </button>
-                      <button
-                        onClick={() => onToggleChapterCompressionMode(chapter.id, 'dropped')}
-                        className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                          compression === 'dropped'
-                            ? 'bg-[#29171b] text-[#f28894] font-semibold border border-[#4d2229]'
-                            : 'bg-[#090d15] text-[#556985] hover:text-[#9bb0d1]'
-                        }`}
-                      >
-                        Drop
-                      </button>
-                    </div>
-                  </div>
                 </div>
               )}
 
               {/* Messages Container */}
               {!isCollapsed && (
                 <div className="p-3 sm:p-5 space-y-4">
-                  {chapter.messages.map((message) => {
+                  {turns.map((message) => {
                     const isUser = message.role === 'user';
                     const isPlaying = playingMessageId === message.id;
                     const isTtsLoading = ttsLoadingId === message.id;
@@ -701,20 +669,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                 </span>
                               </div>
 
-                              {message.extractedArtifacts.map((art, idx) => (
+                              {message.extractedArtifacts.map((art: ExtractedArtifact, idx) => (
                                 <div
-                                  key={idx}
+                                  key={art.id || idx}
                                   className="bg-[#0a0e16] p-2.5 rounded-xl border border-[#060a10] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                                 >
                                   <div className="min-w-0">
                                     <div className="font-semibold text-xs text-[#eef4fc] flex items-center gap-1.5 truncate">
                                       <span>{art.title}</span>
                                       <span className="text-[9px] font-mono text-[#8ab1e0] bg-[#121a28] px-1.5 py-0.2 rounded">
-                                        {art.code || 'spec'}
+                                        {art.code}
                                       </span>
                                     </div>
                                     <div className="text-[11px] text-[#869ab8] line-clamp-1 mt-0.5">
-                                      {art.description || art.summary || art.abstract}
+                                      {art.abstract || art.summary}
                                     </div>
                                   </div>
 
@@ -732,9 +700,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                       onClick={() => {
                                         const now = Date.now();
                                         const title = art.title || 'Extracted note';
-                                        const desc = art.description || art.abstract || 'Generated artifact spec.';
+                                        const desc = art.abstract || art.summary || 'Extracted note.';
                                         const summ = art.summary || art.abstract || 'Extracted note summary.';
-                                        const body = art.content || `# ${title}\n\nGenerated specification document.`;
+                                        const body = art.content || `# ${title}\n\nExtracted note.`;
                                         const fullArtifact: Artifact = {
                                           id: `art-${now}-${idx}`,
                                           workspaceId: project.id,
@@ -750,7 +718,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                             art.code ||
                                             title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
                                           title,
-                                          category: (art.category as Artifact['category']) || 'note',
+                                          category: art.category || 'note',
                                           isHighConcept: Boolean(art.isHighConcept),
                                           resolution: 'full',
                                           tags: ['manual-pin'],
@@ -769,23 +737,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             </div>
                           )}
 
-                          {/* Real 1:1 Gemini API Usage & Telemetry */}
+                          {/* Real 1:1 API Usage & Telemetry (provider-neutral vocab) */}
                           {message.meta && !isUser && (
                             <div className="mt-2.5 pt-2 border-t border-[#141f30] flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-[#637894]">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[#38bdf8] font-semibold">{message.meta.model || 'Google: Gemini 3.5 Flash Lite'}</span>
+                                <span className="text-[#38bdf8] font-semibold">{message.meta.model || '—'}</span>
                                 <span>•</span>
-                                <span className="tabular-nums">{message.meta.inputTokens ?? 0} in</span>
+                                <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.inputTokens ?? 0} in</span>
                                 <span>•</span>
-                                <span className="tabular-nums">{message.meta.outputTokens ?? 0} out</span>
+                                <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.outputTokens ?? 0} out</span>
                                 <span>•</span>
-                                <span className="text-[#a4bddf] font-semibold tabular-nums">{message.meta.totalTokens ?? 0} total tok</span>
+                                <span className="text-[#a4bddf] font-semibold tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.totalTokens ?? 0} total tok</span>
                               </div>
-                              {message.meta.latencyMs && (
-                                <span className="text-[#556985] tabular-nums">
-                                  {(message.meta.latencyMs / 1000).toFixed(2)}s
-                                </span>
-                              )}
+                              <div className="flex items-center gap-2">
+                                {message.meta.timeToFirstChunkMs != null && (
+                                  <span className="text-[#556985] tabular-nums">
+                                    first chunk {(message.meta.timeToFirstChunkMs / 1000).toFixed(2)}s
+                                  </span>
+                                )}
+                                {message.meta.latencyMs != null && (
+                                  <span className="text-[#556985] tabular-nums">
+                                    {(message.meta.latencyMs / 1000).toFixed(2)}s
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           )}
 
@@ -798,7 +773,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           )}
 
                           {/* Interrupted Response Badge */}
-                          {Boolean(message.meta?.interrupted || message.meta?.streamState === 'interrupted') && (
+                          {message.meta?.streamState === 'interrupted' && (
                             <div className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/35 text-[10px] font-mono shadow-xs">
                               <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                               <span className="font-semibold tracking-wider uppercase text-[10px]">Response Interrupted</span>

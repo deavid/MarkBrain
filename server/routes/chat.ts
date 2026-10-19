@@ -171,27 +171,28 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       // Client-side demux is the sole parser of artifacts/topic shifts
       // (stream-protocol demuxFullTurn — superset of any server parse).
 
-      // Raw 1:1 Gemini API token usage
-      const promptTokens = usageMetadata?.promptTokenCount ?? estimateTokens(compiledPrompt);
-      const candidatesTokens = usageMetadata?.candidatesTokenCount ?? estimateTokens(fullText);
-      const totalTokens = usageMetadata?.totalTokenCount ?? (promptTokens + candidatesTokens);
-      const durationMs = Date.now() - startTime;
+      // Raw provider usage normalized to OUR provider-neutral vocabulary
+      // (usageMetadata carries the provider's wire names — they never leave
+      // this adapter; see 08_UNIFIED_DATA_MODEL.md D3).
+      const inputTokens = usageMetadata?.promptTokenCount ?? estimateTokens(compiledPrompt);
+      const outputTokens = usageMetadata?.candidatesTokenCount ?? estimateTokens(fullText);
+      const totalTokens = usageMetadata?.totalTokenCount ?? (inputTokens + outputTokens);
+      const latencyMs = Date.now() - startTime;
 
-      logServer('success', 'STREAM:DONE', `#${reqId} Completed in ${durationMs}ms`, {
+      logServer('success', 'STREAM:DONE', `#${reqId} Completed in ${latencyMs}ms`, {
         model: usedModel,
-        promptTokens,
-        candidatesTokens,
+        inputTokens,
+        outputTokens,
         totalTokens,
       });
 
       const telemetry = {
         model: usedModel,
-        promptTokens,
-        candidatesTokens,
+        inputTokens,
+        outputTokens,
         totalTokens,
-        durationMs,
-        timeToFirstChunkMs: timeToFirstChunkMs ?? durationMs,
-        rawMetadata: usageMetadata,
+        latencyMs,
+        timeToFirstChunkMs: timeToFirstChunkMs ?? latencyMs,
         isFallback: false,
       };
 
@@ -237,17 +238,16 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
         await new Promise((r) => setTimeout(r, 250));
       }
 
-      const promptTokens = estimateTokens(compiledPrompt);
-      const candidatesTokens = estimateTokens(accumulated);
+      const inputTokens = estimateTokens(compiledPrompt);
+      const outputTokens = estimateTokens(accumulated);
 
       const telemetry = {
         model: targetModel,
-        promptTokens,
-        candidatesTokens,
-        totalTokens: promptTokens + candidatesTokens,
-        durationMs: Date.now() - startTime,
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        latencyMs: Date.now() - startTime,
         timeToFirstChunkMs: 350,
-        rawMetadata: null,
         isFallback: true,
       };
 

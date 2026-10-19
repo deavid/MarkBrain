@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
-import { Artifact, ArtifactGraphData, Project } from '../../../types';
+import { Artifact, ArtifactGraphData } from '../../../types';
+import type { ProjectMetadata } from '../../../domains/00-workspace/types';
 import { parseYamlArtifactDoc } from '../../../utils/yamlArtifactParser';
 import { logger } from '../../../utils/logger';
 import { ImportFlag, flagRelationship } from '../../../utils/importDetect';
@@ -155,7 +156,7 @@ export interface ImportLandResult {
 }
 
 export function useImportSession(
-  project: Project,
+  project: ProjectMetadata,
   landArtifact: (artifact: Artifact) => ImportLandResult
 ): ImportSessionApi {
   const [rows, setRows] = useState<ImportRow[]>([]);

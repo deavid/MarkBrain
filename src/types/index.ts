@@ -1,11 +1,25 @@
 // ============================================================================
-// UNIVERSAL ARTIFACT DATA MODEL (legacy shared types)
+// UI-only type bridge (the legacy shared types are DEAD — see
+// design-docs/08_UNIFIED_DATA_MODEL.md). This module survives as:
+//   1. re-exports of domain types (the one truth), and
+//   2. genuinely UI-only shapes (model picker, tier labels, pastels).
+// Every surviving export must have real importers — no zombies.
 // ============================================================================
 import type { UniversalArtifactDocument } from '../domains/01-artifact-document/types';
 
-export type ArtifactType = 'document' | 'chapter' | (string & {});
+// ── Domain re-exports (single source of truth lives in the domains) ─────────
+export type { ResolutionTier } from '../domains/01-artifact-document/types';
+export type { Turn, TurnMeta, ExtractedArtifact } from '../domains/01-dialogue-timeline/types';
+export type { ChapterPartition } from '../domains/02-chapter-segmentation/types';
+export type {
+  ChapterTurns,
+} from '../domains/02-chapter-segmentation/selectors';
+export type { SemanticEdge, RelationKind } from '../domains/02-topological-graph/types';
 
-export type ResolutionTier = 0 | 1 | 2 | 3;
+/** Universal Artifact Primitive — the artifact DOCUMENT model lives in the domain layer. */
+export type Artifact = UniversalArtifactDocument;
+
+// ── UI-only shapes ──────────────────────────────────────────────────────────
 
 /**
  * Why an artifact received its compiled tier — mirrors the optical compiler
@@ -14,22 +28,6 @@ export type ResolutionTier = 0 | 1 | 2 | 3;
  * without importing across the domain layer.
  */
 export type TierReason = 'pin' | 'fallback' | 'override' | 'ancestor' | 'radius' | 'culled';
-
-/**
- * Universal Artifact Primitive — the artifact DOCUMENT model lives in the
- * domain layer (single source of truth, Phase 3b of the cleanse).
- */
-export type Artifact = UniversalArtifactDocument;
-
-export interface Turn {
-  id: string;
-  role: 'user' | 'assistant';
-  timestamp: number;
-  content: string; // The raw conversational text (excluding internal XML commands)
-  raw_payload?: string; // Complete unstripped model stream for debugging
-}
-
-export type OpticalMode = 'autofocus' | 'manual' | 'myopia';
 
 export interface ModelOption {
   id: string;
@@ -43,112 +41,10 @@ export interface ModelOption {
 }
 
 export type AbstractionLevel = 'full' | 'summary' | 'description' | 'title' | 'excluded';
-export type ContextDepth = AbstractionLevel | 'off' | 'name' | 'children-summaries';
+export type ArtifactType = 'document' | 'chapter' | (string & {});
 export type ArtifactCategory = string;
-export interface ArtifactGraphData {
-  parent?: string;
-  children?: string[];
-  relationships?: Array<{ target: string; type: string; note?: string }>;
-  is_high_concept?: boolean;
-  x?: number;
-  y?: number;
-}
-export interface GraphNode {
-  id: string;
-  artifactId: string;
-  projectId: string;
-  title: string;
-  type: string;
-  isHighConcept?: boolean;
-  status?: string;
-  x: number;
-  y: number;
-  tags?: string[];
-}
-export interface GraphEdge {
-  id: string;
-  source?: string;
-  target?: string;
-  sourceNodeId?: string;
-  targetNodeId?: string;
-  sourceProjectId?: string;
-  targetProjectId?: string;
-  label?: string;
-  isCrossRepo?: boolean;
-  isCrossProject?: boolean;
-  type?: string;
-  strength?: number;
-}
-export interface MessageMeta {
-  model: string;
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  costEstimate?: string;
-  latencyMs?: number;
-  isStreaming?: boolean;
-  streamState?: string;
-  interrupted?: boolean;
-  rawMetadata?: any;
-}
-export interface ChatMessage {
-  id: string;
-  chapterId: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: string;
-  extractedArtifacts?: any[];
-  createdArtifacts?: any[];
-  updatedArtifacts?: any[];
-  meta?: MessageMeta;
-}
-export interface Chapter {
-  id: string;
-  projectId: string;
-  title: string;
-  code?: string;
-  summary?: string;
-  shortSummary?: string;
-  deepSummary?: string;
-  keyPoints?: string[];
-  isSummarized?: boolean;
-  compressionMode?: 'full' | 'summary' | 'drop' | 'dropped';
-  depth?: 'off' | 'name' | 'summary' | 'full';
-  messages: ChatMessage[];
-  status: 'active' | 'completed';
-  topicShiftReason?: string;
-  createdAt: string;
-  color?: string;
-  isPinnedAsArtifact?: boolean;
-  graph?: ArtifactGraphData;
-}
-export interface Project {
-  id: string;
-  name: string;
-  codeName?: string;
-  description: string;
-  color: string;
-  icon?: string;
-  boundaryRules?: string;
-  lastActivity?: string;
-  currentChapterId: string;
-  chapters: Chapter[];
-  artifacts: Artifact[];
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  draftMessage?: string;
-}
-export interface TokenGroupBreakdown {
-  artifactsTokens: number;
-  activeChapterTokens: number;
-  olderChaptersTokens: number;
-  systemPromptTokens: number;
-  totalTokens: number;
-  artifactsCount: number;
-  activeChaptersCount: number;
-  olderChaptersCount: number;
-  estimatedCost: string;
-}
+/** The artifact's `graph` field shape (import/UI parsing only). */
+export type ArtifactGraphData = NonNullable<UniversalArtifactDocument['graph']>;
 
 export const MELLOW_DARK_PASTELS = [
   '#4a3f6b', // Mellow dark lavender/purple

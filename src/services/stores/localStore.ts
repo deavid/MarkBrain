@@ -17,6 +17,8 @@ import type { ProjectStore, ProjectSnapshot } from './projectStore';
 
 export const localStore: ProjectStore = {
   async load(projectId: string): Promise<ProjectSnapshot | null> {
+    // Already failure≠absence: localLoadProject rejects on IDB open/get
+    // errors and resolves null only when the record is genuinely missing.
     return localLoadProject(projectId);
   },
 

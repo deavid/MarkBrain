@@ -69,9 +69,15 @@ export interface ProjectLoadDeps extends HydrationDeps {
 
 /**
  * Async runner for the snapshot-load effect: fetch → hydrate, with a stale
- * guard for project switches mid-flight. On failure: ONE warn, then hydrate
- * from null so the domains still open (empty project) and the save gate
- * releases. Returns the effect cleanup (marks the run stale).
+ * guard for project switches mid-flight. Two distinct outcomes:
+ *   - RESOLVED (incl. null = confirmed absence) → hydrate normally; null
+ *     takes the fresh/empty path and the save gate opens (correct for a
+ *     genuinely-new project).
+ *   - REJECTED (failure — network, permission, no session) → ONE error log,
+ *     NO hydration, hydratedRef stays false: domains sit empty with saves
+ *     blocked. Hydrating from null here would open the gate and let the
+ *     first user action merge-save empty arrays over the real snapshot.
+ * Returns the effect cleanup (marks the run stale).
  */
 export function loadProjectSnapshotIntoDomains(deps: ProjectLoadDeps): () => void {
   const { activeProjectId, loadProjectSnapshot, ...hydration } = deps;
@@ -82,8 +88,12 @@ export function loadProjectSnapshotIntoDomains(deps: ProjectLoadDeps): () => voi
       if (stale) return;
       hydrateProjectFromSnapshot(activeProjectId, snap, hydration);
     } catch (err) {
-      logger.warn('DomainRegistry', 'Snapshot load failed', err);
-      if (!stale) hydrateProjectFromSnapshot(activeProjectId, null, hydration);
+      // Load failure ≠ project absence: do NOT hydrate, do NOT open the gate.
+      logger.error(
+        'DomainRegistry',
+        `Snapshot load failed for ${activeProjectId} — domains stay empty, saves blocked until a successful load`,
+        err
+      );
     }
   })();
   return () => {

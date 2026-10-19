@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Project, ModelOption, Artifact, ResolutionTier, TierReason } from '../../types';
+import { ModelOption, Artifact, ResolutionTier, TierReason } from '../../types';
+import type { ProjectMetadata } from '../../domains/00-workspace/types';
 import { getTokenColor } from '../../utils/tokenCalculator';
 import { logger } from '../../utils/logger';
 import {
@@ -37,13 +38,15 @@ export type ActiveView = 'chat' | 'graph';
 interface SidebarProps {
   isOpen: boolean;
   onToggle: () => void;
-  projects: Project[];
-  activeProject: Project;
-  onSelectProject: (p: Project) => void;
+  projects: ProjectMetadata[];
+  activeProject: ProjectMetadata;
+  artifacts: Artifact[];
+  onSelectProject: (p: ProjectMetadata) => void;
   selectedModel: ModelOption;
   availableModels: ModelOption[];
   onSelectModel: (m: ModelOption) => void;
   totalTokens: number;
+  tokenCeiling: number;
   activeView: ActiveView;
   onChangeView: (view: ActiveView) => void;
   opticalMode?: 'autofocus' | 'manual' | 'myopia';
@@ -97,11 +100,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggle,
   projects,
   activeProject,
+  artifacts,
   onSelectProject,
   selectedModel,
   availableModels,
   onSelectModel,
   totalTokens,
+  tokenCeiling,
   activeView,
   onChangeView,
   opticalMode = 'autofocus',
@@ -941,6 +946,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="p-2 border-t border-[#131e33] bg-[#070b12] space-y-1.5 animate-in fade-in duration-100">
                 {availableModels.map((m) => {
                   const isSelected = m.id === selectedModel.id;
+                  // Server catalog flag (GET /api/models): false = provider key
+                  // missing, replies fall back to canned demo. Unknown (fallback
+                  // model pre-fetch) stays unmarked rather than guessing.
+                  const isUnavailable = (m as ModelOption & { available?: boolean }).available === false;
                   return (
                     <button
                       key={m.id}
@@ -949,20 +958,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         onSelectModel(m);
                         setModelAccordionOpen(false);
                       }}
+                      title={isUnavailable ? 'API key not configured — replies are demo' : undefined}
                       className={`w-full p-2.5 rounded-xl text-left transition-all border cursor-pointer ${
                         isSelected
                           ? 'bg-[#142338] border-[#25426e] text-white shadow-xs'
                           : 'bg-[#0a0f19] border-[#131e30] text-[#9bb0d1] hover:bg-[#0f1726]'
-                      }`}
+                      } ${isUnavailable ? 'opacity-60' : ''}`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-1.5">
                           <span className="font-semibold text-xs font-mono text-[#eef4fc]">{m.name}</span>
                           {isSelected && <Check className="w-3.5 h-3.5 text-[#38bdf8]" />}
                         </div>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#162030] text-[#e0b96c] border border-[#22334d]">
-                          {m.badge}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {isUnavailable && (
+                            <span
+                              className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#162030] text-[#f28894] border border-[#33242e]"
+                              title="API key not configured — replies are demo"
+                            >
+                              no key
+                            </span>
+                          )}
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#162030] text-[#e0b96c] border border-[#22334d]">
+                            {m.badge}
+                          </span>
+                        </div>
                       </div>
                       <p className="text-[11px] text-[#788fa8] leading-tight mb-1.5">
                         {m.description}
@@ -1133,7 +1153,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div
                       className="h-full transition-all duration-300"
                       style={{
-                        width: `${Math.min(100, (totalTokens / 128000) * 100)}%`,
+                        width: `${Math.min(100, (totalTokens / Math.max(1, tokenCeiling)) * 100)}%`,
                         backgroundColor: colorInfo.hex,
                       }}
                     />
@@ -1159,7 +1179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Artifacts
                 </span>
                 <span className="text-[10px] font-mono text-[#526682]">
-                  ({activeProject.artifacts.length})
+                  ({artifacts.length})
                 </span>
               </div>
               {artifactsTreeOpen ? <ChevronUp className="w-3.5 h-3.5 text-[#556985]" /> : <ChevronDown className="w-3.5 h-3.5 text-[#556985]" />}
@@ -1169,7 +1189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="p-2 border-t border-[#131e33] bg-[#070b12] animate-in fade-in duration-100">
                 <div className="max-h-56 overflow-y-auto pr-1">
                   <ArtifactFolderTree
-                    project={activeProject}
+                    artifacts={artifacts}
                     selectedArtifactId={selectedArtifactId}
                     onSelectArtifact={(art) => {
                       logger.action('Sidebar', `Selected artifact: ${art.title} (${art.id})`);

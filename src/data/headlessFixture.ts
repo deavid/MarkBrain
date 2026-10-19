@@ -44,6 +44,17 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
       content:
         'Fixture reply: a chapter, a message pair, and two artifacts with edges — enough surface to prove chat, graph, and sidebar all render without touching real data.',
       timestamp: 1760000000002,
+      meta: {
+        model: 'gemini-3.5-flash-lite',
+        inputTokens: 128,
+        outputTokens: 64,
+        totalTokens: 192,
+        latencyMs: 1420,
+        timeToFirstChunkMs: 280,
+        isStreaming: false,
+        streamState: 'completed',
+        isFallback: true,
+      },
     },
     {
       id: 'turn-fx-3',

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Project } from '../../types';
+import type { ProjectMetadata } from '../../domains/00-workspace/types';
 import { getTokenColor } from '../../utils/tokenCalculator';
 import {
   FolderOpen,
@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 interface ProjectLauncherProps {
-  projects: Project[];
+  projects: ProjectMetadata[];
   activeProjectId: string;
   onSelectProjectAndLaunchChat: (projectId: string) => void;
   onCreateProject: (name: string, description: string, codeName: string, color: string) => void;
@@ -43,7 +43,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
   const [newDescription, setNewDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState('#be3a49'); // default Unhaunter ruby
   // Delete flow: pendingDelete holds the target until the user confirms.
-  const [pendingDelete, setPendingDelete] = useState<Project | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ProjectMetadata | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -245,8 +245,6 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
           <div className="grid grid-cols-1 gap-3">
             {projects.map((proj) => {
               const isActive = proj.id === activeProjectId;
-              const totalArtifacts = proj.artifacts.length;
-              const totalChapters = proj.chapters.length;
 
               return (
                 <div
@@ -289,22 +287,13 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                         {proj.description}
                       </p>
 
-                      {/* Metadata Badges */}
+                      {/* Metadata Badges (counts live in each project's own
+                          snapshot — this list is workspace metadata only) */}
                       <div className="flex flex-wrap items-center gap-3 mt-2 text-[10px] font-mono text-[#6c82a1]">
                         <span className="flex items-center gap-1">
-                          <FileCode className="w-3 h-3 text-[#e05a66]" />
-                          {totalArtifacts} YAML Notes
+                          <Clock className="w-3 h-3 text-[#64748b]" />
+                          {new Date(proj.updatedAt).toLocaleDateString()}
                         </span>
-                        <span className="flex items-center gap-1">
-                          <Layers className="w-3 h-3 text-[#8ab1e0]" />
-                          {totalChapters} Tree Chapters
-                        </span>
-                        {proj.lastActivity && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-[#64748b]" />
-                            {new Date(proj.lastActivity).toLocaleDateString()}
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>

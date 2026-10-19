@@ -2,9 +2,12 @@
  * firestoreStore — ProjectStore implementation over Cloud Firestore.
  *
  * Identity: every op is scoped to auth.currentUser's `users/{uid}/projects`
- * tree (security rules enforce isOwner). No signed-in user → load/list
- * degrade to null/[], while create/delete/replaceAll THROW a clear message —
+ * tree (security rules enforce isOwner). No signed-in user → load/create/
+ * delete/replaceAll THROW a clear message; only list degrades to [] —
  * exactly the per-op behavior persistenceService had before the split.
+ * load returns null ONLY for confirmed absence (doc doesn't exist): any
+ * failure or missing identity throws, never null (null ≠ unknown — a
+ * collapsed null would hydrate an empty project with the save gate open).
  *
  * Writes use setDoc(..., {merge:true}) so a save/import upserts fields instead
  * of replacing the document (except create, which writes a fresh doc without
@@ -19,7 +22,11 @@ import type { ProjectStore, ProjectSnapshot } from './projectStore';
 export const firestoreStore: ProjectStore = {
   async load(projectId: string): Promise<ProjectSnapshot | null> {
     const currentUser = auth.currentUser;
-    if (!currentUser) return null;
+    // No session ≠ project absent: without identity we can't confirm the doc
+    // is gone, so throw instead of returning null (null = absent ONLY).
+    if (!currentUser) {
+      throw new Error(`Cannot load project ${projectId}: no active Google session.`);
+    }
 
     const docPath = `users/${currentUser.uid}/projects/${projectId}`;
     try {
@@ -28,13 +35,13 @@ export const firestoreStore: ProjectStore = {
       if (docSnap.exists()) {
         return docSnap.data() as ProjectSnapshot;
       }
-      return null;
+      return null; // confirmed absence — the only null this path may return
     } catch (err: any) {
       logger.warn('Persistence', `Firestore load failed for ${projectId}`, err);
       if (err?.code === 'permission-denied') {
         handleFirestoreError(err, OperationType.GET, docPath);
       }
-      return null;
+      throw err; // failure ≠ absence — rethrow so the gate stays closed
     }
   },
 

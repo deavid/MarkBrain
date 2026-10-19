@@ -1,8 +1,14 @@
 import { ITopologicalGraphDomain } from '../02-topological-graph';
 import { IArtifactDocumentDomain, ResolutionTier } from '../01-artifact-document';
-import { IChapterSegmentationDomain, ChapterPartition } from '../02-chapter-segmentation';
+import {
+  IChapterSegmentationDomain,
+  ChapterPartition,
+  isChapterOngoing,
+  sliceChapterTurns,
+} from '../02-chapter-segmentation';
 import { IDialogueTimelineDomain, Turn } from '../01-dialogue-timeline';
 import { logger } from '../../utils/logger';
+import { estimateTokens } from '../../utils/estimateTokens';
 
 export interface OpticalCompilerOptions {
   focalIds: string[];
@@ -174,20 +180,22 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
       }
 
       substrateParts.push(xml);
-      substrateTokens += Math.ceil(xml.length / 4);
+      substrateTokens += estimateTokens(xml);
     }
 
-    // 5. Build Chapters & Timeline XML
+    // 5. Build Chapters & Timeline XML — same ongoing rule + turn windows as
+    // the mirror's chapter rows (selectors in 02-chapter-segmentation), so the
+    // "what the LLM sees" display cannot drift from this compile.
     const chapters = chapterList;
     const historyParts: string[] = [];
     let historyTokens = 0;
 
     chapters.forEach((chap, cIdx) => {
-      const isLast = cIdx === chapters.length - 1;
-      const isOngoing = chap.status === 'active' || isLast;
+      const isOngoing = isChapterOngoing(chapters, cIdx);
+      // Same windowing rule as groupTurnsByChapter: ongoing → to latest turn.
       const turns = options.historyTurns
-        ? options.historyTurns.slice(chap.startIndex, chap.endIndex)
-        : this.timeline.getTurnSlice(chap.startIndex, chap.endIndex);
+        ? sliceChapterTurns(options.historyTurns, chap, isOngoing)
+        : this.timeline.getTurnSlice(chap.startIndex, isOngoing ? undefined : chap.endIndex);
 
       if (isOngoing) {
         // Full verbatim turns for active chapter
@@ -196,13 +204,13 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
           .join('\n');
         const xml = `  <chapter id="${chap.id}" tier="3" status="active">\n    <title>${chap.title}</title>\n    <turns>\n${turnsXml}\n    </turns>\n  </chapter>`;
         historyParts.push(xml);
-        historyTokens += Math.ceil(xml.length / 4);
+        historyTokens += estimateTokens(xml);
       } else {
         // Closed chapters compressed to Tier 2 summary
         const summ = chap.summary || `Recap of ${chap.title}.`;
         const xml = `  <chapter id="${chap.id}" tier="2" status="completed">\n    <title>${chap.title}</title>\n    <summary>\n${summ}\n    </summary>\n  </chapter>`;
         historyParts.push(xml);
-        historyTokens += Math.ceil(xml.length / 4);
+        historyTokens += estimateTokens(xml);
       }
     });
 
@@ -217,7 +225,7 @@ Emit functional XML tags when appropriate:
 - <artifact_upsert id="unique_id" title="Note Title" type="document"><abstract>...</abstract><summary>...</summary><content>...</content></artifact_upsert>
 - <link source="id1" target="id2" kind="relates_to|refines|parent_of|child_of|born_from" />`;
 
-    const systemTokens = Math.ceil(systemInstruction.length / 4);
+    const systemTokens = estimateTokens(systemInstruction);
     const totalTokens = systemTokens + substrateTokens + historyTokens;
 
     // Node distribution calculation

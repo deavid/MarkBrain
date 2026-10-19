@@ -25,7 +25,7 @@ export interface ExtractedLink {
 }
 
 export interface StreamStatusPayload {
-  state: 'connecting' | 'thinking' | 'writing' | 'indexing' | 'completed' | 'error';
+  state: 'connecting' | 'thinking' | 'writing' | 'completed' | 'error';
   message: string;
   timestamp: number;
   model?: string;
@@ -35,14 +35,20 @@ export interface StreamStatusPayload {
   timeToFirstChunkMs?: number;
 }
 
+/**
+ * Provider-neutral telemetry vocabulary (see 08_UNIFIED_DATA_MODEL.md D3) —
+ * the wire payload the server sends on `complete` and the abort-path
+ * synthesis mirrors. input/output/latency names are provider-neutral so a
+ * multi-provider future doesn't leak Gemini-vs-OpenAI names into OUR types.
+ */
 export interface BackendTelemetry {
   model: string;
-  promptTokens: number;
-  candidatesTokens: number;
+  inputTokens: number;
+  outputTokens: number;
   totalTokens: number;
-  durationMs: number;
+  latencyMs: number;
   timeToFirstChunkMs?: number;
-  rawMetadata?: any;
+  /** True when the numbers are estimates (no real usage telemetry came back). */
   isFallback?: boolean;
 }
 

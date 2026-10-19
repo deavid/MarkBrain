@@ -10,7 +10,6 @@ export interface ChapterPartition {
   startIndex: number;
   endIndex?: number; // undefined means ongoing/until latest
   topicShiftReason?: string;
-  color?: string;
   createdAt: number;
 }
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Project, Artifact, ArtifactType } from '../../types';
+import { Artifact, ArtifactType } from '../../types';
+import type { ProjectMetadata } from '../../domains/00-workspace/types';
 import { logger } from '../../utils/logger';
 import {
   googleSignIn,
@@ -37,7 +38,8 @@ import {
 } from 'lucide-react';
 
 interface ImportModalProps {
-  project: Project;
+  project: ProjectMetadata;
+  artifacts: Artifact[];
   onClose: () => void;
   /** Drive-tab single-file confirm (title-idempotent upsert, historic behavior). */
   onImportArtifact: (artifact: Artifact) => void;
@@ -49,6 +51,7 @@ interface ImportModalProps {
 
 export const ImportModal: React.FC<ImportModalProps> = ({
   project,
+  artifacts,
   onClose,
   onImportArtifact,
   session,
@@ -742,7 +745,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     className="w-full bg-[#141b29] border border-[#080d15] rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none focus:border-[#e05a66]/50"
                   />
                   <datalist id="batch-parent-codes">
-                    {project.artifacts.map((a) => (
+                    {artifacts.map((a) => (
                       <option key={a.id} value={a.code || a.id} />
                     ))}
                   </datalist>
@@ -782,13 +785,13 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     id="batch-rel-target"
                     value={session.rules.relTargetId}
                     onChange={(e) => session.setRules((r) => ({ ...r, relTargetId: e.target.value }))}
-                    disabled={!session.rules.relType || project.artifacts.length === 0}
+                    disabled={!session.rules.relType || artifacts.length === 0}
                     className="bg-[#141b29] border border-[#080d15] rounded-lg px-2 py-1.5 text-[11px] text-[#c2d1e0] focus:outline-none cursor-pointer disabled:opacity-40 max-w-[220px]"
                   >
                     <option value="">
-                      {project.artifacts.length === 0 ? '(no artifacts yet)' : '(pick target)'}
+                      {artifacts.length === 0 ? '(no artifacts yet)' : '(pick target)'}
                     </option>
-                    {project.artifacts.map((a) => (
+                    {artifacts.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.title}
                       </option>

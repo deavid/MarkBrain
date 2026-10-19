@@ -59,7 +59,55 @@ function isCanonical(raw: any): boolean {
   );
 }
 
-/** Normalize every artifact in a loaded snapshot; one warn per project load. */
+/**
+ * Legacy turn-meta rename map (pre-collapse writers): only fills MISSING
+ * targets — existing canonical values are never overwritten, and extra
+ * legacy keys ride along untouched (no storage rewrite; the next auto-save
+ * naturally persists the healed meta).
+ */
+const TURN_META_RENAMES: ReadonlyArray<readonly [target: string, legacy: string]> = [
+  ['latencyMs', 'durationMs'], // domain latencyMs had no writer before
+  ['inputTokens', 'promptTokens'],
+  ['outputTokens', 'candidatesTokens'],
+];
+
+/** Backfill one turn's meta. Returns the (possibly copied) meta + whether anything healed. */
+function backfillTurnMeta(meta: any): { meta: any; healed: boolean } {
+  if (!meta || typeof meta !== 'object') return { meta, healed: false };
+  let healed = false;
+  let next = meta;
+  for (const [target, legacy] of TURN_META_RENAMES) {
+    if (next[target] == null && meta[legacy] != null) {
+      if (next === meta) next = { ...meta };
+      next[target] = meta[legacy];
+      healed = true;
+    }
+  }
+  return { meta: next, healed };
+}
+
+/** Map a turn array through the meta backfill; bumps healed/seen counters. */
+function healTurns(
+  turns: any[] | undefined,
+  counters: { healed: number; seen: number }
+): any[] | undefined {
+  if (!Array.isArray(turns)) return turns;
+  return turns.map((t: any) => {
+    if (!t || !t.meta) return t;
+    counters.seen++;
+    const { meta, healed } = backfillTurnMeta(t.meta);
+    if (healed) counters.healed++;
+    return healed ? { ...t, meta } : t;
+  });
+}
+
+/**
+ * Normalize every artifact in a loaded snapshot; one warn per project load.
+ * Also backfills legacy turn meta across ALL turn arrays in the snapshot —
+ * the top-level `turns` (active + inactive threads are flattened there at
+ * the compose boundary) plus any turns embedded in `threads` entries
+ * defensively (ChatThread itself carries no turns field today).
+ */
 export function hydrateSnapshot(snap: ProjectSnapshot): ProjectSnapshot {
   let backfilled = 0;
   const artifacts = (snap.artifacts || []).map((raw: any) => {
@@ -74,5 +122,21 @@ export function hydrateSnapshot(snap: ProjectSnapshot): ProjectSnapshot {
       { projectId: snap.projectId }
     );
   }
-  return { ...snap, artifacts };
+
+  const turnCounters = { healed: 0, seen: 0 };
+  const turns = healTurns(snap.turns as any, turnCounters) as ProjectSnapshot['turns'];
+  const threads = Array.isArray(snap.threads)
+    ? (snap.threads.map((th: any) =>
+        Array.isArray(th?.turns) ? { ...th, turns: healTurns(th.turns, turnCounters) } : th
+      ) as ProjectSnapshot['threads'])
+    : snap.threads;
+  if (turnCounters.healed > 0) {
+    logger.warn(
+      'Persistence',
+      `Backfilled ${turnCounters.healed}/${turnCounters.seen} turns with legacy meta (durationMs→latencyMs, prompt/candidatesTokens→input/outputTokens)`,
+      { projectId: snap.projectId }
+    );
+  }
+
+  return { ...snap, artifacts, turns, threads };
 }

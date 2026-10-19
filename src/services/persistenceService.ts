@@ -114,8 +114,12 @@ export async function saveProjectSnapshot(
 }
 
 /**
- * Load a project snapshot from the ACTIVE backend. Returns null when absent
- * — there is no silent fallback to paper over misses.
+ * Load a project snapshot from the ACTIVE backend. Returns null ONLY for
+ * confirmed absence — there is no silent fallback to paper over misses.
+ * Backend failures (network, permission, no session, IDB errors) THROW:
+ * unknown must never collapse into null, or the loader would hydrate an
+ * empty project with the save gate open and the next save would wipe the
+ * real snapshot (merge over empty arrays).
  */
 export async function loadProjectSnapshot(
   projectId: string
@@ -164,17 +168,14 @@ export async function createCloudProject(meta: {
     chapters: [
       {
         id: genesisChapterId,
-        // Legacy field: the genesis chapter ships `projectId`, never the
-        // domain's workspaceId. Stored bytes are frozen — cast only, zero
-        // runtime effect (see the assertion closing this literal).
-        projectId: meta.id,
+        workspaceId: meta.id,
         title: 'Genesis Chapter',
         summary: '',
         keyPoints: [],
         status: 'active',
         startIndex: 0,
         createdAt: Date.now(),
-      } as unknown as ChapterPartition, // type-only — erased at runtime
+      }
     ],
     artifacts: [],
     edges: [],

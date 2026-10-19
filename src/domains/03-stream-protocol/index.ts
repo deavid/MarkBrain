@@ -7,9 +7,9 @@ import {
   BackendTelemetry,
   StreamTurnResult,
 } from './types';
-import { RelationKind } from '../02-topological-graph';
 import { logger } from '../../utils/logger';
 import { chatStream } from '../../gateway/api';
+import { estimateTokens } from '../../utils/estimateTokens';
 
 export interface IStreamProtocolDomain {
   demuxChunk(chunk: string): string;
@@ -106,17 +106,15 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       }
     }
 
-    // 2. Parse <link ... />
+    // 2. Parse <link ... /> — edge vocabulary is OPEN (01 §4.8): unknown kinds
+    // survive the round-trip untouched instead of being laundered to 'relates_to'.
     const linkRegex = /<link\s+source=["']([^"']+)["']\s+target=["']([^"']+)["']\s+kind=["']([^"']+)["']\s*\/?>/gi;
     let linkMatch: RegExpExecArray | null;
     while ((linkMatch = linkRegex.exec(clean)) !== null) {
-      const kind = linkMatch[3] as RelationKind;
       const link: ExtractedLink = {
         source: linkMatch[1],
         target: linkMatch[2],
-        kind: ['parent_of', 'child_of', 'relates_to', 'refines', 'born_from'].includes(kind)
-          ? kind
-          : 'relates_to',
+        kind: linkMatch[3],
       };
       links.push(link);
       this.handlers.onLinkDetected?.forEach((fn) => fn(link));
@@ -320,8 +318,8 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
     } catch (err: any) {
       if (err.name === 'AbortError' || callbacks.signal?.aborted) {
         const demuxed = this.demuxFullTurn(accumulatedRaw);
-        const estPrompt = Math.max(1, Math.ceil((payload.compiledPrompt?.length || 0) / 4));
-        const estCand = Math.max(1, Math.ceil((accumulatedRaw.length || 0) / 4));
+        const estPrompt = Math.max(1, estimateTokens(payload.compiledPrompt || ''));
+        const estCand = Math.max(1, estimateTokens(accumulatedRaw));
         return {
           cleanReply: accumulatedClean || demuxed.cleanText,
           rawReply: accumulatedRaw,
@@ -329,11 +327,12 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
           topicShift: demuxed.topicShift,
           telemetry: {
             model: payload.model || 'gemini-3.5-flash-lite',
-            promptTokens: estPrompt,
-            candidatesTokens: estCand,
+            inputTokens: estPrompt,
+            outputTokens: estCand,
             totalTokens: estPrompt + estCand,
-            durationMs: 0,
-            isFallback: false,
+            latencyMs: 0,
+            // Abort-path numbers are estimates by definition.
+            isFallback: true,
           },
         };
       }

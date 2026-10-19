@@ -49,7 +49,8 @@ export interface ProjectSnapshot {
  * the facade dispatches once and never branches per backend again.
  *
  * Contract notes (behavioral, identical for both impls as observed today):
- *  - load  → null when absent / unauthenticated / unreadable (never throws).
+ *  - load  → null ONLY when confirmed absent; any failure (network, permission,
+ *           no session) THROWS — error must never masquerade as absence (H1).
  *  - list  → [] when unauthenticated / unreadable (never throws).
  *  - save  → full snapshot upsert; firestore merges, local replaces the record.
  *  - create→ writes a snapshot the facade already built (meta included);

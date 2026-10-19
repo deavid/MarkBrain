@@ -33,6 +33,22 @@ export interface OpticalCompilerOptions {
   log?: boolean;
 }
 
+/** One chapter as compiled into <conversation_chapters> — mirror reads these. */
+export interface ChapterBreakdownEntry {
+  chapterId: string;
+  title: string;
+  mode: 'full' | 'summary';
+  tokens: number;
+}
+
+/** One note as compiled into <knowledge_substrate> — mirror reads these. */
+export interface NoteBreakdownEntry {
+  artifactId: string;
+  title: string;
+  tier: ResolutionTier;
+  tokens: number;
+}
+
 export interface ContextTelemetry {
   tokenBreakdown: {
     systemTokens: number;
@@ -47,6 +63,32 @@ export interface ContextTelemetry {
     tier0Count: number;
     culledCount: number;
   };
+  /**
+   * One entry per chapter INCLUDED in <conversation_chapters>, in send order.
+   * `tokens` is the estimate of that chapter's actual assembled XML (the very
+   * text pushed into historyParts), via the shared estimateTokens — so the
+   * mirror can display the compiler's numbers instead of re-deriving them.
+   *
+   * Rounding tolerance: entries and historyTokens both ceil per chapter over
+   * the same strings, so Σentries === historyTokens exactly today. If history
+   * were ever estimated as one whole block instead (ceil-of-whole vs
+   * ceil-per-chapter), the sum would drift by <1 token per chapter — callers
+   * and tests therefore tolerate |Σ − historyTokens| ≤ chapterBreakdown.length.
+   */
+  chapterBreakdown: ChapterBreakdownEntry[];
+  /**
+   * One entry per note INCLUDED in <knowledge_substrate>, in substrate order.
+   * `tokens` is the estimate of that note's actual assembled XML (the very
+   * text pushed into substrateParts), via the shared estimateTokens — so the
+   * mirror can display the compiler's numbers instead of re-deriving them.
+   *
+   * Rounding tolerance: entries and substrateTokens both ceil per note over
+   * the same strings, so Σentries === substrateTokens exactly today. If
+   * substrate were ever estimated as one whole block instead (ceil-of-whole
+   * vs ceil-per-note), the sum would drift by <1 token per note — callers
+   * and tests therefore tolerate |Σ − substrateTokens| ≤ noteBreakdown.length.
+   */
+  noteBreakdown: NoteBreakdownEntry[];
 }
 
 /** Why an artifact received its compiled tier (surfaced in the UI). */
@@ -162,6 +204,9 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     // 4. Build Substrate XML
     const substrateParts: string[] = [];
     let substrateTokens = 0;
+    // Per-note telemetry: recorded from the SAME xml strings pushed into
+    // substrateParts (see tolerance note on ContextTelemetry.noteBreakdown).
+    const noteBreakdown: NoteBreakdownEntry[] = [];
 
     for (const art of allArtifacts) {
       const tInfo = nodeTiers[art.id];
@@ -180,7 +225,14 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
       }
 
       substrateParts.push(xml);
-      substrateTokens += estimateTokens(xml);
+      const noteTokens = estimateTokens(xml);
+      substrateTokens += noteTokens;
+      noteBreakdown.push({
+        artifactId: art.id,
+        title: art.title,
+        tier: tInfo.tier as ResolutionTier,
+        tokens: noteTokens,
+      });
     }
 
     // 5. Build Chapters & Timeline XML — same ongoing rule + turn windows as
@@ -189,6 +241,9 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const chapters = chapterList;
     const historyParts: string[] = [];
     let historyTokens = 0;
+    // Per-chapter telemetry: recorded from the SAME xml strings pushed into
+    // historyParts (see tolerance note on ContextTelemetry.chapterBreakdown).
+    const chapterBreakdown: ChapterBreakdownEntry[] = [];
 
     chapters.forEach((chap, cIdx) => {
       const isOngoing = isChapterOngoing(chapters, cIdx);
@@ -204,13 +259,17 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
           .join('\n');
         const xml = `  <chapter id="${chap.id}" tier="3" status="active">\n    <title>${chap.title}</title>\n    <turns>\n${turnsXml}\n    </turns>\n  </chapter>`;
         historyParts.push(xml);
-        historyTokens += estimateTokens(xml);
+        const chapterTokens = estimateTokens(xml);
+        historyTokens += chapterTokens;
+        chapterBreakdown.push({ chapterId: chap.id, title: chap.title, mode: 'full', tokens: chapterTokens });
       } else {
         // Closed chapters compressed to Tier 2 summary
         const summ = chap.summary || `Recap of ${chap.title}.`;
         const xml = `  <chapter id="${chap.id}" tier="2" status="completed">\n    <title>${chap.title}</title>\n    <summary>\n${summ}\n    </summary>\n  </chapter>`;
         historyParts.push(xml);
-        historyTokens += estimateTokens(xml);
+        const chapterTokens = estimateTokens(xml);
+        historyTokens += chapterTokens;
+        chapterBreakdown.push({ chapterId: chap.id, title: chap.title, mode: 'summary', tokens: chapterTokens });
       }
     });
 
@@ -256,6 +315,8 @@ Emit functional XML tags when appropriate:
           totalTokens,
         },
         nodeDistribution: counts,
+        chapterBreakdown,
+        noteBreakdown,
       },
       nodeTiers,
     };

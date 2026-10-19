@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, ChevronDown, ChevronUp } from 'lucide-react';
-import { Artifact, ChapterTurns } from '../../types';
+import { Artifact, ChapterTurns, TierReason } from '../../types';
 import { getArtifactTokenVariants } from '../../utils/tokenCalculator';
 import { estimateTokens } from '../../utils/estimateTokens';
 import { computeAmbientColor } from './ambientTelemetry';
@@ -34,8 +34,22 @@ interface MirrorPanelProps {
         tier0Count: number;
         culledCount: number;
       };
+      /** Compiler's per-chapter numbers — absent only on pre-breakdown payloads (fallback below). */
+      chapterBreakdown?: Array<{
+        chapterId: string;
+        title: string;
+        mode: 'full' | 'summary';
+        tokens: number;
+      }>;
+      /** Compiler's per-note numbers — absent only on pre-breakdown payloads (fallback below). */
+      noteBreakdown?: Array<{
+        artifactId: string;
+        title: string;
+        tier: number;
+        tokens: number;
+      }>;
     };
-    nodeTiers: Record<string, { tier: number | 'culled'; distance: number }>;
+    nodeTiers: Record<string, { tier: number | 'culled'; distance: number; reason?: TierReason }>;
   };
   artifacts: Artifact[];
   /** Chapters with their turns — the shared selector (02-chapter-segmentation/selectors). */
@@ -56,6 +70,17 @@ const TIER_CLASS: Record<string, string> = {
   1: 'text-[#5ad49b]',
   0: 'text-[#5d87b8]',
   culled: 'text-[#4f5f78]',
+};
+// Reason vocabulary matches ArtifactDetailModal's tier-reason chips (one naming),
+// rendered quieter here: muted border badge, and always a non-interactive span —
+// status text, not a control (a <24px button would add audit warns anyway).
+const REASON_LABEL: Record<TierReason, string> = {
+  pin: 'manual pin',
+  fallback: 'auto focus',
+  override: 'forced',
+  ancestor: 'ancestor',
+  radius: 'auto',
+  culled: 'culled',
 };
 
 export const MirrorPanel: React.FC<MirrorPanelProps> = ({
@@ -93,17 +118,33 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   });
   const outCount = artifacts.length - inContext.length;
 
-  // Chapters: same rule/window as 03-optical-compiler (shared selectors) —
-  // ongoing = full turns, completed = summary only. Same estimator too, so
-  // these rows cannot drift from the compiler totals above.
+  // Notes: read the compiler's own per-note entries (telemetry.noteBreakdown) —
+  // same assembled XML, same estimator, so rows sum to the "notes" subtotal by
+  // construction. The local tier-text estimate survives ONLY as a defensive
+  // fallback for payloads compiled before noteBreakdown existed.
+  const noteById = new Map(
+    (compiled.telemetry.noteBreakdown ?? []).map((e) => [e.artifactId, e])
+  );
+
+  // Chapters: read the compiler's own per-chapter entries (telemetry.chapterBreakdown)
+  // — same assembled text, same estimator, so rows agree with the totals above by
+  // construction. The local estimate survives ONLY as a defensive fallback for
+  // payloads compiled before chapterBreakdown existed.
+  const breakdownById = new Map(
+    (compiled.telemetry.chapterBreakdown ?? []).map((e) => [e.chapterId, e])
+  );
   const chapterRows = chapters.map(({ chapter, ongoing, turns }) => {
-    const tokens = ongoing
-      ? turns.reduce((n, t) => n + estimateTokens(t.content), 0)
-      : estimateTokens(chapter.summary || `Recap of ${chapter.title}.`);
+    const entry = breakdownById.get(chapter.id);
+    const mode: 'full' | 'summary' = entry ? entry.mode : ongoing ? 'full' : 'summary';
+    const tokens = entry
+      ? entry.tokens
+      : mode === 'full'
+        ? turns.reduce((n, t) => n + estimateTokens(t.content), 0)
+        : estimateTokens(chapter.summary || `Recap of ${chapter.title}.`);
     return {
       id: chapter.id,
       title: chapter.title,
-      isOngoing: ongoing,
+      mode,
       tokens,
       turns: turns.length,
       summary: chapter.summary,
@@ -132,7 +173,9 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
           <section className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] uppercase tracking-wider text-[#6b82a3]">1 · Payload</span>
-              <span style={{ color: color.hex }}>{tb.totalTokens.toLocaleString()} / {ceiling.toLocaleString()} tok</span>
+              <span style={{ color: color.hex }}>
+                <span className="text-[#556985]">est.</span> {tb.totalTokens.toLocaleString()} / {ceiling.toLocaleString()} tok
+              </span>
             </div>
             <div className="h-1.5 rounded-full bg-[#0a0f18] overflow-hidden border border-[#131d2e]">
               <div className="h-full rounded-full transition-all" style={{ width: `${ratio * 100}%`, backgroundColor: color.hex }} />
@@ -157,14 +200,28 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
             {inContext.length === 0 && <p className="text-[#4f5f78]">No notes in context.</p>}
             {inContext.map((a) => {
               const tier = compiled.nodeTiers[a.id]?.tier ?? 'culled';
-              const v = getArtifactTokenVariants(a);
-              const tokens =
-                tier === 3 ? v.full : tier === 2 ? v.summary : tier === 1 ? v.description : v.title;
+              const reason = compiled.nodeTiers[a.id]?.reason;
+              // Compiler's assembled-XML number when present; local tier-text
+              // estimate only as the pre-breakdown defensive fallback.
+              const entry = noteById.get(a.id);
+              let tokens: number;
+              if (entry) {
+                tokens = entry.tokens;
+              } else {
+                const v = getArtifactTokenVariants(a);
+                tokens =
+                  tier === 3 ? v.full : tier === 2 ? v.summary : tier === 1 ? v.description : v.title;
+              }
               return (
                 <div key={a.id} className="flex items-center justify-between gap-2 py-0.5 border-b border-[#0e1522] last:border-0">
                   <span className="truncate text-[#cad8eb]">{a.title}</span>
                   <span className="flex items-center gap-2 shrink-0">
                     <span className={`text-[10px] ${TIER_CLASS[String(tier)]}`}>{TIER_LABEL[String(tier)]}</span>
+                    {reason && (
+                      <span className="text-[9px] text-[#4f5f78] border border-[#162132] rounded px-1 py-0.5 leading-none shrink-0">
+                        {REASON_LABEL[reason]}
+                      </span>
+                    )}
                     <span className="text-[10px] text-[#556985] w-12 text-right">{tokens} tok</span>
                   </span>
                 </div>
@@ -182,7 +239,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
                   <span className="text-[10px] text-[#4f5f78] mr-1.5">{i + 1}.</span>
                   <span className="text-[#cad8eb]">{c.title}</span>
                   <div className="text-[10px] text-[#556985] ml-5">
-                    {c.isOngoing
+                    {c.mode === 'full'
                       ? `full · ${c.turns} turn${c.turns === 1 ? '' : 's'} verbatim`
                       : c.summary
                         ? 'summary only'
@@ -198,7 +255,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
           <section className="space-y-1.5">
             <button
               onClick={() => setShowRaw(!showRaw)}
-              className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-[#6b82a3] hover:text-[#8ab1e0] cursor-pointer"
+              className="flex items-center gap-1 min-h-[17px] text-[10px] uppercase tracking-wider text-[#6b82a3] hover:text-[#8ab1e0] cursor-pointer"
             >
               {showRaw ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
               4 · Raw payload (literal)

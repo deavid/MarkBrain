@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Project, ModelOption, Artifact, ResolutionTier, TierReason } from '../types';
-import { getTokenColor } from '../utils/tokenCalculator';
-import { logger } from '../utils/logger';
+import { Project, ModelOption, Artifact, ResolutionTier, TierReason } from '../../types';
+import { getTokenColor } from '../../utils/tokenCalculator';
+import { logger } from '../../utils/logger';
 import {
   Brain,
   Cpu,
@@ -29,8 +29,8 @@ import {
   Save,
   RotateCcw,
 } from 'lucide-react';
-import { ArtifactFolderTree } from './ArtifactFolderTree';
-import { ChatThread, ThreadFolder, ThreadRuntime } from '../domains/06-chat-threads';
+import { ArtifactFolderTree } from '../artifacts/ArtifactFolderTree';
+import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 
 export type ActiveView = 'chat' | 'graph';
 

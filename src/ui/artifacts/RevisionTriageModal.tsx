@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
-import { Artifact } from '../types';
-import { diffLines, diffStats } from '../utils/lineDiff';
+import { Artifact } from '../../types';
+import { diffLines, diffStats } from '../../utils/lineDiff';
 import { AlertCircle, X } from 'lucide-react';
 
 // Multi-import plan — Phase 3: post-import triage. The flag (a relationship

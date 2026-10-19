@@ -1,5 +1,6 @@
 import { IChapterSegmentationDomain } from '../02-chapter-segmentation';
 import { IDialogueTimelineDomain } from '../01-dialogue-timeline';
+import { summarizeChapter } from '../../gateway/api';
 
 export interface IChapterRecalibrationDomain {
   recalibrateSummary(chapterId: string, steeringPrompt?: string): Promise<{ summary: string; keyPoints: string[] }>;
@@ -22,14 +23,10 @@ export class ChapterRecalibrationDomain implements IChapterRecalibrationDomain {
     const messages = turns.map((t) => ({ role: t.role, content: t.content }));
 
     try {
-      const res = await fetch('/api/summarize-chapter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: chapter.title,
-          messages,
-          steeringPrompt,
-        }),
+      const res = await summarizeChapter({
+        title: chapter.title,
+        messages,
+        steeringPrompt,
       });
       const data = await res.json();
       const summary = data.summary || 'Summary recalibrated.';

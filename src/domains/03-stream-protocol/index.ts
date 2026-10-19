@@ -9,6 +9,7 @@ import {
 } from './types';
 import { RelationKind } from '../02-topological-graph';
 import { logger } from '../../utils/logger';
+import { chatStream } from '../../gateway/api';
 
 export interface IStreamProtocolDomain {
   demuxChunk(chunk: string): string;
@@ -235,12 +236,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
     let finalResult: StreamTurnResult | null = null;
 
     try {
-      const response = await fetch('/api/chat/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: callbacks.signal,
-      });
+      const response = await chatStream(payload, { signal: callbacks.signal });
 
       if (!response.ok) {
         const errorText = await response.text();

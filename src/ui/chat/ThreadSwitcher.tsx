@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Plus, CornerDownLeft } from 'lucide-react';
-import { ChatThread, ThreadFolder, ThreadRuntime } from '../domains/06-chat-threads';
+import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 
 interface ThreadSwitcherProps {
   threads: ChatThread[];

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, ChevronDown, ChevronUp } from 'lucide-react';
-import { Artifact, Chapter } from '../../../types';
-import { estimateTokens, getArtifactTokenVariants } from '../../../utils/tokenCalculator';
+import { Artifact, Chapter } from '../../types';
+import { estimateTokens, getArtifactTokenVariants } from '../../utils/tokenCalculator';
 import { computeAmbientColor } from './ambientTelemetry';
 
 /**

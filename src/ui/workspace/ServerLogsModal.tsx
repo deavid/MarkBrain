@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, Trash2, Copy, Check, X, ArrowDown } from 'lucide-react';
-import { logger } from '../utils/logger';
+import { logger } from '../../utils/logger';
+import { serverLogs, clearServerLogs } from '../../gateway/api';
 
 export interface ServerLogItem {
   id: string;
@@ -29,7 +30,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
     if (!isOpen) return;
 
     // Fetch initial logs
-    fetch('/api/server-logs')
+    serverLogs()
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data.logs)) {
@@ -77,7 +78,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
 
   const handleClear = async () => {
     try {
-      await fetch('/api/server-logs/clear', { method: 'POST' });
+      await clearServerLogs();
       setLogs([]);
     } catch (e) {
       logger.error('ServerLogs', 'Failed to clear server logs', e);

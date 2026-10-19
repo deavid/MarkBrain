@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Project, ChatMessage, Artifact, Chapter, getMellowPastelColor } from '../types';
+import { Project, ChatMessage, Artifact, Chapter, getMellowPastelColor } from '../../types';
 import {
   Sparkles,
   Send,
@@ -18,8 +18,9 @@ import {
   Cloud,
   Brain,
 } from 'lucide-react';
-import { logger } from '../utils/logger';
-import { ThreadRuntime } from '../domains/06-chat-threads';
+import { logger } from '../../utils/logger';
+import { ThreadRuntime } from '../../domains/06-chat-threads';
+import { tts } from '../../gateway/api';
 
 interface ChatViewProps {
   project: Project;
@@ -214,13 +215,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setTtsLoadingId(message.id);
 
     try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: message.content,
-          voice: chosenVoice,
-        }),
+      const res = await tts({
+        text: message.content,
+        voice: chosenVoice,
       });
 
       const data = await res.json();

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Project, GraphNode, GraphEdge, Artifact, ResolutionTier } from '../types';
+import { Project, GraphNode, GraphEdge, Artifact, ResolutionTier } from '../../types';
 import {
   ZoomIn,
   ZoomOut,

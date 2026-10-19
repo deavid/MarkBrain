@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Project, Artifact, ArtifactType } from '../types';
-import { logger } from '../utils/logger';
+import { Project, Artifact, ArtifactType } from '../../types';
+import { logger } from '../../utils/logger';
 import {
   googleSignIn,
   googleSignOut,
@@ -13,11 +13,12 @@ import {
   fetchGoogleDocById,
   extractGoogleDocIdFromUrl,
   DriveFileItem,
-} from '../services/googleDriveService';
+} from '../../services/googleDriveService';
 import { User } from 'firebase/auth';
-import { parseYamlArtifactDoc, serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
-import { estimateTokens } from '../utils/tokenCalculator';
+import { parseYamlArtifactDoc, serializeArtifactToYamlDoc } from '../../utils/yamlArtifactParser';
+import { estimateTokens } from '../../utils/tokenCalculator';
 import { ImportSessionApi } from './import/useImportSession';
+import { extractArtifactFromFile } from '../../gateway/api';
 import { ImportSessionList } from './import/ImportSessionList';
 import {
   Upload,
@@ -204,19 +205,17 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     if (!contentToExtract.trim()) return;
     setIsExtractingWithAI(true);
     try {
-      const res = await fetch('/api/extract-artifact-from-file', {
-        method: 'POST',
-        // Review: slow extraction model (observed 113–135s) left the spinner
-        // spinning forever. Cap at 120s so the UI always recovers.
-        signal: AbortSignal.timeout(120_000),
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      // Review: slow extraction model (observed 113–135s) left the spinner
+      // spinning forever. Cap at 120s so the UI always recovers.
+      const res = await extractArtifactFromFile(
+        {
           content: contentToExtract,
           filename,
           projectTitle: project.name,
           fileType,
-        }),
-      });
+        },
+        { signal: AbortSignal.timeout(120_000) }
+      );
 
       const data = await res.json();
       if (data.artifact) {

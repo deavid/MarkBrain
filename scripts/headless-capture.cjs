@@ -10,7 +10,8 @@
  * Usage:
  *   node scripts/headless-capture.cjs          → fixture mode (default, zero cloud)
  *   node scripts/headless-capture.cjs --real   → real-data mode: seeds the
- *       HEADLESS_REFRESH_TOKEN from .env, lets the SDK do a REAL token refresh
+ *       HEADLESS_REFRESH_TOKEN from the layered env (see "Layered env
+ *       resolution" below), lets the SDK do a REAL token refresh
  *       and REAL Firestore reads under ?capture=1 (all saves stay no-ops).
  *       Never touches Google cookies; only the owner-scope refresh token.
  *
@@ -67,24 +68,70 @@ function findChrome() {
   return found;
 }
 
-function readEnvFile() {
-  const p = path.join(ROOT, '.env');
-  return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+// ── Layered env resolution ────────────────────────────────────────────────
+// FIREBASE_* / HEADLESS_* no longer live in root .env — same 3-layer scheme
+// as server/lib/env.ts and vite.config.ts:
+//   OS env > .env > .env.shared > ../MarkBrain/.env.markbrain-main.shared
+// Precedence = order below: earlier sources win (first writer keeps the key),
+// real OS/runtime env beats every file (never overwritten). Missing files are
+// silently skipped (ENOENT). READ-ONLY: this script never writes an env file.
+const ENV_LAYERS = [
+  path.join(ROOT, '.env'),
+  path.join(ROOT, '.env.shared'),
+  path.join(ROOT, '..', 'MarkBrain', '.env.markbrain-main.shared'),
+];
+
+let dotenv = null;
+try { dotenv = require('dotenv'); } catch { /* minimal fallback parser below */ }
+
+// Same parse shape as dotenv for the common cases (KEY=value, quotes, export).
+function parseEnvFallback(text) {
+  const out = {};
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!m) continue;
+    let v = m[2].trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+      v = v.slice(1, -1);
+    }
+    if (!(m[1] in out)) out[m[1]] = v;
+  }
+  return out;
 }
-const envVal = (raw, key) => (raw.match(new RegExp(`^${key}="?([^"\\n]+)"?`, 'm')) || [])[1] || '';
+
+function loadLayeredEnv() {
+  for (const file of ENV_LAYERS) {
+    let text;
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch {
+      continue; // ENOENT silent — same as dotenv.config({ quiet: true })
+    }
+    const parsed = dotenv ? dotenv.parse(text) : parseEnvFallback(text);
+    for (const [k, v] of Object.entries(parsed)) {
+      if (!(k in process.env)) process.env[k] = v; // no-override = layering
+    }
+  }
+}
+loadLayeredEnv();
+
+const envVal = (key) => process.env[key] || '';
 
 async function main() {
   const { chromium } = requirePlaywright();
   const chrome = findChrome();
   fs.mkdirSync(OUT, { recursive: true });
 
-  const env = readEnvFile();
-  const API_KEY = envVal(env, 'FIREBASE_API_KEY');
-  const PROJECT = envVal(env, 'FIREBASE_PROJECT_ID');
-  const PORT = envVal(env, 'PORT') || '3030';
+  const API_KEY = envVal('FIREBASE_API_KEY');
+  const PROJECT = envVal('FIREBASE_PROJECT_ID');
+  const PORT = envVal('PORT') || '3030';
   const APP = process.env.MARKBRAIN_URL || `http://localhost:${PORT}`;
   if (!API_KEY) {
-    console.error('FIREBASE_API_KEY missing from .env — auth mock needs it to match the client config.');
+    console.error(
+      'FIREBASE_API_KEY not found in the layered env ' +
+      '(.env > .env.shared > ../MarkBrain/.env.markbrain-main.shared) — ' +
+      'auth mock needs it to match the client config.'
+    );
     process.exit(1);
   }
 
@@ -93,10 +140,10 @@ async function main() {
   // own session, see AGENT_RUNBOOK §3.5). Writes are impossible either way:
   // ?capture=1 / ?fixture=1 flip isCaptureMode() in persistenceService.ts.
   const REAL = process.argv.includes('--real') || process.env.MARKBRAIN_CAPTURE_MODE === 'real';
-  const REAL_REFRESH = envVal(env, 'HEADLESS_REFRESH_TOKEN');
-  const REAL_USER_B64 = envVal(env, 'HEADLESS_AUTH_USER_B64'); // full verbatim record from David's browser
+  const REAL_REFRESH = envVal('HEADLESS_REFRESH_TOKEN');
+  const REAL_USER_B64 = envVal('HEADLESS_AUTH_USER_B64'); // full verbatim record from David's browser
   if (REAL && !REAL_REFRESH) {
-    console.error('Real mode requested but HEADLESS_REFRESH_TOKEN missing from .env.');
+    console.error('Real mode requested but HEADLESS_REFRESH_TOKEN missing from the layered env.');
     process.exit(1);
   }
   log('mode:', REAL ? 'REAL (live token refresh + real Firestore reads, writes no-op)'

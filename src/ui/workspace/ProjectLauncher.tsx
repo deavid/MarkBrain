@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Project } from '../types';
-import { getTokenColor } from '../utils/tokenCalculator';
+import { Project } from '../../types';
+import { getTokenColor } from '../../utils/tokenCalculator';
 import {
   FolderOpen,
   Plus,

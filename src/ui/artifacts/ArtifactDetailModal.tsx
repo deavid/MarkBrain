@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Artifact, ResolutionTier, TierReason } from '../types';
+import { Artifact, ResolutionTier, TierReason } from '../../types';
 import {
   X,
   FileCode,
@@ -17,7 +17,7 @@ import {
   Maximize2,
   Minimize2,
 } from 'lucide-react';
-import { renderMarkdown } from '../utils/markdown';
+import { renderMarkdown } from '../../utils/markdown';
 
 interface ArtifactDetailModalProps {
   artifact: Artifact;

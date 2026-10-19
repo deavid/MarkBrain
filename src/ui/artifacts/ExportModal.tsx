@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Project } from '../types';
-import { exportToJSON, exportToMarkdown, exportToYAML } from '../utils/tokenCalculator';
+import { Project } from '../../types';
+import { exportToJSON, exportToMarkdown, exportToYAML } from '../../utils/tokenCalculator';
 import { Download, Copy, Check, X, FileText, Code, FileJson } from 'lucide-react';
 
 interface ExportModalProps {

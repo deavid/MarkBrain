@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Brain, Plus, Sparkles, LogOut, RefreshCw, FolderPlus, RotateCcw } from 'lucide-react';
-import { logger } from '../utils/logger';
+import { logger } from '../../utils/logger';
 
 interface ProjectGenesisProps {
   user: {

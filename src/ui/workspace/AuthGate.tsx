@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Brain, LogIn, AlertCircle, RefreshCw, Terminal, CheckCircle2, ExternalLink, HardDrive } from 'lucide-react';
-import { logger } from '../utils/logger';
-import { classifyAuthError } from '../utils/authErrors';
+import { logger } from '../../utils/logger';
+import { classifyAuthError } from '../../utils/authErrors';
 
 interface AuthGateProps {
   onSignIn: () => Promise<any>;

@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
-import { Artifact, ArtifactGraphData, Project } from '../../types';
-import { parseYamlArtifactDoc } from '../../utils/yamlArtifactParser';
-import { logger } from '../../utils/logger';
-import { ImportFlag, flagRelationship } from '../../utils/importDetect';
-import { BatchRules, EMPTY_BATCH_RULES, applyImportRules } from '../../utils/importRules';
+import { Artifact, ArtifactGraphData, Project } from '../../../types';
+import { parseYamlArtifactDoc } from '../../../utils/yamlArtifactParser';
+import { logger } from '../../../utils/logger';
+import { ImportFlag, flagRelationship } from '../../../utils/importDetect';
+import { BatchRules, EMPTY_BATCH_RULES, applyImportRules } from '../../../utils/importRules';
+import { extractArtifactFromFile } from '../../../gateway/api';
 
 // Multi-import plan — Phase 1: import sessions.
 // The session lives ABOVE ImportModal (owned by App) so closing the modal
@@ -56,12 +57,10 @@ async function extractFromGemini(
   filename: string,
   projectTitle: string
 ): Promise<Record<string, any>> {
-  const res = await fetch('/api/extract-artifact-from-file', {
-    method: 'POST',
-    signal: AbortSignal.timeout(120_000),
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, filename, projectTitle, fileType: 'doc' }),
-  });
+  const res = await extractArtifactFromFile(
+    { content, filename, projectTitle, fileType: 'doc' },
+    { signal: AbortSignal.timeout(120_000) }
+  );
   if (!res.ok) {
     // Server wraps failures as {error: string} — surface the real reason
     // (e.g. Gemini quota text) instead of a bare HTTP code.

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Project, Artifact, ResolutionTier, TierReason } from '../types';
-import { isFlaggedArtifact } from '../utils/importDetect';
+import { Project, Artifact, ResolutionTier, TierReason } from '../../types';
+import { isFlaggedArtifact } from '../../utils/importDetect';
 import {
   Folder,
   FolderOpen,

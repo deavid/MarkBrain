@@ -1,54 +1,41 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import {
-  Project,
-  Artifact,
-  GraphNode,
-  GraphEdge,
-  Chapter,
-  ChatMessage,
-  ModelOption,
-  AbstractionLevel,
-  ResolutionTier,
-  getMellowPastelColor,
-} from './types';
-import { AVAILABLE_MODELS } from './data/models';
-import { serializeArtifactToYamlDoc } from './utils/yamlArtifactParser';
-import { Sidebar, ActiveView } from './components/Sidebar';
-import { SpatialGraph } from './components/SpatialGraph';
-import { ChatView } from './components/ChatView';
-import { ChatErrorBoundary } from './components/ChatErrorBoundary';
-import { AuthGate } from './components/AuthGate';
-import { ProjectGenesis } from './components/ProjectGenesis';
-import {
-  exportDatabase,
-  serializeDatabase,
-  parseDatabaseExport,
-  importDatabase,
-} from './services/persistenceService';
-import { Brain } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { ModelOption } from './types';
+import { FALLBACK_MODEL } from './data/models';
+import { Sidebar, ActiveView } from './ui/workspace/Sidebar';
+import { SpatialGraph } from './ui/graph/SpatialGraph';
+import { ChatView } from './ui/chat/ChatView';
+import { ChatErrorBoundary } from './ui/workspace/ChatErrorBoundary';
+import { AuthGate } from './ui/workspace/AuthGate';
+import { BootSplash } from './ui/workspace/BootSplash';
+import { ProjectGenesis } from './ui/workspace/ProjectGenesis';
+import { ProjectLauncher } from './ui/workspace/ProjectLauncher';
+import { ServerLogsModal } from './ui/workspace/ServerLogsModal';
+import { ArtifactDetailModal } from './ui/artifacts/ArtifactDetailModal';
+import { ImportModal } from './ui/artifacts/ImportModal';
+import { ExportModal } from './ui/artifacts/ExportModal';
+import { RevisionTriageModal } from './ui/artifacts/RevisionTriageModal';
+import { ThreadSwitcher } from './ui/chat/ThreadSwitcher';
+import { SaturationOrb } from './ui/context/SaturationOrb';
+import { EdgeHeatStrip } from './ui/context/EdgeHeatStrip';
+import { MirrorPanel } from './ui/context/MirrorPanel';
 import { logger } from './utils/logger';
-import { ArtifactDetailModal } from './components/ArtifactDetailModal';
-import { ImportModal } from './components/ImportModal';
-import { ExportModal } from './components/ExportModal';
-import { ProjectLauncher } from './components/ProjectLauncher';
-import { ServerLogsModal } from './components/ServerLogsModal';
-import { ThreadSwitcher } from './components/ThreadSwitcher';
 import { useDomains } from './domains/DomainRegistry';
-import {
-  deriveThreadRuntime,
-  queuePositionOf,
-  titlePipelineStep,
-  placeholderTitle,
-  sampleTurnsForTitle,
-  ThreadRuntime,
-} from './domains/06-chat-threads';
-import { SaturationOrb } from './domains/04-presentation/telemetry/SaturationOrb';
-import { EdgeHeatStrip } from './domains/04-presentation/telemetry/EdgeHeatStrip';
-import { MirrorPanel } from './domains/04-presentation/telemetry/MirrorPanel';
-import { AmbientTelemetryData } from './domains/04-presentation/telemetry/ambientTelemetry';
-import { useImportSession } from './components/import/useImportSession';
-import { detectImportFlag, flagRelationship, ImportFlag } from './utils/importDetect';
-import { RevisionTriageModal } from './components/RevisionTriageModal';
+import { useImportSession } from './ui/artifacts/import/useImportSession';
+import { SendQueue } from './application/sendQueue';
+import type { SendQueueDeps } from './application/sendQueue';
+import { chatCancel, titleThread, models as fetchModels } from './gateway/api';
+
+// Feature-slice modules — handlers/projections extracted from this file
+import { useOpticalContext } from './ui/context/useOpticalContext';
+import { useProjectProjection } from './ui/workspace/useProjectProjection';
+import { createWorkspaceHandlers } from './ui/workspace/createWorkspaceHandlers';
+import { useDatabaseTransfer } from './ui/workspace/useDatabaseTransfer';
+import { createArtifactHandlers } from './ui/artifacts/createArtifactHandlers';
+import { createGraphHandlers } from './ui/graph/createGraphHandlers';
+import { createChapterHandlers } from './ui/chat/createChapterHandlers';
+import { useThreadUi } from './ui/chat/useThreadUi';
+import { useThreadSwitcher } from './ui/chat/useThreadSwitcher';
+import { createSuggestTitle } from './ui/chat/createSuggestTitle';
 
 export default function App() {
   const {
@@ -112,31 +99,34 @@ export default function App() {
   const activeProjectId = workspace.getActiveProjectId();
   const currentContainer = workspace.getProject(activeProjectId);
 
-  // Model selection (default to Google: Gemini 3.5 Flash Lite)
-  const [selectedModel, setSelectedModel] = useState<ModelOption>(AVAILABLE_MODELS[0]);
+  // Model catalog — server-owned (GET /api/models, unauthenticated), fetched
+  // once on boot. Until it lands — or if it fails — the picker renders
+  // [FALLBACK_MODEL], the same always-populated state the old static list had
+  // (failure never becomes visible where it wasn't before).
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>([FALLBACK_MODEL]);
+  const [selectedModel, setSelectedModel] = useState<ModelOption>(FALLBACK_MODEL);
+
+  useEffect(() => {
+    let alive = true;
+    fetchModels()
+      .then((data) => {
+        const list = data?.models;
+        if (!alive || !Array.isArray(list) || list.length === 0) return; // keep fallback
+        setAvailableModels(list);
+        setSelectedModel((prev) =>
+          list.find((m) => m.id === prev.id) ?? // preserve any user choice
+            list.find((m) => m.id === data.default) ?? // catalog default
+            list[0]
+        );
+      })
+      .catch((e) => logger.warn('App', 'GET /api/models failed — keeping fallback model', e));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Optical Mode state from current container or default
   const opticalMode = currentContainer?.opticalMode || 'autofocus';
-
-  const setOpticalMode = (mode: 'autofocus' | 'manual' | 'myopia') => {
-    if (currentContainer) {
-      workspace.saveContainer({
-        ...currentContainer,
-        opticalMode: mode,
-      });
-      triggerReRender();
-    }
-  };
-
-  const cycleOpticalMode = () => {
-    const next =
-      opticalMode === 'autofocus'
-        ? 'manual'
-        : opticalMode === 'manual'
-        ? 'myopia'
-        : 'autofocus';
-    setOpticalMode(next);
-  };
 
   // Active View: 'chat' | 'graph' | 'artifacts' | 'tokens'
   const [activeView, setActiveView] = useState<ActiveView>('chat');
@@ -154,1206 +144,171 @@ export default function App() {
   // Phase 3: triage modal — non-null = open, value = flagged pair to focus.
   const [triageFocusId, setTriageFocusId] = useState<string | null>(null);
 
-  // Full-database backup / restore (canonical format lives in persistenceService).
-  const importDbFileRef = useRef<HTMLInputElement | null>(null);
+  // Full-database backup / restore trigger + handlers → ui/workspace slice
+  const { importDbFileRef, handleExportDatabase, dbImportInput } = useDatabaseTransfer();
 
-  const handleExportDatabase = useCallback(async () => {
-    try {
-      const data = await exportDatabase();
-      const blob = new Blob([serializeDatabase(data)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `markbrain-db-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      logger.info('App', `Database backup downloaded (${data.projects.length} projects)`);
-    } catch (err: any) {
-      logger.error('App', `Database export failed: ${err?.message || err}`, err);
-    }
-  }, []);
-
-  const handleImportDatabaseFile = useCallback(async (file: File) => {
-    try {
-      const text = await file.text();
-      const parsed = parseDatabaseExport(text);
-      const n = await importDatabase(parsed);
-      logger.info('App', `Database restore OK — ${n} project(s) imported. Reloading…`);
-      // Fresh boot is the honest way to show restored data: the boot path
-      // (gate → project list → snapshot load) is the one already exercised
-      // by every session, fixture, and real-data run.
-      window.location.reload();
-    } catch (err: any) {
-      logger.error('App', `Database import failed: ${err?.message || err}`, err);
-      alert(`Import failed: ${err?.message || err}`);
-    }
-  }, []);
-
-  // Mounted on BOTH the Genesis screen and the main studio (exclusive early
-  // returns) — a fresh browser must be able to restore with zero projects,
-  // which means the trigger has to exist where the Sidebar doesn't.
-  const dbImportInput = (
-    <input
-      ref={importDbFileRef}
-      type="file"
-      accept="application/json,.json"
-      className="hidden"
-      onChange={(e) => {
-        const f = e.target.files?.[0];
-        if (f) handleImportDatabaseFile(f);
-        e.target.value = '';
-      }}
-    />
-  );
+  // Workspace/project CRUD + optical-mode handlers → ui/workspace slice
+  const { cycleOpticalMode, handleSelectProjectAndLaunchChat, handleCreateProject } =
+    createWorkspaceHandlers({
+      workspace,
+      currentContainer,
+      triggerReRender,
+      setActiveView,
+      setIsProjectLauncherOpen,
+      opticalMode,
+    });
 
   // ── Serial generation queue ────────────────────────────────────────────────
   // One stream at a time (Gemini quota + serial by design). Sends in other
   // threads enqueue; queued sends within one thread buffer-append (each job =
   // one user turn + one assistant turn when it starts).
-  interface QueueJob {
-    id: string;
-    threadId: string;
-    mode: 'new' | 'retry';
-    text?: string;
-    turnId?: string; // retry target (assistant turn to regenerate)
-  }
-  const queueRef = useRef<QueueJob[]>([]);
-  const activeJobRef = useRef<QueueJob | null>(null);
-  const jobAbortRef = useRef<AbortController | null>(null);
+  // Orchestration (queue refs, pump, executeTurn, title pipeline, handlers)
+  // lives in application/sendQueue.ts. This component keeps only PRESENTATION
+  // state: streamingStatus/streamPhase are ChatView display strings, driven by
+  // the queue through injected setters; the re-render tick stays here too.
   const [streamingStatus, setStreamingStatus] = useState<string | null>(null);
   const [streamPhase, setStreamPhase] = useState<'waiting' | 'streaming' | null>(null);
 
-  // Derived (refs aren't reactive — every queue mutation calls triggerReRender)
-  const activeThreadId = threadRegistry.getActiveThreadId();
-  const isChatLoading =
-    !!activeJobRef.current && activeJobRef.current.threadId === activeThreadId;
+  // Queue-owned refs (pending jobs / active job / abort controller) moved into
+  // the module. Deps are re-published on every render (publish block below);
+  // the queue snapshots deps + render context when a chain starts.
+  const queueDepsRef = useRef<SendQueueDeps | null>(null);
+  const sendQueueRef = useRef<SendQueue | null>(null);
+  if (!sendQueueRef.current) sendQueueRef.current = new SendQueue(() => queueDepsRef.current!);
+  const sendQueue = sendQueueRef.current;
 
-  const handleStopGeneration = useCallback(() => {
-    logger.action('App', 'Stop generation');
-    const job = activeJobRef.current;
-    if (job && job.threadId === threadRegistry.getActiveThreadId() && jobAbortRef.current) {
-      jobAbortRef.current.abort();
-      fetch('/api/chat/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Stop button pressed by user' }),
-      }).catch((e) => logger.warn('App', 'POST /api/chat/cancel failed', e));
-      // runJob.finally() clears the active job and promotes the queue
-    }
-  }, [threadRegistry]);
+  // Derived (queue refs aren't reactive — every queue mutation calls triggerReRender)
+  const activeThreadId = threadRegistry.getActiveThreadId();
+  const isChatLoading = sendQueue.getActiveJob()?.threadId === activeThreadId;
+
+  // Queue presentation wrappers + per-thread runtimes + unread tracking → ui/chat slice
+  const {
+    handleStopGeneration,
+    handleSendMessage,
+    handleCancelQueued,
+    handleRetryThread,
+    threadRuntimes,
+    unreadThreadIds,
+    markThreadUnread,
+    clearThreadUnread,
+  } = useThreadUi({ sendQueue, threadRegistry, tick });
 
   // Pinned Focal Artifacts & Tier Overrides
   const focalArtifactIds = currentContainer?.focalArtifactIds || [];
   const manualTierOverrides = currentContainer?.tierOverrides || {};
 
-  const handleToggleFocusArtifact = (artId: string) => {
-    if (!currentContainer) return;
-    const prev = currentContainer.focalArtifactIds || [];
-    const next = prev.includes(artId) ? prev.filter((id: string) => id !== artId) : [...prev, artId];
-    workspace.saveContainer({
-      ...currentContainer,
-      focalArtifactIds: next,
-    });
-    triggerReRender();
-  };
-
-  const handleChangeTierOverride = (artId: string, tier: ResolutionTier | null) => {
-    if (!currentContainer) return;
-    const nextOverrides = { ...currentContainer.tierOverrides };
-    if (tier === null) {
-      delete nextOverrides[artId];
-    } else {
-      nextOverrides[artId] = tier;
-    }
-    workspace.saveContainer({
-      ...currentContainer,
-      tierOverrides: nextOverrides,
-    });
-    triggerReRender();
-  };
-
-  // Compile Optical Context through compiler domain.
-  // NOTE: focalIds = explicitly pinned artifacts ONLY. The selected/viewed
-  // artifact is deliberately NOT injected here — selection only ever differs
-  // from pins while the detail modal is open (chat cannot happen then), and
-  // injecting it made "Current: Tier" and in-context state appear stuck no
-  // matter what pin/tier/Auto the user clicked.
-  const compiledContext = useMemo(() => {
-    return compiler.compile({
-      focalIds: focalArtifactIds,
-      opticalMode,
-      tokenCeiling: currentContainer?.tokenCeiling || 32000,
-      tierOverrides: manualTierOverrides,
-    });
-  }, [compiler, focalArtifactIds, opticalMode, currentContainer?.tokenCeiling, manualTierOverrides, tick]);
-
-  // Telemetry payload for SaturationOrb and EdgeHeatStrip
-  const ambientTelemetry: AmbientTelemetryData = useMemo(() => {
-    const tb = compiledContext.telemetry.tokenBreakdown;
-    const ceiling = currentContainer?.tokenCeiling || 32000;
-    return {
-      activeChapterTokens: Math.round(tb.historyTokens * 0.7),
-      olderChaptersTokens: Math.round(tb.historyTokens * 0.3),
-      systemPromptTokens: tb.systemTokens,
-      substrateTokens: tb.substrateTokens,
-      totalTokens: tb.totalTokens,
-      ceiling,
-      opticalMode,
-      saturationRatio: Math.min(1.0, tb.totalTokens / ceiling),
-    };
-  }, [compiledContext, currentContainer?.tokenCeiling, opticalMode]);
-
-  // Construct view projection of Projects list for UI components
-  const domainProjectsList = useMemo(() => {
-    return workspace.listProjects().map((meta) => {
-      const container = workspace.getProject(meta.id);
-      return {
-        id: meta.id,
-        name: meta.name,
-        codeName: meta.codeName,
-        description: meta.description,
-        color: meta.color,
-        icon: 'Layers',
-        currentChapterId: container?.activeChapterId || '',
-        chapters: [],
-        artifacts: [],
-        nodes: [],
-        edges: [],
-      } as Project;
-    });
-  }, [workspace, tick]);
-
-  // Construct active Project model snapshot for child UI components
-  const activeProject: Project = useMemo(() => {
-    const meta = currentContainer?.metadata;
-    const domainArtifacts = artifactsDomain.listArtifacts();
-    const domainChapters = segmentation.listChapters();
-    const domainEdges = graph.listEdges();
-
-    const chapters: Chapter[] = domainChapters.map((c, cIdx) => {
-      // Ensure active/ongoing or last chapter captures all latest appended turns
-      const isLastChapter = cIdx === domainChapters.length - 1;
-      const isOngoing = c.status === 'active' || isLastChapter;
-      const sliceEnd = isOngoing ? undefined : c.endIndex;
-      const turns = timeline.getTurnSlice(c.startIndex, sliceEnd);
-      const messages: ChatMessage[] = turns.map((t) => ({
-        id: t.id,
-        chapterId: c.id,
-        role: t.role,
-        content: t.content,
-        timestamp: new Date(t.timestamp).toISOString(),
-        extractedArtifacts: t.extractedArtifacts,
-        meta: t.meta
-          ? {
-              model: t.meta.model || selectedModel.name,
-              inputTokens: t.meta.promptTokens ?? t.meta.inputTokens ?? 0,
-              outputTokens: t.meta.candidatesTokens ?? t.meta.outputTokens ?? 0,
-              totalTokens: t.meta.totalTokens ?? 0,
-              latencyMs: t.meta.durationMs ?? t.meta.latencyMs,
-              interrupted: Boolean(t.meta.interrupted || t.meta.streamState === 'interrupted'),
-              isStreaming: t.meta.isStreaming,
-              streamState: t.meta.streamState,
-              ...(t.meta as any),
-            }
-          : undefined,
-      }));
-
-      return {
-        id: c.id,
-        projectId: activeProjectId,
-        title: c.title,
-        summary: c.summary,
-        keyPoints: [],
-        isSummarized: Boolean(c.summary),
-        compressionMode: 'full',
-        status: c.status,
-        createdAt: new Date().toISOString(),
-        messages,
-      };
-    });
-
-    const artifacts: Artifact[] = domainArtifacts;
-
-    const nodes: GraphNode[] = domainArtifacts.map((art, idx) => ({
-      id: `node-${art.id}`,
-      artifactId: art.id,
-      projectId: activeProjectId,
-      title: art.title || art.current?.t0_label || 'Untitled',
-      type: art.type,
-      isHighConcept: art.isHighConcept,
-      x: art.graph?.x ?? 300 + (idx % 5) * 180,
-      y: art.graph?.y ?? 200 + Math.floor(idx / 5) * 120,
-      status: 'active',
-      tags: art.tags,
-    }));
-
-    const edges: GraphEdge[] = domainEdges.map((e) => ({
-      id: e.id,
-      sourceProjectId: activeProjectId,
-      targetProjectId: activeProjectId,
-      sourceNodeId: `node-${e.sourceId}`,
-      targetNodeId: `node-${e.targetId}`,
-      label: e.kind,
-      type: 'dependency',
-      strength: e.weight ?? 0.8,
-    }));
-
-    // Ensure chat interface is never hidden due to empty chapters array
-    let finalChapters: Chapter[] = chapters;
-    if (finalChapters.length === 0) {
-      logger.info('App', 'No chapters registered in domain; synthesizing Genesis chapter to guarantee chat interface visibility');
-      const allTurns = timeline.getTurnSlice(0, undefined);
-      finalChapters = [
-        {
-          id: 'chap-genesis',
-          projectId: activeProjectId,
-          title: 'Genesis Chapter',
-          summary: '',
-          keyPoints: [],
-          isSummarized: false,
-          compressionMode: 'full',
-          status: 'active',
-          createdAt: new Date().toISOString(),
-          messages: allTurns.map((t) => ({
-            id: t.id,
-            chapterId: 'chap-genesis',
-            role: t.role,
-            content: t.content,
-            timestamp: new Date(t.timestamp).toISOString(),
-            extractedArtifacts: t.extractedArtifacts,
-            meta: t.meta
-              ? {
-                  model: t.meta.model || selectedModel.name,
-                  inputTokens: t.meta.promptTokens ?? t.meta.inputTokens ?? 0,
-                  outputTokens: t.meta.candidatesTokens ?? t.meta.outputTokens ?? 0,
-                  totalTokens: t.meta.totalTokens ?? 0,
-                  latencyMs: t.meta.durationMs ?? t.meta.latencyMs,
-                  interrupted: Boolean(t.meta.interrupted || t.meta.streamState === 'interrupted'),
-                  isStreaming: t.meta.isStreaming,
-                  streamState: t.meta.streamState,
-                  ...(t.meta as any),
-                }
-              : undefined,
-          })),
-        },
-      ];
-    }
-
-    const fallbackId = activeProjectId || currentContainer?.metadata?.id || 'default-workspace';
-    return {
-      id: fallbackId,
-      name: meta?.name || 'Untitled Project',
-      codeName: meta?.codeName || 'IDEAS',
-      description: meta?.description || 'A space for thinking out loud.',
-      color: meta?.color || '#3b82f6',
-      icon: 'Layers',
-      currentChapterId: currentContainer?.activeChapterId || finalChapters[0]?.id || 'chap-genesis',
-      chapters: finalChapters,
-      artifacts,
-      nodes,
-      edges,
-      lastActivity: new Date().toISOString(),
-    };
-  }, [
-    activeProjectId,
+  // Optical Context compile + ambient telemetry → ui/context slice
+  const { compiledContext, ambientTelemetry } = useOpticalContext({
+    compiler,
     currentContainer,
+    focalArtifactIds,
+    manualTierOverrides,
+    opticalMode,
+    tick,
+  });
+
+  // Project list + active Project model snapshots → ui/workspace slice
+  const { domainProjectsList, activeProject } = useProjectProjection({
+    workspace,
     artifactsDomain,
     segmentation,
     timeline,
     graph,
+    activeProjectId,
+    currentContainer,
+    selectedModel,
     tick,
-  ]);
+  });
 
-  // Select Project & Launch Chat
-  const handleSelectProjectAndLaunchChat = (projId: string) => {
-    workspace.setActiveProject(projId);
-    setActiveView('chat');
-    setIsProjectLauncherOpen(false);
-  };
-
-  // Create Project & Launch Chat
-  const handleCreateProject = (
-    name: string,
-    description: string,
-    codeName: string,
-    color: string
-  ) => {
-    const meta = workspace.createProject(name, description, color, codeName);
-    workspace.setActiveProject(meta.id);
-    setActiveView('chat');
-    setIsProjectLauncherOpen(false);
-  };
-
-  // Node position handlers
-  const handleUpdateNodePosition = (nodeId: string, x: number, y: number) => {
-    const artId = nodeId.replace(/^node-/, '');
-    const art = artifactsDomain.getArtifact(artId);
-    if (art) {
-      artifactsDomain.upsertArtifact({
-        ...art,
-        id: art.id,
-        title: art.title || art.current?.t0_label || 'Untitled',
-        graph: {
-          ...art.graph,
-          x,
-          y,
-        },
-      });
-    }
-  };
-
-  const handleBatchUpdateNodePositions = (
-    updates: Array<{ nodeId: string; x: number; y: number }>
-  ) => {
-    updates.forEach((u) => {
-      handleUpdateNodePosition(u.nodeId, u.x, u.y);
-    });
-  };
-
-  // Add Edge
-  const handleAddEdge = (edge: GraphEdge) => {
-    const sArtId = edge.sourceNodeId ? edge.sourceNodeId.replace(/^node-/, '') : '';
-    const tArtId = edge.targetNodeId ? edge.targetNodeId.replace(/^node-/, '') : '';
-
-    if (sArtId && tArtId) {
-      graph.addEdge(sArtId, tArtId, (edge.label as any) || 'relates_to', edge.strength || 1.0);
-    }
-  };
-
-  // Update Artifact Resolution
-  const handleUpdateArtifactResolution = (
-    artifactId: string,
-    resolution: AbstractionLevel
-  ) => {
-    const art = artifactsDomain.getArtifact(artifactId);
-    if (art) {
-      artifactsDomain.upsertArtifact({
-        ...art,
-        id: art.id,
-        title: art.title,
-        resolution,
-      });
-    }
-  };
-
-  const handleUpdateAllArtifactsResolution = (resolution: AbstractionLevel) => {
-    const all = artifactsDomain.listArtifacts();
-    all.forEach((art) => {
-      artifactsDomain.upsertArtifact({
-        ...art,
-        id: art.id,
-        title: art.title,
-        resolution,
-      });
-    });
-  };
-
-  // Update Artifact Content (auto-records version history in domain)
-  const handleUpdateArtifactContent = (artifactId: string, newContent: string) => {
-    const art = artifactsDomain.getArtifact(artifactId);
-    if (art) {
-      versioning.recordRevision(art.id, newContent, 'Direct manual specification edit');
-      artifactsDomain.updateTiers(art.id, { t3_body: newContent });
-    }
-  };
-
-  // Add New Artifact
-  const handleAddArtifact = (newArt: Artifact) => {
-    // Idempotent by title (review P1 #7): extracted notes are already
-    // auto-upserted via onArtifact with a different id — "Save as Artifact"
-    // must update that record, not create a second copy.
-    const title = (newArt.title || newArt.current?.t0_label || '').trim();
-    const existing = !title
-      ? undefined
-      : artifactsDomain
-        .listArtifacts()
-        .find(
-          (a) =>
-            (a.title || a.current?.t0_label || '').trim() === title
-        );
-    artifactsDomain.upsertArtifact({
-      id: existing?.id ?? newArt.id,
-      title: newArt.title || newArt.current?.t0_label || 'Untitled',
-      workspaceId: activeProjectId,
-      code: newArt.code || newArt.id,
-      type: newArt.type === 'chapter' ? 'chapter' : 'document',
-      category: newArt.category || 'note',
-      isHighConcept: Boolean(newArt.isHighConcept),
-      color: newArt.color,
-      current: newArt.current || {
-        t0_label: newArt.title || 'Untitled',
-        t1_abstract: '',
-        t2_summary: '',
-        t3_body: '',
-      },
-      tags: newArt.tags || [],
-      createdAt: existing?.createdAt ?? newArt.createdAt ?? Date.now(),
-      updatedAt: newArt.updatedAt ?? Date.now(),
-      // Only copy coordinates when they are real numbers: imported artifacts
-      // carry graph metadata without x/y, and `{x: undefined}` poisons
-      // Firestore saves (see utils/storageSanitize.ts for the boundary guard).
-      graph: (() => {
-        const g: { x?: number; y?: number; is_high_concept?: boolean } = {
-          is_high_concept: Boolean(newArt.isHighConcept),
-        };
-        if (typeof newArt.graph?.x === 'number') g.x = newArt.graph.x;
-        if (typeof newArt.graph?.y === 'number') g.y = newArt.graph.y;
-        return g;
-      })(),
-      resolution: newArt.resolution,
-    });
-    setSelectedArtifactId(existing?.id ?? newArt.id);
-  };
-
-  // Import-session land (multi-import plan): ALWAYS a separate artifact.
-  // Unlike handleAddArtifact (title-idempotent for the chat flow), a colliding
-  // frontmatter `id` must never silently overwrite an existing record — mint a
-  // fresh id instead. Phase 2: when the body/code/title matches something
-  // already imported, auto-attach a revision-of/duplicate-of relationship (the
-  // flag) — never merge or block here; triage is post-import. Returns the final
-  // id + flag so the session row can reference and display them.
-  const handleImportArtifact = (newArt: Artifact): { id: string; flag: ImportFlag | null } => {
-    let id = newArt.id;
-    if (artifactsDomain.getArtifact(id)) {
-      id = `art-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    }
-    const flag = detectImportFlag(
-      {
-        title: newArt.title || newArt.current?.t0_label || '',
-        code: newArt.code,
-        body: newArt.current?.t3_body || '',
-      },
-      artifactsDomain.listArtifacts().map((a) => ({
-        id: a.id,
-        title: a.title || a.current?.t0_label || '',
-        code: a.code,
-        body: a.current?.t3_body || '',
-      }))
-    );
-    artifactsDomain.upsertArtifact({
-      id,
-      title: newArt.title || newArt.current?.t0_label || 'Untitled',
-      workspaceId: activeProjectId,
-      code: newArt.code || id,
-      type: newArt.type === 'chapter' ? 'chapter' : 'document',
-      category: newArt.category || 'note',
-      isHighConcept: Boolean(newArt.isHighConcept),
-      color: newArt.color,
-      current: newArt.current || {
-        t0_label: newArt.title || 'Untitled',
-        t1_abstract: '',
-        t2_summary: '',
-        t3_body: '',
-      },
-      tags: newArt.tags || [],
-      createdAt: newArt.createdAt ?? Date.now(),
-      updatedAt: newArt.updatedAt ?? Date.now(),
-      // Number-only coordinates — `{x: undefined}` poisons Firestore saves
-      // (same guard as handleAddArtifact; see utils/storageSanitize.ts).
-      // Relationships: carry incoming edges + append the Phase-2 flag edge.
-      graph: (() => {
-        const relationships = [...(newArt.graph?.relationships || [])];
-        if (flag) relationships.push(flagRelationship(flag));
-        const g: {
-          x?: number;
-          y?: number;
-          is_high_concept?: boolean;
-          relationships?: Array<{ target: string; type: string; note?: string }>;
-        } = {
-          is_high_concept: Boolean(newArt.isHighConcept),
-        };
-        if (typeof newArt.graph?.x === 'number') g.x = newArt.graph.x;
-        if (typeof newArt.graph?.y === 'number') g.y = newArt.graph.y;
-        if (relationships.length > 0) g.relationships = relationships;
-        return g;
-      })(),
-      resolution: newArt.resolution,
-    });
-    return { id, flag };
-  };
+  // Artifact CRUD / pin & tier overrides / import landing / Phase-3 triage
+  // → ui/artifacts slice (same handler names ChatView/Sidebar/modals already bind)
+  const {
+    handleToggleFocusArtifact,
+    handleChangeTierOverride,
+    handleAddArtifact,
+    handleImportArtifact,
+    handleTriageKeepBoth,
+    handleTriageOverwrite,
+    handleTriageDelete,
+  } = createArtifactHandlers({
+    artifactsDomain,
+    versioning,
+    workspace,
+    activeProjectId,
+    currentContainer,
+    triggerReRender,
+    selectedArtifactId,
+    setSelectedArtifactId,
+    triageFocusId,
+    setTriageFocusId,
+  });
 
   // Session lives at App level: closing ImportModal keeps the queue processing.
   const importSession = useImportSession(activeProject, handleImportArtifact);
 
-  // ---- Phase 3: post-import triage (work AFTER the fact, never during) ----
-  // Graph-only upsert that preserves everything else (incl. regenerating the
-  // cached yamlDocument snapshot when the artifact had one).
-  const upsertGraphOf = (art: Artifact, graph: NonNullable<Artifact['graph']>) => {
-    const next: Artifact = { ...art, graph };
-    artifactsDomain.upsertArtifact({
-      ...next,
-      ...(art.yamlDocument !== undefined ? { yamlDocument: serializeArtifactToYamlDoc(next) } : {}),
-    });
-  };
+  // Graph node/edge handlers → ui/graph slice
+  const { handleUpdateNodePosition, handleBatchUpdateNodePositions, handleAddEdge } =
+    createGraphHandlers({ artifactsDomain, graph });
 
-  // Dangling-edge + focus scrub for any artifact id leaving the workspace.
-  const scrubReferencesTo = (deletedId: string) => {
-    artifactsDomain.listArtifacts().forEach((a) => {
-      const rels = a.graph?.relationships;
-      if (!rels || !rels.some((r) => r.target === deletedId)) return;
-      upsertGraphOf(a, {
-        ...(a.graph || {}),
-        relationships: rels.filter((r) => r.target !== deletedId),
-      });
-    });
-    // One saveContainer for BOTH focal + tier scrub — two sync calls would
-    // race on the same stale currentContainer snapshot.
-    if (
-      currentContainer &&
-      ((currentContainer.focalArtifactIds || []).includes(deletedId) ||
-        (currentContainer.tierOverrides && deletedId in currentContainer.tierOverrides))
-    ) {
-      const nextContainer = { ...currentContainer };
-      if ((nextContainer.focalArtifactIds || []).includes(deletedId)) {
-        nextContainer.focalArtifactIds = (nextContainer.focalArtifactIds || []).filter(
-          (i: string) => i !== deletedId
-        );
-      }
-      if (nextContainer.tierOverrides && deletedId in nextContainer.tierOverrides) {
-        const overrides = { ...nextContainer.tierOverrides };
-        delete overrides[deletedId];
-        nextContainer.tierOverrides = overrides;
-      }
-      workspace.saveContainer(nextContainer);
-    }
-    if (selectedArtifactId === deletedId) setSelectedArtifactId(null);
-    if (triageFocusId === deletedId) setTriageFocusId(null);
-  };
+  // Chapter declare/summarize/compression handlers → ui/chat slice
+  const { handleDeclareChapter, handleSummarizeChapter, handleToggleChapterCompressionMode } =
+    createChapterHandlers({ timeline, segmentation });
 
-  const handleTriageKeepBoth = (newId: string, oldId: string) => {
-    const art = artifactsDomain.getArtifact(newId);
-    if (!art) return;
-    const rels = (art.graph?.relationships || []).filter(
-      (r) => !(r.target === oldId && (r.type === 'revision-of' || r.type === 'duplicate-of'))
-    );
-    upsertGraphOf(art, { ...(art.graph || {}), relationships: rels });
-    logger.action('App', `Triage: keep both — dismissed import flag ${newId} → ${oldId}`);
-  };
-
-  const handleTriageOverwrite = (newId: string, oldId: string) => {
-    const oldArt = artifactsDomain.getArtifact(oldId);
-    const newArt = artifactsDomain.getArtifact(newId);
-    if (!oldArt || !newArt || oldId === newId) return;
-    const oldBody = oldArt.current?.t3_body || '';
-    const newBody = newArt.current?.t3_body || '';
-
-    // 1) Snapshot pre-overwrite state (rollback target; content == state at record time).
-    versioning.recordRevision(oldId, oldBody, 'Pre-overwrite snapshot (import triage)');
-
-    // 2) Adopt new content/meta onto the OLD id — old keeps identity + coordinates.
-    const graph: NonNullable<Artifact['graph']> = {
-      is_high_concept: Boolean(newArt.isHighConcept),
-    };
-    if (typeof oldArt.graph?.x === 'number') graph.x = oldArt.graph.x;
-    if (typeof oldArt.graph?.y === 'number') graph.y = oldArt.graph.y;
-    const parent = newArt.graph?.parent || oldArt.graph?.parent;
-    if (parent) graph.parent = parent;
-    const rels = [
-      ...(oldArt.graph?.relationships || []).filter((r) => r.target !== newId),
-      // Incoming (non-flag) edges travel with the content; flag edges never
-      // transfer — a carrier→old edge would become old→old, carrier→third
-      // would misattribute the flag to the old artifact.
-      ...(newArt.graph?.relationships || []).filter(
-        (r) => r.type !== 'revision-of' && r.type !== 'duplicate-of'
-      ),
-    ];
-    if (rels.length > 0) graph.relationships = rels;
-
-    const merged: Artifact = {
-      ...oldArt,
-      title: newArt.title,
-      code: newArt.code || oldArt.code,
-      type: newArt.type,
-      category: newArt.category,
-      isHighConcept: Boolean(newArt.isHighConcept),
-      tags: newArt.tags,
-      current: newArt.current,
-      resolution: newArt.resolution || oldArt.resolution,
-      graph,
-      updatedAt: Date.now(),
-    };
-    artifactsDomain.upsertArtifact({
-      ...merged,
-      yamlDocument: serializeArtifactToYamlDoc(merged),
-    });
-
-    // 3) Post state recorded so history's latest matches reality; rollback to
-    //    the pre-overwrite entry restores the old body.
-    versioning.recordRevision(oldId, newBody, `Overwritten by import triage from "${newArt.title}"`);
-
-    // 4) Carrier removal + dangling-edge/focus scrub.
-    artifactsDomain.deleteArtifact(newId);
-    scrubReferencesTo(newId);
-    logger.action(
-      'App',
-      `Triage: overwrote "${oldArt.title}" (${oldId}) with "${newArt.title}" (${newId}) — carrier removed, rollback available`
-    );
-  };
-
-  const handleTriageDelete = (artifactId: string) => {
-    const art = artifactsDomain.getArtifact(artifactId);
-    artifactsDomain.deleteArtifact(artifactId);
-    scrubReferencesTo(artifactId);
-    logger.action('App', `Triage: deleted ${art?.title || artifactId}`);
-  };
-
-  // Declare New Chapter
-  const handleDeclareChapter = (
-    _messageId: string,
-    title: string
-  ) => {
-    const currentTurnsCount = timeline.count();
-    segmentation.declareNewChapter(title, currentTurnsCount, 'User split chapter boundary');
-  };
-
-  // Summarize Chapter
-  const handleSummarizeChapter = async (chapterId: string) => {
-    const target = segmentation.getChapter(chapterId);
-    if (!target) {
-      logger.warn('App', `Summarize requested for unknown chapter ${chapterId}`);
-      return;
-    }
-
-    try {
-      const turns = timeline.getTurnSlice(target.startIndex, target.endIndex);
-      const res = await fetch('/api/summarize-chapter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: target.title,
-          messages: turns.map((t) => ({ role: t.role, content: t.content })),
-        }),
-      });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => null);
-        throw new Error(`summarize-chapter HTTP ${res.status}${errBody?.error ? `: ${errBody.error}` : ''}`);
-      }
-      const data = await res.json();
-      segmentation.updateSummary(chapterId, data.summary);
-    } catch (err) {
-      logger.error('App', `Failed to summarize chapter ${chapterId}`, err);
-    }
-  };
-
-  // Toggle Chapter Compression
-  const handleToggleChapterCompressionMode = (
-    _chapterId: string,
-    _mode: 'summary' | 'full' | 'dropped'
-  ) => {
-    // Retained for component contract compatibility
-  };
-
-  // ── Thread-aware turn routing ──────────────────────────────────────────────
-  // Live domains hold ONLY the active thread's turns/chapters; background
-  // jobs write through the registry into the inactive thread's cached content.
-  const isActiveThread = (threadId: string) => threadId === threadRegistry.getActiveThreadId();
-
-  const getTurnsOf = (threadId: string) =>
-    isActiveThread(threadId)
-      ? timeline.getTurns()
-      : threadRegistry.getInactiveContent(threadId)?.turns ?? [];
-
-  const getChaptersOf = (threadId: string) =>
-    isActiveThread(threadId)
-      ? segmentation.listChapters()
-      : threadRegistry.getInactiveContent(threadId)?.chapters ?? [];
-
-  const appendTurnToThread = (
-    threadId: string,
-    role: 'user' | 'assistant' | 'system',
-    content: string,
-    extractedArtifacts?: any[],
-    meta?: any
-  ) => {
-    if (isActiveThread(threadId)) {
-      return timeline.appendTurn(role, content, extractedArtifacts, meta);
-    }
-    const turn = threadRegistry.appendInactiveTurn(threadId, role, content, extractedArtifacts, meta);
-    if (!turn) throw new Error(`appendInactiveTurn failed for thread ${threadId}`);
-    return turn;
-  };
-
-  const updateTurnInThread = (threadId: string, turnId: string, partial: any) => {
-    if (isActiveThread(threadId)) timeline.updateTurn(turnId, partial);
-    else threadRegistry.updateInactiveTurn(threadId, turnId, partial);
-  };
-
-  // Stage-0 title: truncated first message, set at send time (instant sidebar
-  // feedback even while the job sits in the queue). No LLM involved.
-  const noteSendIntent = (threadId: string, text: string) => {
-    const thread = threadRegistry.getThread(threadId);
-    if (!thread) return;
-    const existingUserTurns = getTurnsOf(threadId).filter((t) => t.role === 'user').length;
-    const queuedNew = queueRef.current.filter(
-      (j) => j.threadId === threadId && j.mode === 'new'
-    ).length;
-    if (
-      existingUserTurns + queuedNew === 0 &&
-      thread.titleVersion === 0 &&
-      thread.titleState !== 'manual'
-    ) {
-      threadRegistry.patch(threadId, {
-        title: placeholderTitle(text),
-        titleState: 'placeholder',
-        preview: text.slice(0, 100),
-        lastActivityAt: Date.now(),
-      });
-    } else {
-      threadRegistry.patch(threadId, { preview: text.slice(0, 100), lastActivityAt: Date.now() });
-    }
-  };
-
-  // Staged titling pipeline — fires after a successful assistant reply:
-  // stage1 after the 1st, stage2 once after the 3rd. Fire-and-forget meta
-  // call; failures keep the current title (titles never block the UX).
-  const maybeRetitle = (threadId: string) => {
-    const thread = threadRegistry.getThread(threadId);
-    if (!thread || thread.titleState === 'manual') return;
-    const turns = getTurnsOf(threadId);
-    const assistantCount = turns.filter(
-      (t) =>
-        t.role === 'assistant' &&
-        t.meta?.streamState !== 'error' &&
-        t.meta?.streamState !== 'interrupted'
-    ).length;
-    const step = titlePipelineStep(thread, assistantCount);
-    if (!step) return;
-    const version = step === 'stage1' ? 1 : 2;
-    fetch('/api/title-thread', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: sampleTurnsForTitle(turns), version }),
-    })
+  // ── Publish deps for application/sendQueue.ts ──────────────────────────────
+  // Re-assigned every render; the queue snapshots deps + getContext() when a
+  // chain starts (same closure semantics the inline implementation had).
+  // Call sites stay in App.tsx; both POSTs now go through gateway/api.ts.
+  const requestAutoTitle = (
+    messages: Array<{ role: string; content: string }>,
+    version: number
+  ): Promise<string | null> =>
+    titleThread({ messages, version })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: any) => {
-        if (data?.title && threadRegistry.applyAutoTitle(threadId, data.title, version)) {
-          logger.info('App', `Thread title ${step} applied`, { threadId, title: data.title });
-          triggerReRender();
-        }
-      })
-      .catch((err) => logger.warn('App', 'title-thread request failed', err));
+      .then((data: any) => data?.title ?? null);
+
+  const postChatCancel = (reason: string) => {
+    chatCancel(reason).catch((e) => logger.warn('App', 'POST /api/chat/cancel failed', e));
   };
 
-  // Execute ONE job (new send or retry) against its thread — active thread via
-  // live domains, background threads via the registry cache.
-  const executeTurn = async (job: QueueJob) => {
-    const threadId = job.threadId;
-    setStreamingStatus(`Connecting to ${selectedModel.name}...`);
-    setStreamPhase('waiting');
-    const controller = new AbortController();
-    jobAbortRef.current = controller;
-
-    let assistantTurnId: string;
-    if (job.mode === 'retry' && job.turnId) {
-      assistantTurnId = job.turnId;
-      updateTurnInThread(threadId, assistantTurnId, {
-        content: '',
-        extractedArtifacts: [],
-        meta: { model: selectedModel.name, isStreaming: true, streamState: 'connecting' },
-      });
-    } else {
-      appendTurnToThread(threadId, 'user', job.text!);
-      assistantTurnId = appendTurnToThread(threadId, 'assistant', '', [], {
-        model: selectedModel.name,
-        isStreaming: true,
-        streamState: 'connecting',
-      }).id;
-    }
-    triggerReRender();
-
-    let streamedContent = '';
-    let compiled: any = null;
-    try {
-      // Compile against THIS thread's turns/chapters (historyTurns override) —
-      // background jobs must never leak the visible thread's context.
-      compiled = compiler.compile({
-        focalIds: focalArtifactIds,
-        opticalMode,
-        tokenCeiling: currentContainer?.tokenCeiling || 32000,
-        tierOverrides: manualTierOverrides,
-        log: true, // once-per-send lifecycle log (display memo must stay silent)
-        historyTurns: getTurnsOf(threadId),
-        historyChapters: getChaptersOf(threadId),
-      });
-
-      const result = await stream.executeStreamingTurn(
-        {
-          model: selectedModel.id,
-          projectTitle: activeProject.name,
-          compiledPrompt: compiled.compiledPrompt,
-          systemInstruction: compiled.systemInstruction,
-        },
-        {
-          signal: controller.signal,
-          onStatus: (status) => {
-            setStreamingStatus(status.message);
-            setStreamPhase(status.state === 'writing' ? 'streaming' : 'waiting');
-            updateTurnInThread(threadId, assistantTurnId, {
-              meta: {
-                model: status.model || selectedModel.name,
-                isStreaming: true,
-                streamState: status.state,
-                durationMs: status.elapsedMs,
-              },
-            });
-            triggerReRender();
-          },
-          onChunk: (_cleanDelta, accumulatedClean) => {
-            streamedContent = accumulatedClean;
-            setStreamPhase('streaming');
-            updateTurnInThread(threadId, assistantTurnId, {
-              content: accumulatedClean,
-              meta: {
-                model: selectedModel.name,
-                isStreaming: true,
-                streamState: 'writing',
-              },
-            });
-            triggerReRender();
-          },
-          onTopicShift: (shift) => {
-            if (isActiveThread(threadId)) {
-              segmentation.declareNewChapter(shift.title, timeline.count(), shift.abstract);
-            } else {
-              threadRegistry.declareChapterInactive(
-                threadId,
-                shift.title,
-                getTurnsOf(threadId).length,
-                shift.abstract
-              );
-            }
-            triggerReRender();
-          },
-          onArtifact: (u) => {
-            const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
-            const existing = artifactsDomain.getArtifact(code) || artifactsDomain.getArtifact(u.id);
-
-            if (existing) {
-              versioning.recordRevision(
-                existing.id,
-                u.content.t3_body,
-                `Update from chat: ${u.content.t1_abstract}`
-              );
-            } else {
-              const now = Date.now();
-              const artTitle = u.title || 'Extracted note';
-              const artDesc = u.content.t1_abstract || 'Extracted note.';
-              const artSumm = u.content.t2_summary || artDesc;
-              const artContent = u.content.t3_body || `# ${artTitle}\n\nExtracted note.`;
-              const artColor = getMellowPastelColor(code);
-
-              const newArtifact: Artifact = {
-                id: u.id || `art-${now}`,
-                workspaceId: activeProjectId,
-                code,
-                title: artTitle,
-                type: u.type === 'chapter' ? 'chapter' : 'document',
-                category: 'note',
-                color: artColor,
-                isHighConcept: false,
-                current: {
-                  t0_label: artTitle,
-                  t1_abstract: artDesc,
-                  t2_summary: artSumm,
-                  t3_body: artContent,
-                },
-                tags: ['chat-extracted', u.type || 'note'],
-                createdAt: now,
-                updatedAt: now,
-                graph: {
-                  is_high_concept: false,
-                  x: 300,
-                  y: 200,
-                },
-                resolution: 'full',
-              };
-              artifactsDomain.upsertArtifact({
-                ...newArtifact,
-                yamlDocument: serializeArtifactToYamlDoc(newArtifact),
-              });
-            }
-            triggerReRender();
-          },
-        }
-      );
-
-      // Finalize assistant turn with clean reply, extracted artifacts, and real Gemini API telemetry
-      const extractedList = result.artifacts.map((u) => ({
-        title: u.title,
-        type: u.type,
-        abstract: u.content.t1_abstract,
-        summary: u.content.t2_summary,
-        content: u.content.t3_body,
-        highConcept: false,
-      }));
-
-      const isInterrupted = controller.signal.aborted;
-      const estPrompt =
-        result.telemetry?.promptTokens ??
-        Math.max(1, Math.ceil((compiled.compiledPrompt?.length || 0) / 4));
-      const estCand =
-        result.telemetry?.candidatesTokens ??
-        Math.max(1, Math.ceil(((result.cleanReply || streamedContent)?.length || 0) / 4));
-      const totalTok = result.telemetry?.totalTokens ?? (estPrompt + estCand);
-
-      updateTurnInThread(threadId, assistantTurnId, {
-        content:
-          result.cleanReply ||
-          streamedContent ||
-          (isInterrupted
-            ? ''
-            : extractedList.length > 0
-              ? `Extracted ${extractedList.length} note${extractedList.length === 1 ? '' : 's'} — no prose reply came back.`
-              : 'No reply came back. Try again.'),
-        extractedArtifacts: extractedList,
-        meta: {
-          model: result.telemetry?.model || selectedModel.name,
-          promptTokens: estPrompt,
-          candidatesTokens: estCand,
-          totalTokens: totalTok,
-          inputTokens: estPrompt,
-          outputTokens: estCand,
-          durationMs: result.telemetry?.durationMs,
-          timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
-          rawMetadata: result.telemetry?.rawMetadata,
-          isStreaming: false,
-          streamState: isInterrupted ? 'interrupted' : 'completed',
-          interrupted: isInterrupted,
-        },
-      });
-      threadRegistry.patch(threadId, {
-        lastOutcome: isInterrupted ? 'interrupted' : 'ok',
-        lastActivityAt: Date.now(),
-      });
-      triggerReRender();
-      logger.info('App', `Turn completed${isInterrupted ? ' (interrupted)' : ''}`, {
-        threadId,
-        model: result.telemetry?.model || selectedModel.name,
-        totalTokens: totalTok,
-        artifacts: extractedList.length,
-        topicShifts: result.topicShift ? 1 : 0,
-      });
-      if (!isInterrupted) maybeRetitle(threadId);
-    } catch (err: any) {
-      if (err.name === 'AbortError' || controller.signal.aborted) {
-        const estPrompt = Math.max(
-          1,
-          Math.ceil(compiled?.telemetry?.tokenBreakdown?.totalTokens || 120)
-        );
-        const estCand = Math.max(1, Math.ceil((streamedContent?.length || 0) / 4));
-        updateTurnInThread(threadId, assistantTurnId, {
-          content: streamedContent || '',
-          meta: {
-            model: selectedModel.name,
-            isStreaming: false,
-            streamState: 'interrupted',
-            interrupted: true,
-            promptTokens: estPrompt,
-            candidatesTokens: estCand,
-            totalTokens: estPrompt + estCand,
-            inputTokens: estPrompt,
-            outputTokens: estCand,
-          },
-        });
-        threadRegistry.patch(threadId, {
-          lastOutcome: 'interrupted',
-          lastActivityAt: Date.now(),
-        });
-        logger.info('App', 'Turn interrupted by user', {
-          threadId,
-          promptTokens: estPrompt,
-          partialTokens: estCand,
-        });
-      } else {
-        logger.error('App', 'Streaming turn failed', err);
-        updateTurnInThread(threadId, assistantTurnId, {
-          content: streamedContent || 'Error communicating with reasoning engine. Please try again.',
-          meta: {
-            model: selectedModel.name,
-            isStreaming: false,
-            streamState: 'error',
-          },
-        });
-        threadRegistry.patch(threadId, { lastOutcome: 'error', lastActivityAt: Date.now() });
-      }
-      triggerReRender();
-    } finally {
-      jobAbortRef.current = null;
-    }
+  queueDepsRef.current = {
+    threadRegistry,
+    timeline,
+    segmentation,
+    artifacts: artifactsDomain,
+    versioning,
+    compiler,
+    stream,
+    triggerReRender,
+    setStreamingStatus,
+    setStreamPhase,
+    markThreadUnread,
+    requestAutoTitle,
+    postChatCancel,
+    confirm: (message: string) => window.confirm(message),
+    getContext: () => ({
+      model: selectedModel,
+      projectId: activeProjectId,
+      projectTitle: activeProject.name,
+      focalIds: focalArtifactIds,
+      opticalMode,
+      tokenCeiling: currentContainer?.tokenCeiling || 32000,
+      tierOverrides: manualTierOverrides,
+    }),
   };
 
-  // Serial queue runner: one job at a time; on completion promote the next.
-  const runJob = async (job: QueueJob) => {
-    activeJobRef.current = job;
-    triggerReRender();
-    try {
-      await executeTurn(job);
-    } catch (err) {
-      logger.error('App', 'Queued job failed unexpectedly', err);
-    } finally {
-      activeJobRef.current = null;
-      jobAbortRef.current = null;
-      setStreamingStatus(null);
-      setStreamPhase(null);
-      triggerReRender();
-      // Finished while the user was elsewhere → brightness bump until opened.
-      markThreadUnread(job.threadId);
-      const next = queueRef.current.shift();
-      if (next) void runJob(next);
-    }
-  };
+  // Quick switcher open-state + Cmd/Ctrl+K/N/Shift+A shortcuts → ui/chat slice
+  const { isSwitcherOpen, setIsSwitcherOpen } = useThreadSwitcher({
+    createThread,
+    threadRegistry,
+    setActiveView,
+  });
 
-  const enqueueJob = (job: QueueJob) => {
-    queueRef.current.push(job);
-    if (!activeJobRef.current) {
-      const next = queueRef.current.shift();
-      if (next) void runJob(next);
-    } else {
-      triggerReRender();
-    }
-  };
+  // User-initiated title suggestion (POST /api/title-thread via gateway)
+  const handleSuggestTitle = createSuggestTitle({ sendQueue, threadRegistry, triggerReRender });
 
-  const handleSendMessage = async (text: string) => {
-    const threadId = threadRegistry.getActiveThreadId();
-    if (!threadId) return;
-    const thread = threadRegistry.getThread(threadId);
-    if (thread?.lifecycle === 'archived') {
-      // Archived threads are readable; continuing one requires unarchiving.
-      if (!window.confirm('Unarchive and continue this thread?')) return;
-      threadRegistry.patch(threadId, { lifecycle: 'active' });
-    }
-    noteSendIntent(threadId, text);
-    enqueueJob({
-      id: `job-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      threadId,
-      mode: 'new',
-      text,
-    });
-  };
-
-  // Cancel this thread's PENDING jobs (never touches an in-flight stream).
-  const handleCancelQueued = (threadId: string) => {
-    const before = queueRef.current.length;
-    queueRef.current = queueRef.current.filter((j) => j.threadId !== threadId);
-    const removed = before - queueRef.current.length;
-    if (removed === 0) return;
-    const thread = threadRegistry.getThread(threadId);
-    const stillQueued = queueRef.current.some((j) => j.threadId === threadId);
-    if (
-      thread &&
-      !stillQueued &&
-      getTurnsOf(threadId).length === 0 &&
-      thread.titleState === 'placeholder' &&
-      thread.titleVersion === 0
-    ) {
-      // Nothing ever ran — drop the speculative placeholder title/preview.
-      threadRegistry.patch(threadId, { title: 'New thread', preview: '' });
-    }
-    logger.action('App', 'Cancelled queued messages', { threadId, removed });
-    triggerReRender();
-  };
-
-  // Regenerate the last assistant turn of the active thread (error/interrupted).
-  const handleRetryThread = () => {
-    const threadId = threadRegistry.getActiveThreadId();
-    const turns = getTurnsOf(threadId);
-    const lastAssistant = [...turns].reverse().find((t) => t.role === 'assistant');
-    if (!lastAssistant) return;
-    logger.action('App', 'Retry last assistant turn', { threadId, turnId: lastAssistant.id });
-    enqueueJob({
-      id: `job-${Date.now()}-retry`,
-      threadId,
-      mode: 'retry',
-      turnId: lastAssistant.id,
-    });
-  };
-
-  // Per-thread runtime for sidebar rows + chat header chip (derived, never persisted).
-  const threadRuntimes = useMemo(() => {
-    const map: Record<string, { state: ThreadRuntime; position: number }> = {};
-    for (const t of threadRegistry.getThreads()) {
-      map[t.id] = {
-        state: deriveThreadRuntime(t, activeJobRef.current?.threadId ?? null, queueRef.current),
-        position: queuePositionOf(t.id, queueRef.current),
-      };
-    }
-    return map;
-  }, [tick, threadRegistry]);
-
-  // "New since you left": thread finished generating while you were elsewhere.
-  // Transient (tab-local) — cleared the moment the thread is opened.
-  const [unreadThreadIds, setUnreadThreadIds] = useState<string[]>([]);
-  const markThreadUnread = (threadId: string) => {
-    if (threadId === threadRegistry.getActiveThreadId()) return;
-    setUnreadThreadIds((prev) => (prev.includes(threadId) ? prev : [...prev, threadId]));
-  };
-  const clearThreadUnread = (threadId: string) => {
-    setUnreadThreadIds((prev) =>
-      prev.includes(threadId) ? prev.filter((id) => id !== threadId) : prev
-    );
-  };
-
-  // Quick switcher + shortcuts: Cmd/Ctrl+K switcher, Cmd/Ctrl+N new thread,
-  // Cmd/Ctrl+Shift+A archive/unarchive active thread.
-  const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      const k = e.key.toLowerCase();
-      if (k === 'k') {
-        e.preventDefault();
-        setIsSwitcherOpen((v) => !v);
-      } else if (k === 'n' && !e.shiftKey) {
-        e.preventDefault();
-        createThread();
-        setActiveView('chat');
-      } else if (k === 'a' && e.shiftKey) {
-        e.preventDefault();
-        const id = threadRegistry.getActiveThreadId();
-        const t = threadRegistry.getThread(id);
-        if (t) {
-          const next = t.lifecycle === 'archived' ? 'active' : 'archived';
-          logger.action('App', `Shortcut archive toggle → ${next}`, { threadId: id });
-          threadRegistry.setThreadLifecycle(id, next);
-        }
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [createThread, threadRegistry]);
-
-  // User-initiated title suggestion — force (may override a manual name).
-  const handleSuggestTitle = (threadId: string) => {
-    const turns = getTurnsOf(threadId);
-    if (turns.filter((t) => (t.content || '').trim()).length === 0) return;
-    fetch('/api/title-thread', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: sampleTurnsForTitle(turns), version: 2 }),
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: any) => {
-        if (data?.title && threadRegistry.forceAutoTitle(threadId, data.title)) {
-          logger.info('App', 'Suggested title applied', { threadId, title: data.title });
-          triggerReRender();
-        }
-      })
-      .catch((err) => logger.warn('App', 'suggest-title failed', err));
-  };
   // 1. Pre-flight Auth Gate: Loading State during initial auth probe
   if (!authInitialized) {
-    return (
-      <div className="flex items-center justify-center h-screen w-screen bg-[#070b12] text-[#8ab1e0] font-sans">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-[#121c2d] border border-[#1e2e47] flex items-center justify-center text-[#e05a66] shadow-sm animate-pulse">
-            <Brain className="w-6 h-6 text-[#e05a66]" />
-          </div>
-          <span className="text-xs font-mono text-[#526e91]">Connecting to MarkBrain...</span>
-        </div>
-      </div>
-    );
+    return <BootSplash label="Connecting to MarkBrain..." />;
   }
 
   // 2. Pre-flight Auth Gate: If user is not authenticated
@@ -1376,16 +331,7 @@ export default function App() {
   // 2.5 Boot: signed in, cloud project list not resolved yet — hold the
   // loader so returning users never flash Genesis or an empty studio.
   if (cloudProjectsCount === null) {
-    return (
-      <div className="flex items-center justify-center h-screen w-screen bg-[#070b12] text-[#8ab1e0] font-sans">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-[#121c2d] border border-[#1e2e47] flex items-center justify-center text-[#e05a66] shadow-sm animate-pulse">
-            <Brain className="w-6 h-6 text-[#e05a66]" />
-          </div>
-          <span className="text-xs font-mono text-[#526e91]">Loading cloud projects...</span>
-        </div>
-      </div>
-    );
+    return <BootSplash label="Loading cloud projects..." />;
   }
 
   // 3. Project Genesis: If user is authenticated but has zero cloud projects
@@ -1417,7 +363,7 @@ export default function App() {
         activeProject={activeProject}
         onSelectProject={(p) => workspace.setActiveProject(p.id)}
         selectedModel={selectedModel}
-        availableModels={AVAILABLE_MODELS}
+        availableModels={availableModels}
         onSelectModel={setSelectedModel}
         totalTokens={ambientTelemetry.totalTokens}
         activeView={activeView === 'graph' ? 'graph' : 'chat'}

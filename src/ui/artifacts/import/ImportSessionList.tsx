@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { serializeArtifactToYamlDoc } from '../../utils/yamlArtifactParser';
-import { estimateTokens } from '../../utils/tokenCalculator';
+import { serializeArtifactToYamlDoc } from '../../../utils/yamlArtifactParser';
+import { estimateTokens } from '../../../utils/tokenCalculator';
 import { ImportRow } from './useImportSession';
 import {
   AlertCircle,

@@ -9,6 +9,7 @@ import {
   Auth,
 } from 'firebase/auth';
 import { logger } from '../utils/logger';
+import { authConfig } from '../gateway/api';
 
 let appInstance: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
@@ -29,7 +30,7 @@ let cachedAuthConfig: AuthConfig | null = null;
 async function fetchAppConfig(): Promise<AuthConfig | null> {
   if (cachedAuthConfig) return cachedAuthConfig;
   try {
-    const res = await fetch('/api/auth/config');
+    const res = await authConfig();
     if (!res.ok) return null;
     cachedAuthConfig = (await res.json()) as AuthConfig;
     return cachedAuthConfig;

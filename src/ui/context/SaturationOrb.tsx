@@ -22,7 +22,7 @@ export const SaturationOrb: React.FC<SaturationOrbProps> = ({ telemetry, onClick
       type="button"
       onClick={onClick}
       aria-label={`${telemetry.totalTokens.toLocaleString()} tokens of ${telemetry.ceiling.toLocaleString()} — open the mirror to see what the LLM will see`}
-      className="absolute top-3 right-4 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0d1421]/90 backdrop-blur-md border border-[#162235] shadow-lg pointer-events-auto cursor-pointer transition-all hover:border-[#223552]"
+      className="absolute top-3 right-4 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-3/95 backdrop-blur-md shadow-pop pointer-events-auto cursor-pointer transition-all hover:bg-surface-4"
       title={`${telemetry.totalTokens.toLocaleString()} tokens of ${telemetry.ceiling.toLocaleString()} — tap to see what the LLM will see`}
     >
       <div

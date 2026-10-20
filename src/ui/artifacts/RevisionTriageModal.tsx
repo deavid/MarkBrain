@@ -71,14 +71,14 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
   }, [focusId, pairs.length]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0a0e17]/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-[#101724] border border-[#080d15] rounded-2xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl text-[#e3edf7] overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-surface-0/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-surface-1 rounded-2xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl text-ink overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b border-[#080d15] flex items-center justify-between shrink-0 bg-[#0d131f]">
+        <div className="p-4 flex items-center justify-between shrink-0 bg-surface-1">
           <div>
-            <h2 className="text-sm font-bold text-[#eef4fc] font-mono flex items-center gap-2">
+            <h2 className="text-sm font-bold text-ink font-mono flex items-center gap-2">
               <span>Revisions &amp; Duplicates</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#2a1f0d] border border-[#4a3a16] text-[#f0c674] font-normal">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-wash-warn text-[#f0c674] font-normal">
                 {pairs.length} flagged
               </span>
             </h2>
@@ -88,7 +88,7 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-[#1a2538] text-[#869ab8] transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg hover:bg-surface-3 text-[#869ab8] transition-colors cursor-pointer"
             title="Close (Escape)"
           >
             <X className="w-5 h-5" />
@@ -125,15 +125,15 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
                 <div
                   key={`${newArt.id}->${oldArt.id}`}
                   id={`triage-${newArt.id}`}
-                  className="bg-[#0d121c] border border-[#080d15] rounded-xl p-3.5 space-y-3"
+                  className="bg-surface-1 rounded-xl p-3.5 space-y-3"
                 >
                   {/* Pair header */}
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-mono font-semibold text-[#eef4fc] truncate">
+                    <span className="text-xs font-mono font-semibold text-ink truncate">
                       {newArt.title}
                     </span>
                     <span
-                      className="text-[10px] font-mono px-1.5 py-0.5 rounded border bg-[#2a1f0d] border-[#4a3a16] text-[#f0c674]"
+                      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-wash-warn text-[#f0c674]"
                       title={`Flagged as ${relType} during import`}
                     >
                       ⚑ {relType} · {reason}
@@ -153,7 +153,7 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
                       {metaChips.map((c) => (
                         <span
                           key={c}
-                          className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#1e2a3f] text-[#8ab1e0] border border-[#080d15]"
+                          className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-4 text-[#8ab1e0] "
                         >
                           {c}
                         </span>
@@ -162,15 +162,15 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
                   )}
 
                   {/* Colored line diff: old (del) → new (add) */}
-                  <div className="bg-[#090d14] border border-[#080d15] rounded-lg overflow-auto max-h-72 text-[10px] font-mono leading-relaxed">
+                  <div className="bg-surface-0 rounded-lg overflow-auto max-h-72 text-[10px] font-mono leading-relaxed">
                     {lines.map((l, i) => (
                       <div
                         key={i}
                         className={
                           l.type === 'add'
-                            ? 'triage-add bg-[#0d2a1b] text-[#6ee7b7] whitespace-pre-wrap px-2'
+                            ? 'triage-add bg-wash-success text-[#6ee7b7] whitespace-pre-wrap px-2'
                             : l.type === 'del'
-                              ? 'triage-del bg-[#261317] text-[#f7aab3] whitespace-pre-wrap px-2'
+                              ? 'triage-del bg-wash-danger text-[#f7aab3] whitespace-pre-wrap px-2'
                               : 'triage-same text-[#8297b5] whitespace-pre-wrap px-2'
                         }
                       >
@@ -184,14 +184,14 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => onKeepBoth(newArt.id, oldArt.id)}
-                      className="px-3 py-1.5 rounded-lg bg-[#1e2a3f] hover:bg-[#2a3b58] text-[#c2d1e0] text-[11px] font-mono transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-veil-1 text-[#c2d1e0] text-[11px] font-mono transition-colors cursor-pointer"
                       title="Keep both artifacts and dismiss this flag — for collisions that aren't really related, or when you want both"
                     >
                       Keep both (dismiss flag)
                     </button>
                     <button
                       onClick={() => onOverwrite(newArt.id, oldArt.id)}
-                      className="px-3 py-1.5 rounded-lg bg-[#2a1f0d] hover:bg-[#3a2a14] border border-[#4a3a16] text-[#f0c674] text-[11px] font-mono transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-wash-warn hover:bg-surface-4 text-[#f0c674] text-[11px] font-mono transition-colors cursor-pointer"
                       title="Keep the OLD artifact id, adopt the imported copy's content/meta, record a pre-overwrite revision (rollback-able), and remove the imported carrier"
                     >
                       Overwrite old with new
@@ -206,7 +206,7 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
                           onDelete(newArt.id);
                         }
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-[#1f1618] hover:bg-[#2a1d20] border border-[#421d22] text-[#f7aab3] text-[11px] font-mono transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-wash-danger hover:bg-surface-3 text-[#f7aab3] text-[11px] font-mono transition-colors cursor-pointer"
                       title="Omit the import — remove the new carrier, keep the earlier artifact"
                     >
                       Delete new
@@ -221,7 +221,7 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
                           onDelete(oldArt.id);
                         }
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-[#1f1618] hover:bg-[#2a1d20] border border-[#421d22] text-[#f7aab3] text-[11px] font-mono transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-wash-danger hover:bg-surface-3 text-[#f7aab3] text-[11px] font-mono transition-colors cursor-pointer"
                       title="Replace the old record with the import — remove the earlier artifact, keep the new one"
                     >
                       Delete old
@@ -234,7 +234,7 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-3 bg-[#0d121c] border-t border-[#080d15] flex items-start gap-2 shrink-0">
+        <div className="p-3 bg-surface-1 flex items-start gap-2 shrink-0">
           <AlertCircle className="w-3.5 h-3.5 text-[#8ab1e0] shrink-0 mt-0.5" />
           <p className="text-[10px] font-mono text-[#627794]">
             Overwrite keeps the old artifact's id and coordinates, records a pre-overwrite revision

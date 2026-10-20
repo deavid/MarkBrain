@@ -407,7 +407,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-surface-1 text-[#e3edf7] font-sans relative p-0 m-0">
+    <div className="flex h-screen w-screen overflow-hidden bg-surface-0 text-ink font-sans relative p-0 m-0">
       {/* Extensible Left Sidebar with Floating Toggle */}
       <Sidebar
         isOpen={isSidebarOpen}

@@ -92,17 +92,17 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0a0e17]/95 backdrop-blur-md flex flex-col p-4 sm:p-6 overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-surface-0/95 backdrop-blur-md flex flex-col p-4 sm:p-6 overflow-y-auto">
       {/* Top Bar */}
-      <div className="max-w-3xl w-full mx-auto flex items-center justify-between pb-4 border-b border-[#080d15] shrink-0">
+      <div className="max-w-3xl w-full mx-auto flex items-center justify-between pb-4 shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#e05a66] to-[#8c52ff] flex items-center justify-center shadow-lg shadow-[#e05a66]/20">
-            <Brain className="w-4 h-4 text-white" />
+            <Brain className="w-4 h-4 text-ink" />
           </div>
           <div>
-            <h1 className="text-base sm:text-lg font-bold text-[#eef4fc] font-mono tracking-tight flex items-center gap-2">
+            <h1 className="text-base sm:text-lg font-bold text-ink font-mono tracking-tight flex items-center gap-2">
               MarkBrain
-              <span className="text-[10px] font-mono font-normal px-2 py-0.5 rounded-full bg-[#182338] text-[#8ab1e0] border border-[#080d15]">
+              <span className="text-[10px] font-mono font-normal px-2 py-0.5 rounded-full bg-surface-3 text-[#8ab1e0] ">
                 Workspace Deck
               </span>
             </h1>
@@ -113,7 +113,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
         {isDismissable && onClose && (
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl bg-[#141b29] hover:bg-[#1f2b40] text-[#8ca3c7] transition-colors"
+            className="p-1.5 rounded-xl bg-surface-2 hover:bg-surface-4 text-[#8ca3c7] transition-colors"
             title="Return to active project"
           >
             <X className="w-5 h-5" />
@@ -124,9 +124,9 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
       {/* Main Content */}
       <div className="max-w-3xl w-full mx-auto py-6 space-y-6 flex-1">
         {/* Callout / Subheader */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#111826] border border-[#080d15] p-4 rounded-2xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface-1 p-4 rounded-2xl">
           <div>
-            <h2 className="text-sm font-semibold text-[#eef4fc]">What project do you want to open?</h2>
+            <h2 className="text-sm font-semibold text-ink">What project do you want to open?</h2>
             <p className="text-xs text-[#7d93b3] mt-0.5">
               Projects encompass your artifacts, connected spatial graphs, and continuous chapter chat.
             </p>
@@ -134,7 +134,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
           {!isCreating && (
             <button
               onClick={() => setIsCreating(true)}
-              className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] text-white font-medium text-xs shadow-md shadow-[#e05a66]/20 transition-all shrink-0 cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] text-ink font-medium text-xs shadow-md shadow-[#e05a66]/20 transition-all shrink-0 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Create New Project</span>
@@ -146,9 +146,9 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
         {isCreating && (
           <form
             onSubmit={handleCreateSubmit}
-            className="bg-[#141c2c] border border-[#080d15] p-4 sm:p-5 rounded-2xl space-y-4 shadow-xl animate-in fade-in slide-in-from-top-2 duration-200"
+            className="bg-surface-2 p-4 sm:p-5 rounded-2xl space-y-4 shadow-xl animate-in fade-in slide-in-from-top-2 duration-200"
           >
-            <div className="flex items-center justify-between border-b border-[#080d15] pb-2">
+            <div className="flex items-center justify-between pb-2">
               <span className="text-xs font-mono font-bold text-[#e05a66] uppercase flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" />
                 Initialize New Project Container
@@ -156,7 +156,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCreating(false)}
-                className="text-xs text-[#7d93b3] hover:text-[#eef4fc]"
+                className="text-xs text-[#7d93b3] hover:text-ink"
               >
                 Cancel
               </button>
@@ -173,7 +173,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                   placeholder="e.g. Novel Draft Notes"
                   value={newName}
                   onChange={(e) => handleNameChange(e.target.value)}
-                  className="w-full bg-[#0d121c] border border-[#080d15] rounded-xl px-3 py-2 text-xs text-[#eef4fc] placeholder-[#50637f] focus:outline-none focus:border-[#e05a66]/50"
+                  className="w-full bg-recess-1 rounded-xl px-3 py-2 text-xs text-ink placeholder-[#50637f] focus:outline-none shadow-well"
                 />
               </div>
 
@@ -187,7 +187,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                   placeholder="e.g. NOVEL"
                   value={newCodeName}
                   onChange={(e) => setNewCodeName(e.target.value)}
-                  className="w-full bg-[#0d121c] border border-[#080d15] rounded-xl px-3 py-2 text-xs font-mono text-[#8ab1e0] placeholder-[#50637f] focus:outline-none focus:border-[#e05a66]/50"
+                  className="w-full bg-recess-1 rounded-xl px-3 py-2 text-xs font-mono text-[#8ab1e0] placeholder-[#50637f] focus:outline-none shadow-well"
                 />
               </div>
             </div>
@@ -201,7 +201,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                 placeholder="What is this project about?"
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
-                className="w-full bg-[#0d121c] border border-[#080d15] rounded-xl p-2.5 text-xs text-[#eef4fc] placeholder-[#50637f] focus:outline-none focus:border-[#e05a66]/50 resize-none"
+                className="w-full bg-recess-1 rounded-xl p-2.5 text-xs text-ink placeholder-[#50637f] focus:outline-none resize-none shadow-well"
               />
             </div>
 
@@ -226,7 +226,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
 
               <button
                 type="submit"
-                className="px-4 py-2 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] text-white font-medium text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] text-ink font-medium text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <span>Create & Go To Chat</span>
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -250,16 +250,16 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                 <div
                   key={proj.id}
                   onClick={() => onSelectProjectAndLaunchChat(proj.id)}
-                  className={`p-4 rounded-2xl border transition-all cursor-pointer group flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                  className={`p-4 rounded-2xl  transition-all cursor-pointer group flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
                     isActive
-                      ? 'bg-[#152033] border-[#080d15] shadow-lg shadow-[#152033]/30'
-                      : 'bg-[#111826] border-[#080d15] hover:border-[#1e2a3f] hover:bg-[#141c2c]'
+                      ? 'bg-surface-2  shadow-lg shadow-[#152033]/30'
+                      : 'bg-surface-1   hover:bg-surface-2'
                   }`}
                 >
                   <div className="flex items-start gap-3.5 min-w-0">
                     <div
                       className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-inner"
-                      style={{ backgroundColor: `${proj.color}22`, border: `1px solid ${proj.color}44` }}
+                      style={{ backgroundColor: `${proj.color}22` }}
                     >
                       {proj.name.toLowerCase().includes('game') ? (
                         <Gamepad2 className="w-5 h-5" style={{ color: proj.color }} />
@@ -270,14 +270,14 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
 
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
-                        <h3 className="font-bold text-sm text-[#eef4fc] group-hover:text-white transition-colors truncate">
+                        <h3 className="font-bold text-sm text-ink group-hover:text-ink transition-colors truncate">
                           {proj.name}
                         </h3>
-                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#0d131f] text-[#8ab1e0] border border-[#080d15]">
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-1 text-[#8ab1e0] ">
                           {proj.codeName || proj.id}
                         </span>
                         {isActive && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#2e1519] text-[#f28894] border border-[#3d161d] font-bold">
+                          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-wash-danger text-[#f28894] font-bold">
                             CURRENT
                           </span>
                         )}
@@ -307,7 +307,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                         setDeleteError(null);
                         setPendingDelete(proj);
                       }}
-                      className="p-2 rounded-xl bg-[#182338] text-[#6c82a1] hover:bg-[#2a1519] hover:text-[#f28894] transition-colors cursor-pointer"
+                      className="p-2 rounded-xl bg-surface-3 text-[#6c82a1] hover:bg-surface-2 hover:text-[#f28894] transition-colors cursor-pointer"
                       title={`Delete "${proj.name}"`}
                       aria-label={`Delete project ${proj.name}`}
                     >
@@ -317,8 +317,8 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                       type="button"
                       className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition-all ${
                         isActive
-                          ? 'bg-[#e05a66] text-white shadow-md shadow-[#e05a66]/25'
-                          : 'bg-[#182338] text-[#8ab1e0] group-hover:bg-[#e05a66] group-hover:text-white'
+                          ? 'bg-[#e05a66] text-ink shadow-md shadow-[#e05a66]/25'
+                          : 'bg-surface-3 text-[#8ab1e0] group-hover:bg-[#e05a66] group-hover:text-ink'
                       }`}
                     >
                       <span>Open Chat</span>
@@ -335,9 +335,9 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
       {/* Destructive confirmation — explicit target, explicit consequences */}
       {pendingDelete && (
         <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#15121c] border border-[#3d161d] rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">
+          <div className="bg-surface-1 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">
             <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-xl bg-[#2e1519] border border-[#5b2029] flex items-center justify-center shrink-0">
+              <div className="w-9 h-9 rounded-xl bg-surface-2 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5 text-[#f28894]" />
               </div>
               <div className="min-w-0">
@@ -366,7 +366,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                 type="button"
                 onClick={() => setPendingDelete(null)}
                 disabled={isDeleting}
-                className="px-3.5 py-2 rounded-xl bg-[#182338] hover:bg-[#1f2b40] text-[#8ab1e0] text-xs font-mono transition-colors cursor-pointer disabled:opacity-50"
+                className="px-3.5 py-2 rounded-xl bg-surface-3 hover:bg-surface-4 text-[#8ab1e0] text-xs font-mono transition-colors cursor-pointer disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -374,7 +374,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                 type="button"
                 onClick={handleConfirmDelete}
                 disabled={isDeleting}
-                className="px-3.5 py-2 rounded-xl bg-[#7f1d1d] hover:bg-[#991b1b] text-white text-xs font-bold font-mono transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                className="px-3.5 py-2 rounded-xl bg-[#7f1d1d] hover:bg-[#991b1b] text-ink text-xs font-bold font-mono transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{isDeleting ? 'Deleting…' : 'Delete permanently'}</span>

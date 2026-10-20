@@ -427,7 +427,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     lastMessageFailed;
 
   return (
-    <div className="relative flex-1 flex flex-col min-h-0 min-w-0 w-full h-full bg-surface-1 text-[#e3edf7] select-text overflow-hidden pt-0 mt-0">
+    <div className="relative flex-1 flex flex-col min-h-0 min-w-0 w-full h-full bg-surface-0 text-ink select-text overflow-hidden pt-0 mt-0">
       {/* Archived thread: readable, one click to continue */}
       {threadArchived && (
         <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-1.5 bg-surface-2 text-[10px] font-mono text-ink-mute shrink-0 animate-in fade-in duration-150">
@@ -465,7 +465,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
 
               <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight font-mono">
+                <h1 className="text-xl sm:text-2xl font-bold text-ink tracking-tight font-mono">
                   {project.name || 'Untitled Project'}
                 </h1>
                 <div className="flex items-center justify-center gap-2 text-xs text-[#6e85a6] font-mono mt-1">
@@ -501,7 +501,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             {/* Elevated Hero Input Card */}
             <form
               onSubmit={handleSubmit}
-              className="bg-surface-2 border border-line focus-within:border-accent rounded-2xl p-4 shadow-2xl shadow-black/40 transition-all space-y-3"
+              className="bg-veil-1 focus-within:bg-veil-2 rounded-2xl p-4 shadow-pop transition-colors space-y-3"
             >
               <textarea
                 ref={heroInputRef}
@@ -519,7 +519,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 rows={3}
                 disabled={isLoading}
                 autoFocus
-                className="w-full bg-transparent text-xs sm:text-sm text-[#eef4fc] placeholder-[#50637f] focus:outline-none resize-none leading-relaxed font-sans"
+                className="w-full bg-transparent text-xs sm:text-sm text-ink placeholder-[#50637f] focus:outline-none resize-none leading-relaxed font-sans"
               />
 
               <div className="flex items-center justify-between pt-3 text-xs">
@@ -551,7 +551,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <button
                   type="submit"
                   disabled={!inputText.trim() || isLoading}
-                  className="px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-white font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-ink font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
                 >
                   {isLoading ? (
                     <>
@@ -678,7 +678,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <section
               key={chapter.id}
               data-ongoing={isOngoing ? 'true' : undefined}
-              className={`transition-all duration-200 relative rounded-2xl overflow-hidden bg-surface-2 mb-5 ${
+              className={`transition-colors duration-200 relative rounded-2xl overflow-hidden bg-surface-1 shadow-step mb-5 ${
                 isOngoing ? 'mt-2' : ''
               }`}
             >
@@ -705,7 +705,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       Chapter {chapterIndex + 1}
                     </span>
 
-                    <h3 className="font-semibold text-xs sm:text-sm text-[#eef4fc] truncate font-mono">
+                    <h3 className="font-semibold text-xs sm:text-sm text-ink truncate font-mono">
                       {chapter.title}
                     </h3>
                   </div>
@@ -770,7 +770,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 const turnsHidden = isCollapsed || granularity !== 'full';
                 if (!turnsHidden || chapterAtts.length === 0) return null;
                 return (
-                  <div className="px-3 sm:px-4 py-2 bg-surface-1 space-y-1.5">
+                  <div className="px-3 sm:px-4 py-2 bg-veil-1 space-y-1.5">
                     <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985]">
                       Attached in this chapter (independent of the cut)
                     </div>
@@ -805,7 +805,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               {!isCollapsed && granularity !== 'title' && (
                 <div
                   data-testid="chapter-body"
-                  className="p-3 sm:p-4 bg-surface-1 space-y-2"
+                  className="p-3 sm:p-4 space-y-2"
                 >
                   {/* What you see is what you send — each layer is gated on the
                       SAME cutIncludes() the compiler uses (12 §4.1). Before this
@@ -815,7 +815,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {cutIncludes(granularity, 'description') && chapter.description && (
                     <div
                       data-testid="chapter-layer-description"
-                      className="text-xs text-[#b8cce6] leading-relaxed bg-surface-2 p-3 rounded-lg"
+                      className="text-xs text-ink-dim leading-relaxed bg-recess-1 shadow-well p-3 rounded-lg"
                     >
                       <div className="font-semibold text-[10px] text-[#e2c328] mb-1 font-mono uppercase tracking-wider">
                         Description
@@ -826,7 +826,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {cutIncludes(granularity, 'summary') && chapter.summary && (
                     <div
                       data-testid="chapter-layer-summary"
-                      className="text-xs text-[#b8cce6] leading-relaxed bg-surface-2 p-3 rounded-lg"
+                      className="text-xs text-ink-dim leading-relaxed bg-recess-1 shadow-well p-3 rounded-lg"
                     >
                       <div className="font-semibold text-[10px] text-[#f99014] mb-1 font-mono uppercase tracking-wider">
                         Summary
@@ -840,7 +840,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {granularity !== 'full' &&
                     ((cutIncludes(granularity, 'description') && !chapter.description) ||
                       (cutIncludes(granularity, 'summary') && !chapter.summary)) && (
-                      <div className="flex items-center justify-between gap-3 text-[11px] text-ink-mute p-2.5 bg-surface-2 rounded-lg">
+                      <div className="flex items-center justify-between gap-3 text-[11px] text-ink-mute p-2.5 bg-recess-1 rounded-lg">
                         <span className="font-mono">
                           {summarizingIds[chapter.id]
                             ? 'Writing summary…'
@@ -927,7 +927,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                         {/* Inline Timeline Split Form */}
                         {declaringMessageId === message.id && (
-                          <div className="w-full max-w-lg my-2 p-3 bg-surface-4 rounded-xl shadow-2xl shadow-black/60 space-y-2 animate-in fade-in duration-150">
+                          <div className="w-full max-w-lg my-2 p-3 bg-surface-4 rounded-xl shadow-pop space-y-2 animate-in fade-in duration-150">
                             <div className="text-[10px] font-mono text-[#38bdf8] uppercase tracking-wider font-semibold">
                               Declare Chapter Split at this Message
                             </div>
@@ -936,19 +936,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               value={newChapterTitle}
                               onChange={(e) => setNewChapterTitle(e.target.value)}
                               placeholder="New Chapter Title (e.g. On pricing)"
-                              className="w-full bg-surface-1 border border-line rounded-lg px-2.5 py-1.5 text-xs text-ink placeholder:text-ink-faint focus:outline-none focus:border-accent"
+                              className="w-full bg-recess-2 shadow-well rounded-lg px-2.5 py-1.5 text-xs text-ink placeholder:text-ink-faint focus:outline-none"
                             />
                             <div className="flex items-center justify-end gap-2 pt-1">
                               <button
                                 onClick={() => setDeclaringMessageId(null)}
-                                className="px-2.5 py-1 text-xs font-mono text-[#7185a3] hover:text-white cursor-pointer"
+                                className="px-2.5 py-1 text-xs font-mono text-[#7185a3] hover:text-ink cursor-pointer"
                               >
                                 Cancel
                               </button>
                               <button
                                 onClick={() => handleDeclareSubmit(message.id)}
                                 disabled={!newChapterTitle.trim()}
-                                className="px-3 py-1 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 text-white rounded-lg text-xs font-mono font-medium shadow-md transition-colors cursor-pointer"
+                                className="px-3 py-1 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 text-ink rounded-lg text-xs font-mono font-medium shadow-md transition-colors cursor-pointer"
                               >
                                 Split Chapter
                               </button>
@@ -960,8 +960,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         <div
                           className={`max-w-[92%] sm:max-w-[85%] rounded-2xl p-3 sm:p-4 text-xs sm:text-sm leading-relaxed ${
                             isUser
-                              ? 'bg-surface-3 text-ink'
-                              : 'bg-surface-2 text-[#d6e3f5]'
+                              ? 'bg-veil-2 shadow-lift text-ink'
+                              : 'bg-recess-1 shadow-well text-ink'
                           }`}
                         >
                           <div className="whitespace-pre-wrap font-sans space-y-2">
@@ -983,7 +983,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                   <FileCode className="w-3.5 h-3.5 text-[#8ab1e0]" />
                                   <span>Extracted notes</span>
                                 </div>
-                                <span className="text-[9px] text-[#6fd3dd] bg-surface-1 px-1.5 py-0.2 rounded">
+                                <span className="text-[9px] text-[#6fd3dd] bg-veil-3 px-1.5 py-0.2 rounded">
                                   Collected
                                 </span>
                               </div>
@@ -991,12 +991,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               {message.extractedArtifacts.map((art: ExtractedArtifact, idx) => (
                                 <div
                                   key={art.id || idx}
-                                  className="bg-surface-1 p-2.5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                                  className="bg-veil-2 shadow-lift p-2.5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                                 >
                                   <div className="min-w-0">
-                                    <div className="font-semibold text-xs text-[#eef4fc] flex items-center gap-1.5 truncate">
+                                    <div className="font-semibold text-xs text-ink flex items-center gap-1.5 truncate">
                                       <span>{art.title}</span>
-                                      <span className="text-[9px] font-mono text-[#8ab1e0] bg-surface-2 px-1.5 py-0.2 rounded">
+                                      <span className="text-[9px] font-mono text-[#8ab1e0] bg-veil-3 px-1.5 py-0.2 rounded">
                                         {art.code}
                                       </span>
                                     </div>
@@ -1009,7 +1009,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                     {onSelectArtifact && (
                                       <button
                                         onClick={() => onSelectArtifact(art)}
-                                        className="px-2 py-1 rounded-lg bg-surface-2 hover:bg-surface-3 text-[11px] font-mono text-[#7eb4ed] transition-colors cursor-pointer"
+                                        className="px-2 py-1 rounded-lg bg-veil-3 hover:bg-veil-4 text-[11px] font-mono text-[#7eb4ed] transition-colors cursor-pointer"
                                         title="Inspect fields and details full-screen"
                                       >
                                         Inspect
@@ -1044,7 +1044,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                         };
                                         onAddArtifactToProject(fullArtifact);
                                       }}
-                                      className="px-2.5 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-xs font-mono text-ink-dim transition-colors cursor-pointer"
+                                      className="px-2.5 py-1 rounded-lg bg-veil-3 hover:bg-veil-4 text-xs font-mono text-ink-dim transition-colors cursor-pointer"
                                     >
                                       Save as Artifact
                                     </button>
@@ -1183,7 +1183,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* Retry banner for a failed/interrupted last reply */}
       {showRetry && (
-        <div className="mx-3 sm:mx-6 mb-2 flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-surface-2 text-[11px] font-mono text-[#e0b96c] animate-in fade-in duration-150 shrink-0">
+        <div className="mx-3 sm:mx-6 mb-2 flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-wash-warn text-[11px] font-mono text-[#e0b96c] animate-in fade-in duration-150 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <AlertCircle className="w-3.5 h-3.5 text-[#e0b96c] shrink-0" />
             <span className="truncate">
@@ -1202,7 +1202,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* Bottom Pinned Chat Input Bar - Active once messages exist */}
       {totalMessagesCount > 0 && (
-        <div className="p-2.5 sm:p-3 bg-surface-1 shrink-0 space-y-2">
+        <div className="p-2.5 sm:p-3 bg-surface-0 shrink-0 space-y-2">
           <div className="max-w-4xl mx-auto">
             <StagedTray
               items={stagedAttachments.map((a) => ({
@@ -1226,7 +1226,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 onOpenArtifacts?.();
               }}
               data-testid="open-artifacts"
-              className="relative h-full px-2.5 py-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-[10px] sm:text-xs shrink-0"
+              className="relative h-full px-2.5 py-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-[10px] sm:text-xs shrink-0"
               title="Attach artifacts from the library"
               aria-label="Attach artifacts"
             >
@@ -1248,10 +1248,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   }
                 }
               }}
-              placeholder="Keep typing — Enter to send, Shift+Enter for a new line"
+              placeholder="Keep typing…"
+              title="Enter to send · Shift+Enter for a new line"
               disabled={isLoading}
               rows={1}
-              className="flex-1 bg-surface-2 border border-line rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:border-accent transition-colors resize-none leading-relaxed max-h-32"
+              className="flex-1 bg-recess-1 shadow-well rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 transition-colors resize-none leading-relaxed max-h-32"
             />
 
             {/* Pending sends for THIS thread (serial queue) — cancel never touches the live stream */}
@@ -1270,7 +1271,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <button
                 type="button"
                 onClick={onStopGeneration}
-                className="px-4 py-2.5 rounded-xl bg-[#dc2626] hover:bg-[#b91c1c] text-white transition-all shadow-md shadow-red-900/30 flex items-center gap-1.5 cursor-pointer font-mono text-xs font-semibold shrink-0"
+                className="px-4 py-2.5 rounded-xl bg-[#dc2626] hover:bg-[#b91c1c] text-ink transition-all shadow-md shadow-red-900/30 flex items-center gap-1.5 cursor-pointer font-mono text-xs font-semibold shrink-0"
                 title="Stop generation"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
@@ -1280,7 +1281,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <button
                 type="submit"
                 disabled={!inputText.trim()}
-                className="px-4 py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 disabled:hover:bg-[#2563eb] text-white transition-all shadow-md shadow-blue-900/25 flex items-center justify-center cursor-pointer shrink-0"
+                className="px-4 py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 disabled:hover:bg-[#2563eb] text-ink transition-all shadow-md shadow-blue-900/25 flex items-center justify-center cursor-pointer shrink-0"
                 title="Send message"
               >
                 <Send className="w-4 h-4" />

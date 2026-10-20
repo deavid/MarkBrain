@@ -266,10 +266,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }}
         className={`w-full flex items-center gap-2 min-h-[30px] pl-2 pr-1 py-1 rounded-md text-left text-xs transition-colors cursor-pointer group select-none ${
           isActive
-            ? 'bg-surface-3 text-ink font-medium'
+            ? 'bg-veil-2 text-ink font-medium shadow-[inset_2px_0_0_#38bdf8]'
             : unreadSet.has(t.id)
-              ? 'bg-surface-2 text-ink font-medium hover:bg-surface-3'
-              : 'text-ink-dim hover:bg-surface-2 hover:text-ink'
+              ? 'text-ink font-medium hover:bg-veil-1'
+              : 'text-ink-dim hover:bg-veil-1 hover:text-ink'
         } ${opts.dimmed ? 'opacity-70' : ''}`}
         title={`${t.preview || t.title}${opts.dimmed ? ' (archived)' : ''}`}
       >
@@ -285,7 +285,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               if (e.key === 'Enter') commitThreadRename();
               if (e.key === 'Escape') setRenamingThreadId(null);
             }}
-            className="flex-1 min-w-0 bg-surface-0 ring-1 ring-[#3b82f6] rounded-md px-1.5 py-0.5 text-xs text-ink focus:outline-none"
+            className="flex-1 min-w-0 bg-recess-2 shadow-well rounded-md px-1.5 py-0.5 text-xs text-ink focus:outline-none"
           />
         ) : (
           <>
@@ -345,7 +345,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onToggle();
           }}
           aria-label="Open sidebar drawer"
-          className="fixed top-3 left-3 z-50 flex items-center justify-center w-11 h-11 rounded-2xl bg-surface-3 hover:bg-surface-4 text-brand hover:text-[#ff6b78] shadow-2xl shadow-black/50 transition-all duration-200 cursor-pointer group"
+          className="fixed top-3 left-3 z-50 flex items-center justify-center w-11 h-11 rounded-2xl bg-surface-3 hover:bg-surface-4 text-brand hover:text-[#ff6b78] shadow-pop transition-colors duration-200 cursor-pointer group"
           title="Open controls, project & artifact hierarchy"
         >
           <Brain className="w-6 h-6 transition-transform group-hover:scale-110" />
@@ -365,10 +365,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Unified Left Sidebar: Docked in flex layout on desktop, slide-out drawer on mobile */}
       <aside
-        className={`fixed md:relative top-0 bottom-0 left-0 z-40 md:z-20 h-full bg-surface-1/98 md:bg-surface-1 border-r border-line-soft flex flex-col transition-all duration-200 ease-in-out text-ink backdrop-blur-xl shrink-0 ${
+        className={`fixed md:relative top-0 bottom-0 left-0 z-40 md:z-20 h-full bg-surface-1/98 md:bg-surface-1 flex flex-col transition-all duration-200 ease-in-out text-ink backdrop-blur-xl shrink-0 ${
           isOpen
             ? 'w-[85vw] max-w-[350px] md:w-[350px] translate-x-0 shadow-2xl md:shadow-none'
-            : '-translate-x-full md:translate-x-0 md:w-0 md:overflow-hidden md:border-r-0'
+            : '-translate-x-full md:translate-x-0 md:w-0 md:overflow-hidden'
         }`}
       >
         {/* Single Scrolling Panel */}
@@ -420,7 +420,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
 
             {accountOpen && (
-              <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl bg-surface-4 p-1.5 shadow-2xl shadow-black/60 animate-in fade-in slide-in-from-top-1 duration-100">
+              <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl bg-surface-4 p-1.5 shadow-pop animate-in fade-in slide-in-from-top-1 duration-100">
                 <div className="px-2.5 py-1.5">
                   <span className="text-xs font-semibold text-ink block truncate">
                     {currentUser ? currentUser.displayName || 'Google Account' : 'Not signed in'}
@@ -447,7 +447,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Block 1: View Navigation Switcher (Chat vs the Artifacts library) */}
-          <div className="p-1 bg-surface-0 rounded-xl flex items-center gap-1">
+          <div className="p-1 bg-recess-1 shadow-well rounded-xl flex items-center gap-1">
             <button
               onClick={() => {
                 logger.action('Sidebar', 'Switch view to chat');
@@ -455,8 +455,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-mono font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeView === 'chat'
-                  ? 'bg-surface-3 text-ink'
-                  : 'text-ink-faint hover:text-ink-dim hover:bg-surface-2'
+                  ? 'bg-veil-2 shadow-lift text-ink'
+                  : 'text-ink-faint hover:text-ink-dim hover:bg-veil-1'
               }`}
             >
               <MessageSquare className="w-3.5 h-3.5 shrink-0" />
@@ -469,8 +469,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-mono font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeView === 'artifacts'
-                  ? 'bg-surface-3 text-ink'
-                  : 'text-ink-faint hover:text-ink-dim hover:bg-surface-2'
+                  ? 'bg-veil-2 shadow-lift text-ink'
+                  : 'text-ink-faint hover:text-ink-dim hover:bg-veil-1'
               }`}
             >
               <FolderTree className="w-3.5 h-3.5 shrink-0" />
@@ -481,14 +481,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Block 2: Project Selector (INLINE ACCORDION - NO FLOATING CLIPPED DROPDOWN) */}
-          <div className="rounded-xl px-1">
+          <div className="rounded-xl bg-surface-2 p-1.5">
             <button
               onClick={() => {
                 const nextState = !projectAccordionOpen;
                 logger.action('Sidebar', `Toggle project accordion: ${nextState ? 'opened' : 'closed'}`);
                 setProjectAccordionOpen(nextState);
               }}
-              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-2 cursor-pointer"
+              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-3 cursor-pointer"
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 <span
@@ -496,10 +496,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   style={{ backgroundColor: activeProject.color || '#5d87b8' }}
                 />
                 <div className="min-w-0">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985] block">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
                     Active Project
                   </span>
-                  <span className="text-xs font-semibold text-white truncate block">
+                  <span className="text-xs font-semibold text-ink truncate block">
                     {activeProject.name}
                   </span>
                 </div>
@@ -524,8 +524,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }}
                       className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
                         proj.id === activeProject.id
-                          ? 'bg-surface-3 text-ink font-semibold'
-                          : 'hover:bg-surface-2 text-ink-dim'
+                          ? 'bg-veil-2 text-ink font-semibold shadow-[inset_2px_0_0_#38bdf8]'
+                          : 'hover:bg-veil-1 text-ink-dim'
                       }`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -548,7 +548,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     setProjectAccordionOpen(false);
                     onOpenProjectLauncher();
                   }}
-                  className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-mono text-ink-dim transition-colors cursor-pointer"
+                  className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-xs font-mono text-ink-dim transition-colors cursor-pointer"
                 >
                   <Plus className="w-3 h-3 text-[#e05a66]" />
                   <span>Create / Switch in Deck</span>
@@ -558,7 +558,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Block 2.5: Chat Threads (per project — select / rename / delete) */}
-          <div className="rounded-xl px-1">
+          <div className="rounded-xl bg-surface-2 p-1.5">
             {/* Header row. Order is deliberate: label · new folder · new thread ·
                 chevron LAST, so the collapse affordance is the final glyph on
                 the right and never sits in the middle of the action cluster. */}
@@ -569,9 +569,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   logger.action('Sidebar', `Toggle threads accordion: ${next ? 'opened' : 'closed'}`);
                   setThreadsOpen(next);
                 }}
-                className="flex items-center gap-2 min-w-0 flex-1 pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-2 cursor-pointer"
+                className="flex items-center gap-2 min-w-0 flex-1 pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-3 cursor-pointer"
               >
-                <span className="text-[10px] font-mono uppercase tracking-wider text-ink-faint">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute">
                   Threads
                 </span>
                 <span className="text-[10px] font-mono text-ink-faint/70 tabular-nums">
@@ -583,7 +583,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   logger.action('Sidebar', 'New folder');
                   beginFolderNameBox('create');
                 }}
-                className="p-1.5 rounded-lg text-ink-faint hover:text-ink-dim hover:bg-surface-2 transition-colors cursor-pointer shrink-0"
+                className="p-1.5 rounded-lg text-ink-faint hover:text-ink-dim hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
                 title="New folder"
               >
                 <FolderKanban className="w-3.5 h-3.5" />
@@ -593,7 +593,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   logger.action('Sidebar', 'Create new thread');
                   onCreateThread?.();
                 }}
-                className="p-1.5 rounded-lg text-ink-faint hover:text-brand hover:bg-surface-2 transition-colors cursor-pointer shrink-0"
+                className="p-1.5 rounded-lg text-ink-faint hover:text-brand hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
                 title="New thread"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -606,7 +606,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 aria-expanded={threadsOpen}
                 aria-label={threadsOpen ? 'Collapse threads' : 'Expand threads'}
-                className="p-1.5 rounded-lg text-ink-faint hover:text-ink hover:bg-surface-2 transition-colors cursor-pointer shrink-0"
+                className="p-1.5 rounded-lg text-ink-faint hover:text-ink hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
               >
                 {threadsOpen ? (
                   <ChevronUp className="w-3.5 h-3.5" />
@@ -649,7 +649,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           if (e.key === 'Enter') commitFolderName();
                           if (e.key === 'Escape') setFolderNameBox(null);
                         }}
-                        className="w-full bg-surface-0 ring-1 ring-[#3b82f6] rounded-md px-2 py-1 text-xs text-ink placeholder:text-ink-faint focus:outline-none"
+                        className="w-full bg-recess-2 shadow-well rounded-md px-2 py-1 text-xs text-ink placeholder:text-ink-faint focus:outline-none"
                       />
                     </div>
                   )}
@@ -660,7 +660,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       dragOverTarget === 'inbox' ? 'ring-1 ring-[#38bdf8]/70 bg-surface-2' : ''
                     }`}
                   >
-                    <span className="text-[9px] font-mono uppercase tracking-wider text-[#526682]">
+                    <span className="text-[9px] font-mono uppercase tracking-wider text-ink-mute">
                       Inbox
                     </span>
                     <span className="text-[9px] font-mono text-[#455770]">({inboxThreads.length})</span>
@@ -719,7 +719,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             setThreadMenu(null);
                             setFolderMenu({ x: e.clientX, y: e.clientY, folderId: f.id });
                           }}
-                          className="w-full flex items-center gap-1.5 min-h-[30px] px-2 py-1 rounded-md text-xs text-ink-dim hover:bg-surface-2 hover:text-ink cursor-pointer select-none"
+                          className="w-full flex items-center gap-1.5 min-h-[30px] px-2 py-1 rounded-md text-xs text-ink-dim hover:bg-surface-3 hover:text-ink cursor-pointer select-none"
                           title="Click to fold · double-click to rename · drag to reorder · right-click for actions"
                         >
                           {open ? (
@@ -740,7 +740,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 if (e.key === 'Enter') commitFolderName();
                                 if (e.key === 'Escape') setFolderNameBox(null);
                               }}
-                              className="flex-1 min-w-0 bg-surface-0 ring-1 ring-[#3b82f6] rounded-md px-1.5 py-0.5 text-xs text-ink focus:outline-none"
+                              className="flex-1 min-w-0 bg-recess-2 shadow-well rounded-md px-1.5 py-0.5 text-xs text-ink focus:outline-none"
                             />
                           ) : (
                             <span className="flex-1 min-w-0 truncate font-semibold">{f.name}</span>
@@ -781,7 +781,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <button
                         onClick={() => setArchivedOpen((v) => !v)}
-                        className="w-full flex items-center gap-1.5 min-h-[30px] px-2 py-1 rounded-md text-xs text-ink-mute hover:bg-surface-2 hover:text-ink-dim cursor-pointer select-none"
+                        className="w-full flex items-center gap-1.5 min-h-[30px] px-2 py-1 rounded-md text-xs text-ink-mute hover:bg-surface-3 hover:text-ink-dim cursor-pointer select-none"
                         title="Archived threads — click to expand"
                       >
                         {archivedOpen ? (
@@ -816,7 +816,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Thread context menu — Rename / Move to / Archive / Delete */}
           {threadMenu && (
             <div
-              className="fixed z-[60] min-w-40 p-1.5 bg-surface-4 rounded-xl shadow-2xl shadow-black/60 animate-in fade-in duration-100"
+              className="fixed z-[60] min-w-40 p-1.5 bg-surface-4 rounded-xl shadow-pop animate-in fade-in duration-100"
               style={{ left: threadMenu.x, top: threadMenu.y }}
               onPointerDown={(e) => e.stopPropagation()}
             >
@@ -926,7 +926,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Folder context menu — Rename / New thread here / Delete */}
           {folderMenu && (
             <div
-              className="fixed z-[60] min-w-40 p-1.5 bg-surface-4 rounded-xl shadow-2xl shadow-black/60 animate-in fade-in duration-100"
+              className="fixed z-[60] min-w-40 p-1.5 bg-surface-4 rounded-xl shadow-pop animate-in fade-in duration-100"
               style={{ left: folderMenu.x, top: folderMenu.y }}
               onPointerDown={(e) => e.stopPropagation()}
             >
@@ -974,24 +974,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           {/* Block 3: Inference Model Selector (INLINE ACCORDION - NO CONTAINER CLIPPING) */}
-          <div className="rounded-xl px-1">
+          <div className="rounded-xl bg-surface-2 p-1.5">
             <button
               onClick={() => {
                 const nextState = !modelAccordionOpen;
                 logger.action('Sidebar', `Toggle model accordion: ${nextState ? 'opened' : 'closed'}`);
                 setModelAccordionOpen(nextState);
               }}
-              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-2 cursor-pointer"
+              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-3 cursor-pointer"
             >
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-lg bg-surface-2 flex items-center justify-center shrink-0">
+                <div className="w-7 h-7 rounded-lg bg-recess-1 shadow-well flex items-center justify-center shrink-0">
                   <Cpu className="w-4 h-4 text-[#e05a66]" />
                 </div>
                 <div className="min-w-0">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985] block">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
                     Inference Model
                   </span>
-                  <span className="text-xs font-semibold text-white truncate block">
+                  <span className="text-xs font-semibold text-ink truncate block">
                     {selectedModel.name}
                   </span>
                 </div>
@@ -1022,25 +1022,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       title={isUnavailable ? 'API key not configured — replies are demo' : undefined}
                       className={`w-full p-2.5 rounded-lg text-left transition-colors cursor-pointer ${
                         isSelected
-                          ? 'bg-surface-3 text-ink'
-                          : 'text-ink-dim hover:bg-surface-2 hover:text-ink'
+                          ? 'bg-veil-2 shadow-lift text-ink'
+                          : 'text-ink-dim hover:bg-veil-1 hover:text-ink'
                       } ${isUnavailable ? 'opacity-60' : ''}`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-xs font-mono text-[#eef4fc]">{m.name}</span>
+                          <span className="font-semibold text-xs font-mono text-ink">{m.name}</span>
                           {isSelected && <Check className="w-3.5 h-3.5 text-[#38bdf8]" />}
                         </div>
                         <div className="flex items-center gap-1.5">
                           {isUnavailable && (
                             <span
-                              className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-2 text-[#f28894]"
+                              className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-veil-3 text-[#f28894]"
                               title="API key not configured — replies are demo"
                             >
                               no key
                             </span>
                           )}
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-3 text-[#e0b96c]">
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-veil-3 text-[#e0b96c]">
                             {m.badge}
                           </span>
                         </div>
@@ -1061,17 +1061,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Block 3.5: Read-aloud voice (moved out of the chat composer —
               on a 350px phone the composer belongs to typing, not settings) */}
-          <div className="rounded-xl px-1">
+          <div className="rounded-xl bg-surface-2 p-1.5">
             <div className="flex items-center justify-between p-2.5">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-lg bg-surface-2 flex items-center justify-center shrink-0">
+                <div className="w-7 h-7 rounded-lg bg-recess-1 shadow-well flex items-center justify-center shrink-0">
                   <Volume2 className="w-4 h-4 text-[#5ad49b]" />
                 </div>
                 <div className="min-w-0">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985] block">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
                     Read-aloud voice
                   </span>
-                  <span className="text-xs font-semibold text-white truncate block">{chosenVoice}</span>
+                  <span className="text-xs font-semibold text-ink truncate block">{chosenVoice}</span>
                 </div>
               </div>
             </div>
@@ -1090,8 +1090,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }}
                     className={`min-h-[26px] px-2.5 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
                       isSelected
-                        ? 'bg-surface-3 text-ink font-semibold'
-                        : 'text-ink-faint hover:bg-surface-2 hover:text-ink-dim'
+                        ? 'bg-veil-3 shadow-lift text-ink font-semibold'
+                        : 'text-ink-faint hover:bg-veil-1 hover:text-ink-dim'
                     }`}
                   >
                     {v}
@@ -1102,18 +1102,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Block 7: Import / Export Tools */}
-          <div className="rounded-xl px-1">
+          <div className="rounded-xl bg-surface-2 p-1.5">
             <button
               onClick={() => {
                 const nextState = !ioToolsOpen;
                 logger.action('Sidebar', `Toggle I/O tools accordion: ${nextState ? 'opened' : 'closed'}`);
                 setIoToolsOpen(nextState);
               }}
-              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-2 cursor-pointer"
+              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-3 cursor-pointer"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <Database className="w-4 h-4 text-[#5ad49b] shrink-0" />
-                <span className="text-xs font-semibold text-white font-mono">
+                <span className="text-xs font-semibold text-ink font-mono">
                   Import / Export I/O
                 </span>
               </div>
@@ -1131,7 +1131,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', 'Open Import Modal');
                       onOpenImport();
                     }}
-                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer"
                   >
                     <Upload className="w-3.5 h-3.5 text-[#e05a66]" />
                     <span>Import</span>
@@ -1141,7 +1141,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', 'Open Export Modal');
                       onOpenExport();
                     }}
-                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 text-[#5ad49b]" />
                     <span>Export</span>
@@ -1151,7 +1151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', 'Export full database backup');
                       onExportDatabase();
                     }}
-                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-mono text-[#5ad49b] transition-colors cursor-pointer col-span-1"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-xs font-mono text-[#5ad49b] transition-colors cursor-pointer col-span-1"
                     title="Download every project (turns, chapters, artifacts, graph) as one JSON file"
                   >
                     <Save className="w-3.5 h-3.5 text-[#5ad49b]" />
@@ -1162,7 +1162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', 'Restore database from file');
                       onImportDatabase();
                     }}
-                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer col-span-1"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer col-span-1"
                     title="Restore a MarkBrain database backup file into the active backend"
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-[#38bdf8]" />
@@ -1180,13 +1180,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 logger.action('Sidebar', 'Open Server Logs Modal');
                 onOpenServerLogs();
               }}
-              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-left transition-colors cursor-pointer group"
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-2 shadow-lift hover:bg-veil-1 text-left transition-colors cursor-pointer group"
               title="Inspect backend live streaming logs and token telemetry"
             >
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                 <Terminal className="w-3.5 h-3.5 text-[#38bdf8]" />
-                <span className="text-xs font-semibold font-mono text-[#9cc4f5] group-hover:text-white">
+                <span className="text-xs font-semibold font-mono text-[#9cc4f5] group-hover:text-ink">
                   Server Telemetry & Logs
                 </span>
               </div>

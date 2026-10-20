@@ -73,29 +73,29 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen w-screen bg-[#070b12] text-[#d6e3f5] p-4 select-none relative overflow-hidden font-sans">
+    <div className="flex flex-col items-center justify-center min-h-screen w-screen bg-surface-0 text-ink p-4 select-none relative overflow-hidden font-sans">
       {/* Background ambient grid lines */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a15_1px,transparent_1px),linear-gradient(to_bottom,#0f172a15_1px,transparent_1px)] bg-[size:48px_48px] pointer-events-none" />
 
       {/* Main Container */}
-      <div className="relative z-10 w-full max-w-lg p-6 sm:p-8 bg-[#0b101a] border border-[#141f33] rounded-2xl shadow-2xl space-y-6">
+      <div className="relative z-10 w-full max-w-lg p-6 sm:p-8 bg-surface-0 rounded-2xl shadow-2xl space-y-6">
         {/* User Welcome Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-[#131d2e]">
+        <div className="flex items-center justify-between pb-4 ">
           <div className="flex items-center gap-3 min-w-0">
             {user.photoURL ? (
               <img
                 src={user.photoURL}
                 alt={user.displayName || 'User'}
-                className="w-10 h-10 rounded-full border border-[#233857]"
+                className="w-10 h-10 rounded-full "
               />
             ) : (
-              <div className="w-10 h-10 rounded-full bg-[#16253c] flex items-center justify-center text-[#38bdf8] font-bold">
+              <div className="w-10 h-10 rounded-full bg-surface-3 flex items-center justify-center text-[#38bdf8] font-bold">
                 {(user.displayName || user.email || 'A').charAt(0).toUpperCase()}
               </div>
             )}
             <div className="min-w-0">
               <span className="text-xs text-[#526a8a] font-mono block">Signed in as</span>
-              <span className="text-sm font-semibold text-white block truncate">
+              <span className="text-sm font-semibold text-ink block truncate">
                 {user.displayName || user.email}
               </span>
             </div>
@@ -104,7 +104,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
           <button
             type="button"
             onClick={onSignOut}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#14101a] hover:bg-[#21141d] text-[11px] font-mono text-[#f28894] border border-[#3b1c24] transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-wash-danger hover:bg-[#3a1a20] text-[11px] font-mono text-[#f28894] transition-colors cursor-pointer"
             title="Sign out of Google"
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -116,7 +116,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <FolderPlus className="w-5 h-5 text-[#38bdf8]" />
-            <h2 className="text-base font-bold text-white font-mono">
+            <h2 className="text-base font-bold text-ink font-mono">
               Initialize Your First Workspace
             </h2>
           </div>
@@ -126,7 +126,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
         </div>
 
         {error && (
-          <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-xs text-red-300">
+          <div className="p-3 rounded-xl bg-red-950/40 text-xs text-red-300">
             {error}
           </div>
         )}
@@ -143,7 +143,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Side Project Ideas"
               required
-              className="w-full bg-[#080d16] border border-[#162338] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-[#455770] focus:outline-none focus:border-[#3b82f6] transition-colors"
+              className="w-full bg-recess-1 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink placeholder-[#455770] focus:outline-none transition-colors shadow-well"
             />
           </div>
 
@@ -158,7 +158,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
                 onChange={(e) => setCodeName(e.target.value.toUpperCase())}
                 placeholder="e.g. SIDE-IDEAS"
                 maxLength={8}
-                className="w-full bg-[#080d16] border border-[#162338] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono text-white placeholder-[#455770] focus:outline-none focus:border-[#3b82f6] transition-colors"
+                className="w-full bg-recess-1 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono text-ink placeholder-[#455770] focus:outline-none transition-colors shadow-well"
               />
             </div>
 
@@ -191,14 +191,14 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What is this collection of thoughts about?"
               rows={2}
-              className="w-full bg-[#080d16] border border-[#162338] rounded-xl px-3.5 py-2 text-xs text-white placeholder-[#455770] focus:outline-none focus:border-[#3b82f6] transition-colors resize-none"
+              className="w-full bg-recess-1 rounded-xl px-3.5 py-2 text-xs text-ink placeholder-[#455770] focus:outline-none transition-colors resize-none shadow-well"
             />
           </div>
 
           <button
             type="submit"
             disabled={isSubmitting || !name.trim()}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-white text-xs sm:text-sm font-semibold tracking-wide shadow-md transition-all cursor-pointer font-mono"
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-ink text-xs sm:text-sm font-semibold tracking-wide shadow-md transition-all cursor-pointer font-mono"
           >
             {isSubmitting ? (
               <>
@@ -218,7 +218,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
           <button
             type="button"
             onClick={onImportDatabase}
-            className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-transparent hover:bg-[#0f182a] text-[#6e88a8] hover:text-[#8ab1e0] text-[11px] font-mono transition-colors cursor-pointer border border-transparent hover:border-[#162238]"
+            className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-transparent hover:bg-surface-1 text-[#6e88a8] hover:text-[#8ab1e0] text-[11px] font-mono transition-colors cursor-pointer border-transparent "
             title="Restore a MarkBrain database backup file (JSON) into this browser"
           >
             <RotateCcw className="w-3.5 h-3.5" />

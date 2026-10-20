@@ -80,28 +80,45 @@ describe('design law — no hand-rolled border colours', () => {
     expect(offenders, `undeclared border utilities:\n${offenders.join('\n')}`).toEqual([]);
   });
 
-  it('keeps the surface ladder perceptible (each step ≥ 1.03:1 over the one below)', () => {
+  it('never sets a border COLOUR without a width (an invisible edge is a bug)', () => {
+    const COLOUR_ROLE = /\bborder-(?:line|line-soft|brand|accent)\b/;
+    const WIDTH = /(?:^|\s)border(?:-[btlrxy])?(?:-\d)?(?:\s|$)|border-dashed|border-dotted|border-2/;
+    const offenders: string[] = [];
+    for (const f of FILES) {
+      for (const m of f.text.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
+        const cls = m[1] ?? m[2] ?? '';
+        if (COLOUR_ROLE.test(cls) && !WIDTH.test(cls)) {
+          offenders.push(`${f.path}: ${cls.trim().slice(0, 90)}`);
+        }
+      }
+    }
+    expect(offenders, `border colour with no width — the edge renders as nothing:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('keeps the surface ladder perceptible in CIE L* (ΔL* ≥ 3 per step)', () => {
+    // Contrast RATIO lies at the near-black end: 1.04:1 is L* 2.1 — a nothing
+    // step, which is why the first ladder shipped as one flat sheet. Measure
+    // perceptual lightness instead. The floor is 3 (not 4.5) on purpose: the
+    // app is tuned to be looked at for hours, so the whole ladder sits in a
+    // narrow band — readable separation without anything glowing.
     const css = readFileSync(join(SRC, 'index.css'), 'utf8');
     const steps = [...css.matchAll(/--color-surface-(\d):\s*(#[0-9a-f]{6})/gi)].map((m) => m[2]);
     expect(steps.length, 'expected six surface steps').toBe(6);
 
-    const lum = (hex: string) => {
+    const lstar = (hex: string) => {
       const h = hex.replace('#', '');
       const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
       const f = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-    };
-    const contrast = (a: string, b: string) => {
-      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
-      return (hi + 0.05) / (lo + 0.05);
+      const y = 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+      return y > 0.008856 ? 116 * Math.cbrt(y) - 16 : 903.3 * y;
     };
 
     for (let i = 1; i < steps.length; i++) {
-      const ratio = contrast(steps[i], steps[i - 1]);
+      const d = lstar(steps[i]) - lstar(steps[i - 1]);
       expect(
-        ratio,
-        `surface-${i} (${steps[i]}) vs surface-${i - 1} (${steps[i - 1]}) = ${ratio.toFixed(3)}:1 — too close to read as a different plane`
-      ).toBeGreaterThan(1.03);
+        d,
+        `surface-${i} (${steps[i]}, L* ${lstar(steps[i]).toFixed(1)}) is only ΔL* ${d.toFixed(1)} above surface-${i - 1} — it will read as the same plane`
+      ).toBeGreaterThan(3);
     }
   });
 

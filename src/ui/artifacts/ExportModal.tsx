@@ -67,9 +67,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md animate-in fade-in">
-      <div className="bg-[#15121c] border border-[#0d0914] rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-surface-1 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b border-[#0d0914] flex items-center justify-between bg-[#191522]">
+        <div className="p-4 flex items-center justify-between bg-surface-1">
           <div className="flex items-center gap-2">
             <Download className="w-5 h-5 text-[#b88ec7]" />
             <div>
@@ -83,21 +83,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-[#251f2e] hover:bg-[#342a3f] text-[#cbbdd9]"
+            className="p-1.5 rounded-lg bg-surface-3 hover:bg-surface-4 text-[#cbbdd9]"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Format Selector */}
-        <div className="p-3 bg-[#110e17] border-b border-[#0d0914] flex items-center justify-between gap-2">
+        <div className="p-3 bg-surface-0 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setFormat('json')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors ${
                 format === 'json'
-                  ? 'bg-[#432d57] text-[#f2e6fa] font-bold'
-                  : 'bg-[#1e1926] text-[#8a7d99] hover:text-white'
+                  ? 'bg-surface-5 text-[#f2e6fa] font-bold'
+                  : 'bg-surface-2 text-[#8a7d99] hover:text-ink'
               }`}
             >
               <FileJson className="w-3.5 h-3.5" />
@@ -107,8 +107,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               onClick={() => setFormat('markdown')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors ${
                 format === 'markdown'
-                  ? 'bg-[#432d57] text-[#f2e6fa] font-bold'
-                  : 'bg-[#1e1926] text-[#8a7d99] hover:text-white'
+                  ? 'bg-surface-5 text-[#f2e6fa] font-bold'
+                  : 'bg-surface-2 text-[#8a7d99] hover:text-ink'
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
@@ -118,8 +118,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               onClick={() => setFormat('yaml')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors ${
                 format === 'yaml'
-                  ? 'bg-[#432d57] text-[#f2e6fa] font-bold'
-                  : 'bg-[#1e1926] text-[#8a7d99] hover:text-white'
+                  ? 'bg-surface-5 text-[#f2e6fa] font-bold'
+                  : 'bg-surface-2 text-[#8a7d99] hover:text-ink'
               }`}
             >
               <Code className="w-3.5 h-3.5" />
@@ -130,7 +130,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#251f2e] hover:bg-[#342a3f] text-xs text-[#cbbdd9] transition-colors"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-3 hover:bg-surface-4 text-xs text-[#cbbdd9] transition-colors"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-[#8fc49f]" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copied ? 'Copied' : 'Copy'}</span>
@@ -146,7 +146,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         </div>
 
         {/* Preview Area */}
-        <div className="flex-1 overflow-y-auto p-4 bg-[#110e17] font-mono text-xs text-[#d1c5db]">
+        <div className="flex-1 overflow-y-auto p-4 bg-surface-0 font-mono text-xs text-[#d1c5db]">
           <pre className="whitespace-pre-wrap leading-relaxed select-all">
             {exportString}
           </pre>

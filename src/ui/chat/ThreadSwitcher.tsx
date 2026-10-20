@@ -16,7 +16,7 @@ const dotClass = (state?: ThreadRuntime): string => {
   if (state === 'working') return 'bg-[#38bdf8] animate-pulse';
   if (state === 'queued') return 'bg-[#e0b96c] animate-pulse';
   if (state === 'error') return 'bg-[#f28894]';
-  if (state === 'interrupted') return 'border border-[#e0b96c] bg-transparent';
+  if (state === 'interrupted') return ' bg-transparent';
   return 'bg-transparent';
 };
 
@@ -92,20 +92,20 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
       onKeyDown={onKeyDown}
     >
       <div
-        className="w-full max-w-xl bg-[#0a0f19] border border-[#1a293e] rounded-2xl shadow-2xl overflow-hidden animate-in fade-in duration-100"
+        className="w-full max-w-xl bg-surface-0 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in duration-100"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search input */}
-        <div className="flex items-center gap-2.5 px-3.5 py-3 border-b border-[#131e33]">
+        <div className="flex items-center gap-2.5 px-3.5 py-3 ">
           <Search className="w-4 h-4 text-[#556985] shrink-0" />
           <input
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search threads & folders…"
-            className="flex-1 bg-transparent text-sm text-white placeholder-[#50637f] focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-ink placeholder-[#50637f] focus:outline-none"
           />
-          <span className="text-[9px] font-mono text-[#455770] border border-[#162234] rounded px-1.5 py-0.5">
+          <span className="text-[9px] font-mono text-[#455770] rounded px-1.5 py-0.5">
             esc
           </span>
         </div>
@@ -116,7 +116,7 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
             onNewThread();
             onClose();
           }}
-          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-mono text-[#5ad49b] hover:bg-[#0e1626] transition-colors cursor-pointer border-b border-[#101827]"
+          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-mono text-[#5ad49b] hover:bg-surface-1 transition-colors cursor-pointer "
         >
           <Plus className="w-3.5 h-3.5 shrink-0" />
           <span>New thread</span>
@@ -137,12 +137,12 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
                 onClick={() => commit(t)}
                 onMouseEnter={() => setCursor(idx)}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer ${
-                  idx === cursor ? 'bg-[#182338]' : 'hover:bg-[#0e1626]'
+                  idx === cursor ? 'bg-surface-3' : 'hover:bg-surface-1'
                 } ${archived ? 'opacity-50' : ''}`}
               >
                 <span className={`w-2 h-2 rounded-full shrink-0 ${dotClass(runtime?.state)}`} />
                 <div className="min-w-0 flex-1">
-                  <span className="text-xs text-[#eef4fc] truncate block font-medium">
+                  <span className="text-xs text-ink truncate block font-medium">
                     {t.title}
                     {t.id === activeThreadId && (
                       <span className="ml-2 text-[9px] font-mono text-[#38bdf8]">current</span>
@@ -165,7 +165,7 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
         </div>
 
         {/* Hints */}
-        <div className="px-3.5 py-2 border-t border-[#131e33] flex items-center gap-3 text-[9px] font-mono text-[#455770]">
+        <div className="px-3.5 py-2 flex items-center gap-3 text-[9px] font-mono text-[#455770]">
           <span>↑↓ navigate</span>
           <span>↵ open</span>
           <span>esc close</span>

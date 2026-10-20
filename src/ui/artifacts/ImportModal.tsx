@@ -481,18 +481,18 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   const pickerEnabled = isGooglePickerEnabled();
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0a0e17]/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-[#101724] border border-[#080d15] rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col shadow-2xl text-[#e3edf7] overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-surface-0/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-surface-2 rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col shadow-pop text-ink overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b border-[#080d15] flex items-center justify-between shrink-0 bg-[#0d131f]">
+        <div className="p-4 flex items-center justify-between shrink-0 bg-surface-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#e05a66]/20 border border-[#e05a66]/30 flex items-center justify-center text-[#f28894]">
+            <div className="w-8 h-8 rounded-lg bg-wash-danger flex items-center justify-center text-[#f28894]">
               <Upload className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-[#eef4fc] font-mono flex items-center gap-2">
+              <h2 className="text-sm font-bold text-ink font-mono flex items-center gap-2">
                 <span>Import Google Docs & Markdown</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#1e2a3f] text-[#8ab1e0] border border-[#080d15] font-normal">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-4 text-ink-dim font-normal">
                   Markdown → YAML
                 </span>
               </h2>
@@ -504,20 +504,20 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-[#1a2538] text-[#869ab8] transition-colors"
+            className="p-1.5 rounded-lg hover:bg-surface-3 text-[#869ab8] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex border-b border-[#080d15] bg-[#0b0f17] text-xs font-mono shrink-0">
+        <div className="flex bg-surface-1 text-xs font-mono shrink-0">
           <button
             onClick={() => setActiveTab('drive')}
             className={`flex-1 py-2.5 px-4 text-center border-b-2 transition-all flex items-center justify-center gap-2 ${
               activeTab === 'drive'
-                ? 'border-[#e05a66] text-[#eef4fc] font-semibold bg-[#131b29]'
-                : 'border-transparent text-[#627794] hover:text-[#9bb0d1]'
+                ? 'border-brand text-ink font-semibold bg-surface-3'
+                : 'border-transparent text-ink-mute hover:text-ink-dim'
             }`}
           >
             <FolderOpen className="w-4 h-4 text-[#4285F4]" />
@@ -528,8 +528,8 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             onClick={() => setActiveTab('upload')}
             className={`flex-1 py-2.5 px-4 text-center border-b-2 transition-all flex items-center justify-center gap-2 ${
               activeTab === 'upload'
-                ? 'border-[#e05a66] text-[#eef4fc] font-semibold bg-[#131b29]'
-                : 'border-transparent text-[#627794] hover:text-[#9bb0d1]'
+                ? 'border-brand text-ink font-semibold bg-surface-3'
+                : 'border-transparent text-ink-mute hover:text-ink-dim'
             }`}
           >
             <FileCode className="w-4 h-4 text-[#8ab1e0]" />
@@ -542,12 +542,12 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           {activeTab === 'drive' && (
             <div className="space-y-4">
               {!user ? (
-                <div className="p-8 text-center space-y-4 bg-[#0d121c] rounded-xl border border-[#080d15]">
-                  <div className="w-12 h-12 rounded-2xl bg-[#4285F4]/15 border border-[#4285F4]/30 flex items-center justify-center mx-auto text-[#4285F4]">
+                <div className="p-8 text-center space-y-4 bg-surface-1 rounded-xl">
+                  <div className="w-12 h-12 rounded-2xl bg-[#4285F4]/15 flex items-center justify-center mx-auto text-[#4285F4]">
                     <BookOpen className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-[#eef4fc] mb-1 font-mono">
+                    <h3 className="text-sm font-semibold text-ink mb-1 font-mono">
                       Connect Google Docs & Drive
                     </h3>
                     <p className="text-xs text-[#8297b5] max-w-md mx-auto">
@@ -558,7 +558,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                   <button
                     onClick={handleSignIn}
                     disabled={isAuthLoading}
-                    className="px-5 py-2.5 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] text-white text-xs font-mono font-medium transition-all shadow-lg inline-flex items-center gap-2 cursor-pointer"
+                    className="px-5 py-2.5 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] text-ink text-xs font-mono font-medium transition-all shadow-lg inline-flex items-center gap-2 cursor-pointer"
                   >
                     {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                     <span>Sign in with Google</span>
@@ -567,11 +567,11 @@ export const ImportModal: React.FC<ImportModalProps> = ({
               ) : (
                 <div className="space-y-3">
                   {/* Auth Header */}
-                  <div className="flex items-center justify-between text-xs text-[#7d93b3] p-2.5 bg-[#0d121c] rounded-xl border border-[#080d15]">
+                  <div className="flex items-center justify-between text-xs text-ink-mute p-2.5 bg-surface-1 rounded-xl">
                     <div className="flex items-center gap-2 truncate">
                       <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
                       <span className="truncate">
-                        Connected as <strong className="text-white font-mono">{user.email}</strong>
+                        Connected as <strong className="text-ink font-mono">{user.email}</strong>
                       </span>
                     </div>
                     <button
@@ -584,14 +584,14 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
                   {/* Scope verification — offer Reconnect instead of raw 403s */}
                   {scopeStatus === 'checking' && (
-                    <div className="p-2.5 bg-[#0d121c] border border-[#080d15] rounded-xl text-xs font-mono text-[#8ab1e0] flex items-center gap-2">
+                    <div className="p-2.5 bg-surface-1 rounded-xl text-xs font-mono text-ink-dim flex items-center gap-2">
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       <span>Verifying Google Drive permissions…</span>
                     </div>
                   )}
 
                   {scopeStatus === 'missing' && (
-                    <div className="p-3 bg-[#2a1f0d] border border-[#4a3a16] rounded-xl flex items-center justify-between gap-3 text-xs text-[#f0c674]">
+                    <div className="p-3 bg-wash-warn rounded-xl flex items-center justify-between gap-3 text-xs text-[#f0c674]">
                       <span className="flex items-start gap-2">
                         <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                         <span>
@@ -602,7 +602,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       <button
                         onClick={handleReconnect}
                         disabled={isAuthLoading}
-                        className="px-3 py-1.5 rounded-lg bg-[#e05a66] hover:bg-[#be3a49] text-white font-mono text-[11px] shrink-0 disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
+                        className="px-3 py-1.5 rounded-lg bg-[#e05a66] hover:bg-[#be3a49] text-ink font-mono text-[11px] shrink-0 disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
                       >
                         {isAuthLoading ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -615,17 +615,17 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                   )}
 
                   {driveError && (
-                    <div className="p-3 bg-[#261317] border border-[#3d161d] rounded-xl text-xs text-[#f7aab3] flex items-center gap-2">
+                    <div className="p-3 bg-wash-danger rounded-xl text-xs text-[#f7aab3] flex items-center gap-2">
                       <AlertCircle className="w-4 h-4 shrink-0" />
                       <span>{driveError}</span>
                     </div>
                   )}
 
                   {sourceLocked ? (
-                    <div className="p-3 bg-[#0d121c] border border-[#080d15] rounded-xl flex items-center justify-between gap-3">
+                    <div className="p-3 bg-surface-1 rounded-xl flex items-center justify-between gap-3">
                       <div className="min-w-0 space-y-0.5">
                         <div className="text-[10px] font-mono text-[#788fa8] uppercase">Source</div>
-                        <div className="text-xs text-[#eef4fc] font-mono truncate">
+                        <div className="text-xs text-ink font-mono truncate">
                           {uploadFileName || selectedDriveFile?.name || 'document'}
                         </div>
                         {isExtractingWithAI && (
@@ -637,7 +637,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       <button
                         onClick={handleResetSource}
                         disabled={sourceBusy}
-                        className="px-3 py-1.5 rounded-lg bg-[#1e2a3f] hover:bg-[#2a3b58] disabled:opacity-40 text-[#8ab1e0] text-[11px] font-mono shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
+                        className="px-3 py-1.5 rounded-lg bg-surface-4 hover:bg-veil-1 disabled:opacity-40 text-[#8ab1e0] text-[11px] font-mono shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
                         <span>Choose different</span>
@@ -655,7 +655,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                               ? undefined
                               : 'Unfinished — Google Picker is disabled for now. Paste a Google Doc link below to import instead.'
                           }
-                          className="w-full px-4 py-2.5 rounded-xl bg-[#4285F4] hover:bg-[#3367d6] disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-medium transition-all inline-flex items-center justify-center gap-2 cursor-pointer"
+                          className="w-full px-4 py-2.5 rounded-xl bg-[#4285F4] hover:bg-[#3367d6] disabled:opacity-40 disabled:cursor-not-allowed text-ink text-xs font-mono font-medium transition-all inline-flex items-center justify-center gap-2 cursor-pointer"
                         >
                           <FolderOpen className="w-4 h-4" />
                           <span>Browse Google Drive…</span>
@@ -668,7 +668,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       </div>
 
                       {/* Paste a link instead (Google Doc / Drive URL) */}
-                      <div className="space-y-1.5 pt-3 border-t border-[#080d15]">
+                      <div className="space-y-1.5 pt-3">
                         <label className="block text-[10px] font-mono text-[#788fa8]">
                           …or paste a Google Docs / Drive link
                         </label>
@@ -679,12 +679,12 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                             onChange={(e) => setDirectDocUrl(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleFetchDirectDoc()}
                             placeholder="https://docs.google.com/document/d/..."
-                            className="flex-1 min-w-0 bg-[#0d121c] border border-[#080d15] rounded-xl px-3 py-1.5 text-xs text-[#eef4fc] focus:outline-none focus:border-[#e05a66]/50"
+                            className="flex-1 min-w-0 bg-recess-1 rounded-xl px-3 py-1.5 text-xs text-ink focus:outline-none focus:bg-recess-2 shadow-well"
                           />
                           <button
                             onClick={handleFetchDirectDoc}
                             disabled={!directDocUrl.trim() || sourceBusy || scopeStatus !== 'ok'}
-                            className="px-3 py-1.5 rounded-xl bg-[#1e2a3f] hover:bg-[#2a3b58] disabled:opacity-40 text-[#8ab1e0] text-xs font-mono transition-colors inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+                            className="px-3 py-1.5 rounded-xl bg-surface-4 hover:bg-veil-1 disabled:opacity-40 text-[#8ab1e0] text-xs font-mono transition-colors inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
                           >
                             {isFetchingDirectDoc && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                             <span>Fetch</span>
@@ -702,7 +702,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                   )}
 
                   {conversionStatus && (
-                    <div className="p-2 bg-[#102419] border border-[#0d2a1b] rounded-xl flex items-center justify-between text-xs font-mono text-[#6ee7b7]">
+                    <div className="p-2 bg-wash-success rounded-xl flex items-center justify-between text-xs font-mono text-[#6ee7b7]">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4 shrink-0" />
                         <span>{conversionStatus}</span>
@@ -721,7 +721,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             <div className="space-y-4">
               {/* Phase-4 batch rules — set BEFORE adding files; applied at each row-land.
                   Precedence: row override > frontmatter parent > this batch default. */}
-              <div className="bg-[#0d121c] border border-[#080d15] rounded-xl p-2.5 space-y-2">
+              <div className="bg-surface-1 rounded-xl p-2.5 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-mono text-[#e05a66] uppercase font-bold">
                     Batch rules (optional)
@@ -738,7 +738,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     placeholder="Parent (slug — pick an existing code or type)"
                     value={session.rules.parent}
                     onChange={(e) => session.setRules((r) => ({ ...r, parent: e.target.value }))}
-                    className="w-full bg-[#141b29] border border-[#080d15] rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none focus:border-[#e05a66]/50"
+                    className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none focus:bg-recess-2 shadow-well"
                   />
                   <datalist id="batch-parent-codes">
                     {artifacts.map((a) => (
@@ -759,7 +759,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                           .filter(Boolean),
                       }))
                     }
-                    className="w-full bg-[#141b29] border border-[#080d15] rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none focus:border-[#e05a66]/50"
+                    className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none focus:bg-recess-2 shadow-well"
                   />
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
@@ -768,7 +768,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     id="batch-rel-type"
                     value={session.rules.relType}
                     onChange={(e) => session.setRules((r) => ({ ...r, relType: e.target.value }))}
-                    className="bg-[#141b29] border border-[#080d15] rounded-lg px-2 py-1.5 text-[11px] text-[#c2d1e0] focus:outline-none cursor-pointer"
+                    className="bg-recess-1 rounded-lg px-2 py-1.5 text-[11px] text-[#c2d1e0] focus:outline-none cursor-pointer shadow-well"
                   >
                     <option value="">(no relationship)</option>
                     <option value="cites">cites</option>
@@ -782,7 +782,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     value={session.rules.relTargetId}
                     onChange={(e) => session.setRules((r) => ({ ...r, relTargetId: e.target.value }))}
                     disabled={!session.rules.relType || artifacts.length === 0}
-                    className="bg-[#141b29] border border-[#080d15] rounded-lg px-2 py-1.5 text-[11px] text-[#c2d1e0] focus:outline-none cursor-pointer disabled:opacity-40 max-w-[220px]"
+                    className="bg-recess-1 rounded-lg px-2 py-1.5 text-[11px] text-[#c2d1e0] focus:outline-none cursor-pointer disabled:opacity-40 max-w-[220px] shadow-well"
                   >
                     <option value="">
                       {artifacts.length === 0 ? '(no artifacts yet)' : '(pick target)'}
@@ -799,7 +799,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
               <label
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleDrop}
-                className="border-2 border-dashed border-[#141d2c] hover:border-[#e05a66]/50 rounded-xl p-5 flex flex-col items-center justify-center gap-2 transition-colors bg-[#0a0e17]/50 cursor-pointer"
+                className="border-2 border-dashed border-line hover:border-brand rounded-xl p-5 flex flex-col items-center justify-center gap-2 transition-colors bg-surface-0/50 cursor-pointer"
               >
                 <FileCode className="w-8 h-8 text-[#8ab1e0]" />
                 <span className="text-xs text-[#c2d1e0] font-medium">
@@ -831,7 +831,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
           {/* AI Extraction State Indicator — Drive tab only (session has its own lane UI) */}
           {activeTab === 'drive' && isExtractingWithAI && (
-            <div className="p-3 bg-[#142033] border border-[#080d15] rounded-xl flex items-center gap-2 text-xs font-mono text-[#8ab1e0]">
+            <div className="p-3 bg-surface-3 rounded-xl flex items-center gap-2 text-xs font-mono text-ink-dim">
               <Loader2 className="w-4 h-4 animate-spin text-[#e05a66]" />
               <span>
                 Gemini LLM analyzing document, generating YAML metadata, abstract, and cross-linking tags...
@@ -841,9 +841,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
           {/* Result Editor & Review — Drive tab only (upload tab lands-as-you-go) */}
           {activeTab === 'drive' && uploadContent && (
-            <div className="space-y-3 bg-[#0d121c] p-3.5 rounded-xl border border-[#080d15]">
+            <div className="space-y-3 bg-surface-1 p-3.5 rounded-xl">
               {/* Review Bar */}
-              <div className="flex items-center justify-between border-b border-[#080d15] pb-2.5">
+              <div className="flex items-center justify-between pb-2.5">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-mono text-[#e05a66] uppercase font-bold flex items-center gap-1">
                     <Sparkles className="w-3 h-3" />
@@ -855,12 +855,12 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="flex bg-[#141b29] p-0.5 rounded-lg border border-[#080d15] text-[10px] font-mono">
+                  <div className="flex bg-surface-3 p-0.5 rounded-lg text-[10px] font-mono">
                     <button
                       type="button"
                       onClick={() => setPreviewMode('form')}
                       className={`px-2 py-0.5 rounded transition-colors ${
-                        previewMode === 'form' ? 'bg-[#e05a66] text-white' : 'text-[#7d93b3]'
+                        previewMode === 'form' ? 'bg-[#e05a66] text-ink' : 'text-[#7d93b3]'
                       }`}
                     >
                       Fields
@@ -869,7 +869,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       type="button"
                       onClick={() => setPreviewMode('raw_yaml')}
                       className={`px-2 py-0.5 rounded transition-colors ${
-                        previewMode === 'raw_yaml' ? 'bg-[#e05a66] text-white' : 'text-[#7d93b3]'
+                        previewMode === 'raw_yaml' ? 'bg-[#e05a66] text-ink' : 'text-[#7d93b3]'
                       }`}
                     >
                       Raw YAML+MD
@@ -886,7 +886,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       )
                     }
                     disabled={isExtractingWithAI}
-                    className="text-[10px] font-mono text-[#8ab1e0] hover:text-white flex items-center gap-1"
+                    className="text-[10px] font-mono text-[#8ab1e0] hover:text-ink flex items-center gap-1"
                   >
                     <RefreshCw className="w-3 h-3" />
                     <span>Re-synthesize</span>
@@ -899,7 +899,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                   <label className="block text-[10px] font-mono text-[#788fa8]">
                     Single-File YAML Frontmatter + Markdown Document
                   </label>
-                  <pre className="bg-[#090d14] p-3 rounded-lg border border-[#080d15] text-xs font-mono text-[#cbd5e1] max-h-72 overflow-y-auto whitespace-pre-wrap">
+                  <pre className="bg-surface-0 p-3 rounded-lg text-xs font-mono text-[#cbd5e1] max-h-72 overflow-y-auto whitespace-pre-wrap">
                     {liveYamlDocPreview}
                   </pre>
                 </div>
@@ -915,7 +915,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                         type="text"
                         value={artifactTitle}
                         onChange={(e) => setArtifactTitle(e.target.value)}
-                        className="w-full bg-[#141b29] border border-[#080d15] rounded-lg px-2.5 py-1.5 text-xs text-[#eef4fc] focus:outline-none focus:border-[#e05a66]/50"
+                        className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-xs text-ink focus:outline-none focus:bg-recess-2 shadow-well"
                       />
                     </div>
 
@@ -927,7 +927,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                         type="text"
                         value={artifactCode}
                         onChange={(e) => setArtifactCode(e.target.value)}
-                        className="w-full bg-[#141b29] border border-[#080d15] rounded-lg px-2.5 py-1.5 text-xs font-mono text-[#8ab1e0] focus:outline-none focus:border-[#e05a66]/50"
+                        className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-xs font-mono text-[#8ab1e0] focus:outline-none focus:bg-recess-2 shadow-well"
                       />
                     </div>
                   </div>
@@ -944,11 +944,11 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5 p-2 bg-[#141b29] border border-[#080d15] rounded-lg min-h-[38px]">
+                    <div className="flex flex-wrap items-center gap-1.5 p-2 bg-surface-1 rounded-lg min-h-[38px]">
                       {artifactTags.map((tag) => (
                         <span
                           key={tag}
-                          className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full bg-[#1e2a3f] text-[#8ab1e0] border border-[#080d15]"
+                          className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full bg-surface-3 text-ink-dim"
                         >
                           #{tag}
                           <button
@@ -973,12 +973,12 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                               handleAddTag();
                             }
                           }}
-                          className="bg-transparent border-none text-[11px] font-mono text-white placeholder-[#52657e] focus:outline-none w-20"
+                          className="bg-transparent border-none text-[11px] font-mono text-ink placeholder-[#52657e] focus:outline-none w-20"
                         />
                         <button
                           type="button"
                           onClick={handleAddTag}
-                          className="p-1 rounded hover:bg-[#202d42] text-[#8ab1e0]"
+                          className="p-1 rounded hover:bg-surface-4 text-[#8ab1e0]"
                           title="Add tag"
                         >
                           <Plus className="w-3 h-3" />
@@ -996,7 +996,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       type="text"
                       value={artifactDescription}
                       onChange={(e) => setArtifactDescription(e.target.value)}
-                      className="w-full bg-[#141b29] border border-[#080d15] rounded-lg px-2.5 py-1.5 text-xs text-[#eef4fc] focus:outline-none focus:border-[#e05a66]/50"
+                      className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-xs text-ink focus:outline-none focus:bg-recess-2 shadow-well"
                     />
                   </div>
 
@@ -1009,7 +1009,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       rows={2}
                       value={artifactSummary}
                       onChange={(e) => setArtifactSummary(e.target.value)}
-                      className="w-full bg-[#141b29] border border-[#080d15] rounded-lg p-2 text-xs text-[#eef4fc] focus:outline-none focus:border-[#e05a66]/50 resize-none"
+                      className="w-full bg-recess-1 rounded-lg p-2 text-xs text-ink focus:outline-none focus:bg-recess-2 resize-none shadow-well"
                     />
                   </div>
 
@@ -1024,7 +1024,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                         placeholder="e.g. combat-loop"
                         value={parentCode}
                         onChange={(e) => setParentCode(e.target.value)}
-                        className="w-full bg-[#141b29] border border-[#080d15] rounded-lg px-2.5 py-1.5 text-xs font-mono text-[#8ab1e0] focus:outline-none focus:border-[#e05a66]/50"
+                        className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-xs font-mono text-[#8ab1e0] focus:outline-none focus:bg-recess-2 shadow-well"
                       />
                     </div>
 
@@ -1048,10 +1048,10 @@ export const ImportModal: React.FC<ImportModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-3 bg-[#0d121c] border-t border-[#080d15] flex items-center justify-between shrink-0">
+        <div className="p-3 bg-surface-2 flex items-center justify-between shrink-0">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 rounded-xl text-xs font-mono text-[#7d93b3] hover:text-white"
+            className="px-3 py-1.5 rounded-xl text-xs font-mono text-[#7d93b3] hover:text-ink"
           >
             {activeTab === 'upload' ? 'Close' : 'Cancel'}
           </button>
@@ -1060,7 +1060,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             <button
               onClick={handleConfirmImport}
               disabled={!uploadContent.trim()}
-              className="px-4 py-2 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] disabled:opacity-40 text-white font-medium text-xs font-mono transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-[#e05a66] hover:bg-[#be3a49] disabled:opacity-40 text-ink font-medium text-xs font-mono transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
             >
               <span>Import note</span>
               <ArrowRight className="w-3.5 h-3.5" />

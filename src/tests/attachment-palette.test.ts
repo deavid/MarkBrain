@@ -12,6 +12,7 @@
  *  · one provenance counter (`msg N`), and legacy attachments say 'in chat'.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   ATTACHMENT_STATE_PALETTE,
   GRANULARITY_ORDER,
@@ -65,6 +66,36 @@ function hexesIn(classes: string): string[] {
   return [...classes.matchAll(/#([0-9a-f]{6})\b/gi)].map((m) => `#${m[1]}`);
 }
 
+/** The surface plane a row/plate is composited onto (index.css surface-1). */
+const HOST = '#121526';
+
+/** Alpha-tint composite `color at α over host`, in sRGB — what the eye gets. */
+function over(hex: string, alpha: number, host: string = HOST): string {
+  const f = hexToRgb(hex);
+  const b = hexToRgb(host);
+  return (
+    '#' +
+    f
+      .map((c, i) => Math.round(alpha * c + (1 - alpha) * b[i]).toString(16).padStart(2, '0'))
+      .join('')
+  );
+}
+
+/** `bg-[#rrggbb]/NN` → { hex, alpha }. The veil/recess instrument of index.css. */
+function tint(classes: string): { hex: string; alpha: number } | undefined {
+  const m = classes.match(/bg-\[#([0-9a-f]{6})\]\/(\d+)/i);
+  return m ? { hex: `#${m[1]}`, alpha: Number(m[2]) / 100 } : undefined;
+}
+
+/** `bg-veil-N` → the alpha declared in index.css (0 when absent). */
+function veilAlpha(classes: string): number {
+  const m = classes.match(/bg-veil-(\d)/);
+  if (!m) return 0;
+  const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
+  const decl = css.match(new RegExp(`--color-veil-${m[1]}:\\s*rgb\\([^)]*\\/\\s*([\\d.]+)\\s*\\)`));
+  return decl ? Number(decl[1]) : 0;
+}
+
 const STATES = [
   'unstaged',
   'staged',
@@ -89,16 +120,24 @@ describe('colour law (12 §1) — dark plate, bright ink, one lit circle', () =>
     expect(hexes.size).toBe(6);
   });
 
-  it('every row plate is DARK — a bright background can never come back', () => {
-    for (const state of STATES) {
-      const fills = bgHexes(ATTACHMENT_STATE_PALETTE[state].rowClass);
-      expect(fills.length, `${state} row needs a background hex`).toBeGreaterThan(0);
-      for (const hex of fills) {
-        // Dark plate: relative luminance under 0.10 (the brightest allowed is
-        // the unstaged slate #131c2e ≈ 0.011 — plenty of headroom).
+  it('every row plate is a TINT of its own hue, laid over the host plane', () => {
+    // The de-border sweep's second pass (index.css §veil/recess): a row lives
+    // INSIDE a host plane, so its plate is alpha, never an opaque hex. That is
+    // what stops the purple-chip-in-a-green-card clash the first pass shipped.
+    for (const state of ['staged', 'title', 'description', 'summary', 'full'] as const) {
+      const row = ATTACHMENT_STATE_PALETTE[state].rowClass;
+      const t = tint(row);
+      expect(t, `${state} row must tint its hue with alpha, not fill it`).toBeDefined();
+      expect(t!.hex.toLowerCase()).toBe(ATTACHMENT_STATE_PALETTE[state].hex.toLowerCase());
+      expect(t!.alpha, `${state} tint ${t!.alpha} is too strong to be a tint`).toBeLessThanOrEqual(0.2);
+      expect(t!.alpha, `${state} tint ${t!.alpha} is too weak to read`).toBeGreaterThanOrEqual(0.08);
+      // …and the composite it produces is still a DARK plate: a bright row
+      // background can never come back, on any host from surface-0 up.
+      for (const host of ['#0a0e1b', HOST, '#181c31']) {
+        const composited = over(t!.hex, t!.alpha, host);
         expect(
-          luminance(hex),
-          `${state} row fill ${hex} is too bright (luminance ${luminance(hex).toFixed(3)})`
+          luminance(composited),
+          `${state} row over ${host} → ${composited} is too bright (${luminance(composited).toFixed(3)})`
         ).toBeLessThan(0.1);
       }
       // And the ink is bright against it, never dark-on-bright.
@@ -106,20 +145,36 @@ describe('colour law (12 §1) — dark plate, bright ink, one lit circle', () =>
       expect(inks.length, `${state} needs a title text colour`).toBeGreaterThan(0);
       expect(luminance(inks[0]), `${state} title ink is too dim`).toBeGreaterThan(0.4);
     }
+
+    // 'Not in the chat' gives nothing away: no hue at all, just the plainer lift.
+    expect(
+      /#[0-9a-f]{6}/i.test(ATTACHMENT_STATE_PALETTE.unstaged.rowClass),
+      'the unstaged row must stay neutral'
+    ).toBe(false);
+    expect(ATTACHMENT_STATE_PALETTE.unstaged.rowClass).toContain('bg-veil-');
   });
 
   it('unstaged sits a touch BRIGHTER than in-chat rows, with a dead grey circle', () => {
-    const unstagedRow = hexesIn(ATTACHMENT_STATE_PALETTE.unstaged.rowClass)[0];
-    const inChatRow = hexesIn(ATTACHMENT_STATE_PALETTE.title.rowClass)[0];
-    expect(luminance(unstagedRow)).toBeGreaterThan(luminance(inChatRow));
+    // L3: the unselected key is the brighter key. In the alpha system that is
+    // a numeric claim — the neutral veil must out-alpha every hue tint.
+    const unstaged = veilAlpha(ATTACHMENT_STATE_PALETTE.unstaged.rowClass);
+    expect(unstaged, 'bg-veil-2 must declare an alpha').toBeGreaterThan(0);
+    for (const state of ['staged', 'title', 'description', 'summary', 'full'] as const) {
+      expect(
+        unstaged,
+        `${state} hue tint is not quieter than the unstaged key`
+      ).toBeGreaterThan(tint(ATTACHMENT_STATE_PALETTE[state].rowClass)!.alpha);
+    }
 
     // The circle: near-black when it is NOT in the chat…
     const deadDot = hexesIn(ATTACHMENT_STATE_PALETTE.unstaged.dotClass)[0];
     expect(luminance(deadDot), 'unstaged dot must read as off').toBeLessThan(0.03);
-    // …punchy when it IS: every in-chat circle sits far above its dark plate.
+    // …punchy when it IS: every in-chat circle sits far above the plate it
+    // actually sits on (hue tint composited over the host).
     for (const state of ['staged', 'title', 'description', 'summary', 'full'] as const) {
       const dot = hexesIn(ATTACHMENT_STATE_PALETTE[state].dotClass)[0];
-      const plate = hexesIn(ATTACHMENT_STATE_PALETTE[state].rowClass)[0];
+      const t = tint(ATTACHMENT_STATE_PALETTE[state].rowClass)!;
+      const plate = over(t.hex, t.alpha);
       expect(
         luminance(dot),
         `${state} dot (${dot}) does not glow against its plate (${plate})`
@@ -143,15 +198,69 @@ describe('colour law (12 §1) — dark plate, bright ink, one lit circle', () =>
     expect(ATTACHMENT_STATE_PALETTE.full.hex).toBe('#f45a56');
   });
 
-  it('an inactive chip is brighter than the active well it contrasts with', () => {
-    const inactive = hexesIn(
-      getGranularityChipClass('full', false)
-    )[0];
-    const activeWell = hexesIn(getGranularityChipClass('full', true))[0];
-    expect(luminance(inactive)).toBeGreaterThan(luminance(activeWell));
-    // Active chip carries a crisp hue border so selection is never colour-only.
-    expect(getGranularityChipClass('full', true)).toContain('#f45a56');
-    expect(getGranularityChipClass('title', true)).toContain('#79ca4b');
+  it('an idle chip is NEUTRAL; the active chip carries its hue as light', () => {
+    // David, 2026-10-20: opaque idle chips clashed with the hue of the row they
+    // sat in, AND out-shouted the selection. So: idle is colourless and sinks;
+    // active is the only coloured chip on the row, and it glows.
+    const idle = getGranularityChipClass('full', false);
+    expect(hexesIn(idle), 'an idle chip must not carry a colour').toEqual([]);
+    expect(idle, 'an idle chip steps DOWN into its host').toContain('bg-recess-1');
+    expect(idle, 'never a stroke — a shadow at most').not.toContain('ring-');
+
+    for (const g of GRANULARITY_ORDER) {
+      const active = getGranularityChipClass(g, true);
+      const hue = ATTACHMENT_STATE_PALETTE[g].hex;
+      expect(active, `${g} active chip lost its hue`).toContain(hue);
+      const t = tint(active);
+      expect(t, `${g} active chip must be a tint of the hue`).toBeDefined();
+      expect(t!.alpha, `${g} active chip does not light up against its row`).toBeGreaterThan(0.2);
+      // The label is the hue itself, bright enough to be read on the tint.
+      const inks = hexesIn(active).filter((h) => h.toLowerCase() !== hue.toLowerCase());
+      expect(inks.length, `${g} active chip needs a hue-coloured label`).toBeGreaterThan(0);
+      expect(luminance(inks[0]), `${g} active label is too dim`).toBeGreaterThan(0.4);
+      // …and the glow is a shadow, never a 1px stroke.
+      expect(active).toContain('shadow-[0_');
+      expect(active, `${g} active chip must not draw a border`).not.toContain('border');
+    }
+  });
+
+  it('a veil / a recess always produces a real step, on ANY host in the ladder', () => {
+    // The whole point of the alpha instrument: a chip, a bubble or a well is
+    // correct on every host, so it can never clash with the plane it lands in.
+    // "Correct" is a measured claim — the step must be at least as big as a
+    // ladder step (ΔL* ≥ 3) wherever it is applied.
+    const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
+    const ladder = [...css.matchAll(/--color-surface-(\d):\s*(#[0-9a-f]{6})/gi)].map((m) => m[2]);
+    const hosts = ladder.slice(0, 4); // s0…s3 — nothing is ever nested deeper
+
+    const lstar = (hex: string) => {
+      const y = luminance(hex);
+      return y > 0.008856 ? 116 * Math.cbrt(y) - 16 : 903.3 * y;
+    };
+    const channel = (name: string) => {
+      const d = css.match(new RegExp(`--color-${name}:\\s*rgb\\(([^)]*)\\)`))![1];
+      const [r, g, b, a] = d.split(/[\s/]+/).filter(Boolean).map(Number);
+      return { hex: `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`, a };
+    };
+
+    for (const host of hosts) {
+      const up = channel('veil-2');
+      const lift = lstar(over(up.hex, up.a, host)) - lstar(host);
+      expect(lift, `veil-2 lifts ${host} by only ΔL* ${lift.toFixed(1)}`).toBeGreaterThan(3);
+      expect(lift, `veil-2 lifts ${host} by ΔL* ${lift.toFixed(1)} — too much to be a step`).toBeLessThan(10);
+      // veil-1 is the same step as one ladder rung.
+      const up1 = channel('veil-1');
+      const lift1 = lstar(over(up1.hex, up1.a, host)) - lstar(host);
+      expect(lift1, `veil-1 lifts ${host} by only ΔL* ${lift1.toFixed(1)}`).toBeGreaterThan(3);
+      expect(lift1, `veil-1 lifts ${host} by ΔL* ${lift1.toFixed(1)} — that is not one step`).toBeLessThan(6);
+    }
+
+    // A recess inside a card (s1 / s2) must sink by at least a full step.
+    const down = channel('recess-1');
+    for (const host of [ladder[1], ladder[2]]) {
+      const drop = lstar(host) - lstar(over(down.hex, down.a, host));
+      expect(drop, `recess-1 sinks ${host} by only ΔL* ${drop.toFixed(1)}`).toBeGreaterThan(3);
+    }
   });
 });
 

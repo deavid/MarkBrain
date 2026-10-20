@@ -123,7 +123,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
           <div
             data-testid="scroll-top-clearance"
             aria-hidden="true"
-            className="h-10 shrink-0 border-b border-[#162234]/80 -mt-3 mb-1"
+            className="h-10 shrink-0 -mt-3 mb-1"
           />
 
           {/* Search + actions */}
@@ -134,12 +134,12 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search artifacts…"
-                className="w-full min-h-[34px] pl-8 pr-2 rounded-xl bg-[#0c1322] border border-[#141f33] text-xs font-mono text-[#d6e3f5] placeholder-[#4f5f78] focus:outline-none focus:border-[#223552]"
+                className="w-full min-h-[34px] pl-8 pr-2 rounded-xl bg-recess-1 text-xs font-mono text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 shadow-well"
               />
             </div>
             <button
               onClick={onOpenImport}
-              className="flex items-center gap-1.5 min-h-[34px] px-2.5 rounded-xl bg-[#0c1322] border border-[#141f33] text-[10px] font-mono text-[#8ab1e0] hover:border-[#223552] transition-colors cursor-pointer shrink-0"
+              className="flex items-center gap-1.5 min-h-[34px] px-2.5 rounded-xl bg-veil-1 shadow-lift hover:bg-veil-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer shrink-0"
               title="Import documents into the library"
             >
               <Upload className="w-3.5 h-3.5" />
@@ -148,7 +148,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
           </div>
 
           {artifacts.length === 0 && (
-            <div className="rounded-2xl border border-[#141f33] bg-[#0c1322] p-6 text-center space-y-2">
+            <div className="rounded-xl bg-surface-2 p-6 text-center space-y-2">
               <FolderTree className="w-6 h-6 text-[#4f5f78] mx-auto" />
               <p className="text-xs font-mono text-[#8297b5]">The library is empty.</p>
               <p className="text-[10px] font-mono text-[#4f5f78]">
@@ -168,7 +168,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
               {/* ONE widget with the chat, the tray, the chapter strip and the
                   mirror (12 §2): click the ROW to run the verb, arrow-out on the
                   right to open the detail popup. */}
-              <div className="rounded-2xl border border-[#141f33] overflow-hidden divide-y divide-[#0a1120]">
+              <div className="rounded-xl bg-surface-2 p-1 space-y-1">
                 {list.map((art) => {
                   const flagged = isFlaggedArtifact(art);
                   const att = attachmentByArtifact.get(art.id);
@@ -215,20 +215,20 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
       <div className="absolute bottom-4 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none">
         <button
           onClick={onOpenSidebar}
-          className="pointer-events-auto w-9 h-9 rounded-full bg-[#0d1421]/90 backdrop-blur-md border border-[#162235] shadow-lg flex items-center justify-center text-[#8ab1e0] hover:border-[#223552] transition-colors cursor-pointer"
+          className="pointer-events-auto w-9 h-9 rounded-full bg-surface-3/95 backdrop-blur-md shadow-pop flex items-center justify-center text-ink-dim hover:text-ink hover:bg-surface-4 transition-colors cursor-pointer"
           title="Open sidebar"
         >
           <Menu className="w-4 h-4" />
         </button>
 
-        <div className="pointer-events-auto flex items-center gap-0.5 p-0.5 rounded-full bg-[#0d1421]/90 backdrop-blur-md border border-[#162235] shadow-lg">
+        <div className="pointer-events-auto flex items-center gap-0.5 p-0.5 rounded-full bg-surface-3/95 backdrop-blur-md shadow-pop">
           <button
             onClick={() => {
               logger.action('Artifacts', 'Library lens: folders');
               setLens('folders');
             }}
             className={`flex items-center gap-1.5 min-h-[30px] px-3 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
-              lens === 'folders' ? 'bg-[#18253b] text-[#8ab1e0]' : 'text-[#5d7394]'
+              lens === 'folders' ? 'bg-veil-2 shadow-lift text-[#8ab1e0]' : 'text-[#5d7394] hover:text-ink-dim'
             }`}
           >
             <FolderTree className="w-3 h-3" /> Folders
@@ -239,7 +239,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
               setLens('graph');
             }}
             className={`flex items-center gap-1.5 min-h-[30px] px-3 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
-              lens === 'graph' ? 'bg-[#18253b] text-[#8ab1e0]' : 'text-[#5d7394]'
+              lens === 'graph' ? 'bg-veil-2 shadow-lift text-[#8ab1e0]' : 'text-[#5d7394] hover:text-ink-dim'
             }`}
           >
             <Network className="w-3 h-3" /> Graph
@@ -250,7 +250,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
         <button
           onClick={onReturnToChat}
           data-testid="back-to-chat"
-          className="pointer-events-auto relative w-9 h-9 rounded-full bg-[#0d1421]/90 backdrop-blur-md border border-[#162235] shadow-lg flex items-center justify-center text-[#8ab1e0] hover:border-[#223552] transition-colors cursor-pointer"
+          className="pointer-events-auto relative w-9 h-9 rounded-full bg-surface-3/95 backdrop-blur-md shadow-pop flex items-center justify-center text-ink-dim hover:text-ink hover:bg-surface-4 transition-colors cursor-pointer"
           title={stagedCount > 0 ? `Back to chat — ${stagedCount} staged` : 'Back to chat'}
           aria-label={stagedCount > 0 ? `Back to chat, ${stagedCount} staged` : 'Back to chat'}
         >

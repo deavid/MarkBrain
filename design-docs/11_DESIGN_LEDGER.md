@@ -423,3 +423,244 @@ reviewed and resolved during the opus pass in **`design-docs/12_PLAN_OF_RECORD.m
 - The 350px viewport check gains: *every control fully inside its scroll
   container*.
 - The RED console error from V1.7 is gone, or the pack says why not.
+
+---
+
+# V2 — the de-border sweep (2026-10-20, same day, after the plan of record)
+
+David, verbatim: *"too many borders overall in the application … border here,
+border there. We need to drive more tastefully via background color and less via
+border. Border adds visual noise. It hurts to look at."* Then: *"It looks very
+cheap … it says 'I don't know how to make a good color schema to drive this
+visually distinct and separated so I use borders instead'."*
+
+## The measuring, before anything was changed
+
+| | before |
+|---|---|
+| distinct `border-[#…]` colours | **107** across **325** uses, in 25 files |
+| distinct `bg-[#…]` values | **180** across 472 uses |
+| neighbouring backgrounds within 1.5% luminance | **167 pairs** (≈1.00:1 — the same colour, renamed) |
+| worst nesting | artifact detail: modal → section → sub-card → well → `pre` = 5 outlines |
+
+The cause was not decoration. **Elevation was unreadable**, because the palette
+had forked into four families that render identically (jet, near-black, navy
+slate, blue slate). When one box had to be separate from another, a 1px line was
+the only instrument left. Two border colours carried half the load, and both were
+*darker* than their surface — the engraved blueprint look.
+
+## What replaced it
+
+Six steps, measured in **CIE L\***, not contrast ratio — at the near-black end
+1.04:1 is L* 2.1, i.e. a nothing step, which is exactly how the first attempt
+shipped as one flat sheet:
+
+```
+surface-0 #0d0b12   L*  3.3   page / canvas
+surface-1 #17131f   L*  6.7   sidebar plane, wells, dark keys
+surface-2 #1e1a2a   L* 10.4   cards, sections, message plates
+surface-3 #252132   L* 13.9   hover, selected row, active tab
+surface-4 #2d2840   L* 17.7   menus, popovers, modal headers
+surface-5 #363049   L* 21.5   the only tone allowed as a hairline
+```
+
+Every step is ΔL* 3.4–3.8 and the ceiling is L* 21.5: the whole app sits in a
+narrow band so nothing glows, because the brief is "easy to look at for hours".
+Ink tops out at `#ded9ea`, never `#fff`: 50 `text-white` usages and 27 near-white
+hexes were removed. The hue is a violet slate, not blue-grey.
+
+Three corrections came from David looking at the screenshots after the first
+sweep, and each one is recorded because each was invisible to the tests:
+
+1. **The planes were the same pixel.** `index.html` hardcoded a body colour above
+   the CSS body rule, and both the app root and the sidebar resolved to
+   `surface-1`. Numbers passed; the screen had one flat background and a border
+   doing the work.
+2. **The composer was a full-width band** in the same tone as the sidebar, so
+   chrome and sidebar merged. The composer now sits on the canvas and only the
+   input well is raised.
+3. **Objects glowed above the desktop** — cards brighter than the page, which is
+   backwards for long reading. The ladder was lowered and compressed; depth now
+   comes from small steps plus the message plates, so an AI reply always has a
+   visible plate and a chapter only whispers above the canvas.
+
+Four legal line roles replace 107 colours: `line` (control edge), `line-soft`
+(the one pane divider), `accent` (focus + active tab indicator), `brand`
+(destructive control). `border-none` / `border-transparent` stay. Three semantic
+washes (`wash-danger`, `wash-warn`, `wash-success`) carry alerts — a warning is a
+tint, not a red outline.
+
+After: **0** hand-rolled border colours, **63** background values left (the
+attachment hues, drag targets and washes — deliberate), borders only in 9 files.
+
+## The attachment language, re-stated (colour in the fill and the ink)
+
+Under the old law the six states were told apart by six 1px hue hairlines — at
+1px, indistinguishable from six random lines. Now each in-chat state has a dark
+plate tinted with its own hue, and the chip says the hue in its **label colour**
+on a hue-tinted well. No bright fills, no dark text on light. This supersedes the
+"active chip carries a crisp hue border" phrasing: it carries the hue as ink.
+
+## Fixed on the way through
+
+- **V1.5** closed by construction: no active chip sits on a bright row any more.
+- **V1.6** closed: chips wrap instead of scrolling, all four fit at 350px
+  (measured 24→280 inside a 302px container), nothing clipped.
+- **item (b)** the threads chevron is the last glyph on the right.
+- **item (c)** archive/delete are a `⋯` on every row — the old paths (right-click,
+  drag onto "Archived") were nothing at all on a touch screen.
+- **item (d)** the title is a real 20px editable title in the feed; it pins
+  compact (≤44px) once scrolled, so the conversation never becomes anonymous.
+- **item (e)** auto-title sits LEFT of the title and reports idle / generating /
+  Titled / "Needs a reply first".
+- **item (a)** the account is a flat row at the top with a popover; the
+  collapsible Cloud Storage card at the bottom is gone.
+
+## The invariant, now enforced
+
+`src/tests/design-law.test.ts` fails the build if: any `border-[#…]` appears; any
+border utility outside the six roles appears; a border colour is set without a
+width (an invisible edge — the shape of the bug the sweep itself introduced); the
+ladder's steps drift under 1.03:1; or the background palette grows past 110
+distinct values.
+
+**J17 re-specified, not loosened.** It used to measure the floating pill's
+clearance spacer, an element that no longer exists. It now asserts the new
+invariant: the title is a real title (>24px) at the top of the feed, the token orb
+never sits on its text, and once scrolled it pins ≤44px with `data-scrolled`.
+
+Evidence after the sweep: **18/18 journeys · 0 failures · 0 warnings · 0
+console/page/http errors · GREEN**.
+
+---
+
+# V2.1 — step, don't stroke (2026-10-20, later the same evening)
+
+David, looking at the V2 screenshots:
+
+> "I want to see the difference, I want to see the border, but I don't want an
+>  actual border — either going just up `_/=` or down `=\_`, driven with actual
+>  background colour cleverness, or usage of alpha. […] the old one also had a
+>  more saturated darker look — it was more bluish. […] the chapter in the chat
+>  feels disconnected, there's a black band there. We need to be smarter."
+
+V2 removed the borders but not the *instrument*. In places it moved the
+boundary's work into nothing at all (two planes at the same tone), and in
+places it over-corrected (a chip brighter than the selection it was supposed to
+recede from). V2.1 names the shape of the problem and answers it with three
+instruments in a fixed order of preference.
+
+## The shape of the problem
+
+```
+  __/^\__    two surfaces at the SAME tone, a bright 1px spike between them
+             → the wireframe. Deleted in V2, correctly.
+
+  ___        two surfaces at the same tone, nothing between them
+             → the V2 failure. The difference disappeared with the border.
+
+  _/=        a surface steps UP out of its host (+ΔL* 3.7…4.5)
+  =\_        a surface sinks DOWN into its host (−ΔL* ≥ 3 inside a card)
+             → the answer. The boundary is still there — it is the colour.
+```
+
+## Instrument 2: the veil and the recess (alpha, not hex)
+
+Structural planes stay on the fixed ladder (`surface-0…5`). Anything *nested
+inside* a plane — a chip, a bubble, an input, a tag, a key — is now alpha over
+whatever it sits on, so it is correct on **any** host and can never clash with
+it. Measured, in `index.css`:
+
+| token | over surface-0 | over surface-1 | over surface-2 | over surface-3 |
+|---|---|---|---|---|
+| `veil-1` 0.06 | +3.8 | +4.5 | +4.0 | +3.7 |
+| `veil-2` 0.115 | +8.0 | +8.3 | +7.6 | +7.0 |
+| `recess-1` 0.5 | −1.6 | −3.7 | −5.9 | −7.0 |
+
+That is the whole claim: **one veil ≡ one ladder rung, wherever it lands**. The
+test asserts it so the two systems cannot drift into two disagreeing palettes.
+
+## Instrument 3: shadow, not stroke
+
+`shadow-lift` (a raised plate's top lip + 2px drop), `shadow-well` (an inset top
+lip), `shadow-step` (a card off the canvas), `shadow-pop` (a modal). Where V2
+had a hairline, V2.1 has one of these. Every `shadow-2xl shadow-black/60` in the
+app is now `shadow-pop`.
+
+## Colour: back to the navy's axes, saturated
+
+V2's plum (`#1e1a2a`, OKLCH hue 295, chroma 0.031) read washed out and dusty.
+The pre-sweep navy nobody complained about was hue 264. V2.1 sits at **hue 273**
+— indigo with a violet lean — and raises chroma 45–75% per step, so the darks are
+saturated rather than grey:
+
+```
+  surface-0  #0a0e1b  L*  4.1   page / canvas
+  surface-1  #121526  L*  7.3   sidebar plane, chapter card   (ΔL* 3.2)
+  surface-2  #181c31  L* 10.9   section card, raised plate    (ΔL* 3.6)
+  surface-3  #1f243c  L* 14.8   hover, selected row, well     (ΔL* 3.9)
+  surface-4  #252c47  L* 18.6   menus, popovers, modals       (ΔL* 3.7)
+  surface-5  #2d3452  L* 22.4   ceiling — nothing goes higher (ΔL* 3.8)
+```
+
+Ink softened to `#d7ddf0` (L* 89.9 — bright enough to read, not a flashlight).
+
+## The black band, and why the chapter holds together now
+
+V2 rendered the chapter body as `bg-surface-0` **inside** a `bg-surface-1` card:
+header (tinted) → black band → bright AI slab. Three tones in one object, none
+of them a step. V2.1 gives the chapter one surface and one shadow, and then
+separates *within* it:
+
+```
+  chapter card          bg-surface-1 + shadow-step        (the object)
+  ├─ header rib         hue tint over the card
+  ├─ compacted strip    bg-veil-1                         one step up
+  ├─ description/summary bg-recess-1 + shadow-well        a walled well
+  └─ messages           (transparent — the card is the surface)
+     ├─ you             bg-veil-2 + shadow-lift           steps UP
+     └─ MarkBrain       bg-recess-1 + shadow-well         sits DOWN
+```
+
+The AI reply therefore has a background that is visibly not the chapter's (it
+is a full rung below) while the ink stays dark-page quiet for long reading.
+
+## The chips, inverted
+
+V2's idle chips were opaque plum (`#2a2438`) — brighter than the active chip and
+clashing with whatever hue the row carried. Now:
+
+- **idle** → `bg-recess-1` + `text-ink-mute`: colourless, sinks, identical on
+  every row. Six neutral chips can never be six colours to read.
+- **active** → hue at 22% + the hue as **ink** + a soft glow (a shadow, never a
+  stroke). It steps up and is the only coloured chip on the row.
+
+Rows are hue tints now too (`bg-[#…]/11`, hover `/16`) instead of opaque plates,
+so the same row is correct on a chapter card, in the compacted strip and in the
+staged tray. `unstaged` stays a neutral `bg-veil-2` lift — no hue to give away.
+
+## What moved
+
+- controls are **wells**, not boxes: every input in the app (`ImportSessionList`,
+  `ProjectGenesis`, `ProjectLauncher`, `ServerLogsModal`, `ImportModal`,
+  `ArtifactsLibraryView`, the composer, the inline rename) lost its
+  `border border-line` and became `bg-recess-1/2 + shadow-well`. The one
+  surviving stroke is the import dropzone's dashed target, where a stroke is the
+  affordance.
+- the artifacts list lost its `divide-y` — rows are separate plates on a padded
+  card now, no divider doing the work.
+- the graph node is **lit** by its hue (a wide soft halo) instead of outlined by
+  it; the 1px ring is gone.
+- the view switcher, the sidebar I/O keys, the lens pill and the icon tiles
+  inside section cards became wells or lifts — three of those tiles had been the
+  *same colour* as the card they sat in, i.e. invisible.
+
+## Invariants added
+
+`src/tests/attachment-palette.test.ts` now also asserts: every in-chat row is an
+alpha tint of its own hue (8–20%) whose composite stays dark on any host; the
+unstaged row carries no hue and out-alphas every hue tint; an idle chip is
+colourless and sinks; the active chip is a >20% tint of its hue with a bright
+hue-coloured label and a shadow, never a border; and — the important one — a veil
+or a recess produces a **real** step (ΔL* ≥ 3) on every host from surface-0 to
+surface-3, so the alpha instrument and the ladder cannot drift apart.

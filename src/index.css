@@ -1,49 +1,90 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
-   THE SURFACE LADDER
-   Six tones replace the ~180 ad-hoc background hexes scattered through the
-   components. Each step is measurably brighter than the one below, which is
-   what lets elevation read WITHOUT a border.
+   THE SURFACE LADDER  —  "step, don't stroke"
 
-   The old palette had 167 neighbouring pairs sitting at 1.00:1 — visually the
-   same colour. That is why a 1px line was the only instrument that ever
-   worked, and why the app read as a wireframe.
+   Three instruments, in this order of preference:
 
-     0 page      — the chat / artifacts canvas
-     1 sunken    — sidebar plane, wells, inputs at rest
-     2 card      — a block of content, a row at rest, a hovered row
-     3 raised    — hover, selected row, active tab, pressed
-     4 popover   — menus, popovers, modal bodies
-     5 edge      — the only tone allowed to be used as a hairline
+     1. THE LADDER (surface-0…5)   structural planes: the canvas, the sidebar,
+                                   a card, a menu. Six fixed tones.
+     2. THE VEIL / THE RECESS      anything nested inside a plane. Alpha over
+                                   whatever it sits on, so a chip, a bubble or
+                                   an inset well can never clash with its host.
+                                     veil-*   → steps UP   ( _/= )
+                                     recess-* → steps DOWN ( =\_ )
+     3. A SHADOW                   a soft edge where two planes meet. Shadow
+                                   reads as depth; a 1px line reads as a fence.
+
+   What we never do: `__/^\__`. Two surfaces at the same tone with a bright 1px
+   spike between them. That was the wireframe look — the border was doing the
+   work the colour was supposed to do.
+
+   Why the old ladder failed: 167 neighbouring background pairs sat at ~1.00:1
+   relative luminance — literally the same colour, two names. Contrast RATIO
+   also lies at the near-black end (1.04:1 = ΔL* 2.1 = invisible), so every
+   step below is measured in CIE L*.
+
+   Axes recovered from the pre-sweep navy that this one is tuned against:
+   hue 273 (indigo with a violet lean — the old navy was 264, flat plum was 300)
+   and real chroma, so the darks are saturated rather than washed out.
+
+     surface-0  #0a0e1b   L*  4.1   page / canvas
+     surface-1  #121526   L*  7.3   sidebar plane, chapter card   (ΔL*  3.2)
+     surface-2  #181c31   L* 10.9   section card, raised plate    (ΔL*  3.6)
+     surface-3  #1f243c   L* 14.8   hover, selected row, well     (ΔL*  3.9)
+     surface-4  #252c47   L* 18.6   menus, popovers, modals       (ΔL*  3.7)
+     surface-5  #2d3452   L* 22.4   the ceiling — never brighter  (ΔL*  3.8)
 --------------------------------------------------------------------------- */
 @theme {
-  --color-surface-0: #05080f;
-  --color-surface-1: #0a0f18;
-  --color-surface-2: #121a26;
-  --color-surface-3: #1a2434;
-  --color-surface-4: #232f42;
-  --color-surface-5: #2f3d52;
+  --color-surface-0: #0a0e1b;
+  --color-surface-1: #121526;
+  --color-surface-2: #181c31;
+  --color-surface-3: #1f243c;
+  --color-surface-4: #252c47;
+  --color-surface-5: #2d3452;
 
-  /* The four legitimate line roles. Nothing else may use `border-[#...]`. */
-  --color-line: #2f3d52; /* control edge: inputs, the composer */
-  --color-line-soft: #1a2434; /* divider between structural panes only */
+  /* The four legitimate line roles. Nothing else may use `border-[#...]`, and
+     a control edge is the LAST resort — a recess well is preferred. */
+  --color-line: #333c5e; /* control edge: inputs, selects */
+  --color-line-soft: #1f243c; /* divider inside a block */
 
   /* Three semantic washes. A warning is not a surface: it is a tint. */
-  --color-wash-danger: #2a1619;
-  --color-wash-warn: #2a2214;
-  --color-wash-success: #12251b;
+  --color-wash-danger: #2c151e;
+  --color-wash-warn: #2a2216;
+  --color-wash-success: #132420;
 
-  --color-ink: #eef4fc;
-  --color-ink-dim: #9bb0d1;
-  --color-ink-mute: #6c84a3;
-  --color-ink-faint: #556985;
+  /* THE VEIL / THE RECESS — the second instrument.
+     Alpha over the host plane, so it is correct on ANY surface: it cannot
+     clash with the plane it lands on, which is the whole reason it exists.
+     The two systems are one physics, measured (see the palette test):
+     veil-1 = +3.7…+4.5 L* and veil-2 = +7.0…+8.3 L* over surface-0…3
+     (i.e. one and two ladder rungs), recess-1 = −3.0 L* or more inside a card. */
+  --color-veil-1: rgb(150 165 215 / 0.06); /* one step up */
+  --color-veil-2: rgb(150 165 215 / 0.115); /* two steps up */
+  --color-veil-3: rgb(150 165 215 / 0.18); /* three steps up */
+  --color-veil-4: rgb(150 165 215 / 0.26); /* the top plate's hover */
+  --color-recess-1: rgb(2 4 12 / 0.5); /* one step down, inside a card */
+  --color-recess-2: rgb(2 4 12 / 0.7); /* two steps down */
+  --color-edge-light: rgb(178 194 240 / 0.07); /* the top lip of a raised plate */
+  --color-edge-dark: rgb(0 0 0 / 0.45); /* the inner lip of a sunken well */
+
+  /* Ink — softened on purpose. Pure white is a flashlight in a dark room. */
+  --color-ink: #d7ddf0;
+  --color-ink-dim: #a3aecb;
+  --color-ink-mute: #7f89a8;
+  --color-ink-faint: #666e8c;
 
   --color-brand: #e05a66;
   --color-accent: #38bdf8; /* the one indicator colour: focus, active tab */
   --color-brand-cool: #38bdf8;
   --color-brand-gold: #e0b96c;
   --color-brand-green: #5ad49b;
+
+  /* Depth, not decoration. */
+  --shadow-lift: inset 0 1px 0 var(--color-edge-light), 0 2px 5px -2px rgb(0 0 0 / 0.45);
+  --shadow-well: inset 0 1px 2px var(--color-edge-dark);
+  --shadow-step: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 26px -14px rgb(0 0 0 / 0.72);
+  --shadow-pop: 0 2px 8px -2px rgb(0 0 0 / 0.6), 0 22px 55px -18px rgb(0 0 0 / 0.85);
 }
 
 @layer base {
@@ -61,9 +102,9 @@
     --accent-red-subtle: oklch(26% 0.07 24);
     --accent-gold: oklch(75% 0.11 70);
 
-    --text-primary: oklch(94% 0.012 250);
-    --text-secondary: oklch(74% 0.022 250);
-    --text-muted: oklch(54% 0.028 250);
+    --text-primary: var(--color-ink);
+    --text-secondary: var(--color-ink-dim);
+    --text-muted: var(--color-ink-mute);
   }
 
   body {
@@ -81,11 +122,24 @@
     outline: 2px solid var(--color-brand-cool);
     outline-offset: 2px;
   }
+
+  /* A raised plate: one step up from its host, with a soft top lip so the
+     edge reads on its own. This is the `_/=` shape — no stroke anywhere. */
+  .plate {
+    background-color: var(--color-veil-1);
+    box-shadow: var(--shadow-lift);
+  }
+
+  /* A walled well: one step down into its host. The `=\_` shape. */
+  .well {
+    background-color: var(--color-recess-1);
+    box-shadow: var(--shadow-well);
+  }
 }
 
-/* Rendered markdown (artifact detail modal) */
+/* Rendered markdown (artifact detail modal + chapter prose) */
 .md-body {
-  color: #cad8eb;
+  color: #c3cde4;
   font-size: 12px;
   line-height: 1.7;
   overflow-wrap: break-word;
@@ -104,43 +158,43 @@
   margin: 1.1em 0 0.45em;
 }
 .md-body h1 { font-size: 1.5em; }
-.md-body h2 { font-size: 1.3em; color: #dbe9fa; }
-.md-body h3 { font-size: 1.15em; color: #d5e5f8; }
-.md-body h4 { font-size: 1.05em; color: #c8dcf2; }
+.md-body h2 { font-size: 1.3em; color: #d3daf0; }
+.md-body h3 { font-size: 1.15em; color: #ccd4ec; }
+.md-body h4 { font-size: 1.05em; color: #c0cae6; }
 .md-body h5,
 .md-body h6 { font-size: 1em; color: var(--color-ink-dim); text-transform: uppercase; letter-spacing: 0.04em; }
 .md-body p { margin: 0.55em 0; }
 .md-body strong { color: var(--color-ink); font-weight: 700; }
-.md-body em { color: #d5e5f8; }
+.md-body em { color: #ccd4ec; }
 .md-body del { color: var(--color-ink-mute); }
 .md-body a { color: var(--color-brand-cool); text-decoration: underline; text-underline-offset: 2px; }
 .md-body a:hover { color: #7dd3fc; }
 .md-body img { max-width: 100%; border-radius: 8px; margin: 0.4em 0; }
-.md-body hr { border: none; height: 1px; background: var(--color-surface-3); margin: 1.2em 0; }
+.md-body hr { border: none; height: 1px; background: var(--color-surface-4); margin: 1.2em 0; }
 .md-body ul,
 .md-body ol { margin: 0.55em 0; padding-left: 1.4em; }
 .md-body ul { list-style: disc; }
 .md-body ol { list-style: decimal; }
 .md-body li { margin: 0.25em 0; }
 .md-body li::marker { color: var(--color-ink-faint); }
+/* A quote is a walled well, not a rule with a 2px spike on its left. */
 .md-body blockquote {
-  padding: 0.15em 0 0.15em 0.9em;
+  padding: 0.5em 0.9em;
   margin: 0.65em 0;
   color: var(--color-ink-dim);
-  background: var(--color-surface-1);
-  border-radius: 0 8px 8px 0;
-  box-shadow: inset 2px 0 0 var(--color-surface-5);
+  background: var(--color-recess-1);
+  border-radius: 8px;
 }
 .md-body code {
-  background: var(--color-surface-3);
-  color: #a8c6ea;
+  background: var(--color-veil-2);
+  color: #a9bce2;
   padding: 0.1em 0.38em;
   border-radius: 5px;
   font-size: 0.92em;
   font-family: 'JetBrains Mono', monospace;
 }
 .md-body pre {
-  background: var(--color-surface-1);
+  background: var(--color-recess-1);
   padding: 10px 12px;
   border-radius: 10px;
   overflow-x: auto;
@@ -150,7 +204,7 @@
 .md-body pre code {
   background: transparent;
   padding: 0;
-  color: #c4d6ed;
+  color: #bccbe6;
   font-size: 11px;
 }
 .md-body table {
@@ -166,8 +220,8 @@
   padding: 5px 9px;
   text-align: left;
 }
-.md-body th { background: var(--color-surface-2); color: #8ab1e0; font-weight: 600; }
-.md-body tr:nth-child(even) td { background: var(--color-surface-1); }
+.md-body th { background: var(--color-veil-2); color: #93afe0; font-weight: 600; }
+.md-body tr:nth-child(even) td { background: var(--color-veil-1); }
 
 /* Custom scrollbars */
 ::-webkit-scrollbar {
@@ -178,9 +232,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: oklch(28% 0.03 255);
+  background: oklch(32% 0.035 273);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(42% 0.06 255);
+  background: oklch(46% 0.06 273);
 }

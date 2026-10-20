@@ -41,49 +41,71 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
   const credentialsUrl = `https://console.cloud.google.com/apis/credentials?project=${projectId}`;
 
   return (
-    <div className="flex items-center justify-center min-h-screen w-screen bg-[#070b12] text-[#d6e3f5] p-4 select-none relative overflow-hidden font-sans">
-      {/* Background ambient grid lines */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a15_1px,transparent_1px),linear-gradient(to_bottom,#0f172a15_1px,transparent_1px)] bg-[size:48px_48px] pointer-events-none" />
+    <div className="flex items-center justify-center min-h-screen w-screen bg-surface-0 text-ink p-5 select-none relative overflow-hidden font-sans">
+      {/* One soft light behind the mark. The only decoration on the screen. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-1/2 w-[560px] h-[560px] -translate-x-1/2 -translate-y-[64%] rounded-full bg-[radial-gradient(circle,rgba(224,90,102,0.12),transparent_62%)]"
+      />
 
-      {/* Main Authentication Card */}
-      <div className="relative z-10 w-full max-w-md p-6 sm:p-8 bg-[#0b101a] border border-[#141f33] rounded-2xl shadow-2xl space-y-6">
-        {/* Brand Header */}
-        <div className="space-y-3">
-          <div className="w-12 h-12 rounded-2xl bg-[#121c2d] border border-[#1e2e47] flex items-center justify-center text-[#e05a66] shadow-sm">
-            <Brain className="w-6 h-6 text-[#e05a66]" />
+      <div className="relative z-10 w-full max-w-[360px] flex flex-col items-center gap-8">
+        {/* Brand — centred, one type system, one focal point */}
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-surface-2 flex items-center justify-center shadow-step">
+            <Brain className="w-7 h-7 text-brand" />
           </div>
-
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-white font-mono">
-              MarkBrain
-            </h1>
-            <p className="text-xs text-[#6e85a6] mt-1 leading-relaxed">
-              A thinking workbench for overflowing brains
-            </p>
-          </div>
-
-          {/* Unboxed Metadata separator */}
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[#4d6382] font-mono pt-1">
-            <span>Cloud or local</span>
-            <span aria-hidden="true">·</span>
-            <span>exportable anytime</span>
-          </div>
+          <h1 className="text-[26px] leading-none font-semibold tracking-tight text-ink">
+            MarkBrain
+          </h1>
+          <p className="text-[13px] leading-relaxed text-ink-dim max-w-[280px]">
+            A thinking workbench for overflowing brains.
+          </p>
         </div>
 
-        {/* Informative Explanation */}
-        <div className="p-3.5 rounded-xl bg-[#080d16] border border-[#131d2e] space-y-2 text-xs text-[#8299ba] leading-relaxed">
-          <p className="text-[#c5d7ed] font-medium">
-            Where your data lives
-          </p>
-          <p className="text-[11px] text-[#6b82a3]">
-            Sign in with Google for cloud storage, or continue locally — your data stays in this
-            browser (IndexedDB), portable anytime via database backup/restore.
-          </p>
+        {/* Actions — one primary path, the fallback demoted to a link */}
+        <div className="w-full flex flex-col items-center gap-4">
+          <button
+            type="button"
+            onClick={handleSignIn}
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-2.5 h-11 rounded-xl bg-white text-[#1f1f1f] hover:bg-[#eef1f5] active:bg-[#e4e8ee] disabled:opacity-60 text-[13px] font-medium shadow-lg shadow-black/50 transition-colors cursor-pointer"
+          >
+            {isLoading ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Connecting…</span>
+              </>
+            ) : (
+              <>
+                <svg viewBox="0 0 48 48" className="w-[18px] h-[18px] shrink-0" aria-hidden="true">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                </svg>
+                <span>Continue with Google</span>
+              </>
+            )}
+          </button>
+
+          {onContinueLocal && (
+            <button
+              type="button"
+              onClick={() => {
+                logger.action('AuthGate', 'User chose Continue locally (Local space)');
+                onContinueLocal();
+              }}
+              disabled={isLoading}
+              className="text-[12px] text-ink-dim hover:text-ink underline decoration-line hover:decoration-ink-mute underline-offset-4 disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              Use local storage instead
+            </button>
+          )}
         </div>
 
         {/* Error Alert — actions chosen by error CLASS, not offered blindly */}
         {errorMessage && (
-          <div className="p-3.5 rounded-xl bg-red-950/30 border border-red-500/30 space-y-2 text-xs text-red-300 animate-in fade-in duration-200">
+          <div className="w-full p-3.5 rounded-xl bg-wash-danger space-y-2 text-xs text-red-300 animate-in fade-in duration-200">
             <div className="flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
               <div className="space-y-1">
@@ -100,7 +122,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
                 <button
                   type="button"
                   onClick={handleSignIn}
-                  className="px-2.5 py-1 rounded-lg bg-red-900/40 hover:bg-red-900/60 text-red-200 text-[11px] font-mono border border-red-700/40 transition-colors cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-veil-3 hover:bg-veil-4 text-red-200 text-[11px] font-mono transition-colors cursor-pointer"
                 >
                   Try Again
                 </button>
@@ -111,7 +133,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
                   href={authDomainUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-2.5 py-1 rounded-lg bg-[#0e1626] hover:bg-[#162238] text-[11px] font-mono text-[#38bdf8] border border-[#1c2e47] transition-colors cursor-pointer flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-[11px] font-mono text-[#38bdf8] transition-colors cursor-pointer flex items-center gap-1"
                 >
                   <ExternalLink className="w-3 h-3" />
                   <span>Open Authorized Domains</span>
@@ -123,7 +145,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
                   href={credentialsUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-2.5 py-1 rounded-lg bg-[#0e1626] hover:bg-[#162238] text-[11px] font-mono text-[#38bdf8] border border-[#1c2e47] transition-colors cursor-pointer flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-[11px] font-mono text-[#38bdf8] transition-colors cursor-pointer flex items-center gap-1"
                 >
                   <ExternalLink className="w-3 h-3" />
                   <span>Open Cloud Credentials</span>
@@ -134,7 +156,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
                 <button
                   type="button"
                   onClick={onOpenServerLogs}
-                  className="px-2.5 py-1 rounded-lg bg-[#0e1626] hover:bg-[#162238] text-[11px] font-mono text-[#8ab1e0] border border-[#1c2e47] transition-colors cursor-pointer flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-[11px] font-mono text-[#8ab1e0] transition-colors cursor-pointer flex items-center gap-1"
                 >
                   <Terminal className="w-3 h-3 text-[#38bdf8]" />
                   <span>Inspect Logs</span>
@@ -158,51 +180,12 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
           </div>
         )}
 
-        {/* Action Buttons: two branches — Google (cloud) / Local (IndexedDB) */}
-        <div className="space-y-2 pt-1">
-          <button
-            type="button"
-            onClick={handleSignIn}
-            disabled={isLoading}
-            className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl bg-[#1d3557] hover:bg-[#23426e] active:bg-[#192f4d] disabled:opacity-50 text-white text-xs sm:text-sm font-semibold tracking-wide shadow-md transition-all cursor-pointer border border-[#2b5185]"
-          >
-            {isLoading ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin text-[#38bdf8]" />
-                <span>Connecting to Google Auth...</span>
-              </>
-            ) : (
-              <>
-                <LogIn className="w-4 h-4 text-[#38bdf8]" />
-                <span>Continue with Google</span>
-              </>
-            )}
-          </button>
-
-          {onContinueLocal && (
-            <button
-              type="button"
-              onClick={() => {
-                logger.action('AuthGate', 'User chose Continue locally (Local space)');
-                onContinueLocal();
-              }}
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl bg-[#0e1626] hover:bg-[#162238] active:bg-[#0b1220] disabled:opacity-50 text-[#8ab1e0] text-xs font-medium tracking-wide transition-all cursor-pointer border border-[#1c2e47]"
-            >
-              <HardDrive className="w-4 h-4 text-[#5ad49b]" />
-              <span>Continue locally</span>
-            </button>
-          )}
-        </div>
-
-        {/* Footer Security Guarantee */}
-        <div className="pt-2 border-t border-[#121c2d] flex items-center justify-between text-[10px] font-mono text-[#4b607d]">
-          <div className="flex items-center gap-1.5">
-            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-            <span>Stored per account</span>
-          </div>
-          <span>Export anytime</span>
-        </div>
+        {/* One quiet line instead of an info box plus a status bar: the promise,
+            not the documentation. */}
+        <p className="text-[11px] leading-relaxed text-ink-mute text-center max-w-[300px]">
+          Cloud sync, or stay in this browser only — either way you can export everything at any
+          time.
+        </p>
       </div>
     </div>
   );

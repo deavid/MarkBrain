@@ -138,34 +138,59 @@ export interface AttachmentStatePalette {
   subTextClass: string;
   /** Tag / muted badge class inside the row/card */
   tagClass: string;
-  /** Active chip classes when this granularity is selected (pressed dark well) */
+  /** Active chip classes — steps UP into its own hue, hue carried by the ink. */
   activeChipClass: string;
-  /** Inactive chip classes — shared, slightly brighter than the active well. */
+  /** Inactive chip classes — shared, neutral, steps DOWN into its host. */
   inactiveChipClass: string;
 }
 
-/** L3: the unselected key. One class, every state, so 'not selected' reads the same. */
+/**
+ * THE TWO ALPHA INSTRUMENTS (index.css §veil/recess) — the de-border sweep's
+ * second pass, after David's correction of 2026-10-20:
+ *
+ * "I want to see the difference, I want to see the border, but I don't want an
+ *  actual border — either going just up _/= or down =\_, driven with actual
+ *  background colour cleverness, or usage of alpha."
+ *
+ * A row lives INSIDE a host plane (a chapter card, the staged tray). Its plate
+ * is therefore an ALPHA tint of its own hue rather than an opaque hex: it
+ * composites onto whatever it sits on, so it can never clash with its host.
+ * That was the failure in the first sweep — opaque purple chips punched holes
+ * in a green card and out-shouted the selection they were supposed to recede
+ * from.
+ *
+ *   the row          hue at 11%  (hover 16%)   a tint, never a bright plate
+ *   the active chip  hue at 22% + hue ink + a soft glow   → steps UP
+ *   an idle chip     recess-1, totally neutral            → steps DOWN
+ *
+ * Idle chips are neutral on purpose: six hues at rest would be six colours to
+ * read. One hue per row (the one it is actually at) and one lit indicator (the
+ * dot). Selection is carried by ink and by light, never by a stroke.
+ */
 const INACTIVE_CHIP_CLASS =
-  'bg-[#152033] hover:bg-[#1b2940] text-[#9fb2ce] hover:text-[#e3edf7]';
+  'bg-recess-1 hover:bg-recess-2 text-ink-mute hover:text-ink-dim';
 
 /**
- * Six plates. Each in-chat state has a DARK plate tinted with its own hue —
- * the tint is what separates the row, not a hairline. All of them sit below
- * the unstaged slate, so "not in the chat" still reads as the lighter key.
+ * Six plates. Each in-chat state is a tint of its own hue laid over the host
+ * plane, so the same row is correct on the chapter card, in the compacted
+ * strip and inside the staged tray. All of them are quieter than the unstaged
+ * key, so "not in the chat" still reads as the plainer, lighter surface.
  */
 export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentStatePalette> = {
   unstaged: {
     state: 'unstaged',
-    hex: '#18202c',
+    hex: '#161b2e',
     glow: 'transparent',
-    // L4: no hue to give — an unpressed key with its LED off.
+    // L4: no hue to give — a key with its LED off. A dim ring keeps the circle
+    // legible without it becoming a filled dot.
     dotClass:
-      'bg-[#18202c] ring-1 ring-[#33435c] group-hover:ring-[#556985]',
-    rowClass: 'bg-[#131c2e] hover:bg-[#18243a] text-[#d6e3f5]',
-    titleTextClass: 'text-[#d6e3f5]',
-    subTextClass: 'text-[#8499b8]',
-    tagClass: 'text-[#8499b8] bg-[#0c1322]',
-    activeChipClass: 'bg-[#0d1422] text-[#c3d3e8] font-semibold',
+      'bg-[#161b2e] ring-1 ring-[#2f3a55] group-hover:ring-[#4d5c7d]',
+    // Not in the chat = the plainest lift off the host plane. No hue at all.
+    rowClass: 'bg-veil-2 hover:bg-veil-3 text-ink',
+    titleTextClass: 'text-[#c9d3ea]',
+    subTextClass: 'text-[#93a0c0]',
+    tagClass: 'text-ink-dim bg-recess-1',
+    activeChipClass: 'bg-veil-3 text-ink font-semibold shadow-[0_1px_8px_-2px_rgba(150,165,215,0.45)]',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   staged: {
@@ -174,11 +199,11 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'rgba(56, 189, 248, 0.55)',
     dotClass:
       'bg-[#38bdf8] ring-2 ring-[#38bdf8]/35 shadow-[0_0_10px_rgba(56,189,248,0.75)] animate-pulse',
-    rowClass: 'bg-[#081320] hover:bg-[#0c1a2b] text-[#eef6ff]',
-    titleTextClass: 'text-[#f0f9ff] font-semibold',
-    subTextClass: 'text-[#93c5fd]',
-    tagClass: 'text-[#7dd3fc] bg-[#0c2236]',
-    activeChipClass: 'bg-[#071b28] text-[#7dd3fc] font-semibold',
+    rowClass: 'bg-[#38bdf8]/11 hover:bg-[#38bdf8]/16 text-ink',
+    titleTextClass: 'text-[#d7ddf0] font-semibold',
+    subTextClass: 'text-[#9dc6e8]',
+    tagClass: 'text-[#7dd3fc] bg-[#38bdf8]/12',
+    activeChipClass: 'bg-[#38bdf8]/22 text-[#7dd3fc] font-semibold shadow-[0_1px_8px_-2px_rgba(56,189,248,0.55)]',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   title: {
@@ -187,11 +212,11 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'rgba(121, 202, 75, 0.5)',
     dotClass:
       'bg-[#79ca4b] ring-2 ring-[#79ca4b]/30 shadow-[0_0_8px_rgba(121,202,75,0.65)]',
-    rowClass: 'bg-[#0a1610] hover:bg-[#101d15] text-[#eef4fc]',
-    titleTextClass: 'text-[#eef4fc] font-semibold',
-    subTextClass: 'text-[#94a8c6]',
-    tagClass: 'text-[#b8cae4] bg-[#101929]',
-    activeChipClass: 'bg-[#0c1f17] text-[#79ca4b] font-semibold',
+    rowClass: 'bg-[#79ca4b]/11 hover:bg-[#79ca4b]/16 text-ink',
+    titleTextClass: 'text-[#d7ddf0] font-semibold',
+    subTextClass: 'text-[#9aa7c6]',
+    tagClass: 'text-ink-dim bg-recess-1',
+    activeChipClass: 'bg-[#79ca4b]/22 text-[#a9e07a] font-semibold shadow-[0_1px_8px_-2px_rgba(121,202,75,0.5)]',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   description: {
@@ -200,11 +225,11 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'rgba(226, 195, 40, 0.5)',
     dotClass:
       'bg-[#e2c328] ring-2 ring-[#e2c328]/30 shadow-[0_0_8px_rgba(226,195,40,0.65)]',
-    rowClass: 'bg-[#15120a] hover:bg-[#1c180c] text-[#eef4fc]',
-    titleTextClass: 'text-[#eef4fc] font-semibold',
-    subTextClass: 'text-[#94a8c6]',
-    tagClass: 'text-[#b8cae4] bg-[#101929]',
-    activeChipClass: 'bg-[#1a170a] text-[#e2c328] font-semibold',
+    rowClass: 'bg-[#e2c328]/11 hover:bg-[#e2c328]/16 text-ink',
+    titleTextClass: 'text-[#d7ddf0] font-semibold',
+    subTextClass: 'text-[#9aa7c6]',
+    tagClass: 'text-ink-dim bg-recess-1',
+    activeChipClass: 'bg-[#e2c328]/22 text-[#f0dd7a] font-semibold shadow-[0_1px_8px_-2px_rgba(226,195,40,0.5)]',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   summary: {
@@ -213,11 +238,11 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'rgba(249, 144, 20, 0.5)',
     dotClass:
       'bg-[#f99014] ring-2 ring-[#f99014]/30 shadow-[0_0_8px_rgba(249,144,20,0.65)]',
-    rowClass: 'bg-[#171006] hover:bg-[#1f160a] text-[#eef4fc]',
-    titleTextClass: 'text-[#eef4fc] font-semibold',
-    subTextClass: 'text-[#94a8c6]',
-    tagClass: 'text-[#b8cae4] bg-[#101929]',
-    activeChipClass: 'bg-[#221408] text-[#f99014] font-semibold',
+    rowClass: 'bg-[#f99014]/11 hover:bg-[#f99014]/16 text-ink',
+    titleTextClass: 'text-[#d7ddf0] font-semibold',
+    subTextClass: 'text-[#9aa7c6]',
+    tagClass: 'text-ink-dim bg-recess-1',
+    activeChipClass: 'bg-[#f99014]/22 text-[#ffab5c] font-semibold shadow-[0_1px_8px_-2px_rgba(249,144,20,0.5)]',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   full: {
@@ -226,11 +251,11 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'rgba(244, 90, 86, 0.5)',
     dotClass:
       'bg-[#f45a56] ring-2 ring-[#f45a56]/30 shadow-[0_0_8px_rgba(244,90,86,0.65)]',
-    rowClass: 'bg-[#170a0c] hover:bg-[#1f0f11] text-[#eef4fc]',
-    titleTextClass: 'text-[#eef4fc] font-semibold',
-    subTextClass: 'text-[#94a8c6]',
-    tagClass: 'text-[#b8cae4] bg-[#101929]',
-    activeChipClass: 'bg-[#240e10] text-[#f45a56] font-semibold',
+    rowClass: 'bg-[#f45a56]/11 hover:bg-[#f45a56]/16 text-ink',
+    titleTextClass: 'text-[#d7ddf0] font-semibold',
+    subTextClass: 'text-[#9aa7c6]',
+    tagClass: 'text-ink-dim bg-recess-1',
+    activeChipClass: 'bg-[#f45a56]/22 text-[#ff9a96] font-semibold shadow-[0_1px_8px_-2px_rgba(244,90,86,0.5)]',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
 };
@@ -242,12 +267,12 @@ export function getAttachmentStatePalette(state: AttachmentVisualState): Attachm
 /**
  * Chip class for any granularity button on any surface.
  *
- * The colour has to be carried by the INK, not by a hairline: active = a
- * pressed well tinted with the hue, and the hue itself as the label colour;
- * inactive = the shared brighter slate key, muted label, no outline at all.
- * Never a bright fill, never dark text on light — and never a 1px border,
- * because six hairline hues at 1px are indistinguishable from six random
- * lines, which is exactly why the old chips read as noise.
+ * The colour has to be carried by the INK, not by a hairline: active = the hue
+ * as a soft light (22% tint + a glow that is a shadow, not a stroke) with the
+ * hue in the label; inactive = the shared NEUTRAL recess, muted label, no
+ * outline at all. Idle chips are deliberately colourless so six of them at
+ * rest never become six colours to read — and so they can never clash with the
+ * hue of the row they are sitting in.
  */
 export function getGranularityChipClass(target: Granularity, active: boolean): string {
   return active

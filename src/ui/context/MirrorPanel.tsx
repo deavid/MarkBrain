@@ -161,18 +161,18 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0a0e17]/85 backdrop-blur-sm flex items-center justify-center p-3" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-surface-0/85 backdrop-blur-sm flex items-center justify-center p-3" onClick={onClose}>
       <div
-        className="bg-[#101724] border border-[#080d15] rounded-2xl max-w-md w-full max-h-[85vh] flex flex-col shadow-2xl text-[#e3edf7]"
+        className="bg-surface-2 rounded-2xl max-w-md w-full max-h-[85vh] flex flex-col shadow-pop text-ink"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-4 border-b border-[#080d15] flex items-center justify-between shrink-0 bg-[#0d131f] rounded-t-2xl">
+        <div className="p-4 flex items-center justify-between shrink-0 bg-surface-3 rounded-t-2xl">
           <div>
             <h2 className="text-sm font-bold font-mono">What the LLM will see</h2>
             <p className="text-[10px] text-[#6b82a3] font-mono mt-0.5">Mirror · same order, same contents</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#162132] cursor-pointer" title="Close mirror">
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-3 cursor-pointer" title="Close mirror">
             <X className="w-4 h-4 text-[#8ab1e0]" />
           </button>
         </div>
@@ -186,7 +186,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
                 <span className="text-[#556985]">est.</span> {tb.totalTokens.toLocaleString()} / {ceiling.toLocaleString()} tok
               </span>
             </div>
-            <div className="h-1.5 rounded-full bg-[#0a0f18] overflow-hidden border border-[#131d2e]">
+            <div className="h-1.5 rounded-full bg-surface-0 overflow-hidden">
               <div className="h-full rounded-full transition-all" style={{ width: `${ratio * 100}%`, backgroundColor: color.hex }} />
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#8297b5]">
@@ -222,7 +222,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
                 onClick={onOpenArtifacts}
                 title="Open the library to attach artifacts"
                 data-testid="mirror-attach"
-                className="flex items-center gap-1 min-h-[24px] px-2 rounded border border-[#1d2d44] text-[10px] text-[#8ab1e0] hover:bg-[#162132] cursor-pointer"
+                className="flex items-center gap-1 min-h-[24px] px-2 rounded-md text-[10px] text-ink-dim hover:text-ink hover:bg-surface-3 transition-colors cursor-pointer"
               >
                 <Plus className="w-3 h-3" /> Attach
               </button>
@@ -283,7 +283,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
           <section className="space-y-2">
             <div className="text-[10px] uppercase tracking-wider text-[#6b82a3]">3 · Chapters, in send order</div>
             {chapterRows.map((c, i) => (
-              <div key={c.chapter.id} className="py-1.5 border-b border-[#0e1522] last:border-0 space-y-1">
+              <div key={c.chapter.id} className="py-1.5 space-y-1">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <span className="text-[10px] text-[#4f5f78] mr-1.5">{i + 1}.</span>
@@ -312,10 +312,10 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
             </button>
             {showRaw && (
               <div className="space-y-2">
-                <pre className="bg-[#050810] p-2.5 rounded-xl border border-[#0e1624] text-[10px] text-[#86a2c9] overflow-x-auto max-h-48 whitespace-pre-wrap break-words">
+                <pre className="bg-surface-0 p-2.5 rounded-lg text-[10px] text-[#86a2c9] overflow-x-auto max-h-48 whitespace-pre-wrap break-words">
 {compiled.systemInstruction}
                 </pre>
-                <pre className="bg-[#050810] p-2.5 rounded-xl border border-[#0e1624] text-[10px] text-[#86a2c9] overflow-x-auto max-h-64 whitespace-pre-wrap break-words">
+                <pre className="bg-surface-0 p-2.5 rounded-lg text-[10px] text-[#86a2c9] overflow-x-auto max-h-64 whitespace-pre-wrap break-words">
 {compiled.compiledPrompt}
                 </pre>
               </div>

@@ -73,7 +73,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
   return (
     <div className="space-y-2">
       {/* Session summary bar — size awareness, no ceremony */}
-      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-[#102419] border border-[#0d2a1b] rounded-xl text-[10px] font-mono">
+      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-surface-2 rounded-xl text-[10px] font-mono">
         <span className="text-[#6ee7b7]">
           {rows.length} file{rows.length === 1 ? '' : 's'} · {counts.landed} landed
           {counts.failed > 0 ? ` · ${counts.failed} failed` : ''}
@@ -84,7 +84,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
           <button
             type="button"
             onClick={onCancelRemaining}
-            className="shrink-0 px-2 py-0.5 rounded bg-[#1e2a3f] hover:bg-[#2a3b58] text-[#8ab1e0] transition-colors cursor-pointer"
+            className="shrink-0 px-2 py-0.5 rounded bg-surface-4 hover:bg-veil-1 text-[#8ab1e0] transition-colors cursor-pointer"
           >
             Cancel queued
           </button>
@@ -100,7 +100,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
           return (
             <div
               key={row.id}
-              className="bg-[#0d121c] border border-[#080d15] rounded-xl overflow-hidden"
+              className="bg-surface-1 rounded-xl overflow-hidden"
             >
               {/* Row header — click to inspect */}
               <div
@@ -115,7 +115,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                 }}
                 className={`flex items-center gap-2.5 px-3 py-2 ${
                   row.status !== 'extracting'
-                    ? 'cursor-pointer hover:bg-[#131b29]'
+                    ? 'cursor-pointer hover:bg-surface-2'
                     : 'cursor-default'
                 } transition-colors`}
               >
@@ -129,7 +129,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                     }}
                     title={isExpanded ? 'Hide details' : 'Show details'}
                     aria-label={isExpanded ? 'Hide details' : 'Show details'}
-                    className="shrink-0 p-0.5 rounded hover:bg-[#1a2538] text-[#627794] hover:text-[#9bb0d1] cursor-pointer"
+                    className="shrink-0 p-0.5 rounded hover:bg-surface-3 text-[#627794] hover:text-[#9bb0d1] cursor-pointer"
                   >
                     <ChevronDown
                       className={`w-3.5 h-3.5 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
@@ -162,7 +162,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                     className={`shrink-0 p-1 rounded-full cursor-pointer transition-colors ${
                       armedId === row.id
                         ? 'bg-red-500/25 text-red-400 ring-1 ring-red-500/60'
-                        : 'text-[#627794] hover:text-[#869ab8] hover:bg-[#1a2538]'
+                        : 'text-[#627794] hover:text-[#869ab8] hover:bg-surface-3'
                     }`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -170,10 +170,10 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                 )}
                 {row.lane && (
                   <span
-                    className={`shrink-0 text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                    className={`shrink-0 text-[9px] font-mono px-1.5 py-0.5 rounded  ${
                       row.lane === 'frontmatter'
-                        ? 'bg-[#0d2a1b] border-[#143a26] text-[#6ee7b7]'
-                        : 'bg-[#142033] border-[#080d15] text-[#8ab1e0]'
+                        ? 'bg-wash-success text-[#6ee7b7]'
+                        : 'bg-surface-2  text-[#8ab1e0]'
                     }`}
                     title={
                       row.lane === 'frontmatter'
@@ -186,7 +186,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                 )}
                 {row.flag && (
                   <span
-                    className="shrink-0 max-w-[150px] truncate text-[9px] font-mono px-1.5 py-0.5 rounded border bg-[#2a1f0d] border-[#4a3a16] text-[#f0c674]"
+                    className="shrink-0 max-w-[150px] truncate text-[9px] font-mono px-1.5 py-0.5 rounded bg-wash-warn text-[#f0c674]"
                     title={`Flagged as ${row.flag.type} of “${row.flag.targetTitle}” (${row.flag.reason}) — auto-linked for post-import triage; nothing was overwritten`}
                   >
                     ⚑ → {row.flag.targetTitle}
@@ -202,7 +202,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
 
               {/* In-place inspector — never a second modal (single-modal rule) */}
               {isExpanded && (
-                <div className="border-t border-[#080d15] px-3 py-2.5 space-y-2 bg-[#0a0e17]/60">
+                <div className="px-3 py-2.5 space-y-2 bg-surface-0/60">
                   {/* Phase-4 per-row parent override — any non-landed status (retry path matters). */}
                   {row.status !== 'landed' && (
                     <input
@@ -210,12 +210,12 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                       placeholder="Parent override (slug) — beats frontmatter & batch at land…"
                       value={row.parentOverride || ''}
                       onChange={(e) => onParentOverride(row.id, e.target.value)}
-                      className="w-full bg-[#141b29] border border-[#080d15] rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none focus:border-[#e05a66]/50"
+                      className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none shadow-well"
                     />
                   )}
 
                   {row.status === 'failed' && (
-                    <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-[#f7aab3] bg-[#261317] border border-[#3d161d] rounded-lg p-2">
+                    <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-[#f7aab3] bg-wash-danger rounded-lg p-2">
                       <span className="flex items-center gap-1.5 min-w-0">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                         <span className="truncate">{row.error || 'Import failed'}</span>
@@ -223,7 +223,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                       <button
                         type="button"
                         onClick={() => onRetry(row.id)}
-                        className="shrink-0 px-2 py-0.5 rounded bg-[#1e2a3f] hover:bg-[#2a3b58] text-[#8ab1e0] inline-flex items-center gap-1 cursor-pointer"
+                        className="shrink-0 px-2 py-0.5 rounded bg-surface-4 hover:bg-veil-1 text-[#8ab1e0] inline-flex items-center gap-1 cursor-pointer"
                       >
                         <RefreshCw className="w-3 h-3" />
                         <span>Retry</span>
@@ -237,7 +237,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                       <button
                         type="button"
                         onClick={() => onRetry(row.id)}
-                        className="px-2 py-0.5 rounded bg-[#1e2a3f] hover:bg-[#2a3b58] text-[#8ab1e0] inline-flex items-center gap-1 cursor-pointer"
+                        className="px-2 py-0.5 rounded bg-surface-4 hover:bg-veil-1 text-[#8ab1e0] inline-flex items-center gap-1 cursor-pointer"
                       >
                         <RefreshCw className="w-3 h-3" />
                         <span>Queue again</span>
@@ -253,12 +253,12 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                           Landed artifact
                         </span>
                         <div className="flex items-center gap-2">
-                          <div className="flex bg-[#141b29] p-0.5 rounded-lg border border-[#080d15] text-[10px] font-mono">
+                          <div className="flex bg-surface-2 p-0.5 rounded-lg text-[10px] font-mono">
                             <button
                               type="button"
                               onClick={() => setPreviewMode('fields')}
                               className={`px-2 py-0.5 rounded transition-colors ${
-                                previewMode === 'fields' ? 'bg-[#e05a66] text-white' : 'text-[#7d93b3]'
+                                previewMode === 'fields' ? 'bg-[#e05a66] text-ink' : 'text-[#7d93b3]'
                               }`}
                             >
                               Fields
@@ -267,7 +267,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                               type="button"
                               onClick={() => setPreviewMode('raw_yaml')}
                               className={`px-2 py-0.5 rounded transition-colors ${
-                                previewMode === 'raw_yaml' ? 'bg-[#e05a66] text-white' : 'text-[#7d93b3]'
+                                previewMode === 'raw_yaml' ? 'bg-[#e05a66] text-ink' : 'text-[#7d93b3]'
                               }`}
                             >
                               Raw YAML+MD
@@ -277,7 +277,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                             <button
                               type="button"
                               onClick={() => onOpenArtifact(row.artifactId!)}
-                              className="px-2 py-1 rounded bg-[#1e2a3f] hover:bg-[#2a3b58] text-[#8ab1e0] text-[10px] font-mono inline-flex items-center gap-1 cursor-pointer"
+                              className="px-2 py-1 rounded bg-surface-4 hover:bg-veil-1 text-[#8ab1e0] text-[10px] font-mono inline-flex items-center gap-1 cursor-pointer"
                               title="Open the full artifact modal for editing"
                             >
                               <span>Open full artifact</span>
@@ -288,12 +288,12 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                       </div>
 
                       {previewMode === 'raw_yaml' ? (
-                        <pre className="bg-[#090d14] p-3 rounded-lg border border-[#080d15] text-[11px] font-mono text-[#cbd5e1] max-h-72 overflow-y-auto whitespace-pre-wrap">
+                        <pre className="bg-surface-0 p-3 rounded-lg text-[11px] font-mono text-[#cbd5e1] max-h-72 overflow-y-auto whitespace-pre-wrap">
                           {serializeArtifactToYamlDoc(row.artifact)}
                         </pre>
                       ) : (
                         <div className="space-y-2">
-                          <div className="text-xs font-mono text-[#eef4fc] font-semibold">
+                          <div className="text-xs font-mono text-ink font-semibold">
                             {row.artifact.title}
                           </div>
                           {row.artifact.current?.description && (
@@ -305,13 +305,13 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                             {(row.artifact.tags || []).map((tag) => (
                               <span
                                 key={tag}
-                                className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-[#1e2a3f] text-[#8ab1e0] border border-[#080d15]"
+                                className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-surface-4 text-[#8ab1e0] "
                               >
                                 #{tag}
                               </span>
                             ))}
                           </div>
-                          <pre className="bg-[#090d14] p-2.5 rounded-lg border border-[#080d15] text-[11px] font-mono text-[#9bb0d1] max-h-56 overflow-y-auto whitespace-pre-wrap">
+                          <pre className="bg-surface-0 p-2.5 rounded-lg text-[11px] font-mono text-[#9bb0d1] max-h-56 overflow-y-auto whitespace-pre-wrap">
                             {(row.artifact.current?.body || '').slice(0, 4000)}
                             {(row.artifact.current?.body || '').length > 4000 ? '\n…' : ''}
                           </pre>
@@ -321,7 +321,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                   ) : (
                     row.status !== 'failed' &&
                     row.status !== 'canceled' && (
-                      <pre className="bg-[#090d14] p-2.5 rounded-lg border border-[#080d15] text-[11px] font-mono text-[#5f7491] max-h-48 overflow-y-auto whitespace-pre-wrap">
+                      <pre className="bg-surface-0 p-2.5 rounded-lg text-[11px] font-mono text-[#5f7491] max-h-48 overflow-y-auto whitespace-pre-wrap">
                         {row.content.slice(0, 2000)}
                         {row.content.length > 2000 ? '\n…' : ''}
                       </pre>

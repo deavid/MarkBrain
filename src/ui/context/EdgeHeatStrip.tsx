@@ -27,13 +27,13 @@ export const EdgeHeatStrip: React.FC<EdgeHeatStripProps> = ({ telemetry }) => {
 
   return (
     <div
-      className="absolute right-0 top-0 w-[5px] h-full flex flex-col justify-start bg-[#070b12] border-l border-[#101827] z-30"
+      className="absolute right-0 top-0 w-[5px] h-full flex flex-col justify-start bg-surface-0 z-30"
       data-testid="edge-heat-strip"
       data-rail-height-pct={telemetry.railHeightPct.toFixed(2)}
       title={`Payload rail: ${telemetry.totalTokens.toLocaleString()} tok · ${segments.length} segments in send order`}
     >
       <div
-        className="w-full flex flex-col overflow-hidden transition-all duration-300 border-b border-[#1f2d46]"
+        className="w-full flex flex-col overflow-hidden transition-all duration-300 "
         style={{ height: `${telemetry.railHeightPct}%` }}
       >
         {segments.map((seg) => {

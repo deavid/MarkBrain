@@ -110,28 +110,28 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
   const getLevelStyle = (level: string) => {
     switch (level) {
       case 'error':
-        return 'text-[#f87171] bg-[#451214] border-[#7f1d1d]';
+        return 'text-[#f87171] bg-[#451214] ';
       case 'warn':
-        return 'text-[#fbbf24] bg-[#422006] border-[#854d0e]';
+        return 'text-[#fbbf24] bg-[#422006] ';
       case 'success':
-        return 'text-[#34d399] bg-[#064e3b] border-[#047857]';
+        return 'text-[#34d399] bg-[#064e3b] ';
       default:
-        return 'text-[#38bdf8] bg-[#0c2e4e] border-[#075985]';
+        return 'text-[#38bdf8] bg-[#0c2e4e] ';
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-      <div className="relative w-full max-w-5xl h-[85vh] bg-[#070b12] border border-[#1b2a40] rounded-2xl shadow-2xl flex flex-col overflow-hidden text-[#d6e3f5] font-mono animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-5xl h-[85vh] bg-surface-0 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-ink font-mono animate-in fade-in zoom-in-95 duration-200">
         {/* Header Bar */}
-        <div className="px-5 py-3.5 bg-[#0b121e] border-b border-[#162338] flex items-center justify-between shrink-0">
+        <div className="px-5 py-3.5 bg-surface-1 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#142338] border border-[#1e3555] flex items-center justify-center text-[#38bdf8]">
+            <div className="w-8 h-8 rounded-lg bg-surface-3 flex items-center justify-center text-[#38bdf8]">
               <Terminal className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-white tracking-wide">Live Server Telemetry & Logs</h2>
+                <h2 className="text-sm font-semibold text-ink tracking-wide">Live Server Telemetry & Logs</h2>
                 <span className="flex h-2 w-2 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -144,7 +144,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopy}
-              className="px-2.5 py-1.5 rounded-lg bg-[#111a2a] hover:bg-[#18263e] border border-[#1d2d47] text-xs text-[#8ab1e0] transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs text-[#8ab1e0] transition-colors flex items-center gap-1.5 cursor-pointer"
               title="Copy all logs"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -153,7 +153,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
 
             <button
               onClick={handleClear}
-              className="px-2.5 py-1.5 rounded-lg bg-[#111a2a] hover:bg-[#2e1518] hover:text-[#f87171] border border-[#1d2d47] text-xs text-[#8ab1e0] transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-2 hover:text-[#f87171] text-xs text-[#8ab1e0] transition-colors flex items-center gap-1.5 cursor-pointer"
               title="Clear log buffer"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -162,7 +162,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
 
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-[#18263e] text-[#7187a5] hover:text-white transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg hover:bg-surface-3 text-[#7187a5] hover:text-ink transition-colors cursor-pointer"
               title="Close log viewer"
             >
               <X className="w-4 h-4" />
@@ -171,26 +171,26 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Toolbar: Filters & Controls */}
-        <div className="px-5 py-2.5 bg-[#090e18] border-b border-[#141e2e] flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
+        <div className="px-5 py-2.5 bg-surface-0 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
           <div className="flex items-center gap-2 flex-1 min-w-[200px]">
             <input
               type="text"
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
               placeholder="Filter logs by tag or keyword (e.g. STREAM, GEMINI, REQ)..."
-              className="w-full max-w-md bg-[#05080f] border border-[#162338] rounded-lg px-3 py-1.5 text-xs text-[#eef4fc] placeholder-[#4f6480] focus:outline-none focus:border-[#38bdf8]"
+              className="w-full max-w-md bg-recess-1 rounded-lg px-3 py-1.5 text-xs text-ink placeholder-[#4f6480] focus:outline-none shadow-well"
             />
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 bg-[#05080f] p-1 rounded-lg border border-[#162338]">
+            <div className="flex items-center gap-1 bg-surface-0 p-1 rounded-lg ">
               {['all', 'info', 'warn', 'error', 'success'].map((lvl) => (
                 <button
                   key={lvl}
                   onClick={() => setSelectedLevel(lvl)}
                   className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold transition-colors cursor-pointer ${
                     selectedLevel === lvl
-                      ? 'bg-[#1b2b44] text-[#38bdf8]'
+                      ? 'bg-surface-4 text-[#38bdf8]'
                       : 'text-[#506684] hover:text-[#9bb0d1]'
                   }`}
                 >
@@ -201,10 +201,10 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
 
             <button
               onClick={() => setAutoScroll((prev) => !prev)}
-              className={`px-2.5 py-1 rounded-lg border text-[11px] flex items-center gap-1 transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg  text-[11px] flex items-center gap-1 transition-colors cursor-pointer ${
                 autoScroll
-                  ? 'bg-[#12243d] border-[#1e3c66] text-[#38bdf8]'
-                  : 'bg-[#080d16] border-[#162338] text-[#556c8c]'
+                  ? 'bg-surface-3  text-[#38bdf8]'
+                  : 'bg-surface-0  text-[#556c8c]'
               }`}
             >
               <ArrowDown className="w-3 h-3" />
@@ -227,11 +227,11 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
               return (
                 <div
                   key={log.id}
-                  className="group flex items-start gap-2.5 px-2.5 py-1.5 rounded hover:bg-[#0c1422] transition-colors border-l-2 border-transparent hover:border-[#22395b]"
+                  className="group flex items-start gap-2.5 px-2.5 py-1.5 rounded hover:bg-surface-1 transition-colors border-l-2 border-transparent "
                 >
                   <span className="text-[#4f6480] tabular-nums shrink-0">{time}</span>
                   <span
-                    className={`px-1.5 py-0.2 rounded text-[9px] font-semibold uppercase tracking-wider shrink-0 border ${getLevelStyle(
+                    className={`px-1.5 py-0.2 rounded text-[9px] font-semibold uppercase tracking-wider shrink-0  ${getLevelStyle(
                       log.level
                     )}`}
                   >
@@ -253,7 +253,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Footer Status Bar */}
-        <div className="px-5 py-2 bg-[#080c14] border-t border-[#131d2d] flex items-center justify-between text-[10px] text-[#556a88] shrink-0">
+        <div className="px-5 py-2 bg-surface-0 flex items-center justify-between text-[10px] text-[#556a88] shrink-0">
           <div>
             Showing <span className="text-[#a4bad6]">{filteredLogs.length}</span> of{' '}
             <span className="text-[#a4bad6]">{logs.length}</span> total entries

@@ -397,7 +397,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       onPointerDown={handlePointerDownBg}
       onPointerMove={handlePointerMoveBg}
       onPointerUp={handlePointerUpBg}
-      className="relative w-full h-full min-h-0 flex-1 overflow-hidden bg-[#0d121c] select-none touch-none cursor-grab active:cursor-grabbing"
+      className="relative w-full h-full min-h-0 flex-1 overflow-hidden bg-surface-1 select-none touch-none cursor-grab active:cursor-grabbing"
     >
       {/* Bluer shadow background grid */}
       <div
@@ -410,25 +410,25 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       />
 
       {/* Floating Toolbar: Zoom, Fit, Auto-Arrange Physics */}
-      <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 bg-[#131b29]/95 backdrop-blur-md p-1.5 rounded-xl border border-[#080d15] shadow-xl">
+      <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 bg-surface-2/95 backdrop-blur-md p-1.5 rounded-xl shadow-xl">
         <button
           onClick={() => setZoom((z) => Math.min(z + 0.15, 2.2))}
-          className="p-1.5 sm:p-2 rounded-lg hover:bg-[#1b263b] text-[#9bb0d1] transition-colors"
+          className="p-1.5 sm:p-2 rounded-lg hover:bg-surface-3 text-[#9bb0d1] transition-colors"
           title="Zoom In"
         >
           <ZoomIn className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
         <button
           onClick={() => setZoom((z) => Math.max(z - 0.15, 0.4))}
-          className="p-1.5 sm:p-2 rounded-lg hover:bg-[#1b263b] text-[#9bb0d1] transition-colors"
+          className="p-1.5 sm:p-2 rounded-lg hover:bg-surface-3 text-[#9bb0d1] transition-colors"
           title="Zoom Out"
         >
           <ZoomOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
-        <div className="w-[1px] h-4 bg-[#182336] mx-0.5" />
+        <div className="w-[1px] h-4 bg-surface-3 mx-0.5" />
         <button
           onClick={fitViewToNodes}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-[#1b263b] text-xs font-medium text-[#c4d5f2] transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-surface-3 text-xs font-medium text-[#c4d5f2] transition-colors"
           title="Recenter and Fit Screen"
         >
           <Maximize2 className="w-3.5 h-3.5 text-[#5d87b8]" />
@@ -436,7 +436,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         </button>
         <button
           onClick={handleAutoArrange}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#24151a] hover:bg-[#381e26] text-xs font-semibold text-[#f08b98] border border-[#3d161d] shadow-sm transition-all cursor-pointer"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-semibold text-[#f08b98] shadow-sm transition-all cursor-pointer"
           title="Animate and automatically space nodes using physics forces"
         >
           <Sparkles className="w-3.5 h-3.5 text-[#e65a6c]" />
@@ -446,12 +446,12 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
 
       {/* Linking status banner */}
       {linkingSourceNode && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-[#2b1216] border border-[#a33945] text-[#fad4d8] px-4 py-2 rounded-full text-xs font-mono shadow-2xl flex items-center gap-2 animate-bounce">
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-surface-2 text-[#fad4d8] px-4 py-2 rounded-full text-xs font-mono shadow-2xl flex items-center gap-2 animate-bounce">
           <LinkIcon className="w-3.5 h-3.5 text-[#e65a6c]" />
           <span>Click target node to connect (From: {linkingSourceNode.title})</span>
           <button
             onClick={() => setLinkingSourceNode(null)}
-            className="ml-2 text-xs bg-[#170a0c] px-2 py-0.5 rounded text-white"
+            className="ml-2 text-xs bg-surface-0 px-2 py-0.5 rounded text-ink"
           >
             Cancel
           </button>
@@ -588,11 +588,12 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
               style={{
                 transform: `translate(${node.x}px, ${node.y}px)`,
                 width: '220px',
-                borderColor: isSelected ? '#e05a66' : `${artColor}44`,
-                boxShadow: `0 4px 16px -2px ${artColor}15`,
+                // A node is LIT by its own hue, not outlined by it: a wide soft
+                // halo reads as depth, where a 1px ring read as a fence.
+                boxShadow: `0 1px 2px rgb(0 0 0 / 0.35), 0 12px 26px -14px rgb(0 0 0 / 0.72), 0 0 0 6px ${artColor}12, 0 10px 26px -6px ${artColor}26`,
               }}
               onPointerDown={(e) => handleNodePointerDown(e, node)}
-              className={`absolute pointer-events-auto rounded-xl p-3 border backdrop-blur-md cursor-grab active:cursor-grabbing transition-[border-color,box-shadow] select-none bg-[#101726]/95 hover:border-[#2f4368] ${
+              className={`absolute pointer-events-auto rounded-xl p-3 backdrop-blur-md cursor-grab active:cursor-grabbing transition-shadow select-none bg-surface-2/95 ${
                 isSelected ? 'ring-2 ring-[#e65a6c]' : ''
               }`}
             >
@@ -603,7 +604,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                     className="w-2 h-2 rounded-full shrink-0 shadow-xs"
                     style={{ backgroundColor: artColor }}
                   />
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-[#162134] text-[#8ab1e0] border border-[#1b283e] truncate">
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-surface-3 text-[#8ab1e0] truncate">
                     {node.type}
                   </span>
                 </div>
@@ -611,7 +612,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
               </div>
 
               {/* Title */}
-              <div className="font-semibold text-xs text-[#eef4fc] truncate mb-1.5 font-mono">
+              <div className="font-semibold text-xs text-ink truncate mb-1.5 font-mono">
                 {node.title}
               </div>
 
@@ -621,7 +622,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                   {tags.slice(0, 3).map((t) => (
                     <span
                       key={t}
-                      className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#131d2e] text-[#7da0cf] border border-[#1a283e]"
+                      className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-surface-2 text-[#7da0cf] "
                     >
                       #{t}
                     </span>
@@ -630,13 +631,13 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
               )}
 
               {/* Actions row */}
-              <div className="flex items-center justify-between text-[10px] text-[#869ab8] pt-1.5 border-t border-[#141f33]">
+              <div className="flex items-center justify-between text-[10px] text-[#869ab8] pt-1.5">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     setLinkingSourceNode(node);
                   }}
-                  className="flex items-center gap-1 p-1 min-h-[30px] rounded hover:bg-[#1a263b] text-[#9bb0d1] transition-colors cursor-pointer"
+                  className="flex items-center gap-1 p-1 min-h-[30px] rounded hover:bg-surface-3 text-[#9bb0d1] transition-colors cursor-pointer"
                   title="Connect Edge"
                 >
                   <LinkIcon className="w-3 h-3 text-[#5d87b8]" />
@@ -650,7 +651,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                         e.stopPropagation();
                         if (art) onSelectArtifact(art);
                       }}
-                      className="px-2 py-0.5 flex items-center justify-center min-h-[30px] rounded bg-[#1e2a3f] hover:bg-[#283854] text-[#8ab1e0] text-[10px] font-medium border border-[#263752] transition-colors cursor-pointer"
+                      className="px-2 py-0.5 flex items-center justify-center min-h-[30px] rounded bg-surface-4 hover:bg-surface-5 text-[#8ab1e0] text-[10px] font-medium transition-colors cursor-pointer"
                       title="Inspect specification"
                     >
                       Spec
@@ -665,12 +666,12 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
 
       {/* Selected Node Details Drawer */}
       {selectedNode && (
-        <div className="absolute bottom-3 left-3 right-3 sm:left-auto sm:right-3 sm:w-80 z-30 bg-[#131b29]/95 backdrop-blur-md border border-[#080d15] rounded-xl p-3 shadow-2xl">
+        <div className="absolute bottom-3 left-3 right-3 sm:left-auto sm:right-3 sm:w-80 z-30 bg-surface-2/95 backdrop-blur-md rounded-xl p-3 shadow-2xl">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="font-bold text-xs text-[#eef4fc] truncate">{selectedNode.title}</span>
+            <span className="font-bold text-xs text-ink truncate">{selectedNode.title}</span>
             <button
               onClick={() => setSelectedNodeId(null)}
-              className="text-[11px] text-[#7185a3] hover:text-white"
+              className="text-[11px] text-[#7185a3] hover:text-ink"
             >
               ✕
             </button>
@@ -688,7 +689,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                 {tags.map((t) => (
                   <span
                     key={t}
-                    className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#162030] text-[#8ab1e0] border border-[#090e18]"
+                    className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-2 text-[#8ab1e0] "
                   >
                     #{t}
                   </span>
@@ -704,7 +705,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
             );
             if (nodeTentatives.length === 0) return null;
             return (
-              <div className="mb-2.5 pt-2 border-t border-[#080d15] space-y-1.5">
+              <div className="mb-2.5 pt-2 space-y-1.5">
                 <div className="text-[10px] font-mono text-[#d48a37] flex items-center justify-between">
                   <span>Tentative Cross-Links ({nodeTentatives.length})</span>
                   <span className="text-[9px] text-[#869ab8]">Shared tags</span>
@@ -715,10 +716,10 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                   return (
                     <div
                       key={tLink.id}
-                      className="flex items-center justify-between p-1.5 rounded bg-[#161d2a] border border-[#080d15] text-[10px]"
+                      className="flex items-center justify-between p-1.5 rounded bg-surface-2 text-[10px]"
                     >
                       <div className="truncate mr-1">
-                        <span className="text-white font-medium">{otherNode.title}</span>
+                        <span className="text-ink font-medium">{otherNode.title}</span>
                         <span className="text-[#d48a37] font-mono ml-1">#{tLink.sharedTags[0]}</span>
                       </div>
                       <button
@@ -726,7 +727,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                           // Shared-tag intent maps to the domain kind 'relates_to'.
                           onAddEdge(selectedNode.id, otherNode.id, 'relates_to', 0.6);
                         }}
-                        className="px-2 py-0.5 rounded bg-[#2b1f14] hover:bg-[#422e1c] text-[#f5c276] border border-[#523311] shrink-0 font-mono text-[9px] font-bold cursor-pointer"
+                        className="px-2 py-0.5 rounded bg-surface-3 hover:bg-surface-4 text-[#f5c276] shrink-0 font-mono text-[9px] font-bold cursor-pointer"
                       >
                         + Connect
                       </button>
@@ -743,7 +744,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                 const art = selectedNode.artifact;
                 if (art) onSelectArtifact(art);
               }}
-              className="w-full py-1.5 bg-[#a33945] hover:bg-[#b8424f] text-white rounded-lg text-xs font-semibold shadow-md transition-colors"
+              className="w-full py-1.5 bg-[#a33945] hover:bg-[#b8424f] text-ink rounded-lg text-xs font-semibold shadow-md transition-colors"
             >
               Open in Artifacts Desk
             </button>

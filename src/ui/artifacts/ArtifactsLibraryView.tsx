@@ -4,12 +4,11 @@ import type { SemanticEdge, RelationKind } from '../../types';
 import type { ChatAttachment } from '../../domains/06-chat-threads';
 import { isAttachmentStaged } from '../../domains/06-chat-threads';
 import type { Granularity, AttachmentVisualState } from '../../domains/granularity';
-import { getAttachmentStatePalette } from '../../domains/granularity';
 import { SpatialGraph } from '../graph/SpatialGraph';
-import { Search, FolderTree, Network, Menu, FileCode, Upload, Plus, Tag, MessageSquare } from 'lucide-react';
+import { Search, FolderTree, Network, Menu, Upload, MessageSquare } from 'lucide-react';
 import { isFlaggedArtifact } from '../../utils/importDetect';
 import { logger } from '../../utils/logger';
-import { AttachmentDot, GranularityChips, dotVerbLabel, formatTokens } from '../context/AttachmentControls';
+import { AttachmentRow, formatAttachmentProvenance } from '../context/AttachmentControls';
 
 export type LibraryLens = 'folders' | 'graph';
 
@@ -40,9 +39,11 @@ interface ArtifactsLibraryViewProps {
 /**
  * The LIBRARY — everything that exists, at full size (09 §3).
  *
- * It is also the PICKER (10 §3): the dot on each row is the verb, the row
- * turns bright when staged, and the four-word chip row steers granularity
- * without opening the detail modal. There is no second attachment modal.
+ * It is also the PICKER (10 §3, corrected by 12 §2): the ROW is the verb
+ * (click to stage / unstage / cycle the cut), the four words sit right there,
+ * and the arrow-out on the right opens the detail popup. A row that is in the
+ * chat presses down into a dark well with a punchy lit circle; a row that is
+ * not sits a touch brighter with a dead grey circle.
  *
  * Two lenses over the same set: `folders` (find things, steer them) and
  * `graph` (the forest view). Neither lens decides what is sent to the model;
@@ -164,6 +165,9 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
                 </span>
                 <span className="text-[10px] font-mono text-[#3f4d61]">{list.length}</span>
               </div>
+              {/* ONE widget with the chat, the tray, the chapter strip and the
+                  mirror (12 §2): click the ROW to run the verb, arrow-out on the
+                  right to open the detail popup. */}
               <div className="rounded-2xl border border-[#141f33] overflow-hidden divide-y divide-[#0a1120]">
                 {list.map((art) => {
                   const flagged = isFlaggedArtifact(art);
@@ -173,98 +177,31 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
                     : isAttachmentStaged(att)
                       ? 'staged'
                       : att.granularity;
-                  const palette = getAttachmentStatePalette(state);
                   const tokens = tokensByArtifact[art.id] ?? 0;
-                  const committed = att !== undefined && !isAttachmentStaged(att);
                   const isStaged = state === 'staged';
                   return (
-                    <div
+                    <AttachmentRow
                       key={art.id}
-                      data-state={state}
-                      data-artifact-id={art.id}
-                      onClick={() => (flagged ? onTriageArtifact(art.id) : onSelectArtifact(art))}
-                      className={`w-full text-left px-3 py-2.5 transition-colors cursor-pointer flex items-start gap-2.5 ${palette.rowClass}`}
-                    >
-                      <span className="mt-0.5">
-                        <AttachmentDot
-                          state={state}
-                          onClick={() => onToggleAttachment(art.id)}
-                          label={dotVerbLabel(state, art.title)}
-                        />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-1.5 flex-wrap">
-                          <span className={`text-xs font-mono truncate ${palette.titleTextClass}`}>
-                            {art.title}
-                          </span>
-                          {flagged && (
-                            <span className={`text-[9px] font-mono px-1 py-0.2 rounded border ${palette.tagClass}`}>
-                              review
-                            </span>
-                          )}
-                          {committed && (
-                            <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${palette.tagClass}`}>
-                              Turn {typeof att!.turnIndex === 'number' ? att!.turnIndex + 1 : 1}
-                            </span>
-                          )}
-                          {isStaged && (
-                            <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${palette.tagClass}`}>
-                              next send
-                            </span>
-                          )}
-                        </span>
-                        <span className={`block text-[10px] font-mono line-clamp-2 mt-0.5 ${palette.subTextClass}`}>
-                          {art.current?.description || art.current?.summary || 'No description yet.'}
-                        </span>
-                        {(art.tags || []).length > 0 && (
-                          <span className="flex items-center gap-1 mt-1 flex-wrap">
-                            <Tag className="w-2.5 h-2.5 shrink-0 opacity-70" />
-                            {(art.tags || []).slice(0, 4).map((t) => (
-                              <span key={t} className={`text-[9px] font-mono ${palette.subTextClass}`}>
-                                {t}
-                              </span>
-                            ))}
-                          </span>
-                        )}
-                        {/* The four words, right on the row — no modal needed. */}
-                        {(isStaged || committed) && (
-                          <span className="flex items-center gap-2 mt-1.5 flex-wrap">
-                            <GranularityChips
-                              value={att!.granularity}
-                              label={`Granularity for ${art.title}`}
-                              state={state}
-                              compact
-                              onChange={(g) => onSetAttachmentGranularity(art.id, g)}
-                            />
-                            <span className={`text-[9px] font-mono ${palette.subTextClass}`}>
-                              {formatTokens(tokens)} tok
-                            </span>
-                          </span>
-                        )}
-                      </span>
-                      <span className="shrink-0 mt-1 flex flex-col items-end gap-1">
-                        {isStaged ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onUnstage(art.id);
-                            }}
-                            aria-label={`Unstage "${art.title}"`}
-                            className={`min-h-[24px] px-2 rounded border text-[10px] font-mono cursor-pointer ${palette.inactiveChipClass}`}
-                          >
-                            Unstage
-                          </button>
-                        ) : (
-                          /* No chips on an untouched row: the token count is the
-                             only readout (what staging it at Full would cost). */
-                          <span className={`text-[9px] font-mono ${palette.subTextClass}`}>
-                            {formatTokens(tokens)} tok
-                          </span>
-                        )}
-                        <FileCode className="w-3.5 h-3.5 opacity-50" />
-                      </span>
-                    </div>
+                      artifactId={art.id}
+                      state={state}
+                      title={art.title}
+                      tokens={tokens}
+                      granularity={att?.granularity ?? 'full'}
+                      description={
+                        art.current?.description || art.current?.summary || 'No description yet.'
+                      }
+                      tags={art.tags || []}
+                      flagged={flagged}
+                      badge={
+                        isStaged ? 'next send' : att ? formatAttachmentProvenance(att.turnIndex)?.badge : undefined
+                      }
+                      onToggle={() => onToggleAttachment(art.id)}
+                      onSetGranularity={
+                        att ? (g) => onSetAttachmentGranularity(art.id, g) : undefined
+                      }
+                      onUnstage={isStaged ? () => onUnstage(art.id) : undefined}
+                      onOpenDetail={() => (flagged ? onTriageArtifact(art.id) : onSelectArtifact(art))}
+                    />
                   );
                 })}
               </div>

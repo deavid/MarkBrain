@@ -317,6 +317,43 @@ const AUDIT_FN = `(() => {
       warns.push({ type: 'touch-small', detail: 'min dimension ' + Math.round(minDim) + 'px < ' + MIN_TOUCH + 'px',
         path: cssPath(el), html: snippet(el), rect });
     }
+    // Horizontal clipping (ledger V1.6): a control that pokes past the viewport,
+    // or is cut by a NON-scrollable overflow ancestor, is unreachable even when
+    // it is partially on screen. The old audit only checked document-level
+    // h-scroll, so a "Full" chip 5px off a 350px screen inside an
+    // overflow-hidden chapter header passed as "0 fails".
+    if (rect.x < -1 || rect.x + rect.w > vw + 1) {
+      fails.push({
+        type: 'clipped-by-viewport',
+        detail: 'spans ' + Math.round(rect.x) + '…' + Math.round(rect.x + rect.w) + ' in a ' + vw + 'px viewport',
+        path: cssPath(el), html: snippet(el), rect,
+      });
+    } else {
+      let anc = el.parentElement;
+      let clippedBy = null;
+      while (anc && anc !== document.documentElement) {
+        // A fixed-position ancestor is its own containing block: overflow above
+        // it (the app's main column, a sidebar) does NOT clip it. Without this
+        // break the centered mirror at 768px read as clipped by the main column.
+        if (getComputedStyle(anc).position === 'fixed') break;
+        const ox = getComputedStyle(anc).overflowX;
+        if (ox === 'hidden' || ox === 'clip') {
+          const ar = anc.getBoundingClientRect();
+          const outside = rect.x < ar.left - 1 || rect.x + rect.w > ar.right + 1;
+          // Scrollable ancestors can bring it back — only flag what CANNOT scroll.
+          if (outside && anc.scrollWidth <= anc.clientWidth + 1) { clippedBy = anc; break; }
+        }
+        anc = anc.parentElement;
+      }
+      if (clippedBy) {
+        fails.push({
+          type: 'clipped-inside-overflow',
+          detail: 'cut horizontally by an overflow ancestor it cannot scroll into view',
+          path: cssPath(el), html: snippet(el), rect,
+          culprit: { path: cssPath(clippedBy), html: snippet(clippedBy), rect: toRect(clippedBy.getBoundingClientRect()) },
+        });
+      }
+    }
     foreground.push({ el, rect });
   }
 
@@ -643,7 +680,21 @@ async function main() {
         .waitFor({ state: 'hidden', timeout: 20_000 })
         .then(() => true)
         .catch(() => false);
-      if (landed) check(true, 'summary landed in the chapter body');
+      // "No summary yet" also disappears when the call FAILS — that state must
+      // be read as a failure with a Retry, never as a landed summary (12 §5.2).
+      const layerLanded = await page
+        .locator('[data-testid="chapter-layer-summary"]')
+        .first()
+        .isVisible()
+        .catch(() => false);
+      const failed = await page
+        .getByText(/Summary request timed out or failed/)
+        .first()
+        .isVisible()
+        .catch(() => false);
+      if (layerLanded) check(true, 'summary landed in the chapter body');
+      else if (failed) step('observe', 'summarize hit the 12s deadline — honest failure + Retry chrome');
+      else if (landed) step('observe', 'chrome cleared without a layer — observe only');
       else step('observe', 'summarize call still in flight / no server key — chrome state is the assertion');
     } else {
       step('observe', 'summary layer already present');
@@ -714,10 +765,27 @@ async function main() {
     await betaRow.waitFor({ state: 'visible', timeout: 5000 });
     check((await betaRow.getAttribute('data-state')) === 'unstaged', 'Beta starts unstaged (dim)');
 
-    await betaRow.locator('button[aria-label^="Stage"]').first().click({ timeout: 5000 });
-    step('click', 'dot: stage Beta');
+    // The ROW is the verb now (12 §2): clicking the body stages it — the dot
+    // is the same verb on a smaller target, not the only handle.
+    await betaRow.click({ position: { x: 40, y: 12 }, timeout: 5000 });
+    step('click', 'row body: stage Beta');
     await page.waitForTimeout(300);
-    check((await betaRow.getAttribute('data-state')) === 'staged', 'Beta row turned staged (bright cyan)');
+    check((await betaRow.getAttribute('data-state')) === 'staged', 'Beta row turned staged (punchy cyan)');
+
+    // The arrow-out on the right opens the detail popup — same widget, same
+    // arrow, in the folder AND in the chat (R1.3/R1.4).
+    await betaRow.locator('[data-testid="open-artifact-detail"]').first().click({ timeout: 5000 });
+    step('click', 'arrow-out: open detail popup');
+    const popup = await page
+      .getByTestId('unstage-from-detail')
+      .or(page.getByText(/Staged for next send/))
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    check(popup, 'detail popup opened from the folder row');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
 
     // The floating chat bubble carries the armed count.
     const back = page.locator('[data-testid="back-to-chat"]').first();
@@ -772,17 +840,30 @@ async function main() {
     await page.waitForTimeout(500);
     const row = page.locator('[data-artifact-id="art-fx-beta"]').first();
     const rowText = (await row.innerText()).replace(/\s+/g, ' ');
-    check(/Turn\s*\d+/i.test(rowText), `folder row shows its turn anchor (${rowText.slice(0, 80)})`);
+    check(/msg\s*\d+/i.test(rowText), `folder row shows its msg anchor (${rowText.slice(0, 80)})`);
+    check(!/Turn\s*\d+/i.test(rowText), 'one counter: no raw 0-based "Turn N" anywhere');
     check((await row.getAttribute('data-state')) !== 'staged', 'staged state cleared after the weld');
     await shot(page, 'folder-after-send');
     await page.locator('[data-testid="back-to-chat"]').first().click({ timeout: 5000 });
     await page.waitForTimeout(400);
   });
 
-  // ── J16 what you see is what you send: the cut changes the screen ─────────
-  await journey(page, '16-chapter-cut', 'Title/Description/Summary/Full change the rendered body', async (page) => {
+  // ── J16 what you see is what you send — all FOUR cuts, and UI == payload ──
+  // The S1 Vega caught lived on the Description cut, which J16 never clicked:
+  // the screen rendered the summary while the payload carried only the title.
+  // Presence checks cannot catch that. This one compares the screen against
+  // the Mirror's literal compiled bytes (ledger V1.9).
+  await journey(page, '16-chapter-cut', 'All four cuts render exactly what the payload carries', async (page) => {
     const turnsVisible = () => page.locator('div.whitespace-pre-wrap').count();
     const chip = (g) => page.locator(`[data-testid="chapter-cut"] [data-granularity="${g}"]`).last();
+    // The fixture chapter (first) is the one with a summary and NO description
+    // — the exact shape the old code lied on.
+    const fxSection = page.locator('section:has([data-testid="chapter-cut"])').first();
+    // Scoped to the chapter's OWN control — attachment rows inside the section
+    // carry granularity chips with the same data-granularity values.
+    const fxCut = (g) =>
+      fxSection.locator(`[data-testid="chapter-cut"] [data-granularity="${g}"]`).first();
+    const SUMMARY_SENTENCE = 'Synthetic chapter for headless capture.';
 
     const nFull = await turnsVisible();
     check(nFull > 0, `turns visible at Full (${nFull})`);
@@ -791,11 +872,63 @@ async function main() {
     step('click', 'last chapter → Title');
     await page.waitForTimeout(500);
     const nTitle = await turnsVisible();
-    check(nTitle < nFull, `Title hides the turns (${nTitle} < ${nFull})`);
+    check(nTitle < nFull, `Title hides the turns (${nTitle} < nFull=${nFull})`);
     const lastSection = page.locator('section:has([data-testid="chapter-cut"])').last();
     check(
       (await lastSection.locator('div.whitespace-pre-wrap').count()) === 0,
       'no message bubbles under a Title cut'
+    );
+
+    await fxCut('description').click();
+    step('click', 'fixture chapter → Description (the cut Vega found broken)');
+    await page.waitForTimeout(500);
+    check(
+      (await fxSection.locator('[data-testid="chapter-layer-summary"]').count()) === 0,
+      'Description cut does NOT render the summary (V1.2 dead)'
+    );
+    // Chrome, not fake content. Two honest texts are legal here: the gap is
+    // named ("No description yet") and, because selecting a missing layer also
+    // fires the summarize, "Writing summary…" while that call is in flight.
+    const chromeText = (await fxSection.innerText()).replace(/\s+/g, ' ');
+    const descLayer = await fxSection
+      .locator('[data-testid="chapter-layer-description"]')
+      .count();
+    // Three honest outcomes, none of them a fake paragraph: the gap is named
+    // ("No description yet"), the fill is running ("Writing summary…"), or the
+    // fill already landed (the layer exists). An empty chapter summarizes
+    // instantly server-side, which is why the third case is common here.
+    check(
+      /No description yet|Writing summary/.test(chromeText) || descLayer > 0,
+      `missing layer is filled or named honestly, never faked (chrome=${/No description yet|Writing summary/.test(chromeText)}, layer=${descLayer})`
+    );
+
+    // UI == PAYLOAD: open the Mirror and read the literal compiled bytes.
+    await page.locator('[title*="tap to see what the LLM will see"]').first().click({ timeout: 5000 });
+    await page.getByText('What the LLM will see').first().waitFor({ state: 'visible', timeout: 5000 });
+    const rawBtn = page.getByRole('button', { name: /Raw payload/i }).first();
+    if (await rawBtn.isVisible().catch(() => false)) {
+      await rawBtn.click();
+      await page.waitForTimeout(300);
+    }
+    const rawPayload = await page.evaluate(() =>
+      [...document.querySelectorAll('pre')]
+        .map((p) => p.textContent || '')
+        .join('\n')
+    );
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    check(
+      !rawPayload.includes(SUMMARY_SENTENCE),
+      'payload at Description does not carry the summary'
+    );
+    check(/granularity="description"/.test(rawPayload), 'payload declares the description cut');
+
+    await fxCut('summary').click();
+    step('click', 'fixture chapter → Summary');
+    await page.waitForTimeout(500);
+    check(
+      (await fxSection.locator('[data-testid="chapter-layer-summary"]').count()) > 0,
+      'Summary cut renders the summary'
     );
 
     await chip('summary').click();
@@ -809,6 +942,36 @@ async function main() {
     check((await turnsVisible()) >= nFull, 'Full brings the turns back');
     check(!/Recap/i.test(await bodyText()), 'still no Recap');
     await shot(page, 'cut-roundtrip');
+
+    // Leave the fixture chapter at Full: later journeys (17) need a feed that
+    // is actually taller than the viewport to prove the clearance scrolls away.
+    await fxCut('full').click();
+    await page.waitForTimeout(400);
+  });
+
+  // ── J18 the 5px rail: real order, real colours, cube-root height ──────────
+  await journey(page, '18-edge-rail', 'Rail maps the payload in order with cbrt(1M) height', async (page) => {
+    const rail = page.locator('[data-testid="edge-heat-strip"]').first();
+    const railInfo = await rail.evaluate((el) => ({
+      pct: parseFloat(el.getAttribute('data-rail-height-pct') || '0'),
+      kinds: [...el.querySelectorAll('[data-segment-kind]')].map((s) => s.getAttribute('data-segment-kind')),
+      states: [...el.querySelectorAll('[data-segment-state]')].map((s) => s.getAttribute('data-segment-state')),
+      tokens: [...el.querySelectorAll('[data-segment-id]')].length,
+    }));
+    step('observe', JSON.stringify(railInfo));
+    check(railInfo.tokens > 0, `rail carries real segments (${railInfo.tokens})`);
+    check(railInfo.pct > 0 && railInfo.pct < 100,
+      `rail height is cube-rooted, not pinned to 100% (${railInfo.pct}%)`);
+    // Payload order: system first, chapters last, attachments in between.
+    check(railInfo.kinds[0] === 'system', `system segment leads the rail (${railInfo.kinds[0]})`);
+    check(railInfo.kinds[railInfo.kinds.length - 1] === 'chapter', 'chapters trail the rail');
+    const firstChapter = railInfo.kinds.indexOf('chapter');
+    const lastAttachment = railInfo.kinds.lastIndexOf('attachment');
+    check(lastAttachment < firstChapter, 'attachments sit between system and chapters (payload order)');
+    check(railInfo.states.includes('full') || railInfo.states.includes('summary') ||
+      railInfo.states.includes('title') || railInfo.states.includes('description'),
+      'segments carry the granularity colour states');
+    await shot(page, 'edge-rail');
   });
 
   // ── J17 top clearance scrolls away (no sticky bar) ────────────────────────

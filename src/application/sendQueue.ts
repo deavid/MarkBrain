@@ -85,6 +85,29 @@ interface QueueChain {
   ctx: TurnSendContext;
 }
 
+/**
+ * Which turn does a retry weld staged attachments to? (12 §5.1 / ledger V1.3)
+ *
+ * A retry compiles every attachment on the thread — staged included — so
+ * anything armed right now is about to be delivered again. It must land on the
+ * user turn this assistant reply answers, otherwise history claims the
+ * attachment never entered while the model reads it twice.
+ *
+ * Exported as a pure function so the anchor rule is unit-testable rather than
+ * buried inside the queue's I/O.
+ */
+export function resolveRetryAnchorIndex(
+  turns: Array<{ id: string; role: string }>,
+  assistantTurnId: string
+): number {
+  const retryIdx = turns.findIndex((t) => t.id === assistantTurnId);
+  if (retryIdx <= 0) return Math.max(0, turns.length - 1);
+  for (let i = retryIdx - 1; i >= 0; i--) {
+    if (turns[i].role === 'user') return i;
+  }
+  return retryIdx - 1;
+}
+
 export class SendQueue {
   private queue: QueueJob[] = [];
   private activeJob: QueueJob | null = null;
@@ -295,6 +318,26 @@ export class SendQueue {
     let assistantTurnId: string;
     if (job.mode === 'retry' && job.turnId) {
       assistantTurnId = job.turnId;
+      // A retry compiles `getAttachments(threadId)` — staged included — so
+      // anything armed right now IS about to be sent a second time. Weld it to
+      // the user turn this assistant reply answers, so payload === history and
+      // the tray can't promise "next send" for something already delivered
+      // (12 §5.1 / ledger V1.3).
+      const turnsForAnchor = this.turnsOf(deps, threadId);
+      const anchorIdx = resolveRetryAnchorIndex(turnsForAnchor, assistantTurnId);
+      const anchorTurn = turnsForAnchor[anchorIdx];
+      const committedOnRetry = deps.threadRegistry.commitStagedAttachments(
+        threadId,
+        anchorIdx,
+        anchorTurn?.id ?? null
+      );
+      if (committedOnRetry > 0) {
+        logger.info(
+          'App',
+          `Committed ${committedOnRetry} staged attachment(s) on retry to turn ${anchorIdx}`,
+          { threadId }
+        );
+      }
       this.updateTurnInThread(deps, threadId, assistantTurnId, {
         content: '',
         extractedArtifacts: [],

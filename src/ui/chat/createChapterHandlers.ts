@@ -59,7 +59,9 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
     // unbacked: the chapter shows "Writing summary…" chrome until it lands.
     const sealed = segmentation.getChapter(target.id);
     if (sealed && sealed.status === 'completed' && (!sealed.summary || !sealed.description)) {
-      void handleSummarizeChapter(sealed.id);
+      // Fire-and-forget: the chapter carries the "Writing summary…" chrome and,
+      // on failure, the Retry button — never an unhandled rejection.
+      void handleSummarizeChapter(sealed.id).catch(() => {});
     }
   };
 
@@ -83,12 +85,29 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
         throw new Error(`summarize-chapter HTTP ${res.status}${errBody?.error ? `: ${errBody.error}` : ''}`);
       }
       const data = await res.json();
-      segmentation.updateLevels(chapterId, {
-        description: typeof data.description === 'string' ? data.description : undefined,
-        summary: typeof data.summary === 'string' ? data.summary : undefined,
-      });
+      // Fill gaps, never erase: an empty string coming back (e.g. the server's
+      // empty-chapter placeholder returns summary: '') must not wipe a layer the
+      // chapter already had — that would remove real text from the payload on a
+      // call the user made to ADD something.
+      const description =
+        typeof data.description === 'string' && data.description.trim()
+          ? data.description
+          : undefined;
+      const summary =
+        typeof data.summary === 'string' && data.summary.trim() ? data.summary : undefined;
+      if (description === undefined && summary === undefined) {
+        logger.warn('App', `Summarize returned no text for chapter ${chapterId} — kept existing layers`);
+        return;
+      }
+      segmentation.updateLevels(chapterId, { description, summary });
     } catch (err) {
-      logger.error('App', `Failed to summarize chapter ${chapterId}`, err);
+      // warn, not error: a timeout/abort is an EXPECTED outcome of a hung model
+      // call, and the chapter chrome already shows the failure + Retry (12 §5.2).
+      // Logging it as an error put `console.error` in the browser and turned
+      // the evidence pack RED for a state the UI handles honestly.
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn('App', `Summarize failed for chapter ${chapterId}: ${msg}`);
+      throw err instanceof Error ? err : new Error(msg);
     }
   };
 

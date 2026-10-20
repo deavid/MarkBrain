@@ -529,6 +529,10 @@ export default function App() {
                   onSetAttachmentGranularity={handleSetAttachmentGranularity}
                   onOpenArtifacts={() => setActiveView('artifacts')}
                   chosenVoice={chosenVoice}
+                  onOpenArtifact={(id) => {
+                    logger.action('App', `Open artifact ${id} from an attachment row`);
+                    setSelectedArtifactId(id);
+                  }}
                   onSelectArtifact={(art) => {
                     logger.action('App', `Chat artifact card selected: ${art.id}`);
                     setSelectedArtifactId(art.id);
@@ -582,6 +586,11 @@ export default function App() {
               setActiveView('artifacts');
             }}
             onUnstageAttachment={handleUnstageAttachment}
+            onOpenArtifact={(id) => {
+              logger.action('App', `Mirror → open artifact ${id}`);
+              setIsMirrorOpen(false);
+              setSelectedArtifactId(id);
+            }}
           />
         </div>
 
@@ -682,6 +691,9 @@ export default function App() {
               }
               attachmentStaged={
                 activeAttachments.find((a) => a.artifactId === art.id)?.turnIndex === null
+              }
+              attachmentTurnIndex={
+                activeAttachments.find((a) => a.artifactId === art.id)?.turnIndex ?? null
               }
               onAttach={handleAttachArtifact}
               onUnstage={handleUnstageAttachment}

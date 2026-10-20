@@ -1,5 +1,41 @@
 # Pending / open work
 
+## State (2026-10-20, ~21:05 — 12 SHIPPED on dev-altair: colour law · one widget · honest rail)
+
+- **What landed** (spec: `design-docs/12_PLAN_OF_RECORD.md`, §18 = the built
+  list + the four deviations; user-facing: `changelog.md`). The colour law
+  inverted: hue is a stroke/light (dot, rail, chip ink, border), never a field —
+  dark plate + bright ink always, a *touch brighter* plate for the unselected
+  state and a pressed dark well + lit circle for the selected one. Four hues on
+  even OKLCH steps (`#79ca4b` `#e2c328` `#f99014` `#f45a56`), cyan staged, grey
+  for none. One `AttachmentRow` everywhere: row body = the verb, arrow-out =
+  the detail popup (chat cards had no route to it at all). The 5px rail maps
+  the real payload in payload order with `cbrt(tokens/1M)` height — the
+  fabricated `historyTokens × 0.7/0.3` split is gone.
+- **Vega's S1 is dead:** the chapter body gates both layers on the compiler's
+  own `cutIncludes`, so at the `Description` cut the screen no longer shows a
+  summary the payload does not carry. J16 now clicks all four cuts and compares
+  the screen against the Mirror's literal bytes.
+- **Two bugs found while executing** (both fixed, neither in the plan):
+  `Write it` used to downgrade the cut; `handleSummarizeChapter` used to write
+  an empty server layer over real text (an empty chapter's placeholder would
+  have erased its summary).
+- **Retry semantics resolved by execution**: staged items weld to the user turn
+  the retry answers (pure `resolveRetryAnchorIndex`, unit-tested), so a retry
+  can never deliver an artifact twice while history says it never entered.
+- **Deviations worth remembering:** legacy attachments hydrate at
+  `turnIndex: -1` = "in chat, provenance unknown" (never a fake `msg 1`, never
+  resurrected into the staged tray); the geometry audit now catches
+  clipped-by-viewport / clipped-inside-overflow controls and stops its ancestor
+  walk at `position: fixed` (a centered modal is not clipped by `main`).
+- **Gates:** tsc clean · 133/133 vitest (16 files) · evidence **GREEN** 18/18
+  journeys, 0 fails/warns, 0 geometry fails at 350/390/768/1440, 0 console/page/
+  http errors (`evidence/2026-10-20T20-05-44`).
+- **Still open:** model-sealed chapter auto-summarize (money decision), no
+  Regenerate for a stale summary, graph lens shows no attach state, prompts do
+  not state the cut contract — `TODO.md` 1, 9, 10, 2.
+
+
 ## State (2026-10-20, ~20:35 — `12_PLAN_OF_RECORD.md` WRITTEN, ready for execution)
 
 - **Opus review of `11_DESIGN_LEDGER.md` caught 4 flaws in my own draft and wrote

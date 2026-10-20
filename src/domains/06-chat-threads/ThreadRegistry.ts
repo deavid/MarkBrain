@@ -30,8 +30,11 @@ const rand = () => Math.random().toString(36).slice(2, 6);
 
 /**
  * Legacy/foreign snapshots: attachment arrays may be absent or half-formed.
- * Legacy attachments without an explicit `turnIndex` default to `0` (committed
- * at turn 0) so already-sent attachments don't resurrect into the staged tray.
+ * Legacy attachments without an explicit `turnIndex` hydrate as committed at
+ * `-1` = "in the chat, provenance unknown" — NOT as turn 0. They must never
+ * resurrect into the staged tray (that would send them a second time), and
+ * they must never claim "msg 1" when nobody knows which message carried them
+ * (12 §2.2 / ledger V1.8.3). `-1` is still committed: only `null` is staged.
  */
 function normalizeAttachments(raw: unknown): ChatAttachment[] {
   if (!Array.isArray(raw)) return [];
@@ -46,7 +49,7 @@ function normalizeAttachments(raw: unknown): ChatAttachment[] {
         ? null
         : typeof item.turnIndex === 'number' && Number.isFinite(item.turnIndex)
           ? item.turnIndex
-          : 0;
+          : -1;
     out.push({
       artifactId: item.artifactId,
       granularity: normalizeGranularity(item.granularity, 'full'),

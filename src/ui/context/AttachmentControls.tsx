@@ -1,21 +1,30 @@
 import React from 'react';
+import { ArrowUpRight } from 'lucide-react';
 import type { Granularity } from '../../domains/granularity';
 import {
   GRANULARITY_LABEL,
   GRANULARITY_ORDER,
   AttachmentVisualState,
+  ATTACHMENT_STATE_PALETTE,
   getAttachmentStatePalette,
   getGranularityChipClass,
 } from '../../domains/granularity';
 
 /**
- * The attachment controls, shared by every surface that steers context:
- * the Artifacts folder rows, the chat staged tray + turn cards, the chapter
- * attachment strips, the mirror panel and the artifact detail modal.
+ * The attachment controls — ONE widget for every surface that shows an
+ * artifact (12_PLAN_OF_RECORD.md §2).
  *
- * One palette (domains/granularity.ts), one dot verb, one four-word chip row —
- * so the folder and the chat can never disagree about what a color means
- * (design-docs/10_ATTACHMENT_TIMELINE.md §1).
+ * Surfaces: the Artifacts folder rows, the chat staged tray, the turn cards,
+ * the chapter attachment strip, the mirror panel, the detail modal.
+ *
+ * Interaction contract (David, 2026-10-20 — R1.3/R1.4):
+ *   · clicking the ROW BODY (or its dot) runs the verb: unstaged → stage,
+ *     staged → unstage, committed → cycle the cut;
+ *   · the ARROW-OUT button on the right opens the detail popup, everywhere;
+ *   · one token readout per row, never two.
+ *
+ * Colour law lives in domains/granularity.ts (12 §1): dark plate, bright ink,
+ * one filled thing per row.
  */
 
 interface AttachmentDotProps {
@@ -53,19 +62,19 @@ export const AttachmentDot: React.FC<AttachmentDotProps> = ({ state, onClick, la
       <span className={`${dot} rounded-full transition-colors ${palette.dotClass}`} />
     </button>
   );
-};
+}
 
 interface GranularityChipsProps {
   value: Granularity;
   onChange: (g: Granularity) => void;
   /** Aria prefix, e.g. "Granularity for Unhaunter notes". */
   label: string;
-  /** When the container is a bright state fill, inactive chips adapt to it. */
+  /** When the container carries a state, inactive chips adapt to it. */
   state?: AttachmentVisualState;
   compact?: boolean;
 }
 
-/** The four words. Active chip wears its rainbow heat color with dark text. */
+/** The four words. Active = pressed dark well + lit indicator; inactive = brighter key. */
 export const GranularityChips: React.FC<GranularityChipsProps> = ({
   value,
   onChange,
@@ -93,8 +102,17 @@ export const GranularityChips: React.FC<GranularityChipsProps> = ({
           aria-label={`${label}: ${GRANULARITY_LABEL[g]}`}
           aria-pressed={active}
           data-granularity={g}
-          className={`min-h-[24px] ${compact ? 'px-1.5' : 'px-2'} py-0.5 rounded border text-[10px] font-mono cursor-pointer transition-colors ${cls}`}
+          className={`flex items-center gap-1 min-h-[24px] ${compact ? 'px-1.5' : 'px-2'} py-0.5 rounded border text-[10px] font-mono cursor-pointer transition-colors ${cls}`}
         >
+          {/* The rainbow, right on the key — hue is visible before you click. */}
+          <span
+            className="w-1.5 h-1.5 rounded-full shrink-0"
+            style={{
+              backgroundColor: ATTACHMENT_STATE_PALETTE[g].hex,
+              opacity: active ? 1 : 0.45,
+            }}
+            aria-hidden="true"
+          />
           {GRANULARITY_LABEL[g]}
         </button>
       );
@@ -121,24 +139,52 @@ export function formatTokens(tokens: number): string {
   return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : `${tokens}`;
 }
 
+/**
+ * ONE provenance counter for the whole app (12 §2.2): the same 1-based `msg N`
+ * the chapter headers use. Legacy attachments (welded to turn 0 before the
+ * timeline existed) say so instead of pretending to a turn they don't have.
+ */
+export function formatAttachmentProvenance(
+  turnIndex: number | null | undefined
+): { badge: string; title: string } | undefined {
+  if (turnIndex === null || turnIndex === undefined) return undefined;
+  if (turnIndex < 0) return { badge: 'in chat', title: 'joined before turn tracking' };
+  return { badge: `msg ${turnIndex + 1}`, title: `Attached on message ${turnIndex + 1}` };
+}
+
 interface AttachmentRowProps {
+  /** Needed for `data-artifact-id` (folder rows, journeys). */
+  artifactId?: string;
   state: AttachmentVisualState;
   title: string;
   tokens: number;
   granularity: Granularity;
+  /**
+   * The row verb: click anywhere on the body (or the dot) → unstaged stages,
+   * staged unstages, committed cycles. Chips/✕/arrow stop propagation.
+   */
   onToggle?: () => void;
   onSetGranularity?: (g: Granularity) => void;
   /** Only staged rows get an unstage button; committed rows never do. */
   onUnstage?: () => void;
-  subtitle?: string;
+  /** The arrow-out: opens the detail popup. Present on every surface that has one. */
+  onOpenDetail?: () => void;
+  /** Folder rows show a description snippet. */
+  description?: string;
+  /** Folder rows show tags. */
+  tags?: string[];
+  /** Provenance / state badge ('next send', 'msg 4', 'review'…). */
+  badge?: string;
+  flagged?: boolean;
 }
 
 /**
- * One attachment, rendered as its state: bright fill ⇒ dark text, dim fill ⇒
- * light text. Used by the chat staged tray, the turn cards and the chapter
- * attachment strip so all three read as the same object.
+ * One artifact, rendered as its state. Used by the folder, the staged tray, the
+ * turn cards, the chapter strip and the mirror so all five read as the same
+ * object with the same verbs.
  */
 export const AttachmentRow: React.FC<AttachmentRowProps> = ({
+  artifactId,
   state,
   title,
   tokens,
@@ -146,14 +192,31 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
   onToggle,
   onSetGranularity,
   onUnstage,
-  subtitle,
+  onOpenDetail,
+  description,
+  tags,
+  badge,
+  flagged,
 }) => {
   const palette = getAttachmentStatePalette(state);
   return (
     <div
       data-state={state}
+      data-artifact-id={artifactId}
       data-artifact-title={title}
-      className={`rounded-xl px-2 py-1.5 space-y-1 ${palette.rowClass}`}
+      onClick={
+        onToggle
+          ? (e) => {
+              // Chips, ✕ and the arrow stopPropagation themselves; anything else
+              // on the body is the verb.
+              e.preventDefault();
+              onToggle();
+            }
+          : undefined
+      }
+      className={`group w-full text-left rounded-xl px-2 py-1.5 space-y-1 ${
+        onToggle ? 'cursor-pointer select-none' : ''
+      } ${palette.rowClass}`}
     >
       <div className="flex items-center gap-2 min-w-0">
         <AttachmentDot
@@ -163,33 +226,68 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
           size="sm"
         />
         <div className="min-w-0 flex-1">
-          <div className={`text-[11px] font-mono truncate ${palette.titleTextClass}`} title={title}>
-            {title}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`text-[11px] font-mono truncate ${palette.titleTextClass}`} title={title}>
+              {title}
+            </span>
+            {flagged && (
+              <span className={`text-[9px] font-mono px-1 py-0.2 rounded border ${palette.tagClass}`}>
+                review
+              </span>
+            )}
+            {badge && (
+              <span
+                className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${palette.tagClass}`}
+                title={state === 'staged' ? 'Rides the next send' : undefined}
+              >
+                {badge}
+              </span>
+            )}
           </div>
-          {subtitle && (
-            <div className={`text-[9px] font-mono truncate ${palette.subTextClass}`}>{subtitle}</div>
+          {description && (
+            <div className={`text-[10px] font-mono line-clamp-2 mt-0.5 ${palette.subTextClass}`}>
+              {description}
+            </div>
+          )}
+          <div className={`text-[9px] font-mono tabular-nums ${palette.subTextClass}`}>
+            {formatTokens(tokens)} tok
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {onUnstage && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onUnstage();
+              }}
+              aria-label={`Unstage "${title}"`}
+              data-testid="unstage-attachment"
+              className={`min-w-[28px] min-h-[28px] px-1.5 rounded border text-[10px] font-mono cursor-pointer ${palette.inactiveChipClass}`}
+            >
+              ✕
+            </button>
+          )}
+          {onOpenDetail && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onOpenDetail();
+              }}
+              aria-label={`Open details for "${title}"`}
+              data-testid="open-artifact-detail"
+              title={`Open "${title}" details`}
+              className="min-w-[30px] min-h-[30px] flex items-center justify-center rounded-lg bg-[#141f33] hover:bg-[#1f304d] border border-[#243754] text-[#8ab1e0] hover:text-[#eef4fc] transition-colors cursor-pointer"
+            >
+              <ArrowUpRight className="w-4 h-4" />
+            </button>
           )}
         </div>
-        <span className={`text-[9px] font-mono shrink-0 tabular-nums ${palette.subTextClass}`}>
-          {formatTokens(tokens)} tok
-        </span>
-        {onUnstage && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onUnstage();
-            }}
-            aria-label={`Unstage "${title}"`}
-            data-testid="unstage-attachment"
-            className={`min-h-[24px] px-1.5 rounded border text-[10px] font-mono cursor-pointer shrink-0 ${palette.inactiveChipClass}`}
-          >
-            ✕
-          </button>
-        )}
       </div>
-      {onSetGranularity && (
+      {onSetGranularity && state !== 'unstaged' && (
         <div className="pl-7">
           <GranularityChips
             value={granularity}
@@ -200,6 +298,15 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
           />
         </div>
       )}
+      {tags && tags.length > 0 && (
+        <div className="pl-7 flex items-center gap-1 flex-wrap">
+          {tags.slice(0, 4).map((t) => (
+            <span key={t} className={`text-[9px] font-mono ${palette.subTextClass}`}>
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -208,6 +315,8 @@ interface StagedTrayProps {
   items: Array<{ artifactId: string; title: string; tokens: number; granularity: Granularity }>;
   onSetGranularity: (artifactId: string, g: Granularity) => void;
   onUnstage: (artifactId: string) => void;
+  /** Open the detail popup from a tray row — same widget, same arrow. */
+  onOpenDetail?: (artifactId: string) => void;
 }
 
 /**
@@ -215,30 +324,37 @@ interface StagedTrayProps {
  * flow, so it reserves real space and can be cleared before Send. After Send
  * the items move into the chat history on their turn (10 §7).
  */
-export const StagedTray: React.FC<StagedTrayProps> = ({ items, onSetGranularity, onUnstage }) => {
+export const StagedTray: React.FC<StagedTrayProps> = ({
+  items,
+  onSetGranularity,
+  onUnstage,
+  onOpenDetail,
+}) => {
   if (items.length === 0) return null;
   return (
     <div
       data-testid="staged-tray"
-      className="rounded-2xl border border-[#0e7490]/40 bg-[#061826]/70 p-2 space-y-1.5"
+      className="rounded-2xl border border-[#38bdf8]/40 bg-[#081320]/80 p-2 space-y-1.5"
     >
       <div className="flex items-center justify-between px-0.5">
-        <span className="text-[9px] font-mono uppercase tracking-wider text-[#67e8f9]">
+        <span className="text-[9px] font-mono uppercase tracking-wider text-[#38bdf8]">
           Staged for this message ({items.length})
         </span>
-        <span className="text-[9px] font-mono text-[#67e8f9]/70">
+        <span className="text-[9px] font-mono text-[#7dd3fc]/70">
           rides the next send · removable until then
         </span>
       </div>
       {items.map((item) => (
         <AttachmentRow
           key={item.artifactId}
+          artifactId={item.artifactId}
           state="staged"
           title={item.title}
           tokens={item.tokens}
           granularity={item.granularity}
           onSetGranularity={(g) => onSetGranularity(item.artifactId, g)}
           onUnstage={() => onUnstage(item.artifactId)}
+          onOpenDetail={onOpenDetail ? () => onOpenDetail(item.artifactId) : undefined}
         />
       ))}
     </div>

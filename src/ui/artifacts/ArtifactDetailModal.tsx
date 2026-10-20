@@ -21,6 +21,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { renderMarkdown } from '../../utils/markdown';
+import { formatAttachmentProvenance } from '../context/AttachmentControls';
 
 interface ArtifactDetailModalProps {
   artifact: Artifact;
@@ -33,6 +34,8 @@ interface ArtifactDetailModalProps {
    */
   attachmentGranularity: Granularity | null;
   attachmentStaged?: boolean;
+  /** Where it sits in the timeline: `msg N`, or null when staged. */
+  attachmentTurnIndex?: number | null;
   onAttach: (artifactId: string) => void;
   onUnstage?: (artifactId: string) => void;
   onSetAttachmentGranularity: (artifactId: string, granularity: Granularity) => void;
@@ -45,6 +48,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   onClose,
   attachmentGranularity,
   attachmentStaged = false,
+  attachmentTurnIndex = null,
   onAttach,
   onUnstage,
   onSetAttachmentGranularity,
@@ -64,6 +68,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   }, [onClose]);
 
   const title = artifact.title || artifact.title || artifact.id;
+  const provenance = formatAttachmentProvenance(attachmentTurnIndex);
   const description = artifact.current?.description || '';
   const summary = artifact.current?.summary || '';
   const body = artifact.current?.body || '';
@@ -148,13 +153,18 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
             <>
               <div className="flex items-center gap-2 flex-wrap">
                 <span
-                  className={`text-[11px] font-mono ${attachmentStaged ? 'text-[#67e8f9]' : 'text-[#556985]'}`}
+                  className={`text-[11px] font-mono ${attachmentStaged ? 'text-[#38bdf8]' : 'text-[#758ca8]'}`}
                 >
                   {attachmentStaged ? 'Staged for next send ·' : 'In this chat at'}
                 </span>
                 <strong className="text-[11px] font-mono text-[#a4bddf]">
                   {GRANULARITY_LABEL[attachmentGranularity]}
                 </strong>
+                {!attachmentStaged && provenance && (
+                  <span className="text-[11px] font-mono text-[#758ca8]" title={provenance.title}>
+                    · {provenance.badge}
+                  </span>
+                )}
                 {attachmentStaged && (
                   <button
                     onClick={() => onUnstage?.(artifact.id)}

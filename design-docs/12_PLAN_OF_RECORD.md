@@ -516,3 +516,50 @@ When switched back to the fast/cheap model, execute directly without further des
    - `bunx vitest run`
    - `node scripts/evidence.cjs` (against the running dev server on `:3036`) — verify **GREEN**, 17/17 journeys, 0 geometry fails at `350x700`, 0 console errors.
 7. Update `design-docs/11_DESIGN_LEDGER.md` statuses (`open` → `fixed`), `design-docs/TODO.md`, `design-docs/scratch/pending.md`, `changelog.md`, and commit locally.
+
+---
+
+## 18. What actually shipped (2026-10-20 evening)
+
+All six packages built and green. Gates at close: `bunx tsc --noEmit` clean ·
+`bunx vitest run` **133/133 across 16 files** (15 new tests in
+`src/tests/attachment-palette.test.ts`) · `node scripts/evidence.cjs`
+**GREEN** — 18/18 journeys, 0 fails, 0 warnings, audit 0 fails/warns at
+350×700 / 390×844 / 768×1024 / 1440×900, 0 console · 0 page · 0 http errors
+(pack `evidence/2026-10-20T20-05-44`).
+
+**Shipped as specified:** the six-state palette and the four-click chips; the
+one `AttachmentRow` with row-body verbs and the arrow-out detail button on all
+five surfaces; the payload-ordered rail with `cbrt(tokens/1M)` height; the
+`cutIncludes` guards on the chapter body; the retry weld; the 15s client abort
+and 12s server race; the two-row chapter header; the new unit tests and the
+J14/J15/J16/J18 journey changes.
+
+**Where execution deviated from this document** (all four are deliberate):
+
+1. **Legacy attachments hydrate at `turnIndex: -1`, not `0`.** §2.2 offered
+   "`-1`, or keep `0`". `0` was a lie (every old attachment claimed message 1)
+   and `-1` alone would have made them vanish from the chat. So `-1` is now a
+   first-class value: committed (only `null` is staged), badged **`in chat`**,
+   and attached to the *first* chapter's strip instead of to a turn card.
+2. **`Write it` never erases.** §4.2 covered the cut; running J16 exposed the
+   neighbour bug: an empty chapter's server placeholder returns `summary: ''`,
+   and `updateLevels` wrote that straight over a real summary. `handleSummarizeChapter`
+   now ignores empty layers and keeps existing text — a call made to *add*
+   something must not subtract.
+3. **The clip audit needed a `position: fixed` guard.** A centered fixed modal
+   is not clipped by an ancestor's `overflow: hidden`; without breaking the
+   ancestor walk at the first fixed ancestor, my new check reported the 768px
+   mirror as six failures. The check now flags `clipped-by-viewport` and
+   `clipped-inside-overflow` for real (350px `Full` chip would be caught).
+4. **J16 accepts two honest chrome states.** Selecting a missing layer *also*
+   fires the summarize (by design), so the moment after the click shows
+   `Writing summary…` — and an empty chapter fills instantly server-side. The
+   journey asserts "filled, or named as a gap, never faked" and keeps its hard
+   assertion where it matters: at the `Description` cut the summary layer must
+   not render, and the Mirror's raw bytes must not contain it.
+
+**Not done here, still open** (unchanged by this slice): model-sealed chapters
+are still not auto-summarized (`TODO.md` 1, a money decision), no `Regenerate`
+affordance for a stale summary (9), the graph lens shows no attach state (10),
+and the import/extraction prompts still do not state the cut contract (2).

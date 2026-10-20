@@ -6,13 +6,22 @@ interface SaturationOrbProps {
   onClick?: () => void;
 }
 
+/**
+ * The saturation orb — the one route into the Mirror, so it is a real button
+ * (keyboard + screen reader), not a clickable div (12 §6 / ledger V1.8).
+ */
 export const SaturationOrb: React.FC<SaturationOrbProps> = ({ telemetry, onClick }) => {
   const color = computeAmbientColor(telemetry.saturationRatio);
-  const tokenLabel = telemetry.totalTokens < 1000 ? `${telemetry.totalTokens}` : `${Math.round(telemetry.totalTokens / 1000)}k`;
+  const tokenLabel =
+    telemetry.totalTokens < 1000
+      ? `${telemetry.totalTokens}`
+      : `${Math.round(telemetry.totalTokens / 1000)}k`;
 
   return (
-    <div
+    <button
+      type="button"
       onClick={onClick}
+      aria-label={`${telemetry.totalTokens.toLocaleString()} tokens of ${telemetry.ceiling.toLocaleString()} — open the mirror to see what the LLM will see`}
       className="absolute top-3 right-4 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0d1421]/90 backdrop-blur-md border border-[#162235] shadow-lg pointer-events-auto cursor-pointer transition-all hover:border-[#223552]"
       title={`${telemetry.totalTokens.toLocaleString()} tokens of ${telemetry.ceiling.toLocaleString()} — tap to see what the LLM will see`}
     >
@@ -23,9 +32,7 @@ export const SaturationOrb: React.FC<SaturationOrbProps> = ({ telemetry, onClick
           boxShadow: `0 0 6px ${color.glow}`,
         }}
       />
-      <span className="text-[10px] font-mono text-[#8ab1e0]">
-        {tokenLabel}
-      </span>
-    </div>
+      <span className="text-[10px] font-mono text-[#8ab1e0]">{tokenLabel}</span>
+    </button>
   );
 };

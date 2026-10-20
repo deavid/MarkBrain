@@ -140,16 +140,38 @@ export interface SummarizeChapterRequest {
   steeringPrompt?: string;
 }
 
-export function summarizeChapter(params: SummarizeChapterRequest): Promise<Response> {
-  return fetch('/api/summarize-chapter', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title: params.title,
-      messages: params.messages,
-      steeringPrompt: params.steeringPrompt,
-    }),
-  });
+/**
+ * Summarize a chapter, with a hard client-side deadline (12 §5.2).
+ *
+ * The old call had no timeout at all: one unanswered request sat open until a
+ * later page reload killed it, the console logged an error, and the evidence
+ * pack went RED on a phantom. A hung model call now becomes a visible
+ * "Summary request timed out or failed. [Retry]" in the chapter chrome — the
+ * user learns the truth instead of watching a spinner quietly give up.
+ */
+export async function summarizeChapter(
+  params: SummarizeChapterRequest,
+  timeoutMs = 15_000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error('summarize-chapter timed out')),
+    timeoutMs
+  );
+  try {
+    return await fetch('/api/summarize-chapter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: params.title,
+        messages: params.messages,
+        steeringPrompt: params.steeringPrompt,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── /api/models ─────────────────────────────────────────────────────────────

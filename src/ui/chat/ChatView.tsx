@@ -36,6 +36,7 @@ import {
   AttachmentRow,
   StagedTray,
   dotVerbLabel,
+  formatAttachmentProvenance,
   formatTokens,
 } from '../context/AttachmentControls';
 import { tts } from '../../gateway/api';
@@ -75,6 +76,8 @@ interface ChatViewProps {
   onOpenArtifacts?: () => void;
   /** Read-aloud voice (the selector itself lives in the sidebar now). */
   chosenVoice?: string;
+  /** Open an artifact's detail popup by id (the arrow-out on any attachment row). */
+  onOpenArtifact?: (artifactId: string) => void;
   // Thread chrome (06-chat-threads)
   threadTitle?: string;
   threadTitleState?: 'placeholder' | 'auto' | 'manual';
@@ -86,9 +89,6 @@ interface ChatViewProps {
   onRetry?: () => void;
   onCancelQueued?: () => void;
 }
-
-// Prebuilt TTS voices supported by the Gemini TTS endpoint (/api/tts)
-const TTS_VOICES = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'] as const;
 
 // Consistent mellow dark pastel palette for chapters
 const CHAPTER_PASTEL_COLORS = [
@@ -122,6 +122,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onSetAttachmentGranularity,
   onOpenArtifacts,
   chosenVoice = 'Kore',
+  onOpenArtifact,
   threadTitle = 'New thread',
   threadTitleState = 'placeholder',
   threadArchived = false,
@@ -178,6 +179,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [collapsedChapterIds, setCollapsedChapterIds] = useState<Record<string, boolean>>({});
   /** Chapters whose description/summary we are generating right now. */
   const [summarizingIds, setSummarizingIds] = useState<Record<string, boolean>>({});
+  /** Chapters whose summarize call failed — shows a Retry, never a silent gap. */
+  const [summarizeErrorIds, setSummarizeErrorIds] = useState<Record<string, string>>({});
 
   // Inline "Split Chapter" form state
   const [declaringMessageId, setDeclaringMessageId] = useState<string | null>(null);
@@ -197,19 +200,45 @@ export const ChatView: React.FC<ChatViewProps> = ({
       a.turnId ? a.turnId === message.id : a.turnIndex === globalIndex
     );
 
-  /** Attachments committed inside a chapter's window — the compacted strip. */
+  /**
+   * Attachments committed inside a chapter's window — the compacted strip.
+   * `turnIndex === -1` is a legacy attachment of unknown provenance: it rides
+   * the FIRST chapter (which starts at 0) rather than claiming a turn it
+   * doesn't have (12 §2.2).
+   */
   const attachmentsOfChapter = (chapter: ChapterTurns['chapter']): ChatAttachment[] => {
     const end = typeof chapter.endIndex === 'number' ? chapter.endIndex : Number.MAX_SAFE_INTEGER;
-    return committedAttachments.filter(
-      (a) =>
-        typeof a.turnIndex === 'number' &&
-        a.turnIndex >= chapter.startIndex &&
-        a.turnIndex < end
+    return committedAttachments.filter((a) =>
+      a.turnIndex === -1
+        ? chapter.startIndex === 0
+        : typeof a.turnIndex === 'number' && a.turnIndex >= chapter.startIndex && a.turnIndex < end
     );
   };
 
   const tokensFor = (artifactId: string) => tokensByArtifact[artifactId] ?? 0;
   const titleFor = (artifactId: string) => artifactTitles[artifactId] || artifactId;
+
+  /**
+   * Fill a missing layer WITHOUT touching the chosen cut (12 §4.2). "Write it"
+   * is a request for text, not a stealth change of what gets sent — the old
+   * implementation downgraded `summary → description` on the most common seal
+   * case and quietly removed 17 tokens from the payload.
+   */
+  const triggerChapterSummarize = (chapterId: string) => {
+    setSummarizeErrorIds((prev) => {
+      if (!(chapterId in prev)) return prev;
+      const next = { ...prev };
+      delete next[chapterId];
+      return next;
+    });
+    setSummarizingIds((prev) => ({ ...prev, [chapterId]: true }));
+    Promise.resolve(onSummarizeChapter(chapterId))
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        setSummarizeErrorIds((prev) => ({ ...prev, [chapterId]: msg }));
+      })
+      .finally(() => setSummarizingIds((prev) => ({ ...prev, [chapterId]: false })));
+  };
 
   /**
    * The chapter cut control. What you see is what you send (10 §5): tapping a
@@ -223,12 +252,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       (next === 'description' && !chapter.chapter.description) ||
       (next === 'summary' && !chapter.chapter.summary);
     if (!missingLayer || chapter.turns.length === 0) return;
-    setSummarizingIds((prev) => ({ ...prev, [chapter.chapter.id]: true }));
-    Promise.resolve(onSummarizeChapter(chapter.chapter.id))
-      .catch((err) => logger.error('ChatView', 'Chapter summarize failed', err))
-      .finally(() =>
-        setSummarizingIds((prev) => ({ ...prev, [chapter.chapter.id]: false }))
-      );
+    triggerChapterSummarize(chapter.chapter.id);
   };
 
   // Auto-scroll ONLY when a new message is appended (NOT on summary toggles or loading state)
@@ -447,6 +471,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               }))}
               onSetGranularity={(id, g) => onSetAttachmentGranularity?.(id, g)}
               onUnstage={(id) => onUnstageAttachment?.(id)}
+              onOpenDetail={onOpenArtifact}
             />
 
             {/* Elevated Hero Input Card */}
@@ -557,72 +582,80 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   backgroundColor: `${chapColor}18`,
                   borderBottomColor: `${chapColor}40`,
                 }}
-                className="p-3 sm:p-3.5 border-b flex flex-wrap items-center justify-between gap-2.5 transition-colors"
+                className="p-3 sm:p-3.5 border-b space-y-1.5 transition-colors"
               >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  {/* Status Indicator Dot with pastel nuance */}
-                  <span
-                    className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
-                    style={{ backgroundColor: chapColor }}
-                    title={isOngoing ? 'Active Chapter' : 'Completed Chapter'}
-                  />
+                {/* Row 1 — identity + inventory (12 §4.3: two rows so the four
+                    words never get pushed off a 350px screen) */}
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    {/* Status Indicator Dot with pastel nuance */}
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
+                      style={{ backgroundColor: chapColor }}
+                      title={isOngoing ? 'Active Chapter' : 'Completed Chapter'}
+                    />
 
-                  <span
-                    style={{ color: chapColor }}
-                    className="text-[10px] font-mono uppercase tracking-wider shrink-0 font-semibold"
-                  >
-                    Chapter {chapterIndex + 1}
-                  </span>
-
-                  <h3 className="font-semibold text-xs sm:text-sm text-[#eef4fc] truncate font-mono">
-                    {chapter.title}
-                  </h3>
-
-                </div>
-
-                {/* Chapter Actions: the four words (what gets sent) + token cost + fold */}
-                <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
-                  <span className="text-[10px] font-mono text-[#556985] mr-1 tabular-nums">
-                    {turns.length} msg{turns.length !== 1 ? 's' : ''}
-                    {chapterTokens[chapter.id] !== undefined && (
-                      <> · <span className="text-[#8ab1e0]">{formatTokens(chapterTokens[chapter.id])} tok</span></>
-                    )}
-                  </span>
-
-                  {onSetChapterGranularity && (
-                    <div data-testid="chapter-cut" data-chapter-id={chapter.id}>
-                      <GranularityChips
-                        value={(chapter.granularity ?? granularity) as Granularity}
-                        label={`Send chapter ${chapterIndex + 1}`}
-                        compact
-                        onChange={(g) =>
-                          handleSetChapterCut(
-                            { chapter, index: chapterIndex, ongoing: isOngoing, granularity, turns },
-                            g
-                          )
-                        }
-                      />
-                    </div>
-                  )}
-
-                  {granularity !== 'title' && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        toggleCollapseChapter(chapter.id);
-                      }}
-                      className="p-1 rounded-lg hover:bg-[#162134] text-[#8ca3c7] transition-colors cursor-pointer"
-                      title={isCollapsed ? 'Expand the cut' : 'Fold this chapter'}
+                    <span
+                      style={{ color: chapColor }}
+                      className="text-[10px] font-mono uppercase tracking-wider shrink-0 font-semibold"
                     >
-                      {isCollapsed ? (
-                        <ChevronDown className="w-4 h-4" />
-                      ) : (
-                        <ChevronUp className="w-4 h-4" />
+                      Chapter {chapterIndex + 1}
+                    </span>
+
+                    <h3 className="font-semibold text-xs sm:text-sm text-[#eef4fc] truncate font-mono">
+                      {chapter.title}
+                    </h3>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-mono text-[#758ca8] tabular-nums">
+                      {turns.length} msg{turns.length !== 1 ? 's' : ''}
+                      {chapterTokens[chapter.id] !== undefined && (
+                        <>
+                          {' · '}
+                          <span className="text-[#b8cae4]">
+                            {formatTokens(chapterTokens[chapter.id])} tok
+                          </span>
+                        </>
                       )}
-                    </button>
-                  )}
+                    </span>
+
+                    {granularity !== 'title' && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          toggleCollapseChapter(chapter.id);
+                        }}
+                        className="min-w-[24px] min-h-[24px] p-1 rounded-lg hover:bg-[#162134] text-[#8ca3c7] transition-colors cursor-pointer"
+                        title={isCollapsed ? 'Expand the cut' : 'Fold this chapter'}
+                      >
+                        {isCollapsed ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronUp className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
+
+                {/* Row 2 — the four words, always on their own line */}
+                {onSetChapterGranularity && (
+                  <div data-testid="chapter-cut" data-chapter-id={chapter.id} className="max-w-full overflow-x-auto">
+                    <GranularityChips
+                      value={(chapter.granularity ?? granularity) as Granularity}
+                      label={`Send chapter ${chapterIndex + 1}`}
+                      compact
+                      onChange={(g) =>
+                        handleSetChapterCut(
+                          { chapter, index: chapterIndex, ongoing: isOngoing, granularity, turns },
+                          g
+                        )
+                      }
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Compacted attachment strip — whenever this chapter's turns are
@@ -641,10 +674,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     {chapterAtts.map((att) => (
                       <AttachmentRow
                         key={att.artifactId}
+                        artifactId={att.artifactId}
                         state={att.granularity}
                         title={titleFor(att.artifactId)}
                         tokens={tokensFor(att.artifactId)}
                         granularity={att.granularity}
+                        badge={formatAttachmentProvenance(att.turnIndex)?.badge}
                         onToggle={
                           onToggleAttachment ? () => onToggleAttachment(att.artifactId) : undefined
                         }
@@ -653,6 +688,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             ? (g) => onSetAttachmentGranularity(att.artifactId, g)
                             : undefined
                         }
+                        onOpenDetail={onOpenArtifact ? () => onOpenArtifact(att.artifactId) : undefined}
                       />
                     ))}
                   </div>
@@ -668,17 +704,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   data-testid="chapter-body"
                   className="p-3 sm:p-4 bg-[#0a0f19] border-b border-[#121c2d] space-y-2"
                 >
-                  {chapter.description && (
-                    <div className="text-xs text-[#b8cce6] leading-relaxed bg-[#0d1424] p-3 rounded-xl border border-[#141f33]">
-                      <div className="font-semibold text-[10px] text-[#8ab1e0] mb-1 font-mono uppercase tracking-wider">
+                  {/* What you see is what you send — each layer is gated on the
+                      SAME cutIncludes() the compiler uses (12 §4.1). Before this
+                      guard, a Description cut still rendered the summary: the
+                      payload carried the title while the screen showed prose
+                      that was not in it (ledger V1.2, the S1). */}
+                  {cutIncludes(granularity, 'description') && chapter.description && (
+                    <div
+                      data-testid="chapter-layer-description"
+                      className="text-xs text-[#b8cce6] leading-relaxed bg-[#0d1424] p-3 rounded-xl border border-[#141f33]"
+                    >
+                      <div className="font-semibold text-[10px] text-[#e2c328] mb-1 font-mono uppercase tracking-wider">
                         Description
                       </div>
                       <p className="text-[#dbe7f6]">{chapter.description}</p>
                     </div>
                   )}
-                  {chapter.summary && (
-                    <div className="text-xs text-[#b8cce6] leading-relaxed bg-[#0d1424] p-3 rounded-xl border border-[#141f33]">
-                      <div className="font-semibold text-[10px] text-[#e0b96c] mb-1 font-mono uppercase tracking-wider">
+                  {cutIncludes(granularity, 'summary') && chapter.summary && (
+                    <div
+                      data-testid="chapter-layer-summary"
+                      className="text-xs text-[#b8cce6] leading-relaxed bg-[#0d1424] p-3 rounded-xl border border-[#141f33]"
+                    >
+                      <div className="font-semibold text-[10px] text-[#f99014] mb-1 font-mono uppercase tracking-wider">
                         Summary
                       </div>
                       <p className="whitespace-pre-wrap">{chapter.summary}</p>
@@ -694,22 +741,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         <span className="font-mono">
                           {summarizingIds[chapter.id]
                             ? 'Writing summary…'
-                            : cutIncludes(granularity, 'summary') && !chapter.summary
-                              ? 'No summary yet — this chapter is sending only what exists.'
-                              : 'No description yet for this chapter.'}
+                            : summarizeErrorIds[chapter.id]
+                              ? 'Summary request timed out or failed.'
+                              : cutIncludes(granularity, 'summary') && !chapter.summary
+                                ? 'No summary yet — this chapter is sending only what exists.'
+                                : 'No description yet for this chapter.'}
                         </span>
                         {!summarizingIds[chapter.id] && (
                           <button
                             onClick={(e) => {
                               e.preventDefault();
-                              handleSetChapterCut(
-                                { chapter, index: chapterIndex, ongoing: isOngoing, granularity, turns },
-                                chapter.summary ? 'description' : 'summary'
-                              );
+                              // Fill the layer — NEVER change the cut (12 §4.2).
+                              triggerChapterSummarize(chapter.id);
                             }}
                             className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-[#18263e] text-[#8ab1e0] hover:bg-[#203252] border border-[#233758] font-medium transition-colors cursor-pointer shrink-0"
                           >
-                            Write it
+                            {summarizeErrorIds[chapter.id] ? 'Retry' : 'Write it'}
                           </button>
                         )}
                       </div>
@@ -959,10 +1006,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             {attachmentsOfTurn(message, globalTurnIndex).map((att) => (
                               <AttachmentRow
                                 key={att.artifactId}
+                                artifactId={att.artifactId}
                                 state={att.granularity}
                                 title={titleFor(att.artifactId)}
                                 tokens={tokensFor(att.artifactId)}
                                 granularity={att.granularity}
+                                badge={formatAttachmentProvenance(att.turnIndex)?.badge}
                                 onToggle={
                                   onToggleAttachment
                                     ? () => onToggleAttachment(att.artifactId)
@@ -972,6 +1021,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                   onSetAttachmentGranularity
                                     ? (g) => onSetAttachmentGranularity(att.artifactId, g)
                                     : undefined
+                                }
+                                onOpenDetail={
+                                  onOpenArtifact ? () => onOpenArtifact(att.artifactId) : undefined
                                 }
                               />
                             ))}
@@ -1058,6 +1110,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               }))}
               onSetGranularity={(id, g) => onSetAttachmentGranularity?.(id, g)}
               onUnstage={(id) => onUnstageAttachment?.(id)}
+              onOpenDetail={onOpenArtifact}
             />
           </div>
           <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">

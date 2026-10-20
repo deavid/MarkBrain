@@ -4,15 +4,15 @@ import type { Artifact, ChapterTurns } from '../../types';
 import type { ChatAttachment } from '../../domains/06-chat-threads';
 import { isAttachmentStaged } from '../../domains/06-chat-threads';
 import type { Granularity } from '../../domains/granularity';
-import {
-  GRANULARITY_LABEL,
-  GRANULARITY_ORDER,
-  cutIncludes,
-  getGranularityChipClass,
-} from '../../domains/granularity';
+import { GRANULARITY_LABEL, GRANULARITY_ORDER, cutIncludes } from '../../domains/granularity';
 import { estimateTokens } from '../../utils/estimateTokens';
 import { computeAmbientColor } from './ambientTelemetry';
-import { AttachmentRow } from './AttachmentControls';
+import {
+  AttachmentRow,
+  GranularityChips,
+  formatAttachmentProvenance,
+} from './AttachmentControls';
+import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
 
 /**
  * Mirror v1 (MOBILE_UX_SPEC.md §5): "Show me what the LLM will see."
@@ -72,32 +72,9 @@ interface MirrorPanelProps {
   onOpenArtifacts: () => void;
   /** Unstage a staged attachment (committed ones have no remove path). */
   onUnstageAttachment: (artifactId: string) => void;
+  /** Arrow-out: open the detail popup (same widget, same verb as everywhere). */
+  onOpenArtifact?: (artifactId: string) => void;
 }
-
-/** Four-word control — the only knob. 24px tall: clears the touch rule. */
-const GranularityChips: React.FC<{
-  value: Granularity;
-  onChange: (g: Granularity) => void;
-  label: string;
-}> = ({ value, onChange, label }) => (
-  <div className="flex items-center gap-1">
-    {GRANULARITY_ORDER.map((g) => {
-      const active = g === value;
-      return (
-        <button
-          key={g}
-          onClick={() => onChange(g)}
-          aria-label={`${label}: ${GRANULARITY_LABEL[g]}`}
-          aria-pressed={active}
-          data-granularity={g}
-          className={`min-h-[24px] px-1.5 py-0.5 rounded border text-[10px] font-mono cursor-pointer transition-colors ${getGranularityChipClass(g, active)}`}
-        >
-          {GRANULARITY_LABEL[g]}
-        </button>
-      );
-    })}
-  </div>
-);
 
 export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   open,
@@ -111,6 +88,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   onSetChapterGranularity,
   onOpenArtifacts,
   onUnstageAttachment,
+  onOpenArtifact,
 }) => {
   const [showRaw, setShowRaw] = useState(false);
 
@@ -218,10 +196,18 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
             </div>
             {dist && (
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#556985]">
-                <span className="text-[#e05a66]">■ full {dist.full}</span>
-                <span className="text-[#e0b96c]">■ summary {dist.summary}</span>
-                <span className="text-[#5ad49b]">■ description {dist.description}</span>
-                <span className="text-[#5d87b8]">■ title {dist.title}</span>
+                <span style={{ color: ATTACHMENT_STATE_PALETTE.full.hex }}>
+                  ■ full {dist.full}
+                </span>
+                <span style={{ color: ATTACHMENT_STATE_PALETTE.summary.hex }}>
+                  ■ summary {dist.summary}
+                </span>
+                <span style={{ color: ATTACHMENT_STATE_PALETTE.description.hex }}>
+                  ■ description {dist.description}
+                </span>
+                <span style={{ color: ATTACHMENT_STATE_PALETTE.title.hex }}>
+                  ■ title {dist.title}
+                </span>
               </div>
             )}
           </section>
@@ -254,12 +240,17 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
                 {stagedRows.map(({ entry, artifact }) => (
                   <AttachmentRow
                     key={entry.artifactId}
+                    artifactId={entry.artifactId}
                     state="staged"
                     title={artifact!.title}
                     tokens={entry.tokens}
                     granularity={entry.granularity}
-                    onSetGranularity={(g) => onSetAttachmentGranularity(entry.artifactId, g)}
+                    badge="next send"
+                    onSetGranularity={(g: Granularity) => onSetAttachmentGranularity(entry.artifactId, g)}
                     onUnstage={() => onUnstageAttachment(entry.artifactId)}
+                    onOpenDetail={
+                      onOpenArtifact ? () => onOpenArtifact(entry.artifactId) : undefined
+                    }
                   />
                 ))}
               </div>
@@ -272,14 +263,16 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
                 {committedRows.map(({ entry, artifact }) => (
                   <AttachmentRow
                     key={entry.artifactId}
+                    artifactId={entry.artifactId}
                     state={entry.granularity}
                     title={artifact!.title}
                     tokens={entry.tokens}
-                    subtitle={
-                      typeof entry.turnIndex === 'number' ? `Turn ${entry.turnIndex + 1}` : undefined
-                    }
+                    badge={formatAttachmentProvenance(entry.turnIndex)?.badge}
                     granularity={entry.granularity}
-                    onSetGranularity={(g) => onSetAttachmentGranularity(entry.artifactId, g)}
+                    onSetGranularity={(g: Granularity) => onSetAttachmentGranularity(entry.artifactId, g)}
+                    onOpenDetail={
+                      onOpenArtifact ? () => onOpenArtifact(entry.artifactId) : undefined
+                    }
                   />
                 ))}
               </div>

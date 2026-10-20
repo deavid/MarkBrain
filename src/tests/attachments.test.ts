@@ -174,7 +174,7 @@ describe('attachment timeline (staged → committed)', () => {
     expect(registry.getAttachments(a)[0].turnIndex).toBe(0);
   });
 
-  it('legacy snapshots without a turnIndex hydrate as committed (never staged)', () => {
+  it('legacy snapshots without a turnIndex hydrate as committed at turnIndex -1 (never staged, never a fake turn)', () => {
     const registry = new ThreadRegistry();
     registry.hydrate({
       projectId: 'p',
@@ -199,7 +199,9 @@ describe('attachment timeline (staged → committed)', () => {
       activeThreadId: 'thread-old',
     });
     const att = registry.getAttachments('thread-old')[0];
-    expect(att.turnIndex).toBe(0);
+    // Committed, but honest: no turn was ever recorded for it (-1 = "in chat").
+    expect(att.turnIndex).toBe(-1);
     expect(registry.getStagedAttachments('thread-old')).toHaveLength(0);
+    expect(registry.getAttachments('thread-old').every((x) => x.turnIndex !== null)).toBe(true);
   });
 });

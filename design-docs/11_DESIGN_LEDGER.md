@@ -29,6 +29,11 @@ Every entry below that says *reproduced* was checked against the code
 agreeing was the easy move. When a review is wrong, that gets written down too;
 an unchallenged review rots into folklore.
 
+**Status 2026-10-20 evening: R1 and V1 are CLOSED.** Everything accepted below
+is built — the built list, including the four places where execution deviated
+from the plan, is `12_PLAN_OF_RECORD.md` §18. The entries stay as written (a
+ledger closes findings, it does not rewrite them).
+
 **Round index**
 
 | id | when | source | what |

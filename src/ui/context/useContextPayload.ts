@@ -1,7 +1,14 @@
 import { useMemo } from 'react';
 import type { DomainContextValue } from '../../domains/DomainRegistry';
 import type { ChatAttachment } from '../../domains/06-chat-threads';
-import { AmbientTelemetryData } from './ambientTelemetry';
+import type { AttachmentVisualState } from '../../domains/granularity';
+import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
+import {
+  AmbientTelemetryData,
+  EdgeRailSegment,
+  SYSTEM_RAIL_HEX,
+  computeRailHeightPct,
+} from './ambientTelemetry';
 
 type WorkspaceContainer = NonNullable<ReturnType<DomainContextValue['workspace']['getProject']>>;
 
@@ -40,18 +47,54 @@ export function useContextPayload(params: ContextPayloadParams) {
     [compiler, attachmentKey, currentContainer?.tokenCeiling, tick]
   );
 
-  // Telemetry payload for SaturationOrb and EdgeHeatStrip
+  // Telemetry for the SaturationOrb + the 5px rail. The rail is the payload,
+  // read top to bottom — the exact order of `compiledPrompt` and the Mirror:
+  // system → attachments (substrate order) → chapters (chronological).
+  // No invented categories: the old 70/30 `historyTokens` split is gone.
   const ambientTelemetry: AmbientTelemetryData = useMemo(() => {
     const tb = compiledContext.telemetry.tokenBreakdown;
     const ceiling = currentContainer?.tokenCeiling || 32000;
+    const totalTokens = tb.totalTokens;
+
+    const segments: EdgeRailSegment[] = [];
+    if (tb.systemTokens > 0) {
+      segments.push({
+        id: 'system',
+        kind: 'system',
+        label: 'System prompt',
+        tokens: tb.systemTokens,
+        state: 'system',
+        hex: SYSTEM_RAIL_HEX,
+      });
+    }
+    for (const entry of compiledContext.telemetry.attachmentBreakdown ?? []) {
+      const state: AttachmentVisualState = entry.staged ? 'staged' : entry.granularity;
+      segments.push({
+        id: `att-${entry.artifactId}`,
+        kind: 'attachment',
+        label: `${entry.title} (${entry.staged ? 'staged · ' : ''}${entry.granularity})`,
+        tokens: entry.tokens,
+        state,
+        hex: ATTACHMENT_STATE_PALETTE[state].hex,
+      });
+    }
+    for (const entry of compiledContext.telemetry.chapterBreakdown ?? []) {
+      segments.push({
+        id: `chap-${entry.chapterId}`,
+        kind: 'chapter',
+        label: `${entry.title} (${entry.granularity})`,
+        tokens: entry.tokens,
+        state: entry.granularity,
+        hex: ATTACHMENT_STATE_PALETTE[entry.granularity].hex,
+      });
+    }
+
     return {
-      activeChapterTokens: Math.round(tb.historyTokens * 0.7),
-      olderChaptersTokens: Math.round(tb.historyTokens * 0.3),
-      systemPromptTokens: tb.systemTokens,
-      substrateTokens: tb.substrateTokens,
-      totalTokens: tb.totalTokens,
+      totalTokens,
       ceiling,
-      saturationRatio: Math.min(1.0, tb.totalTokens / ceiling),
+      saturationRatio: Math.min(1.0, totalTokens / Math.max(1, ceiling)),
+      railHeightPct: computeRailHeightPct(totalTokens),
+      segments,
     };
   }, [compiledContext, currentContainer?.tokenCeiling]);
 

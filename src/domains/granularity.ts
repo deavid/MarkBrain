@@ -94,21 +94,43 @@ export function cycleGranularity(current: Granularity): Granularity {
 }
 
 /**
- * The 6 visual states for an artifact in a chat (design-docs/10_ATTACHMENT_TIMELINE.md):
- * - 'unstaged': not in this chat yet (dim slate, light text)
- * - 'staged': armed for the next turn, not sent yet (very bright cyan, dark text)
- * - 'title': committed in chat at Title — cheapest (emerald green, dark text)
- * - 'description': committed at Description — light (yellow, dark text)
- * - 'summary': committed at Summary — medium (orange, dark text)
- * - 'full': committed at Full — heaviest (red, dark text)
+ * THE COLOUR LAW (design-docs/12_PLAN_OF_RECORD.md §1) — read before touching
+ * anything coloured in this app:
+ *
+ *   L0  Colour is a stroke and a light, never a field.
+ *   L1  One filled thing per row: the dot.
+ *   L2  Dark plate, bright ink — always, for every state.
+ *   L3  Unselected sits on a slightly brighter key; selected presses into the
+ *       dark well and ignites its indicator.
+ *   L4  Hue belongs to state. Four hues only (green→yellow→orange→red, even
+ *       OKLCH steps), plus one animated cyan for 'staged' and grey for none.
+ *
+ * The six visual states for an artifact in a chat
+ * (design-docs/10_ATTACHMENT_TIMELINE.md §1, corrected by 12 §0.1–§0.2):
+ * - 'unstaged': not in this chat — brighter dark-slate row, DARK GREY circle
+ * - 'staged': armed for the next turn — deep dark row, punchy glowing cyan
+ * - 'title': committed at Title — cheapest — deep dark row, leaf-green circle
+ * - 'description': committed at Description — deep dark row, signal-yellow circle
+ * - 'summary': committed at Summary — deep dark row, amber-orange circle
+ * - 'full': committed at Full — heaviest — deep dark row, crimson-coral circle
+ *
+ * Palette maths (12 §0.1): the four hues sit at OKLCH 25°/61°/97°/136° — steps
+ * of +36°/+36°/+39°, OKLab step distances 0.137/0.124/0.130 (ratio 1.10). The
+ * shipped palette had a 92° HSL chasm on the yellow-green side because the old
+ * green was a blue-shifted mint; this one is warm leaf green, so it also stops
+ * colliding with the staged cyan.
  */
 export type AttachmentVisualState = 'unstaged' | 'staged' | Granularity;
 
 export interface AttachmentStatePalette {
   state: AttachmentVisualState;
-  /** Solid circle dot color + ring classes */
+  /** Canonical hex for the dot, the rail segment and the mirror legend. */
+  hex: string;
+  /** Box-shadow glow colour for the punchy lit circle (transparent when off). */
+  glow: string;
+  /** Solid circle dot classes */
   dotClass: string;
-  /** Row / card container classes (bright fill → dark text, dim fill → light text) */
+  /** Row / card container classes — ALWAYS a dark plate with bright ink. */
   rowClass: string;
   /** Primary title text class inside the row/card */
   titleTextClass: string;
@@ -116,72 +138,103 @@ export interface AttachmentStatePalette {
   subTextClass: string;
   /** Tag / muted badge class inside the row/card */
   tagClass: string;
-  /** Active chip classes when this granularity is selected */
+  /** Active chip classes when this granularity is selected (pressed dark well) */
   activeChipClass: string;
-  /** Inactive chip classes when inside a bright or dark row */
+  /** Inactive chip classes — shared, slightly brighter than the active well. */
   inactiveChipClass: string;
 }
+
+/** L3: the unselected key. One class, every state, so 'not selected' reads the same. */
+const INACTIVE_CHIP_CLASS =
+  'bg-[#152033] hover:bg-[#1b2940] text-[#9fb2ce] hover:text-[#e3edf7] border-[#24344f]';
+
+/** The in-chat deep well: selected rows press DOWN into this. */
+const ROW_WELL = 'bg-[#090f1a] hover:bg-[#0d1524] text-[#eef4fc]';
 
 export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentStatePalette> = {
   unstaged: {
     state: 'unstaged',
-    dotClass: 'bg-[#4f6482] border border-[#6e86a8] hover:bg-[#67e8f9] hover:border-[#cffafe]',
-    rowClass: 'bg-[#0c1322] hover:bg-[#101a2e] text-[#e3edf7]',
-    titleTextClass: 'text-[#e3edf7]',
-    subTextClass: 'text-[#758ca8]',
-    tagClass: 'text-[#556985] bg-[#080d18] border-[#152136]',
-    activeChipClass: 'bg-[#1e293b] text-[#e2e8f0] border-[#475569]',
-    inactiveChipClass: 'bg-[#080d16] text-[#6b82a3] border-[#141f33] hover:text-[#a4bddf]',
+    hex: '#18202c',
+    glow: 'transparent',
+    // L4: no hue to give — an unpressed key with its LED off.
+    dotClass:
+      'bg-[#18202c] border border-[#33435c] group-hover:border-[#556985]',
+    rowClass: 'bg-[#131c2e] hover:bg-[#18243a] border border-[#1f2d46] text-[#d6e3f5]',
+    titleTextClass: 'text-[#d6e3f5]',
+    subTextClass: 'text-[#8499b8]',
+    tagClass: 'text-[#8499b8] bg-[#0c1322] border-[#1f2d46]',
+    activeChipClass: 'bg-[#0d1422] text-[#e3edf7] border-[#33435c]',
+    inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   staged: {
     state: 'staged',
-    dotClass: 'bg-[#061826] border-2 border-[#083344] ring-2 ring-[#ecfeff] shadow-sm',
-    rowClass: 'bg-[#67e8f9] hover:bg-[#a5f3fc] text-[#051521] font-medium',
-    titleTextClass: 'text-[#04101a] font-bold',
-    subTextClass: 'text-[#082f49]',
-    tagClass: 'text-[#083344] bg-[#cffafe]/80 border-[#0e7490]/40',
-    activeChipClass: 'bg-[#083344] text-[#ecfeff] border-[#04101a] font-bold shadow-xs',
-    inactiveChipClass: 'bg-[#cffafe]/75 text-[#083344] border-[#0e7490]/40 hover:bg-[#ecfeff]',
+    hex: '#38bdf8',
+    glow: 'rgba(56, 189, 248, 0.55)',
+    dotClass:
+      'bg-[#38bdf8] ring-2 ring-[#38bdf8]/35 shadow-[0_0_10px_rgba(56,189,248,0.75)] animate-pulse',
+    rowClass: 'bg-[#081320] hover:bg-[#0c1a2b] border border-[#38bdf8]/45 text-[#eef6ff]',
+    titleTextClass: 'text-[#f0f9ff] font-semibold',
+    subTextClass: 'text-[#93c5fd]',
+    tagClass: 'text-[#7dd3fc] bg-[#0c2236] border-[#38bdf8]/40',
+    activeChipClass:
+      'bg-[#092232] text-[#ecfeff] border-[#38bdf8] font-semibold shadow-[0_0_8px_rgba(56,189,248,0.25)]',
+    inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   title: {
     state: 'title',
-    dotClass: 'bg-[#052e16] border-2 border-[#022c22] ring-2 ring-[#d1fae5]',
-    rowClass: 'bg-[#4ade80] hover:bg-[#6ee7b7] text-[#052e16] font-medium',
-    titleTextClass: 'text-[#031c0d] font-bold',
-    subTextClass: 'text-[#064e3b]',
-    tagClass: 'text-[#052e16] bg-[#bbf7d0]/80 border-[#15803d]/40',
-    activeChipClass: 'bg-[#4ade80] text-[#031c0d] border-[#15803d] font-bold shadow-xs',
-    inactiveChipClass: 'bg-[#dcfce7]/75 text-[#064e3b] border-[#15803d]/40 hover:bg-[#ecfdf5]',
+    hex: '#79ca4b',
+    glow: 'rgba(121, 202, 75, 0.5)',
+    dotClass:
+      'bg-[#79ca4b] ring-2 ring-[#79ca4b]/30 shadow-[0_0_8px_rgba(121,202,75,0.65)]',
+    rowClass: `${ROW_WELL} border border-[#79ca4b]/35`,
+    titleTextClass: 'text-[#eef4fc] font-semibold',
+    subTextClass: 'text-[#94a8c6]',
+    tagClass: 'text-[#b8cae4] bg-[#101929] border-[#22324d]',
+    activeChipClass:
+      'bg-[#0c1f17] text-[#eefcf3] border-[#79ca4b] font-semibold shadow-[0_0_8px_rgba(121,202,75,0.25)]',
+    inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   description: {
     state: 'description',
-    dotClass: 'bg-[#291d04] border-2 border-[#422006] ring-2 ring-[#fef9c3]',
-    rowClass: 'bg-[#fde047] hover:bg-[#fef08a] text-[#1c1404] font-medium',
-    titleTextClass: 'text-[#140e02] font-bold',
-    subTextClass: 'text-[#422006]',
-    tagClass: 'text-[#3b1d06] bg-[#fef9c3]/80 border-[#a16207]/40',
-    activeChipClass: 'bg-[#fde047] text-[#140e02] border-[#a16207] font-bold shadow-xs',
-    inactiveChipClass: 'bg-[#fef9c3]/75 text-[#422006] border-[#a16207]/40 hover:bg-[#fefce8]',
+    hex: '#e2c328',
+    glow: 'rgba(226, 195, 40, 0.5)',
+    dotClass:
+      'bg-[#e2c328] ring-2 ring-[#e2c328]/30 shadow-[0_0_8px_rgba(226,195,40,0.65)]',
+    rowClass: `${ROW_WELL} border border-[#e2c328]/35`,
+    titleTextClass: 'text-[#eef4fc] font-semibold',
+    subTextClass: 'text-[#94a8c6]',
+    tagClass: 'text-[#b8cae4] bg-[#101929] border-[#22324d]',
+    activeChipClass:
+      'bg-[#1f1c0b] text-[#fefce8] border-[#e2c328] font-semibold shadow-[0_0_8px_rgba(226,195,40,0.25)]',
+    inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   summary: {
     state: 'summary',
-    dotClass: 'bg-[#2b1004] border-2 border-[#431407] ring-2 ring-[#ffedd5]',
-    rowClass: 'bg-[#fb923c] hover:bg-[#fdba74] text-[#1f0b02] font-medium',
-    titleTextClass: 'text-[#170701] font-bold',
-    subTextClass: 'text-[#431407]',
-    tagClass: 'text-[#431407] bg-[#ffedd5]/80 border-[#c2410c]/40',
-    activeChipClass: 'bg-[#fb923c] text-[#170701] border-[#c2410c] font-bold shadow-xs',
-    inactiveChipClass: 'bg-[#ffedd5]/75 text-[#431407] border-[#c2410c]/40 hover:bg-[#fff7ed]',
+    hex: '#f99014',
+    glow: 'rgba(249, 144, 20, 0.5)',
+    dotClass:
+      'bg-[#f99014] ring-2 ring-[#f99014]/30 shadow-[0_0_8px_rgba(249,144,20,0.65)]',
+    rowClass: `${ROW_WELL} border border-[#f99014]/35`,
+    titleTextClass: 'text-[#eef4fc] font-semibold',
+    subTextClass: 'text-[#94a8c6]',
+    tagClass: 'text-[#b8cae4] bg-[#101929] border-[#22324d]',
+    activeChipClass:
+      'bg-[#221408] text-[#fff7ed] border-[#f99014] font-semibold shadow-[0_0_8px_rgba(249,144,20,0.25)]',
+    inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   full: {
     state: 'full',
-    dotClass: 'bg-[#2b0608] border-2 border-[#450a0a] ring-2 ring-[#ffe4e6]',
-    rowClass: 'bg-[#f87171] hover:bg-[#fca5a5] text-[#1f0505] font-medium',
-    titleTextClass: 'text-[#170303] font-bold',
-    subTextClass: 'text-[#450a0a]',
-    tagClass: 'text-[#450a0a] bg-[#fee2e2]/80 border-[#b91c1c]/40',
-    activeChipClass: 'bg-[#f87171] text-[#170303] border-[#b91c1c] font-bold shadow-xs',
-    inactiveChipClass: 'bg-[#fee2e2]/75 text-[#450a0a] border-[#b91c1c]/40 hover:bg-[#fef2f2]',
+    hex: '#f45a56',
+    glow: 'rgba(244, 90, 86, 0.5)',
+    dotClass:
+      'bg-[#f45a56] ring-2 ring-[#f45a56]/30 shadow-[0_0_8px_rgba(244,90,86,0.65)]',
+    rowClass: `${ROW_WELL} border border-[#f45a56]/35`,
+    titleTextClass: 'text-[#eef4fc] font-semibold',
+    subTextClass: 'text-[#94a8c6]',
+    tagClass: 'text-[#b8cae4] bg-[#101929] border-[#22324d]',
+    activeChipClass:
+      'bg-[#240e10] text-[#fef2f2] border-[#f45a56] font-semibold shadow-[0_0_8px_rgba(244,90,86,0.25)]',
+    inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
 };
 
@@ -190,12 +243,12 @@ export function getAttachmentStatePalette(state: AttachmentVisualState): Attachm
 }
 
 /**
- * Active chip class for any granularity button on a dark surface (Chapter header,
- * Mirror panel, Detail modal): uses the 4 rainbow heat colors with dark text.
+ * Chip class for any granularity button on any surface: active = pressed dark
+ * well in the hue's own tint with a crisp border; inactive = the shared
+ * brighter slate key. Never a bright fill, never dark text on light.
  */
 export function getGranularityChipClass(target: Granularity, active: boolean): string {
-  if (!active) {
-    return 'border-[#162234] bg-[#090e18] text-[#758ca8] hover:text-[#c7daf2] hover:border-[#243754]';
-  }
-  return ATTACHMENT_STATE_PALETTE[target].activeChipClass;
+  return active
+    ? ATTACHMENT_STATE_PALETTE[target].activeChipClass
+    : ATTACHMENT_STATE_PALETTE.unstaged.inactiveChipClass;
 }

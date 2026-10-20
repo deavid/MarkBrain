@@ -2,6 +2,68 @@
 
 All notable changes to MarkBrain. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-10-20 (evening) — the colour law, one widget, the honest rail
+
+David's second pass on the attachment timeline ("the colours are over the top")
+plus Vega's review, executed from `design-docs/12_PLAN_OF_RECORD.md`.
+Verdicts and reproductions live in `11_DESIGN_LEDGER.md`.
+
+**Changed — colour (the law, not a palette swap)**
+- **Colour is a stroke and a light, never a field.** No surface fills with a
+  bright colour anymore: every row is a dark plate with bright ink, at all
+  times. Selection is a *well* — the unselected key is a touch brighter than
+  the pressed-in selected one (David, verbatim).
+- **One lit thing per row: the dot.** In the chat = punchy colour + glow
+  (green → yellow → orange → red for title → description → summary → full,
+  cyan and pulsing when staged). Not in the chat = near-black grey circle and
+  a slightly brighter slate row.
+- **The four hues now step evenly** — OKLCH `25° / 61° / 97° / 136°`
+  (`#79ca4b` `#e2c328` `#f99014` `#f45a56`), steps of +36/+36/+39°. The old
+  palette chasmed by 92° on the yellow-green side (its "green" was a
+  blue-shifted mint); the ledger's first draft then moved green *further* into
+  mint and bridged with olive mustard. Both are gone.
+- Chips: inactive = brighter slate key, active = pressed dark well in the hue's
+  own tint, crisp hue border, plus a small hue dot on every key.
+
+**Changed — one widget everywhere**
+- `AttachmentRow` is the same object in the folder, the staged tray, the turn
+  cards, the chapter strip and the mirror. **Clicking the row body runs the
+  verb** (stage / unstage / cycle); **an arrow-out button on the right opens
+  the detail popup** — chat attachment cards had no route to it at all before.
+- One token readout per row (was two), one provenance counter (`msg N`, the
+  same noun as the chapter headers), legacy attachments say `in chat` instead
+  of claiming a turn they never had.
+
+**Changed — the rail**
+- The 5px edge bar now maps the actual payload in payload order (system →
+  attachments in substrate order → chapters chronologically), each segment
+  wearing its own state colour from the one palette. The old bar was three
+  fabricated segments (`historyTokens × 0.7 / × 0.3`) in dead tier colours.
+- Height is David's cube-root law: `min(100, cbrt(tokens / 1M))` — 100k tokens
+  is 46.4% of the edge, not a full bar.
+
+**Fixed**
+- **The chapter body lied at the `Description` cut** (Vega's S1): `description`
+  and `summary` are now gated on the compiler's own `cutIncludes`, so the body
+  renders exactly the layers the payload carries.
+- **`Write it` no longer changes the cut.** It used to downgrade a
+  `summary` chapter to `description` (17 tokens lighter) while "filling" a gap.
+  It now only asks for text, shows a failure + `Retry`, and never erases a
+  layer an empty response forgot to return.
+- **Retry welds staged attachments** to the user turn it answers, so a retry
+  can no longer deliver an artifact twice while history says it never entered.
+- **Summarize has deadlines**: 15s client abort, 12s server race → `504`, a
+  visible failure, and a Retry. The console no longer collects an error for a
+  state the UI handles.
+- **350px chapter header** is two rows: the four words keep their full labels
+  and the fold control is reachable (it was clipped off-screen).
+- The audit now catches `clipped-by-viewport` / `clipped-inside-overflow`
+  controls — the class of bug it missed on the `Full` chip.
+
+**Gates** `tsc` clean · `vitest` 133/133 (16 files) · evidence **GREEN**:
+18/18 journeys, 0 fails/warns, 0 geometry fails at 350/390/768/1440,
+0 console/page/http errors.
+
 ## 2026-10-20 — the attachment timeline: the chat is the payload
 
 David's four screenshots after the attachment slice each caught the same

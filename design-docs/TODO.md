@@ -62,7 +62,13 @@ distance. Details in `09_CHAT_ARTIFACTS_PAYLOAD.md` §11 and `changelog.md`.
 
 ---
 
-## Open — 2026-10-20 night: R1 (David) + V1 (Vega review) → `12_PLAN_OF_RECORD.md`
+## Done — 2026-10-20 night: the colour law, one widget, the honest rail (12)
+
+**All nine items below shipped** on `dev-altair`; the built list (with the
+deviations) is `12_PLAN_OF_RECORD.md` §18, the verdicts are
+`11_DESIGN_LEDGER.md`. The items stay below as the statement of the problem,
+not as work.
+
 
 Full verdicts live in `11_DESIGN_LEDGER.md`; the concrete, self-reviewed
 execution blueprint (with all 4 open questions resolved and exact hexes,

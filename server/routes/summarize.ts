@@ -38,13 +38,23 @@ SUMMARY: [several paragraphs]
 Transcript:
 ${conversationTranscript}`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash-lite',
-        contents: prompt,
-        config: {
-          temperature: 0.3,
-        },
-      });
+      // Hard server-side deadline (12 §5.2). Without it a slow model call held
+      // the socket open indefinitely — observed unanswered for >40s — and the
+      // client only found out when a later navigation killed the fetch. The
+      // answer is always within 12s: real text, or an honest error the chapter
+      // chrome can show next to a Retry.
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model: 'gemini-3.5-flash-lite',
+          contents: prompt,
+          config: {
+            temperature: 0.3,
+          },
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('model call exceeded 12s')), 12_000)
+        ),
+      ]);
 
       const raw = response.text || '';
       const descMatch = raw.match(/DESCRIPTION:\s*([\s\S]*?)(?=SUMMARY:|$)/i);
@@ -65,8 +75,14 @@ ${conversationTranscript}`;
       tokens: estimateTokens(descriptionText + summaryText),
     });
   } catch (err: unknown) {
-    logServer('error', 'API:SUMMARIZE', `Error in /api/summarize-chapter: ${err instanceof Error ? err.message : err}`, err);
     const errorMessage = err instanceof Error ? err.message : 'Summarization error';
+    // A deadline breach is not a crash: answer 504 so the client stops waiting
+    // and the chapter shows its Retry instead of a socket that never returns.
+    if (/exceeded \d+s/.test(errorMessage)) {
+      logServer('warn', 'API:SUMMARIZE', `Timed out: ${errorMessage}`);
+      return res.status(504).json({ error: errorMessage });
+    }
+    logServer('error', 'API:SUMMARIZE', `Error in /api/summarize-chapter: ${errorMessage}`, err);
     res.status(500).json({ error: errorMessage });
   }
 });

@@ -975,43 +975,61 @@ async function main() {
   });
 
   // ── J17 top clearance scrolls away (no sticky bar) ────────────────────────
-  await journey(page, '17-top-clearance', 'Clearance spacer sits at top and scrolls away', async (page) => {
+  await journey(page, '17-top-clearance', 'The title is in flow at the top, pins compact, never overlaps the orb', async (page) => {
     const geom = await page.evaluate(() => {
-      const spacer = document.querySelector('[data-testid="scroll-top-clearance"]');
-      const scroller = spacer ? spacer.closest('div.overflow-y-auto') || spacer.parentElement : null;
+      const title = document.querySelector('[data-testid="thread-title-row"]');
+      const scroller = title ? title.closest('div.overflow-y-auto') : null;
       const orb = document.querySelector('[title*="tap to see what the LLM will see"]');
-      const next = spacer ? spacer.nextElementSibling : null;
-      const sR = spacer ? spacer.getBoundingClientRect() : null;
-      const nR = next ? next.getBoundingClientRect() : null;
-      const oR = orb ? orb.getBoundingClientRect() : null;
+      // the row reserves a gutter for the orb; the TEXT is what must stay clear
+      const label = title ? title.querySelector('h1, input') : null;
       if (scroller) scroller.scrollTop = 0;
+      const tR = label ? label.getBoundingClientRect() : null;
+      const oR = orb ? orb.getBoundingClientRect() : null;
+      const sR = scroller ? scroller.getBoundingClientRect() : null;
+      const overlaps = tR && oR
+        ? !(oR.left >= tR.right || oR.right <= tR.left || oR.top >= tR.bottom || oR.bottom <= tR.top)
+        : null;
       return {
-        scrollTop: scroller ? scroller.scrollTop : null,
-        spacerTop: sR ? sR.top : null,
-        spacerHeight: sR ? sR.height : null,
-        nextTop: nR ? nR.top : null,
-        orbBottom: oR ? oR.bottom : null,
+        titleTop: tR ? Math.round(tR.top) : null,
+        titleHeight: tR ? Math.round(tR.height) : null,
+        scrollerTop: sR ? Math.round(sR.top) : null,
+        overlapsOrb: overlaps,
+        orbBottom: oR ? Math.round(oR.bottom) : null,
       };
     });
-    check(geom.spacerHeight !== null && geom.spacerHeight > 20, `in-flow clearance exists (${geom.spacerHeight}px)`);
-    if (geom.orbBottom != null && geom.nextTop != null) {
-      check(geom.orbBottom <= geom.nextTop, `pills do not overlap the first block (${geom.orbBottom} <= ${geom.nextTop})`);
+    // A real title, not an 11px pill: it must be tall enough to read.
+    check(geom.titleHeight !== null && geom.titleHeight > 24, `title row is a real title (${geom.titleHeight}px)`);
+    check(
+      geom.titleTop !== null && geom.scrollerTop !== null && geom.titleTop - geom.scrollerTop < 24,
+      `title starts at the top of the feed (${geom.titleTop} vs ${geom.scrollerTop})`
+    );
+    if (geom.overlapsOrb !== null) {
+      check(geom.overlapsOrb === false, 'the token orb does not sit on the title');
     } else {
-      warn('could not measure the floating pill vs first block');
+      warn('could not measure the floating orb');
     }
 
     const after = await page.evaluate(() => {
-      const spacer = document.querySelector('[data-testid="scroll-top-clearance"]');
-      const scroller = spacer ? spacer.closest('div.overflow-y-auto') || spacer.parentElement : null;
-      if (scroller) scroller.scrollTop = 320;
-      const r = spacer ? spacer.getBoundingClientRect() : null;
-      return { spacerBottom: r ? r.bottom : null, scrollTop: scroller ? scroller.scrollTop : null };
+      const title = document.querySelector('[data-testid="thread-title-row"]');
+      const scroller = title ? title.closest('div.overflow-y-auto') : null;
+      if (scroller) scroller.scrollTop = 400;
+      return new Promise((resolve) => setTimeout(() => {
+        const r = title ? title.getBoundingClientRect() : null;
+        resolve({
+          scrollTop: scroller ? scroller.scrollTop : null,
+          height: r ? Math.round(r.height) : null,
+          top: r ? Math.round(r.top) : null,
+          scrolled: title ? title.dataset.scrolled : null,
+        });
+      }, 200));
     });
     check(after.scrollTop > 0, `scrolled down (${after.scrollTop})`);
-    check(after.spacerBottom !== null && after.spacerBottom <= 0, `clearance scrolled away, nothing sticky (${after.spacerBottom})`);
+    // Pinned, but compact: the conversation stays named without eating the page.
+    check(after.height !== null && after.height <= 44, `title pins compact when scrolled (${after.height}px)`);
+    check(after.scrolled === 'true', 'title knows it is scrolled (data-scrolled)');
     await page.evaluate(() => {
-      const spacer = document.querySelector('[data-testid="scroll-top-clearance"]');
-      const scroller = spacer ? spacer.closest('div.overflow-y-auto') || spacer.parentElement : null;
+      const title = document.querySelector('[data-testid="thread-title-row"]');
+      const scroller = title ? title.closest('div.overflow-y-auto') : null;
       if (scroller) scroller.scrollTop = 0;
     });
     await shot(page, 'clearance');

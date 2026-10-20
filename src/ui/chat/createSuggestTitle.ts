@@ -14,18 +14,30 @@ export interface SuggestTitleDeps {
 // call site now goes through the gateway (same payload, same response handling).
 export function createSuggestTitle(deps: SuggestTitleDeps) {
   const { sendQueue, threadRegistry, triggerReRender } = deps;
-  const handleSuggestTitle = (threadId: string) => {
+  // Resolves true when a title was actually applied, false when there was
+  // nothing to title or the request failed. The caller (the chat title's
+  // sparkles button) needs that answer to show feedback — this used to be
+  // fire-and-forget, so a failed or empty suggestion looked like a dead button.
+  const handleSuggestTitle = async (threadId: string): Promise<boolean> => {
     const turns = sendQueue.getTurnsOf(threadId);
-    if (turns.filter((t) => (t.content || '').trim()).length === 0) return;
-    titleThread({ messages: sampleTurnsForTitle(turns), version: 2 })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: any) => {
-        if (data?.title && threadRegistry.forceAutoTitle(threadId, data.title)) {
-          logger.info('App', 'Suggested title applied', { threadId, title: data.title });
-          triggerReRender();
-        }
-      })
-      .catch((err) => logger.warn('App', 'suggest-title failed', err));
+    if (turns.filter((t) => (t.content || '').trim()).length === 0) return false;
+    try {
+      const r = await titleThread({ messages: sampleTurnsForTitle(turns), version: 2 });
+      if (!r.ok) {
+        logger.warn('App', 'suggest-title failed', { status: r.status });
+        return false;
+      }
+      const data: any = await r.json();
+      if (data?.title && threadRegistry.forceAutoTitle(threadId, data.title)) {
+        logger.info('App', 'Suggested title applied', { threadId, title: data.title });
+        triggerReRender();
+        return true;
+      }
+      return false;
+    } catch (err) {
+      logger.warn('App', 'suggest-title failed', err);
+      return false;
+    }
   };
   return handleSuggestTitle;
 }

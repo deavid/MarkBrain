@@ -407,7 +407,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0d121c] text-[#e3edf7] font-sans relative p-0 m-0">
+    <div className="flex h-screen w-screen overflow-hidden bg-surface-1 text-[#e3edf7] font-sans relative p-0 m-0">
       {/* Extensible Left Sidebar with Floating Toggle */}
       <Sidebar
         isOpen={isSidebarOpen}
@@ -512,6 +512,11 @@ export default function App() {
                   threadRuntime={threadRuntimes[activeThreadId]?.state || 'idle'}
                   queuePosition={threadRuntimes[activeThreadId]?.position || 0}
                   onSuggestTitle={() => handleSuggestTitle(activeThreadId)}
+                  onRenameTitle={(title) => {
+                    logger.action('App', 'Renamed thread from the chat title', { title });
+                    threadRegistry.rename(activeThreadId, title);
+                    triggerReRender();
+                  }}
                   onUnarchive={() => threadRegistry.setThreadLifecycle(activeThreadId, 'active')}
                   onRetry={handleRetryThread}
                   onCancelQueued={() => handleCancelQueued(activeThreadId)}
@@ -548,7 +553,7 @@ export default function App() {
               type="button"
               onClick={() => setIsImportOpen(true)}
               title="Open the import session"
-              className="fixed bottom-4 left-4 z-30 px-3 py-1.5 rounded-full bg-[#0d1421]/90 backdrop-blur-md border border-[#162235] shadow-lg text-[10px] font-mono text-[#8ab1e0] hover:border-[#223552] transition-colors cursor-pointer flex items-center gap-2"
+              className="fixed bottom-4 left-4 z-30 px-3 py-1.5 rounded-full bg-surface-3/95 backdrop-blur-md shadow-lg text-[10px] font-mono text-ink-dim hover:text-ink hover:bg-surface-4 transition-colors cursor-pointer flex items-center gap-2"
             >
               <span className="w-2 h-2 rounded-full bg-[#8ab1e0] animate-pulse" />
               <span>

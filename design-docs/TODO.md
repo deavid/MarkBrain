@@ -62,6 +62,48 @@ distance. Details in `09_CHAT_ARTIFACTS_PAYLOAD.md` §11 and `changelog.md`.
 
 ---
 
+## Open — 2026-10-20 night: R1 (David) + V1 (Vega review) → `11_DESIGN_LEDGER.md`
+
+Full verdicts, measurements and the four open questions live in the ledger. The
+work, in the order I intend to do it (item 11 first — it is a broken promise):
+
+11. **The chapter body lies at the `Description` cut** (S1): `ChatView.tsx:671/679`
+    render `description`/`summary` with only a `granularity !== 'title'` gate, so
+    the payload carries the title while the UI shows the summary paragraph
+    (ledger V1.2). Gate both on `cutIncludes`, add the J16 Description step, and
+    one journey that asserts **UI == payload** (via the Mirror breakdown) instead
+    of element counts.
+12. **Colour law v2** (R1.1/R1.2): hue becomes a stroke/ink/dot, never a fill;
+    dark plate + bright ink always; one filled thing per row (the dot); 6 states
+    = 4 even-spaced hues (`#41d686` `#d4da5b` `#ff9d00` `#ff645f`) + animated
+    staged cyan `#37d2f2` + hue-less grey `#7d8792`. Kills the 1.34:1
+    active-chip inversion by construction (V1.5).
+13. **The 5px rail** (R1.5): real payload order + real breakdown (no
+    `historyTokens * 0.7`), one segment per part, hue = that part's own
+    granularity, height = `min(1, cbrt(total/1M))` with segments subdividing that
+    fill. Yardstick open (ledger §Open to David 1).
+14. **One artifact widget everywhere** (R1.3/R1.4): row body = the verb, arrow-out
+    icon = the detail modal, same component in folder / chat cards / staged tray
+    / chapter strip / mirror. Chat cards have *no* modal route today.
+15. **Retry must not carry un-welded attachments** (V1.3): `sendQueue.ts:296/310`
+    commits staged items only on the new-send branch while compile reads them
+    anyway → sent, unrecorded, re-sent. Product call open (ledger §Open 2).
+16. **`Write it` must not change the cut** (V1.4): on `full → summary` seals it
+    silently downgrades to `description` (17 fewer tokens, masked by item 11).
+17. **350px header** (V1.6): `Full` chip clipped, fold control off-screen inside
+    `overflow-hidden`; add a *clipped-inside-overflow* geometry check to the audit
+    (it currently only checks touch size + document scroll).
+18. **Summarize: timeout + abort + visible failure** (V1.7) — also the source of
+    the console error that makes the evidence pack RED (V1.1). Doubles as item 9's
+    Regenerate.
+19. **Taste/hygiene pass** (R1.6 + V1.8): one token count, one message counter
+    (`msg N`, 1-based), legacy attachments say "from the start of this chat",
+    dead `TTS_VOICES` / `estimateChapterCutTokens`, the duplicate
+    `GranularityChips` in `MirrorPanel`, orb gets role/keyboard/aria, modal gets
+    provenance, ≤390px pill band.
+
+---
+
 ## Open — decided or discovered, not built
 
 ### 1. Chapters have no summary until someone presses Summarize
@@ -138,6 +180,9 @@ does this cost me in this chat" ring would be the natural next step.
 ---
 
 ## See also
+- `11_DESIGN_LEDGER.md` — **external verdicts** (David's feedback rounds,
+  review reports) with verdicts + measurements. Every round lands there before
+  any of it is built; the actionable subset lands here.
 - `scratch/pending.md` — live state, newest first.
 - `STATUS.md` — cold-start snapshot + queued decisions (keyPoints, over-budget,
   tokenCeiling, 24px pass). Note: keyPoints are now **deleted** (were never

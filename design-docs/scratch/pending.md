@@ -1,5 +1,41 @@
 # Pending / open work
 
+## State (2026-10-20, ~20:25 — R1 + V1 LOGGED, nothing built)
+
+- **New tracker:** `design-docs/11_DESIGN_LEDGER.md` — external verdicts only
+  (David's feedback rounds + review reports), each finding with a verdict
+  (ACCEPT / ACCEPT-CHANGED / DISPUTE / DEFER), a status, and a reproduction.
+  Standing law recorded in the file: *a review finding is hearsay until
+  reproduced in code or app* — and when a review is wrong, that gets written
+  down too.
+- **R1 (David, in chat):** colours are over the top → **new colour law**
+  (hue is a stroke/ink/dot, never a fill; dark plate + bright ink always; one
+  filled thing per row; selection is a well, not a highlight) with a new
+  4-hue palette on even OKLCH steps (`#41d686` `#d4da5b` `#ff9d00` `#ff645f`,
+  ΔE ratio 1.10 vs the shipped 1.79) + animated cyan staged + hue-less grey.
+  Also: row click = the verb / arrow icon = detail modal / **the same widget in
+  folder and chat**; chat cards must open the modal (they have no route today);
+  the 5px rail must show real payload order with real colours and
+  `cbrt(tokens/1M)` height. Four one-word questions for David at the end of the
+  ledger.
+- **V1 (Vega review):** scope corrected (the range is exactly `741e6c7`, `main`
+  is an ancestor — no 146-file merge happened). **One S1 reproduced:** the
+  chapter body at the `Description` cut renders the summary with no
+  `cutIncludes` guard (`ChatView.tsx:671/679`) — view ≠ payload, the exact lie
+  doc 10 exists to kill. Five S2s reproduced: retry carries un-welded staged
+  attachments (`sendQueue.ts:296/310`), `Write it` silently downgrades the cut
+  (`ChatView.tsx:707`), 350px clips the `Full` chip + fold control, summarize
+  has no timeout/abort and fails silently (also the console error behind both of
+  his RED runs), active-chip contrast 1.34:1 (deleted by the new colour law
+  rather than patched). One DISPUTE: "pills over text" is the chosen no-bars
+  cost, not a bug.
+- **My error, on record:** my "evidence GREEN, 0 console errors" claim did not
+  reproduce (his two runs RED on the same summarize fetch). A gate claim is only
+  valid for the artifact it was measured on. Method fix adopted into the harness:
+  every promise in a doc gets a journey asserting the **equality** (UI == the
+  Mirror's own payload numbers), not the presence of elements.
+- **Next action:** ledger order of work, item 1 = the cut guard.
+
 ## State (2026-10-20, ~10:15 — ATTACHMENT TIMELINE SHIPPED on dev-altair)
 
 - **What landed** (spec: `design-docs/10_ATTACHMENT_TIMELINE.md`, §18 = the

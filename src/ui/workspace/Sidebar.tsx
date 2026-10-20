@@ -29,6 +29,7 @@ import {
   FolderKanban,
   Save,
   RotateCcw,
+  MoreHorizontal,
 } from 'lucide-react';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 
@@ -126,7 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Inline accordion toggles (all expand inline in document flow, guaranteeing ZERO container clipping)
   const [projectAccordionOpen, setProjectAccordionOpen] = useState(false);
   const [modelAccordionOpen, setModelAccordionOpen] = useState(false);
-  const [cloudAccordionOpen, setCloudAccordionOpen] = useState(true);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [ioToolsOpen, setIoToolsOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(true);
 
@@ -218,7 +219,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (state === 'interrupted')
       return (
         <span
-          className="w-2 h-2 rounded-full border border-[#e0b96c] bg-transparent shrink-0"
+          className="w-2 h-2 rounded-full ring-1 ring-[#e0b96c] bg-transparent shrink-0"
           title="Interrupted"
         />
       );
@@ -263,12 +264,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           setFolderMenu(null);
           setThreadMenu({ x: e.clientX, y: e.clientY, threadId: t.id });
         }}
-        className={`w-full flex items-center gap-2 p-2 rounded-lg text-left text-xs transition-colors cursor-pointer group select-none ${
+        className={`w-full flex items-center gap-2 min-h-[30px] pl-2 pr-1 py-1 rounded-md text-left text-xs transition-colors cursor-pointer group select-none ${
           isActive
-            ? 'bg-[#182338] text-[#8ab1e0] font-semibold border border-[#223552]'
+            ? 'bg-surface-3 text-ink font-medium'
             : unreadSet.has(t.id)
-              ? 'bg-[#111c33] text-[#d6e3f5] border border-[#1d3150] font-medium'
-              : 'hover:bg-[#0e1626] text-[#9bb0d1] border border-transparent'
+              ? 'bg-surface-2 text-ink font-medium hover:bg-surface-3'
+              : 'text-ink-dim hover:bg-surface-2 hover:text-ink'
         } ${opts.dimmed ? 'opacity-70' : ''}`}
         title={`${t.preview || t.title}${opts.dimmed ? ' (archived)' : ''}`}
       >
@@ -284,7 +285,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               if (e.key === 'Enter') commitThreadRename();
               if (e.key === 'Escape') setRenamingThreadId(null);
             }}
-            className="flex-1 min-w-0 bg-[#080d16] border border-[#3b82f6] rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
+            className="flex-1 min-w-0 bg-surface-0 ring-1 ring-[#3b82f6] rounded-md px-1.5 py-0.5 text-xs text-ink focus:outline-none"
           />
         ) : (
           <>
@@ -302,6 +303,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </span>
             )}
             {runtimeDot(runtime?.state)}
+
+            {/* Row actions. Archiving and deleting used to be reachable only
+                by right-click or by dragging the row onto "Archived" — which
+                is nothing at all on a touch screen. This is the button. */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setFolderMenu(null);
+                setThreadMenu({
+                  x: Math.max(8, Math.min(r.left, window.innerWidth - 176)),
+                  y: r.bottom + 4,
+                  threadId: t.id,
+                });
+              }}
+              aria-label={`Actions for ${t.title}`}
+              title="Thread actions"
+              className={`p-1 -mr-0.5 rounded text-ink-faint hover:text-ink hover:bg-surface-4 transition-colors cursor-pointer shrink-0 ${
+                isActive
+                  ? 'opacity-100'
+                  : 'opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100'
+              }`}
+            >
+              <MoreHorizontal className="w-3.5 h-3.5" />
+            </button>
           </>
         )}
       </div>
@@ -319,7 +345,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onToggle();
           }}
           aria-label="Open sidebar drawer"
-          className="fixed top-3 left-3 z-50 flex items-center justify-center w-11 h-11 rounded-2xl bg-[#0c121e]/95 hover:bg-[#131d2e] border border-[#1a283e] text-[#e05a66] hover:text-[#ff6b78] shadow-2xl backdrop-blur-md transition-all duration-200 cursor-pointer group"
+          className="fixed top-3 left-3 z-50 flex items-center justify-center w-11 h-11 rounded-2xl bg-surface-3 hover:bg-surface-4 text-brand hover:text-[#ff6b78] shadow-2xl shadow-black/50 transition-all duration-200 cursor-pointer group"
           title="Open controls, project & artifact hierarchy"
         >
           <Brain className="w-6 h-6 transition-transform group-hover:scale-110" />
@@ -339,7 +365,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Unified Left Sidebar: Docked in flex layout on desktop, slide-out drawer on mobile */}
       <aside
-        className={`fixed md:relative top-0 bottom-0 left-0 z-40 md:z-20 h-full bg-[#090d16]/98 md:bg-[#090d16] border-r border-[#121c2d] flex flex-col transition-all duration-200 ease-in-out text-[#d6e3f5] backdrop-blur-xl shrink-0 ${
+        className={`fixed md:relative top-0 bottom-0 left-0 z-40 md:z-20 h-full bg-surface-1/98 md:bg-surface-1 border-r border-line-soft flex flex-col transition-all duration-200 ease-in-out text-ink backdrop-blur-xl shrink-0 ${
           isOpen
             ? 'w-[85vw] max-w-[350px] md:w-[350px] translate-x-0 shadow-2xl md:shadow-none'
             : '-translate-x-full md:translate-x-0 md:w-0 md:overflow-hidden md:border-r-0'
@@ -347,37 +373,81 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {/* Single Scrolling Panel */}
         <div className="flex-1 overflow-y-auto p-3 space-y-3.5">
-          {/* Top Brand Header */}
-          <div className="flex items-center justify-between pb-3 border-b border-[#131d2e]">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-[#131d2d] border border-[#1e2a3e] flex items-center justify-center text-[#e05a66] shadow-sm">
-                <Brain className="w-5 h-5 text-[#e05a66]" />
-              </div>
-              <div>
-                <span className="font-bold text-sm tracking-wider text-[#eef4fc] font-mono block">
-                  MarkBrain
-                </span>
-                <span className="text-[9px] text-[#556985] font-mono block">
-                  thinking workbench
-                </span>
-              </div>
+          {/* Brand + identity. The account block used to be a collapsible card at
+              the bottom of the column; it is now a single flat row at the top —
+              avatar opens a popover with the address and Sign Out. No card, no
+              accordion, no divider rule: the gap below is the separator. */}
+          <div className="relative flex items-center gap-2 px-1">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Brain className="w-4 h-4 text-brand shrink-0" />
+              <span className="font-semibold text-sm tracking-wide text-ink font-mono truncate">
+                MarkBrain
+              </span>
             </div>
 
-            {/* Close Button: [X] inside the sidebar */}
+            <button
+              onClick={() => {
+                logger.action('Sidebar', `Toggle account popover: ${!accountOpen ? 'opened' : 'closed'}`);
+                setAccountOpen((v) => !v);
+              }}
+              aria-expanded={accountOpen}
+              aria-label="Account and sync"
+              title={currentUser?.email || 'Local workspace'}
+              className="p-0.5 rounded-full hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
+            >
+              {currentUser?.photoURL ? (
+                <img
+                  src={currentUser.photoURL}
+                  alt=""
+                  className="w-6 h-6 rounded-full"
+                />
+              ) : (
+                <span className="w-6 h-6 rounded-full bg-surface-3 flex items-center justify-center text-[#8ab1e0]">
+                  <UserIcon className="w-3.5 h-3.5" />
+                </span>
+              )}
+            </button>
+
             <button
               onClick={() => {
                 logger.action('Sidebar', 'Close sidebar button clicked');
                 onToggle();
               }}
-              className="p-1.5 rounded-xl bg-[#0e1626] hover:bg-[#162238] text-[#7185a3] hover:text-white transition-colors cursor-pointer border border-[#162338]"
+              className="p-1.5 rounded-lg text-ink-faint hover:text-ink hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
               title="Close sidebar drawer"
             >
               <X className="w-4 h-4" />
             </button>
+
+            {accountOpen && (
+              <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl bg-surface-4 p-1.5 shadow-2xl shadow-black/60 animate-in fade-in slide-in-from-top-1 duration-100">
+                <div className="px-2.5 py-1.5">
+                  <span className="text-xs font-semibold text-ink block truncate">
+                    {currentUser ? currentUser.displayName || 'Google Account' : 'Not signed in'}
+                  </span>
+                  <span className="text-[10px] font-mono text-ink-mute block truncate">
+                    {currentUser?.email || 'local workspace'}
+                  </span>
+                </div>
+                {currentUser && (
+                  <button
+                    onClick={() => {
+                      logger.action('Sidebar', 'Sign out of Firebase');
+                      setAccountOpen(false);
+                      onSignOut?.();
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-mono text-[#f28894] hover:bg-surface-3 transition-colors cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Sign Out</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Block 1: View Navigation Switcher (Chat vs the Artifacts library) */}
-          <div className="p-1 bg-[#0c121e] border border-[#131e2e] rounded-xl flex items-center gap-1">
+          <div className="p-1 bg-surface-0 rounded-xl flex items-center gap-1">
             <button
               onClick={() => {
                 logger.action('Sidebar', 'Switch view to chat');
@@ -385,12 +455,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-mono font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeView === 'chat'
-                  ? 'bg-[#18253b] text-[#8ab1e0] border border-[#223654] shadow-xs'
-                  : 'text-[#5d7394] hover:text-[#c4d7f2]'
+                  ? 'bg-surface-3 text-ink'
+                  : 'text-ink-faint hover:text-ink-dim hover:bg-surface-2'
               }`}
             >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Chat</span>
+              <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Chat</span>
             </button>
             <button
               onClick={() => {
@@ -399,24 +469,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-mono font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeView === 'artifacts'
-                  ? 'bg-[#18253b] text-[#8ab1e0] border border-[#223654] shadow-xs'
-                  : 'text-[#5d7394] hover:text-[#c4d7f2]'
+                  ? 'bg-surface-3 text-ink'
+                  : 'text-ink-faint hover:text-ink-dim hover:bg-surface-2'
               }`}
             >
-              <FolderTree className="w-3.5 h-3.5" />
-              <span>Artifacts{artifacts.length > 0 ? ` · ${artifacts.length}` : ''}</span>
+              <FolderTree className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">
+                Artifacts{artifacts.length > 0 ? ` · ${artifacts.length}` : ''}
+              </span>
             </button>
           </div>
 
           {/* Block 2: Project Selector (INLINE ACCORDION - NO FLOATING CLIPPED DROPDOWN) */}
-          <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
+          <div className="rounded-xl px-1">
             <button
               onClick={() => {
                 const nextState = !projectAccordionOpen;
                 logger.action('Sidebar', `Toggle project accordion: ${nextState ? 'opened' : 'closed'}`);
                 setProjectAccordionOpen(nextState);
               }}
-              className="w-full flex items-center justify-between p-2.5 text-left transition-colors hover:bg-[#0f182a] cursor-pointer"
+              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-2 cursor-pointer"
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 <span
@@ -440,7 +512,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Inline Accordion Body */}
             {projectAccordionOpen && (
-              <div className="p-2 border-t border-[#131e33] bg-[#070b12] space-y-1 animate-in fade-in duration-100">
+              <div className="mt-0.5 pb-1.5 space-y-0.5 animate-in fade-in duration-100">
                 <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
                   {projects.map((proj) => (
                     <button
@@ -452,8 +524,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }}
                       className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
                         proj.id === activeProject.id
-                          ? 'bg-[#182338] text-[#8ab1e0] font-semibold border border-[#223552]'
-                          : 'hover:bg-[#0e1626] text-[#9bb0d1]'
+                          ? 'bg-surface-3 text-ink font-semibold'
+                          : 'hover:bg-surface-2 text-ink-dim'
                       }`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -476,7 +548,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     setProjectAccordionOpen(false);
                     onOpenProjectLauncher();
                   }}
-                  className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-[#141d2d] hover:bg-[#1a273d] text-xs font-mono text-[#8ab1e0] transition-colors border border-[#1d2d47] cursor-pointer"
+                  className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-mono text-ink-dim transition-colors cursor-pointer"
                 >
                   <Plus className="w-3 h-3 text-[#e05a66]" />
                   <span>Create / Switch in Deck</span>
@@ -486,52 +558,66 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Block 2.5: Chat Threads (per project — select / rename / delete) */}
-          <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
-            <div className="flex items-center justify-between p-2.5">
+          <div className="rounded-xl px-1">
+            {/* Header row. Order is deliberate: label · new folder · new thread ·
+                chevron LAST, so the collapse affordance is the final glyph on
+                the right and never sits in the middle of the action cluster. */}
+            <div className="flex items-center gap-0.5">
               <button
                 onClick={() => {
                   const next = !threadsOpen;
                   logger.action('Sidebar', `Toggle threads accordion: ${next ? 'opened' : 'closed'}`);
                   setThreadsOpen(next);
                 }}
-                className="flex items-center gap-2 min-w-0 flex-1 text-left transition-colors hover:text-white cursor-pointer"
+                className="flex items-center gap-2 min-w-0 flex-1 pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-2 cursor-pointer"
               >
-                <MessageSquare className="w-4 h-4 text-[#5ad49b] shrink-0" />
-                <span className="text-xs font-semibold text-white font-mono">Threads</span>
-                <span className="text-[10px] font-mono text-[#526682]">({activeThreads.length})</span>
-                <span className="flex-1" />
+                <span className="text-[10px] font-mono uppercase tracking-wider text-ink-faint">
+                  Threads
+                </span>
+                <span className="text-[10px] font-mono text-ink-faint/70 tabular-nums">
+                  {activeThreads.length}
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  logger.action('Sidebar', 'New folder');
+                  beginFolderNameBox('create');
+                }}
+                className="p-1.5 rounded-lg text-ink-faint hover:text-ink-dim hover:bg-surface-2 transition-colors cursor-pointer shrink-0"
+                title="New folder"
+              >
+                <FolderKanban className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => {
+                  logger.action('Sidebar', 'Create new thread');
+                  onCreateThread?.();
+                }}
+                className="p-1.5 rounded-lg text-ink-faint hover:text-brand hover:bg-surface-2 transition-colors cursor-pointer shrink-0"
+                title="New thread"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => {
+                  const next = !threadsOpen;
+                  logger.action('Sidebar', `Toggle threads accordion: ${next ? 'opened' : 'closed'}`);
+                  setThreadsOpen(next);
+                }}
+                aria-expanded={threadsOpen}
+                aria-label={threadsOpen ? 'Collapse threads' : 'Expand threads'}
+                className="p-1.5 rounded-lg text-ink-faint hover:text-ink hover:bg-surface-2 transition-colors cursor-pointer shrink-0"
+              >
                 {threadsOpen ? (
-                  <ChevronUp className="w-3.5 h-3.5 text-[#556985] shrink-0" />
+                  <ChevronUp className="w-3.5 h-3.5" />
                 ) : (
-                  <ChevronDown className="w-3.5 h-3.5 text-[#556985] shrink-0" />
+                  <ChevronDown className="w-3.5 h-3.5" />
                 )}
               </button>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => {
-                    logger.action('Sidebar', 'New folder');
-                    beginFolderNameBox('create');
-                  }}
-                  className="p-1.5 rounded-lg bg-[#141d2d] hover:bg-[#1a273d] text-[#8ab1e0] border border-[#1d2d47] transition-colors cursor-pointer"
-                  title="New folder"
-                >
-                  <FolderKanban className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => {
-                    logger.action('Sidebar', 'Create new thread');
-                    onCreateThread?.();
-                  }}
-                  className="p-1.5 rounded-lg bg-[#141d2d] hover:bg-[#1a273d] text-[#e05a66] border border-[#1d2d47] transition-colors cursor-pointer"
-                  title="New thread"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-              </div>
             </div>
 
             {threadsOpen && (
-              <div className="border-t border-[#131e33] bg-[#070b12] animate-in fade-in duration-100">
+              <div className="animate-in fade-in duration-100">
                 <div
                   className="max-h-72 overflow-y-auto p-1 space-y-0.5"
                   onDragOver={(e) => {
@@ -563,7 +649,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           if (e.key === 'Enter') commitFolderName();
                           if (e.key === 'Escape') setFolderNameBox(null);
                         }}
-                        className="w-full bg-[#080d16] border border-[#3b82f6] rounded-lg px-2 py-1 text-xs text-white placeholder-[#556985] focus:outline-none"
+                        className="w-full bg-surface-0 ring-1 ring-[#3b82f6] rounded-md px-2 py-1 text-xs text-ink placeholder:text-ink-faint focus:outline-none"
                       />
                     </div>
                   )}
@@ -571,7 +657,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {/* Inbox label (drop target for unfiled) */}
                   <div
                     className={`flex items-center gap-1.5 px-1.5 pt-1 pb-0.5 rounded ${
-                      dragOverTarget === 'inbox' ? 'ring-1 ring-[#38bdf8]/70 bg-[#0c1a2b]' : ''
+                      dragOverTarget === 'inbox' ? 'ring-1 ring-[#38bdf8]/70 bg-surface-2' : ''
                     }`}
                   >
                     <span className="text-[9px] font-mono uppercase tracking-wider text-[#526682]">
@@ -594,7 +680,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <div
                         key={f.id}
                         className={`rounded-lg ${
-                          dragOverTarget === f.id ? 'ring-1 ring-[#38bdf8]/70 bg-[#0c1a2b]' : ''
+                          dragOverTarget === f.id ? 'ring-1 ring-[#38bdf8]/70 bg-surface-2' : ''
                         }`}
                         onDragOver={(e) => {
                           e.preventDefault();
@@ -633,7 +719,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             setThreadMenu(null);
                             setFolderMenu({ x: e.clientX, y: e.clientY, folderId: f.id });
                           }}
-                          className="w-full flex items-center gap-1.5 p-1.5 rounded-lg text-xs text-[#9bb0d1] hover:bg-[#0e1626] cursor-pointer select-none"
+                          className="w-full flex items-center gap-1.5 min-h-[30px] px-2 py-1 rounded-md text-xs text-ink-dim hover:bg-surface-2 hover:text-ink cursor-pointer select-none"
                           title="Click to fold · double-click to rename · drag to reorder · right-click for actions"
                         >
                           {open ? (
@@ -654,7 +740,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 if (e.key === 'Enter') commitFolderName();
                                 if (e.key === 'Escape') setFolderNameBox(null);
                               }}
-                              className="flex-1 min-w-0 bg-[#080d16] border border-[#3b82f6] rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
+                              className="flex-1 min-w-0 bg-surface-0 ring-1 ring-[#3b82f6] rounded-md px-1.5 py-0.5 text-xs text-ink focus:outline-none"
                             />
                           ) : (
                             <span className="flex-1 min-w-0 truncate font-semibold">{f.name}</span>
@@ -674,7 +760,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {archivedThreads.length > 0 && (
                     <div
                       className={`mt-1 rounded-lg ${
-                        dragOverTarget === 'archived' ? 'ring-1 ring-[#e0b96c]/70 bg-[#1a1510]' : ''
+                        dragOverTarget === 'archived' ? 'ring-1 ring-[#e0b96c]/70 bg-surface-1' : ''
                       }`}
                       onDragOver={(e) => {
                         e.preventDefault();
@@ -695,7 +781,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <button
                         onClick={() => setArchivedOpen((v) => !v)}
-                        className="w-full flex items-center gap-1.5 p-1.5 rounded-lg text-xs text-[#7d93b3] hover:bg-[#0e1626] cursor-pointer select-none"
+                        className="w-full flex items-center gap-1.5 min-h-[30px] px-2 py-1 rounded-md text-xs text-ink-mute hover:bg-surface-2 hover:text-ink-dim cursor-pointer select-none"
                         title="Archived threads — click to expand"
                       >
                         {archivedOpen ? (
@@ -730,7 +816,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Thread context menu — Rename / Move to / Archive / Delete */}
           {threadMenu && (
             <div
-              className="fixed z-[60] min-w-40 p-1.5 bg-[#0a0f19] border border-[#1a293e] rounded-xl shadow-xl animate-in fade-in duration-100"
+              className="fixed z-[60] min-w-40 p-1.5 bg-surface-4 rounded-xl shadow-2xl shadow-black/60 animate-in fade-in duration-100"
               style={{ left: threadMenu.x, top: threadMenu.y }}
               onPointerDown={(e) => e.stopPropagation()}
             >
@@ -742,7 +828,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onClick={() => {
                         if (t) beginThreadRename(t);
                       }}
-                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer"
                     >
                       Rename
                     </button>
@@ -755,19 +841,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           onSuggestTitle?.(id);
                         }
                       }}
-                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer"
                     >
                       Suggest new title
                     </button>
                     <button
                       onClick={() => setMenuMoveOpen((v) => !v)}
-                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer flex items-center justify-between"
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer flex items-center justify-between"
                     >
                       <span>Move to…</span>
                       <ChevronRight className="w-3 h-3 text-[#556985]" />
                     </button>
                     {menuMoveOpen && t && (
-                      <div className="mt-0.5 mb-1 ml-2 pl-2 border-l border-[#1a293e] space-y-0.5">
+                      <div className="mt-0.5 mb-1 ml-3 pl-2 border-l border-line-soft space-y-0.5">
                         <button
                           onClick={() => {
                             onMoveThread?.(t.id, null);
@@ -775,7 +861,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             setMenuMoveOpen(false);
                           }}
                           className={`w-full px-2 py-1 rounded text-left text-[11px] font-mono transition-colors cursor-pointer ${
-                            !t.folderId ? 'text-[#38bdf8]' : 'text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white'
+                            !t.folderId ? 'text-[#38bdf8]' : 'text-[#9bb0d1] hover:bg-surface-3 hover:text-ink'
                           }`}
                         >
                           Inbox
@@ -791,7 +877,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             className={`w-full px-2 py-1 rounded text-left text-[11px] font-mono transition-colors cursor-pointer truncate ${
                               t.folderId === f.id
                                 ? 'text-[#38bdf8]'
-                                : 'text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white'
+                                : 'text-[#9bb0d1] hover:bg-surface-3 hover:text-ink'
                             }`}
                           >
                             {f.name}
@@ -814,7 +900,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         }
                         setThreadMenu(null);
                       }}
-                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer"
                     >
                       {t?.lifecycle === 'archived' ? 'Unarchive' : 'Archive'}
                     </button>
@@ -827,7 +913,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           onDeleteThread?.(id);
                         }
                       }}
-                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#f28894] hover:bg-[#241417] transition-colors cursor-pointer"
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#f28894] hover:bg-surface-3 transition-colors cursor-pointer"
                     >
                       Delete
                     </button>
@@ -840,7 +926,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Folder context menu — Rename / New thread here / Delete */}
           {folderMenu && (
             <div
-              className="fixed z-[60] min-w-40 p-1.5 bg-[#0a0f19] border border-[#1a293e] rounded-xl shadow-xl animate-in fade-in duration-100"
+              className="fixed z-[60] min-w-40 p-1.5 bg-surface-4 rounded-xl shadow-2xl shadow-black/60 animate-in fade-in duration-100"
               style={{ left: folderMenu.x, top: folderMenu.y }}
               onPointerDown={(e) => e.stopPropagation()}
             >
@@ -852,7 +938,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <>
                     <button
                       onClick={() => beginFolderNameBox('rename', f.id, f.name)}
-                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer"
                     >
                       Rename
                     </button>
@@ -862,7 +948,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         logger.action('Sidebar', 'New thread in folder', { folderId: f.id });
                         onCreateThread?.(f.id);
                       }}
-                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white transition-colors cursor-pointer"
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#9bb0d1] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer"
                     >
                       New thread here
                     </button>
@@ -877,7 +963,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           onDeleteFolder?.(id);
                         }
                       }}
-                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#f28894] hover:bg-[#241417] transition-colors cursor-pointer"
+                      className="w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono text-[#f28894] hover:bg-surface-3 transition-colors cursor-pointer"
                     >
                       Delete folder
                     </button>
@@ -888,17 +974,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           {/* Block 3: Inference Model Selector (INLINE ACCORDION - NO CONTAINER CLIPPING) */}
-          <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
+          <div className="rounded-xl px-1">
             <button
               onClick={() => {
                 const nextState = !modelAccordionOpen;
                 logger.action('Sidebar', `Toggle model accordion: ${nextState ? 'opened' : 'closed'}`);
                 setModelAccordionOpen(nextState);
               }}
-              className="w-full flex items-center justify-between p-2.5 text-left transition-colors hover:bg-[#0f182a] cursor-pointer"
+              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-2 cursor-pointer"
             >
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="p-1.5 rounded-lg bg-[#141d2d] border border-[#1e2b40] text-[#e05a66] shrink-0">
+                <div className="w-7 h-7 rounded-lg bg-surface-2 flex items-center justify-center shrink-0">
                   <Cpu className="w-4 h-4 text-[#e05a66]" />
                 </div>
                 <div className="min-w-0">
@@ -918,7 +1004,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Inline Accordion Body */}
             {modelAccordionOpen && (
-              <div className="p-2 border-t border-[#131e33] bg-[#070b12] space-y-1.5 animate-in fade-in duration-100">
+              <div className="mt-0.5 pb-1.5 space-y-1 animate-in fade-in duration-100">
                 {availableModels.map((m) => {
                   const isSelected = m.id === selectedModel.id;
                   // Server catalog flag (GET /api/models): false = provider key
@@ -934,10 +1020,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         setModelAccordionOpen(false);
                       }}
                       title={isUnavailable ? 'API key not configured — replies are demo' : undefined}
-                      className={`w-full p-2.5 rounded-xl text-left transition-all border cursor-pointer ${
+                      className={`w-full p-2.5 rounded-lg text-left transition-colors cursor-pointer ${
                         isSelected
-                          ? 'bg-[#142338] border-[#25426e] text-white shadow-xs'
-                          : 'bg-[#0a0f19] border-[#131e30] text-[#9bb0d1] hover:bg-[#0f1726]'
+                          ? 'bg-surface-3 text-ink'
+                          : 'text-ink-dim hover:bg-surface-2 hover:text-ink'
                       } ${isUnavailable ? 'opacity-60' : ''}`}
                     >
                       <div className="flex items-center justify-between mb-1">
@@ -948,13 +1034,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <div className="flex items-center gap-1.5">
                           {isUnavailable && (
                             <span
-                              className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#162030] text-[#f28894] border border-[#33242e]"
+                              className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-2 text-[#f28894]"
                               title="API key not configured — replies are demo"
                             >
                               no key
                             </span>
                           )}
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#162030] text-[#e0b96c] border border-[#22334d]">
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-3 text-[#e0b96c]">
                             {m.badge}
                           </span>
                         </div>
@@ -962,7 +1048,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <p className="text-[11px] text-[#788fa8] leading-tight mb-1.5">
                         {m.description}
                       </p>
-                      <div className="flex items-center justify-between text-[10px] font-mono text-[#526a8a] border-t border-[#131d2e] pt-1">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-[#526a8a] mt-1.5">
                         <span>Latency: {m.latency}</span>
                         <span>Window: {m.contextWindow}</span>
                       </div>
@@ -975,10 +1061,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Block 3.5: Read-aloud voice (moved out of the chat composer —
               on a 350px phone the composer belongs to typing, not settings) */}
-          <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
+          <div className="rounded-xl px-1">
             <div className="flex items-center justify-between p-2.5">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="p-1.5 rounded-lg bg-[#141d2d] border border-[#1e2b40] shrink-0">
+                <div className="w-7 h-7 rounded-lg bg-surface-2 flex items-center justify-center shrink-0">
                   <Volume2 className="w-4 h-4 text-[#5ad49b]" />
                 </div>
                 <div className="min-w-0">
@@ -989,7 +1075,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </div>
             </div>
-            <div className="px-2.5 pb-2.5 flex items-center gap-1 flex-wrap">
+            <div className="px-1.5 pb-1.5 flex items-center gap-1 flex-wrap">
               {TTS_VOICES.map((v) => {
                 const isSelected = v === chosenVoice;
                 return (
@@ -1002,10 +1088,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', `Selected TTS voice: ${v}`);
                       onSelectVoice?.(v);
                     }}
-                    className={`min-h-[26px] px-2.5 rounded-full text-[10px] font-mono border transition-colors cursor-pointer ${
+                    className={`min-h-[26px] px-2.5 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
                       isSelected
-                        ? 'bg-[#142338] text-[#eef4fc] border-[#25426e] font-semibold'
-                        : 'bg-[#0a0f19] text-[#9bb0d1] border-[#131e30] hover:bg-[#0f1726]'
+                        ? 'bg-surface-3 text-ink font-semibold'
+                        : 'text-ink-faint hover:bg-surface-2 hover:text-ink-dim'
                     }`}
                   >
                     {v}
@@ -1015,88 +1101,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          {/* Block 4: Firebase Cloud Sync & Account Persistence (INLINE ACCORDION) */}
-          <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
-            <button
-              onClick={() => {
-                const nextState = !cloudAccordionOpen;
-                logger.action('Sidebar', `Toggle cloud sync accordion: ${nextState ? 'opened' : 'closed'}`);
-                setCloudAccordionOpen(nextState);
-              }}
-              className="w-full flex items-center justify-between p-2.5 text-left transition-colors hover:bg-[#0f182a] cursor-pointer"
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="p-1.5 rounded-lg bg-[#101b2a] border border-[#1c2e47] text-[#38bdf8] shrink-0">
-                  <Cloud className="w-4 h-4 text-[#38bdf8]" />
-                </div>
-                <div className="min-w-0">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985] block">
-                    Cloud Storage & Sync
-                  </span>
-                  <span className="text-xs font-semibold text-white truncate block">
-                    {currentUser ? currentUser.displayName || 'Google Account' : 'Not signed in'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-
-                {cloudAccordionOpen ? <ChevronUp className="w-3.5 h-3.5 text-[#556985]" /> : <ChevronDown className="w-3.5 h-3.5 text-[#556985]" />}
-              </div>
-            </button>
-
-            {/* Inline Accordion Body */}
-            {cloudAccordionOpen && (
-              <div className="p-2.5 border-t border-[#131e33] bg-[#070b12] space-y-2 animate-in fade-in duration-100">
-                {currentUser && (
-                  <div className="space-y-2">
-                    <div className="p-2 rounded-lg bg-[#0e1726] border border-[#18263e] flex items-center gap-2.5">
-                      {currentUser.photoURL ? (
-                        <img
-                          src={currentUser.photoURL}
-                          alt={currentUser.displayName || 'User'}
-                          className="w-7 h-7 rounded-full border border-[#233857]"
-                        />
-                      ) : (
-                        <div className="w-7 h-7 rounded-full bg-[#16253c] flex items-center justify-center text-[#38bdf8]">
-                          <UserIcon className="w-4 h-4" />
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <span className="text-xs font-semibold text-white block truncate">
-                          {currentUser.displayName || 'You'}
-                        </span>
-                        <span className="text-[10px] font-mono text-[#6c84a3] block truncate">
-                          {currentUser.email}
-                        </span>
-                      </div>
-                    </div>
-
-
-                    <button
-                      onClick={() => {
-                        logger.action('Sidebar', 'Sign out of Firebase');
-                        onSignOut?.();
-                      }}
-                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#241417] hover:bg-[#331a20] text-xs font-mono text-[#f28894] transition-colors border border-[#3d1f25] cursor-pointer"
-                    >
-                      <LogOut className="w-3 h-3" />
-                      <span>Sign Out</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* Block 7: Import / Export Tools */}
-          <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
+          <div className="rounded-xl px-1">
             <button
               onClick={() => {
                 const nextState = !ioToolsOpen;
                 logger.action('Sidebar', `Toggle I/O tools accordion: ${nextState ? 'opened' : 'closed'}`);
                 setIoToolsOpen(nextState);
               }}
-              className="w-full flex items-center justify-between p-2.5 text-left transition-colors hover:bg-[#0f182a] cursor-pointer"
+              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-2 cursor-pointer"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <Database className="w-4 h-4 text-[#5ad49b] shrink-0" />
@@ -1108,7 +1121,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
 
             {ioToolsOpen && (
-              <div className="p-2.5 border-t border-[#131e33] bg-[#070b12] space-y-2 animate-in fade-in duration-100">
+              <div className="mt-0.5 pb-1.5 space-y-2 animate-in fade-in duration-100">
                 <p className="text-[10px] text-[#6b82a3] leading-relaxed">
                   Backup or restore project state, artifacts, chapters, and topological graphs.
                 </p>
@@ -1118,7 +1131,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', 'Open Import Modal');
                       onOpenImport();
                     }}
-                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-[#0f1726] hover:bg-[#162238] border border-[#141f33] text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer"
                   >
                     <Upload className="w-3.5 h-3.5 text-[#e05a66]" />
                     <span>Import</span>
@@ -1128,7 +1141,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', 'Open Export Modal');
                       onOpenExport();
                     }}
-                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-[#0f1726] hover:bg-[#162238] border border-[#141f33] text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 text-[#5ad49b]" />
                     <span>Export</span>
@@ -1138,7 +1151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', 'Export full database backup');
                       onExportDatabase();
                     }}
-                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-[#0f1726] hover:bg-[#162238] border border-[#141f33] text-xs font-mono text-[#5ad49b] transition-colors cursor-pointer col-span-1"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-mono text-[#5ad49b] transition-colors cursor-pointer col-span-1"
                     title="Download every project (turns, chapters, artifacts, graph) as one JSON file"
                   >
                     <Save className="w-3.5 h-3.5 text-[#5ad49b]" />
@@ -1149,7 +1162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', 'Restore database from file');
                       onImportDatabase();
                     }}
-                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-[#0f1726] hover:bg-[#162238] border border-[#141f33] text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer col-span-1"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer col-span-1"
                     title="Restore a MarkBrain database backup file into the active backend"
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-[#38bdf8]" />
@@ -1167,7 +1180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 logger.action('Sidebar', 'Open Server Logs Modal');
                 onOpenServerLogs();
               }}
-              className="w-full flex items-center justify-between p-2.5 rounded-xl border border-[#162942] bg-[#0c1626] hover:bg-[#13233c] text-left transition-colors cursor-pointer group shadow-xs"
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-left transition-colors cursor-pointer group"
               title="Inspect backend live streaming logs and token telemetry"
             >
               <div className="flex items-center gap-2">
@@ -1177,7 +1190,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Server Telemetry & Logs
                 </span>
               </div>
-              <span className="text-[10px] font-mono text-[#52749e] px-1.5 py-0.5 rounded bg-[#070d18] border border-[#132238]">
+              <span className="text-[10px] font-mono text-[#52749e] px-1.5 py-0.5 rounded bg-surface-0">
                 LIVE
               </span>
             </button>

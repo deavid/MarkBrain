@@ -62,10 +62,12 @@ distance. Details in `09_CHAT_ARTIFACTS_PAYLOAD.md` §11 and `changelog.md`.
 
 ---
 
-## Open — 2026-10-20 night: R1 (David) + V1 (Vega review) → `11_DESIGN_LEDGER.md`
+## Open — 2026-10-20 night: R1 (David) + V1 (Vega review) → `12_PLAN_OF_RECORD.md`
 
-Full verdicts, measurements and the four open questions live in the ledger. The
-work, in the order I intend to do it (item 11 first — it is a broken promise):
+Full verdicts live in `11_DESIGN_LEDGER.md`; the concrete, self-reviewed
+execution blueprint (with all 4 open questions resolved and exact hexes,
+props, and file-by-file changes) lives in **`12_PLAN_OF_RECORD.md`**. Execute
+Packages 1–6 in `12_PLAN_OF_RECORD.md` in order:
 
 11. **The chapter body lies at the `Description` cut** (S1): `ChatView.tsx:671/679`
     render `description`/`summary` with only a `granularity !== 'title'` gate, so

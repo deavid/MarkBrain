@@ -1,5 +1,37 @@
 # Pending / open work
 
+## State (2026-10-20, ~20:35 — `12_PLAN_OF_RECORD.md` WRITTEN, ready for execution)
+
+- **Opus review of `11_DESIGN_LEDGER.md` caught 4 flaws in my own draft and wrote
+  the full execution blueprint in `design-docs/12_PLAN_OF_RECORD.md`:**
+  1. **Palette math trap fixed (`12` §0.1):** My `#d4da5b` "yellow-lime" in the
+     ledger was olive mustard because I anchored green at `155°` OKLCH (mint-cyan).
+     What David actually noticed in the shipped palette was HSL `0° → 27° → 50° → 142°`
+     (a `92°` chasm on the yellow-green side because `#4ade80` is blue-shifted
+     emerald). Pulling green to true leaf green (`136°` OKLCH = `#79ca4b`) and
+     yellow to warm signal yellow (`97°` OKLCH = `#e2c328`) gives **even OKLCH
+     hue steps (`+36°, +36°, +39°`) AND a `1.10` OKLab step ratio** where every
+     colour looks like its name (`#f45a56` red, `#f99014` orange, `#e2c328`
+     yellow, `#79ca4b` leaf green, `#38bdf8` staged cyan, `#18202c` unstaged
+     dark-grey circle).
+  2. **"Which ones are not selected" (`12` §0.2):** David was talking about the
+     **unstaged rows in the folder**, not just chips. Unstaged rows get a
+     slightly brighter dark slate background (`#131c2e`) and a dark-grey/black
+     circle (`#18202c`), reading like unpressed keys; selected/in-chat rows
+     press into the deep dark well (`#090f1a`) and ignite their circle. Bright
+     text at all times.
+  3. **5px rail order (`12` §0.3):** My ledger put attachments both 2nd and 4th.
+     The PoR locks the order to match `compiledPrompt` and the Mirror 1:1:
+     `system` (`#475872`) → `attachments` in substrate order → `chapters` in
+     chronological order, inside a stack of height
+     `min(100, cbrt(totalTokens / 1_000_000) * 100)%`.
+  4. **Zero open questions punted back (`12` §0.4):** All 4 calls (1M yardstick,
+     retry weld to preceding user turn, dark plates with brighter unselected
+     slate, and 2-row chapter header ribbon that fits `350px` with `90px` to
+     spare) are resolved in `12_PLAN_OF_RECORD.md`.
+- **Next action:** Switch to the fast model and execute Packages 1–6 in
+  `design-docs/12_PLAN_OF_RECORD.md` §1–§2.
+
 ## State (2026-10-20, ~20:25 — R1 + V1 LOGGED, nothing built)
 
 - **New tracker:** `design-docs/11_DESIGN_LEDGER.md` — external verdicts only

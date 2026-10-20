@@ -362,19 +362,37 @@ button that is the same affordance for "Regenerate" (TODO.md item 9).
 
 ---
 
-# Open to David — four lines, all decidable in one word each
+# Open to David — RESOLVED in `12_PLAN_OF_RECORD.md` §0.4
 
-1. **Rail yardstick:** `1M` (as instructed) with a hairline **ceiling tick**, or
-   the container ceiling as the yardstick? *Default: `1M` + tick.*
-2. **Retry with staged items:** weld to the turn that actually sent them, ignore
-   them on retry, or refuse to retry while something is staged? *Default: weld.*
-3. **The plates:** unselected slightly brighter than selected (his literal
-   words) — keep, or invert to the conventional raised-active? *Default: his
-   words.*
-4. **≤390px:** wrap the chip row, or collapse to four coloured dots + a `···`
-   menu? *Default: wrap, and move the token count into the rail.*
+All four open questions and three design flaws in this ledger's first draft were
+reviewed and resolved during the opus pass in **`design-docs/12_PLAN_OF_RECORD.md`**:
 
-# Order of work (my call unless overruled)
+1. **Palette correction (`12` §0.1):** `#d4da5b` (olive mustard) and `#41d686`
+   (mint-cyan) in §R1.2 above were a math trap caused by anchoring green at
+   `155°` OKLCH. Pulling green to true leaf green (`136°` OKLCH = `#79ca4b`) and
+   yellow to warm signal yellow (`97°` OKLCH = `#e2c328`) yields **equal OKLCH
+   hue steps (`+36°, +36°, +39°`) AND a `1.10` OKLab step ratio**:
+   - Title: `#79ca4b` (leaf green)
+   - Description: `#e2c328` (warm signal yellow)
+   - Summary: `#f99014` (warm amber-orange)
+   - Full: `#f45a56` (crimson-coral)
+   - Staged: `#38bdf8` (punchy glowing cyan)
+   - Unstaged: `#18202c` dot with `#33435c` border (dark grey / near-black)
+2. **"Which ones are not selected" (`12` §0.2):** David was talking about the
+   **unstaged rows in the folder**, not just chips. Unstaged rows sit on a
+   slightly brighter dark slate (`#131c2e`) with a dark-grey/black circle
+   (`#18202c`); selected/in-chat rows press down into the deep dark base
+   (`#090f1a`) with a punchy glowing circle. Bright text at all times.
+3. **5px rail order & yardstick (`12` §0.3–0.4):** Order matches `compiledPrompt`
+   and the Mirror 1:1 (`system` → `attachments` in substrate order → `chapters`
+   in chronological order). Height is `min(100, cbrt(totalTokens / 1_000_000) * 100)`.
+4. **Retry weld (`12` §5.1):** Staged attachments on retry weld to the user turn
+   preceding the retried assistant turn right before compile.
+5. **350px chapter header (`12` §4.3):** Two-row layout inside the header ribbon
+   (`Chapter N · Title · X msgs · Y tok · chevron` on row 1, `Title | Description | Summary | Full`
+   compact chips on row 2 — `~220px` wide, zero clipping at `350px`).
+
+# Order of work (see `12_PLAN_OF_RECORD.md` §1–§2 for exact file-by-file blueprint)
 
 1. **V1.2** the cut guard — it is a lie in the core promise of doc 10, ~5 lines
    + the J16 Description step + the UI==payload assertion (V1.9.1). Nothing else

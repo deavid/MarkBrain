@@ -12,7 +12,6 @@ export interface TokenColorInfo {
   glowHex: string;
   badgeBg: string;
   textClass: string;
-  borderClass: string;
   bgClass: string;
   barColor: string;
   description: string;
@@ -36,10 +35,9 @@ export function getTokenColor(tokens: number): TokenColorInfo {
       colorName: 'blue',
       hex: '#3b82f6',
       glowHex: 'rgba(59, 130, 246, 0.25)',
-      badgeBg: 'bg-[#152033]',
+      badgeBg: 'bg-surface-2',
       textClass: 'text-[#8ab1e0]',
-      borderClass: 'border-[#293d5e]',
-      bgClass: 'bg-[#152033]/70',
+      bgClass: 'bg-surface-2/70',
       barColor: '#3b82f6',
       description: 'Micro context footprint, minimal latency and low compute cost.',
     };
@@ -50,10 +48,9 @@ export function getTokenColor(tokens: number): TokenColorInfo {
       colorName: 'cyan',
       hex: '#06b6d4',
       glowHex: 'rgba(6, 180, 212, 0.25)',
-      badgeBg: 'bg-[#14262b]',
+      badgeBg: 'bg-surface-3',
       textClass: 'text-[#7ec6cf]',
-      borderClass: 'border-[#274b54]',
-      bgClass: 'bg-[#14262b]/70',
+      bgClass: 'bg-surface-3/70',
       barColor: '#06b6d4',
       description: 'Optimal engineering balance with clear boundary focus.',
     };
@@ -64,10 +61,9 @@ export function getTokenColor(tokens: number): TokenColorInfo {
       colorName: 'green',
       hex: '#10b981',
       glowHex: 'rgba(16, 185, 129, 0.25)',
-      badgeBg: 'bg-[#16291c]',
+      badgeBg: 'bg-surface-3',
       textClass: 'text-[#88c9a0]',
-      borderClass: 'border-[#274d34]',
-      bgClass: 'bg-[#16291c]/70',
+      bgClass: 'bg-surface-3/70',
       barColor: '#10b981',
       description: 'Moderate context depth, retaining multi-component contracts.',
     };
@@ -78,10 +74,9 @@ export function getTokenColor(tokens: number): TokenColorInfo {
       colorName: 'yellow',
       hex: '#eab308',
       glowHex: 'rgba(234, 179, 8, 0.25)',
-      badgeBg: 'bg-[#2b2212]',
+      badgeBg: 'bg-surface-3',
       textClass: 'text-[#e0b96c]',
-      borderClass: 'border-[#544321]',
-      bgClass: 'bg-[#2b2212]/70',
+      bgClass: 'bg-surface-3/70',
       barColor: '#eab308',
       description: 'Lots of memory — consider summarizing older chapters.',
     };
@@ -92,10 +87,9 @@ export function getTokenColor(tokens: number): TokenColorInfo {
       colorName: 'orange',
       hex: '#f97316',
       glowHex: 'rgba(249, 115, 22, 0.25)',
-      badgeBg: 'bg-[#2e1a12]',
+      badgeBg: 'bg-surface-2',
       textClass: 'text-[#e89468]',
-      borderClass: 'border-[#593322]',
-      bgClass: 'bg-[#2e1a12]/70',
+      bgClass: 'bg-surface-2/70',
       barColor: '#f97316',
       description: 'High overhead. Recommend lowering artifact depth or compressing chapters.',
     };
@@ -106,10 +100,9 @@ export function getTokenColor(tokens: number): TokenColorInfo {
       colorName: 'red',
       hex: '#ef4444',
       glowHex: 'rgba(239, 68, 68, 0.3)',
-      badgeBg: 'bg-[#2e1215]',
+      badgeBg: 'bg-surface-2',
       textClass: 'text-[#f07a84]',
-      borderClass: 'border-[#5e2229]',
-      bgClass: 'bg-[#2e1215]/70',
+      bgClass: 'bg-surface-2/70',
       barColor: '#ef4444',
       description: 'Near boundary limit. High token consumption per turn.',
     };

@@ -1,34 +1,85 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   THE SURFACE LADDER
+   Six tones replace the ~180 ad-hoc background hexes scattered through the
+   components. Each step is measurably brighter than the one below, which is
+   what lets elevation read WITHOUT a border.
+
+   The old palette had 167 neighbouring pairs sitting at 1.00:1 — visually the
+   same colour. That is why a 1px line was the only instrument that ever
+   worked, and why the app read as a wireframe.
+
+     0 page      — the chat / artifacts canvas
+     1 sunken    — sidebar plane, wells, inputs at rest
+     2 card      — a block of content, a row at rest, a hovered row
+     3 raised    — hover, selected row, active tab, pressed
+     4 popover   — menus, popovers, modal bodies
+     5 edge      — the only tone allowed to be used as a hairline
+--------------------------------------------------------------------------- */
+@theme {
+  --color-surface-0: #05080f;
+  --color-surface-1: #0a0f18;
+  --color-surface-2: #121a26;
+  --color-surface-3: #1a2434;
+  --color-surface-4: #232f42;
+  --color-surface-5: #2f3d52;
+
+  /* The four legitimate line roles. Nothing else may use `border-[#...]`. */
+  --color-line: #2f3d52; /* control edge: inputs, the composer */
+  --color-line-soft: #1a2434; /* divider between structural panes only */
+
+  /* Three semantic washes. A warning is not a surface: it is a tint. */
+  --color-wash-danger: #2a1619;
+  --color-wash-warn: #2a2214;
+  --color-wash-success: #12251b;
+
+  --color-ink: #eef4fc;
+  --color-ink-dim: #9bb0d1;
+  --color-ink-mute: #6c84a3;
+  --color-ink-faint: #556985;
+
+  --color-brand: #e05a66;
+  --color-accent: #38bdf8; /* the one indicator colour: focus, active tab */
+  --color-brand-cool: #38bdf8;
+  --color-brand-gold: #e0b96c;
+  --color-brand-green: #5ad49b;
+}
+
 @layer base {
   :root {
-    /* Bluer shadows & inky midnight-slate base */
-    --bg-base: oklch(13.5% 0.035 255);
-    --bg-surface: oklch(17.5% 0.038 255);
-    --bg-elevated: oklch(21.5% 0.042 255);
-    --border-subtle: oklch(27% 0.032 255);
+    /* Legacy aliases — kept so anything still reading them resolves.
+       New code should use the @theme tokens above. */
+    --bg-base: var(--color-surface-0);
+    --bg-surface: var(--color-surface-2);
+    --bg-elevated: var(--color-surface-3);
+    --border-subtle: var(--color-line-soft);
     --border-accent: oklch(48% 0.12 24);
 
-    /* Redder highlights & warm ruby crimson accents */
     --accent-red: oklch(63% 0.18 24);
     --accent-red-hover: oklch(68% 0.19 25);
     --accent-red-subtle: oklch(26% 0.07 24);
     --accent-gold: oklch(75% 0.11 70);
 
-    /* Cool blue-silver typography */
     --text-primary: oklch(94% 0.012 250);
     --text-secondary: oklch(74% 0.022 250);
     --text-muted: oklch(54% 0.028 250);
   }
 
   body {
-    background-color: var(--bg-base);
-    color: var(--text-primary);
+    background-color: var(--color-surface-0);
+    color: var(--color-ink);
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   }
 
   code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Focus is a ring, never a decorative border. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-cool);
+    outline-offset: 2px;
   }
 }
 
@@ -47,51 +98,49 @@
 .md-body h4,
 .md-body h5,
 .md-body h6 {
-  color: #eef4fc;
+  color: var(--color-ink);
   font-weight: 700;
   line-height: 1.3;
   margin: 1.1em 0 0.45em;
 }
-.md-body h1 { font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid #1a283e; }
-.md-body h2 { font-size: 1.3em; padding-bottom: 0.25em; border-bottom: 1px solid #16233a; }
-.md-body h3 { font-size: 1.15em; color: #e0eeff; }
-.md-body h4 { font-size: 1.05em; color: #d5e5f8; }
+.md-body h1 { font-size: 1.5em; }
+.md-body h2 { font-size: 1.3em; color: #dbe9fa; }
+.md-body h3 { font-size: 1.15em; color: #d5e5f8; }
+.md-body h4 { font-size: 1.05em; color: #c8dcf2; }
 .md-body h5,
-.md-body h6 { font-size: 1em; color: #a4bddf; text-transform: uppercase; letter-spacing: 0.04em; }
+.md-body h6 { font-size: 1em; color: var(--color-ink-dim); text-transform: uppercase; letter-spacing: 0.04em; }
 .md-body p { margin: 0.55em 0; }
-.md-body strong { color: #eef4fc; font-weight: 700; }
+.md-body strong { color: var(--color-ink); font-weight: 700; }
 .md-body em { color: #d5e5f8; }
-.md-body del { color: #7185a3; }
-.md-body a { color: #38bdf8; text-decoration: underline; text-underline-offset: 2px; }
+.md-body del { color: var(--color-ink-mute); }
+.md-body a { color: var(--color-brand-cool); text-decoration: underline; text-underline-offset: 2px; }
 .md-body a:hover { color: #7dd3fc; }
 .md-body img { max-width: 100%; border-radius: 8px; margin: 0.4em 0; }
-.md-body hr { border: none; border-top: 1px solid #1a283e; margin: 1em 0; }
+.md-body hr { border: none; height: 1px; background: var(--color-surface-3); margin: 1.2em 0; }
 .md-body ul,
 .md-body ol { margin: 0.55em 0; padding-left: 1.4em; }
 .md-body ul { list-style: disc; }
 .md-body ol { list-style: decimal; }
 .md-body li { margin: 0.25em 0; }
-.md-body li::marker { color: #556985; }
+.md-body li::marker { color: var(--color-ink-faint); }
 .md-body blockquote {
-  border-left: 3px solid #2d4770;
   padding: 0.15em 0 0.15em 0.9em;
   margin: 0.65em 0;
-  color: #8fa8c9;
-  background: #0e162680;
+  color: var(--color-ink-dim);
+  background: var(--color-surface-1);
   border-radius: 0 8px 8px 0;
+  box-shadow: inset 2px 0 0 var(--color-surface-5);
 }
 .md-body code {
-  background: #131d2e;
-  border: 1px solid #1a283e;
-  color: #8ab1e0;
+  background: var(--color-surface-3);
+  color: #a8c6ea;
   padding: 0.1em 0.38em;
   border-radius: 5px;
   font-size: 0.92em;
   font-family: 'JetBrains Mono', monospace;
 }
 .md-body pre {
-  background: #050810;
-  border: 1px solid #0d1422;
+  background: var(--color-surface-1);
   padding: 10px 12px;
   border-radius: 10px;
   overflow-x: auto;
@@ -100,7 +149,6 @@
 }
 .md-body pre code {
   background: transparent;
-  border: none;
   padding: 0;
   color: #c4d6ed;
   font-size: 11px;
@@ -115,12 +163,11 @@
 }
 .md-body th,
 .md-body td {
-  border: 1px solid #1a283e;
   padding: 5px 9px;
   text-align: left;
 }
-.md-body th { background: #0e1626; color: #8ab1e0; font-weight: 600; }
-.md-body tr:nth-child(even) td { background: #0a1019; }
+.md-body th { background: var(--color-surface-2); color: #8ab1e0; font-weight: 600; }
+.md-body tr:nth-child(even) td { background: var(--color-surface-1); }
 
 /* Custom scrollbars */
 ::-webkit-scrollbar {

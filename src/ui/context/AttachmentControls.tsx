@@ -82,7 +82,7 @@ export const GranularityChips: React.FC<GranularityChipsProps> = ({
   state,
   compact = false,
 }) => (
-  <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+  <div className="flex items-center gap-0.5 flex-wrap min-w-0" onClick={(e) => e.stopPropagation()}>
     {GRANULARITY_ORDER.map((g) => {
       const active = g === value;
       const cls = active
@@ -102,7 +102,7 @@ export const GranularityChips: React.FC<GranularityChipsProps> = ({
           aria-label={`${label}: ${GRANULARITY_LABEL[g]}`}
           aria-pressed={active}
           data-granularity={g}
-          className={`flex items-center gap-1 min-h-[24px] ${compact ? 'px-1.5' : 'px-2'} py-0.5 rounded border text-[10px] font-mono cursor-pointer transition-colors ${cls}`}
+          className={`flex items-center gap-1 min-h-[24px] ${compact ? 'px-1.5' : 'px-2'} py-0.5 rounded-md text-[10px] font-mono cursor-pointer transition-colors ${cls}`}
         >
           {/* The rainbow, right on the key — hue is visible before you click. */}
           <span
@@ -231,13 +231,13 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
               {title}
             </span>
             {flagged && (
-              <span className={`text-[9px] font-mono px-1 py-0.2 rounded border ${palette.tagClass}`}>
+              <span className={`text-[9px] font-mono px-1 py-0.2 rounded ${palette.tagClass}`}>
                 review
               </span>
             )}
             {badge && (
               <span
-                className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${palette.tagClass}`}
+                className={`text-[9px] font-mono px-1.5 py-0.2 rounded ${palette.tagClass}`}
                 title={state === 'staged' ? 'Rides the next send' : undefined}
               >
                 {badge}
@@ -264,7 +264,7 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
               }}
               aria-label={`Unstage "${title}"`}
               data-testid="unstage-attachment"
-              className={`min-w-[28px] min-h-[28px] px-1.5 rounded border text-[10px] font-mono cursor-pointer ${palette.inactiveChipClass}`}
+              className={`min-w-[28px] min-h-[28px] px-1.5 rounded-md text-[10px] font-mono cursor-pointer ${palette.inactiveChipClass}`}
             >
               ✕
             </button>
@@ -280,7 +280,7 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
               aria-label={`Open details for "${title}"`}
               data-testid="open-artifact-detail"
               title={`Open "${title}" details`}
-              className="min-w-[30px] min-h-[30px] flex items-center justify-center rounded-lg bg-[#141f33] hover:bg-[#1f304d] border border-[#243754] text-[#8ab1e0] hover:text-[#eef4fc] transition-colors cursor-pointer"
+              className="min-w-[30px] min-h-[30px] flex items-center justify-center rounded-lg text-ink-faint hover:text-ink hover:bg-surface-3 transition-colors cursor-pointer"
             >
               <ArrowUpRight className="w-4 h-4" />
             </button>
@@ -334,7 +334,7 @@ export const StagedTray: React.FC<StagedTrayProps> = ({
   return (
     <div
       data-testid="staged-tray"
-      className="rounded-2xl border border-[#38bdf8]/40 bg-[#081320]/80 p-2 space-y-1.5"
+      className="rounded-xl bg-surface-1 p-2 space-y-1.5"
     >
       <div className="flex items-center justify-between px-0.5">
         <span className="text-[9px] font-mono uppercase tracking-wider text-[#38bdf8]">

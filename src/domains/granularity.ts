@@ -146,11 +146,13 @@ export interface AttachmentStatePalette {
 
 /** L3: the unselected key. One class, every state, so 'not selected' reads the same. */
 const INACTIVE_CHIP_CLASS =
-  'bg-[#152033] hover:bg-[#1b2940] text-[#9fb2ce] hover:text-[#e3edf7] border-[#24344f]';
+  'bg-[#152033] hover:bg-[#1b2940] text-[#9fb2ce] hover:text-[#e3edf7]';
 
-/** The in-chat deep well: selected rows press DOWN into this. */
-const ROW_WELL = 'bg-[#090f1a] hover:bg-[#0d1524] text-[#eef4fc]';
-
+/**
+ * Six plates. Each in-chat state has a DARK plate tinted with its own hue —
+ * the tint is what separates the row, not a hairline. All of them sit below
+ * the unstaged slate, so "not in the chat" still reads as the lighter key.
+ */
 export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentStatePalette> = {
   unstaged: {
     state: 'unstaged',
@@ -158,12 +160,12 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'transparent',
     // L4: no hue to give — an unpressed key with its LED off.
     dotClass:
-      'bg-[#18202c] border border-[#33435c] group-hover:border-[#556985]',
-    rowClass: 'bg-[#131c2e] hover:bg-[#18243a] border border-[#1f2d46] text-[#d6e3f5]',
+      'bg-[#18202c] ring-1 ring-[#33435c] group-hover:ring-[#556985]',
+    rowClass: 'bg-[#131c2e] hover:bg-[#18243a] text-[#d6e3f5]',
     titleTextClass: 'text-[#d6e3f5]',
     subTextClass: 'text-[#8499b8]',
-    tagClass: 'text-[#8499b8] bg-[#0c1322] border-[#1f2d46]',
-    activeChipClass: 'bg-[#0d1422] text-[#e3edf7] border-[#33435c]',
+    tagClass: 'text-[#8499b8] bg-[#0c1322]',
+    activeChipClass: 'bg-[#0d1422] text-[#c3d3e8] font-semibold',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   staged: {
@@ -172,12 +174,11 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'rgba(56, 189, 248, 0.55)',
     dotClass:
       'bg-[#38bdf8] ring-2 ring-[#38bdf8]/35 shadow-[0_0_10px_rgba(56,189,248,0.75)] animate-pulse',
-    rowClass: 'bg-[#081320] hover:bg-[#0c1a2b] border border-[#38bdf8]/45 text-[#eef6ff]',
+    rowClass: 'bg-[#081320] hover:bg-[#0c1a2b] text-[#eef6ff]',
     titleTextClass: 'text-[#f0f9ff] font-semibold',
     subTextClass: 'text-[#93c5fd]',
-    tagClass: 'text-[#7dd3fc] bg-[#0c2236] border-[#38bdf8]/40',
-    activeChipClass:
-      'bg-[#092232] text-[#ecfeff] border-[#38bdf8] font-semibold shadow-[0_0_8px_rgba(56,189,248,0.25)]',
+    tagClass: 'text-[#7dd3fc] bg-[#0c2236]',
+    activeChipClass: 'bg-[#071b28] text-[#7dd3fc] font-semibold',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   title: {
@@ -186,12 +187,11 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'rgba(121, 202, 75, 0.5)',
     dotClass:
       'bg-[#79ca4b] ring-2 ring-[#79ca4b]/30 shadow-[0_0_8px_rgba(121,202,75,0.65)]',
-    rowClass: `${ROW_WELL} border border-[#79ca4b]/35`,
+    rowClass: 'bg-[#0a1610] hover:bg-[#101d15] text-[#eef4fc]',
     titleTextClass: 'text-[#eef4fc] font-semibold',
     subTextClass: 'text-[#94a8c6]',
-    tagClass: 'text-[#b8cae4] bg-[#101929] border-[#22324d]',
-    activeChipClass:
-      'bg-[#0c1f17] text-[#eefcf3] border-[#79ca4b] font-semibold shadow-[0_0_8px_rgba(121,202,75,0.25)]',
+    tagClass: 'text-[#b8cae4] bg-[#101929]',
+    activeChipClass: 'bg-[#0c1f17] text-[#79ca4b] font-semibold',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   description: {
@@ -200,12 +200,11 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'rgba(226, 195, 40, 0.5)',
     dotClass:
       'bg-[#e2c328] ring-2 ring-[#e2c328]/30 shadow-[0_0_8px_rgba(226,195,40,0.65)]',
-    rowClass: `${ROW_WELL} border border-[#e2c328]/35`,
+    rowClass: 'bg-[#15120a] hover:bg-[#1c180c] text-[#eef4fc]',
     titleTextClass: 'text-[#eef4fc] font-semibold',
     subTextClass: 'text-[#94a8c6]',
-    tagClass: 'text-[#b8cae4] bg-[#101929] border-[#22324d]',
-    activeChipClass:
-      'bg-[#1f1c0b] text-[#fefce8] border-[#e2c328] font-semibold shadow-[0_0_8px_rgba(226,195,40,0.25)]',
+    tagClass: 'text-[#b8cae4] bg-[#101929]',
+    activeChipClass: 'bg-[#1a170a] text-[#e2c328] font-semibold',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   summary: {
@@ -214,12 +213,11 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'rgba(249, 144, 20, 0.5)',
     dotClass:
       'bg-[#f99014] ring-2 ring-[#f99014]/30 shadow-[0_0_8px_rgba(249,144,20,0.65)]',
-    rowClass: `${ROW_WELL} border border-[#f99014]/35`,
+    rowClass: 'bg-[#171006] hover:bg-[#1f160a] text-[#eef4fc]',
     titleTextClass: 'text-[#eef4fc] font-semibold',
     subTextClass: 'text-[#94a8c6]',
-    tagClass: 'text-[#b8cae4] bg-[#101929] border-[#22324d]',
-    activeChipClass:
-      'bg-[#221408] text-[#fff7ed] border-[#f99014] font-semibold shadow-[0_0_8px_rgba(249,144,20,0.25)]',
+    tagClass: 'text-[#b8cae4] bg-[#101929]',
+    activeChipClass: 'bg-[#221408] text-[#f99014] font-semibold',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
   full: {
@@ -228,12 +226,11 @@ export const ATTACHMENT_STATE_PALETTE: Record<AttachmentVisualState, AttachmentS
     glow: 'rgba(244, 90, 86, 0.5)',
     dotClass:
       'bg-[#f45a56] ring-2 ring-[#f45a56]/30 shadow-[0_0_8px_rgba(244,90,86,0.65)]',
-    rowClass: `${ROW_WELL} border border-[#f45a56]/35`,
+    rowClass: 'bg-[#170a0c] hover:bg-[#1f0f11] text-[#eef4fc]',
     titleTextClass: 'text-[#eef4fc] font-semibold',
     subTextClass: 'text-[#94a8c6]',
-    tagClass: 'text-[#b8cae4] bg-[#101929] border-[#22324d]',
-    activeChipClass:
-      'bg-[#240e10] text-[#fef2f2] border-[#f45a56] font-semibold shadow-[0_0_8px_rgba(244,90,86,0.25)]',
+    tagClass: 'text-[#b8cae4] bg-[#101929]',
+    activeChipClass: 'bg-[#240e10] text-[#f45a56] font-semibold',
     inactiveChipClass: INACTIVE_CHIP_CLASS,
   },
 };
@@ -243,9 +240,14 @@ export function getAttachmentStatePalette(state: AttachmentVisualState): Attachm
 }
 
 /**
- * Chip class for any granularity button on any surface: active = pressed dark
- * well in the hue's own tint with a crisp border; inactive = the shared
- * brighter slate key. Never a bright fill, never dark text on light.
+ * Chip class for any granularity button on any surface.
+ *
+ * The colour has to be carried by the INK, not by a hairline: active = a
+ * pressed well tinted with the hue, and the hue itself as the label colour;
+ * inactive = the shared brighter slate key, muted label, no outline at all.
+ * Never a bright fill, never dark text on light — and never a 1px border,
+ * because six hairline hues at 1px are indistinguishable from six random
+ * lines, which is exactly why the old chips read as noise.
  */
 export function getGranularityChipClass(target: Granularity, active: boolean): string {
   return active

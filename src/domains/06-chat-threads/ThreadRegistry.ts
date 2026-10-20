@@ -1,11 +1,12 @@
 import type { Turn } from '../01-dialogue-timeline';
 import type { ChapterPartition } from '../02-chapter-segmentation';
 import type { Granularity } from '../granularity';
-import { normalizeGranularity, sealedGranularity } from '../granularity';
+import { cycleGranularity, normalizeGranularity, sealedGranularity } from '../granularity';
 import {
   ChatAttachment,
   ChatThread,
   ThreadFolder,
+  isAttachmentStaged,
   makeDefaultThread,
   makeGenesisChapter,
   makeThreadId,
@@ -27,7 +28,11 @@ export interface ThreadHydrateInput {
 
 const rand = () => Math.random().toString(36).slice(2, 6);
 
-/** Legacy/foreign snapshots: attachment arrays may be absent or half-formed. */
+/**
+ * Legacy/foreign snapshots: attachment arrays may be absent or half-formed.
+ * Legacy attachments without an explicit `turnIndex` default to `0` (committed
+ * at turn 0) so already-sent attachments don't resurrect into the staged tray.
+ */
 function normalizeAttachments(raw: unknown): ChatAttachment[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
@@ -36,10 +41,18 @@ function normalizeAttachments(raw: unknown): ChatAttachment[] {
     if (!item || typeof item.artifactId !== 'string' || !item.artifactId) continue;
     if (seen.has(item.artifactId)) continue;
     seen.add(item.artifactId);
+    const turnIndex =
+      item.turnIndex === null
+        ? null
+        : typeof item.turnIndex === 'number' && Number.isFinite(item.turnIndex)
+          ? item.turnIndex
+          : 0;
     out.push({
       artifactId: item.artifactId,
       granularity: normalizeGranularity(item.granularity, 'full'),
       addedAt: typeof item.addedAt === 'number' ? item.addedAt : Date.now(),
+      turnIndex,
+      turnId: typeof item.turnId === 'string' ? item.turnId : null,
     });
   }
   return out;
@@ -103,22 +116,44 @@ export class ThreadRegistry {
   }
 
   // ── Attachments (per chat — the unit that carries granularity) ─────────
+  //
+  // Attachments are a TIMELINE: staged (turnIndex null, freely removable
+  // before Send) → committed (welded to a turn, cannot be detached; only
+  // granularity stays steerable). design-docs/10_ATTACHMENT_TIMELINE.md.
+
+  /** Staged attachments of a thread — the ones about to ride the next send. */
+  getStagedAttachments(threadId?: string): ChatAttachment[] {
+    return this.getAttachments(threadId).filter(isAttachmentStaged);
+  }
 
   /**
-   * Attach an artifact to a chat. Idempotent: an already-attached artifact is
-   * left exactly as it is (RE-ATTACHING never resets a user's granularity).
+   * Attach an artifact to a chat at a granularity.
+   *
+   * - Committed (`turnIndex` a number) = the anchor in history: never moved.
+   * - Staged (`turnIndex` null) = waiting for the next send.
+   *
+   * Idempotent: an already-present artifact is left exactly as it is
+   * (RE-ATTACHING never resets a user's granularity nor moves its anchor).
    */
   attachArtifact(
     threadId: string,
     artifactId: string,
-    granularity: Granularity = 'full'
+    granularity: Granularity = 'full',
+    turnIndex: number | null = null,
+    turnId: string | null = null
   ): ChatAttachment | null {
     const idx = this.threads.findIndex((t) => t.id === threadId);
     if (idx === -1 || !artifactId) return null;
     const thread = this.threads[idx];
     const existing = thread.attachments.find((a) => a.artifactId === artifactId);
     if (existing) return existing;
-    const attachment: ChatAttachment = { artifactId, granularity, addedAt: Date.now() };
+    const attachment: ChatAttachment = {
+      artifactId,
+      granularity,
+      addedAt: Date.now(),
+      turnIndex,
+      turnId,
+    };
     this.threads[idx] = {
       ...thread,
       attachments: [...thread.attachments, attachment],
@@ -126,6 +161,81 @@ export class ThreadRegistry {
     };
     this.emit();
     return attachment;
+  }
+
+  /** Stage an artifact for the NEXT send (turnIndex null). Committed anchors are untouched. */
+  stageArtifact(
+    threadId: string,
+    artifactId: string,
+    granularity: Granularity = 'full'
+  ): ChatAttachment | null {
+    return this.attachArtifact(threadId, artifactId, granularity, null, null);
+  }
+
+  /**
+   * Unstage a STAGED attachment. A committed attachment is a no-op — the
+   * turn already happened, and history has no delete key (10 §2 L2).
+   * Returns true when something was actually removed.
+   */
+  unstageArtifact(threadId: string, artifactId: string): boolean {
+    const idx = this.threads.findIndex((t) => t.id === threadId);
+    if (idx === -1) return false;
+    const thread = this.threads[idx];
+    const target = thread.attachments.find((a) => a.artifactId === artifactId);
+    if (!target || !isAttachmentStaged(target)) return false;
+    this.threads[idx] = {
+      ...thread,
+      attachments: thread.attachments.filter((a) => a.artifactId !== artifactId),
+      updatedAt: Date.now(),
+    };
+    this.emit();
+    return true;
+  }
+
+  /**
+   * The folder-row dot verb: not in chat → stage; staged → unstage; committed
+   * → cycle granularity (title → description → summary → full → title).
+   */
+  toggleStageOrCycleAttachment(threadId: string, artifactId: string): void {
+    const idx = this.threads.findIndex((t) => t.id === threadId);
+    if (idx === -1 || !artifactId) return;
+    const thread = this.threads[idx];
+    const existing = thread.attachments.find((a) => a.artifactId === artifactId);
+    if (!existing) {
+      this.stageArtifact(threadId, artifactId, 'full');
+      return;
+    }
+    if (isAttachmentStaged(existing)) {
+      this.unstageArtifact(threadId, artifactId);
+      return;
+    }
+    this.setAttachmentGranularity(threadId, artifactId, cycleGranularity(existing.granularity));
+  }
+
+  /**
+   * Weld every staged attachment to the turn being sent. Called by the send
+   * queue the moment the user turn is appended — after this, the items are
+   * history and only granularity remains adjustable.
+   */
+  commitStagedAttachments(
+    threadId: string,
+    turnIndex: number | null,
+    turnId: string | null = null
+  ): number {
+    const idx = this.threads.findIndex((t) => t.id === threadId);
+    if (idx === -1) return 0;
+    const thread = this.threads[idx];
+    const staged = thread.attachments.filter(isAttachmentStaged);
+    if (staged.length === 0) return 0;
+    this.threads[idx] = {
+      ...thread,
+      attachments: thread.attachments.map((a) =>
+        isAttachmentStaged(a) ? { ...a, turnIndex, turnId } : a
+      ),
+      updatedAt: Date.now(),
+    };
+    this.emit();
+    return staged.length;
   }
 
   setAttachmentGranularity(

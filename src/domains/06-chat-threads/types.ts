@@ -23,13 +23,28 @@ export type ThreadTitleState = 'placeholder' | 'auto' | 'manual';
  * An artifact used in a chat. The ATTACHMENT carries the granularity — the
  * same artifact can be `title` in one chat and `full` in another.
  *
- * One-way on purpose: there is no detach and no excluded state (David,
- * 2026-10-19). The only knob is granularity, floor = title (a mention).
+ * An attachment is a TIMELINE event (design-docs/10_ATTACHMENT_TIMELINE.md):
+ * staged for the next turn (`turnIndex` null, freely removable) → committed
+ * to a turn (`turnIndex` set, no detach — history has no delete key).
+ * Granularity stays steerable at every point; floor = title (a mention).
  */
 export interface ChatAttachment {
   artifactId: string;
   granularity: Granularity;
   addedAt: number;
+  /**
+   * Timeline position of this attachment:
+   * - `null`: staged for the next turn (can still be unstaged before Send).
+   * - `number` (0-based turn index in this thread): committed to that turn in
+   *   the chat history (cannot be detached; granularity remains adjustable).
+   */
+  turnIndex?: number | null;
+  /** ID of the turn this attachment was welded to when committed. */
+  turnId?: string | null;
+}
+
+export function isAttachmentStaged(att: ChatAttachment): boolean {
+  return att.turnIndex === null;
 }
 
 export interface ChatThread {

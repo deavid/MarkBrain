@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Artifact } from '../../types';
 import type { Granularity } from '../../domains/granularity';
-import { GRANULARITY_LABEL, GRANULARITY_ORDER } from '../../domains/granularity';
+import { GRANULARITY_LABEL, GRANULARITY_ORDER, getGranularityChipClass } from '../../domains/granularity';
 import {
   X,
   FileCode,
   Pin,
+  Plus,
   ExternalLink,
   Layers,
   Sparkles,
@@ -27,10 +28,13 @@ interface ArtifactDetailModalProps {
   /**
    * This artifact's attachment to the ACTIVE chat, or null when it is not
    * attached. Granularity lives on the attachment (per chat) — never on the
-   * artifact.
+   * artifact. `staged` = armed for the next send (removable); a committed
+   * attachment is history and only its granularity stays steerable.
    */
   attachmentGranularity: Granularity | null;
+  attachmentStaged?: boolean;
   onAttach: (artifactId: string) => void;
+  onUnstage?: (artifactId: string) => void;
   onSetAttachmentGranularity: (artifactId: string, granularity: Granularity) => void;
   /** Version history from the versioning domain (source of truth — artifacts no longer embed history) */
   history?: Array<{ version: number; timestamp: number; changeSummary: string }>;
@@ -40,7 +44,9 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   artifact,
   onClose,
   attachmentGranularity,
+  attachmentStaged = false,
   onAttach,
+  onUnstage,
   onSetAttachmentGranularity,
   history = [],
 }) => {
@@ -119,18 +125,20 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
         </div>
 
         {/* Attachment toolbar — the ONLY context control, and it belongs to
-            THIS chat. Not attached = not in this chat's payload (there is no
-            "excluded" state and no detach). */}
+            THIS chat. Three states: not in chat (stage it), staged (rides the
+            next send, removable), committed (on a turn — no detach, only the
+            cut). */}
         <div className="p-3 bg-[#080d16] border-b border-[#131d2f] flex flex-wrap items-center justify-between gap-2.5">
           {attachmentGranularity === null ? (
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => onAttach(artifact.id)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-medium border bg-[#141924] border-[#1f2638] text-[#9bb0d1] hover:text-white hover:border-[#2a3d5c] transition-colors cursor-pointer"
-                title="Attach this artifact to the current chat (at Full)"
+                data-testid="attach-from-detail"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-medium border bg-[#0a1a22] border-[#0e7490]/50 text-[#67e8f9] hover:border-[#67e8f9] transition-colors cursor-pointer"
+                title="Stage this artifact for the next message"
               >
-                <Pin className="w-3.5 h-3.5" />
-                <span>Attach to this chat</span>
+                <Plus className="w-3.5 h-3.5" />
+                <span>Stage for next message</span>
               </button>
               <span className="text-[11px] font-mono text-[#556985]">
                 Not in this chat&apos;s payload.
@@ -139,12 +147,24 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           ) : (
             <>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] font-mono text-[#556985]">
-                  In this chat at
+                <span
+                  className={`text-[11px] font-mono ${attachmentStaged ? 'text-[#67e8f9]' : 'text-[#556985]'}`}
+                >
+                  {attachmentStaged ? 'Staged for next send ·' : 'In this chat at'}
                 </span>
                 <strong className="text-[11px] font-mono text-[#a4bddf]">
                   {GRANULARITY_LABEL[attachmentGranularity]}
                 </strong>
+                {attachmentStaged && (
+                  <button
+                    onClick={() => onUnstage?.(artifact.id)}
+                    data-testid="unstage-from-detail"
+                    className="min-h-[24px] px-2 rounded-lg text-[10px] font-mono bg-[#0a1a22] border border-[#0e7490]/50 text-[#67e8f9] hover:border-[#67e8f9] cursor-pointer"
+                    title="Remove from the next send (still staged, not sent)"
+                  >
+                    Unstage
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-1">
                 <span className="text-[10px] font-mono text-[#556985] mr-1">Send:</span>
@@ -154,11 +174,8 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                     <button
                       key={g}
                       onClick={() => onSetAttachmentGranularity(artifact.id, g)}
-                      className={`min-h-[24px] px-2 rounded-lg text-[10px] font-mono transition-all cursor-pointer border ${
-                        isActive
-                          ? 'bg-[#1d2d47] text-[#e0eeff] font-bold border-[#2d4770]'
-                          : 'bg-[#0a0f19] text-[#6b82a3] border-[#131d2e] hover:bg-[#121c2e] hover:text-[#8ab1e0]'
-                      }`}
+                      data-granularity={g}
+                      className={`min-h-[24px] px-2 rounded-lg text-[10px] font-mono transition-all cursor-pointer border ${getGranularityChipClass(g, isActive)}`}
                     >
                       {GRANULARITY_LABEL[g]}
                     </button>
@@ -355,7 +372,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
         {/* Footer */}
         <div className="p-3 border-t border-[#141f33] bg-[#0c121e] flex items-center justify-between">
           <span className="text-[10px] font-mono text-[#556985]">
-            Label · Abstract · Summary · Full
+            Title · Description · Summary · Full
           </span>
           <button
             onClick={onClose}

@@ -301,7 +301,22 @@ export class SendQueue {
         meta: { model: ctx.model.name, isStreaming: true, streamState: 'connecting' },
       });
     } else {
-      this.appendTurnToThread(deps, threadId, 'user', job.text!);
+      const userTurn = this.appendTurnToThread(deps, threadId, 'user', job.text!);
+      // Weld staged attachments to the turn that was just persisted — from
+      // here they are history (no detach; granularity still steerable).
+      // Compile later in this same job reads them as committed, so the turn
+      // that announced them and the payload that carries them agree.
+      const userTurnIndex = this.turnsOf(deps, threadId).length - 1;
+      const committed = deps.threadRegistry.commitStagedAttachments(
+        threadId,
+        userTurnIndex,
+        userTurn.id
+      );
+      if (committed > 0) {
+        logger.info('App', `Committed ${committed} staged attachment(s) to turn ${userTurnIndex}`, {
+          threadId,
+        });
+      }
       assistantTurnId = this.appendTurnToThread(deps, threadId, 'assistant', '', [], {
         model: ctx.model.name,
         isStreaming: true,
@@ -428,10 +443,23 @@ export class SendQueue {
               artifactId = saved.id;
             }
             // The artifact was born (or updated) in THIS chat: attach it to
-            // this chat, so the model keeps seeing it once the announcing turn
-            // is no longer verbatim in context. Idempotent — re-extraction
-            // never resets a granularity the user lowered.
-            if (artifactId) deps.threadRegistry.attachArtifact(threadId, artifactId, 'full');
+            // this chat, welded to the assistant turn that produced it, so the
+            // chat stream shows where it entered and the model keeps seeing it
+            // once the announcing turn is no longer verbatim in context.
+            // Idempotent — re-extraction never moves the anchor nor resets a
+            // granularity the user lowered.
+            if (artifactId) {
+              const assistantTurnIndex = this.turnsOf(deps, threadId).findIndex(
+                (t) => t.id === assistantTurnId
+              );
+              deps.threadRegistry.attachArtifact(
+                threadId,
+                artifactId,
+                'full',
+                assistantTurnIndex >= 0 ? assistantTurnIndex : null,
+                assistantTurnId
+              );
+            }
             deps.triggerReRender();
           },
         }

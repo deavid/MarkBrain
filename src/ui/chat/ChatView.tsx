@@ -24,11 +24,20 @@ import {
   AlertCircle,
   Cloud,
   Brain,
+  Plus,
 } from 'lucide-react';
 import { logger } from '../../utils/logger';
-import { ThreadRuntime } from '../../domains/06-chat-threads';
-import type { Granularity } from '../../domains/granularity';
-import { GRANULARITY_LABEL, GRANULARITY_ORDER } from '../../domains/granularity';
+import { ThreadRuntime, ChatAttachment, isAttachmentStaged } from '../../domains/06-chat-threads';
+import type { Granularity, AttachmentVisualState } from '../../domains/granularity';
+import { GRANULARITY_LABEL, cutIncludes, getAttachmentStatePalette } from '../../domains/granularity';
+import {
+  AttachmentDot,
+  GranularityChips,
+  AttachmentRow,
+  StagedTray,
+  dotVerbLabel,
+  formatTokens,
+} from '../context/AttachmentControls';
 import { tts } from '../../gateway/api';
 
 interface ChatViewProps {
@@ -48,6 +57,24 @@ interface ChatViewProps {
   /** Chapter granularity — the one knob; the compiler honors all four. */
   onSetChapterGranularity?: (chapterId: string, granularity: Granularity) => void;
   onSelectArtifact?: (artifact: Artifact | ExtractedArtifact) => void;
+  // ── Attachments (10_ATTACHMENT_TIMELINE.md) ──────────────────────────────
+  /** This chat's attachments — staged + committed, in attach order. */
+  attachments?: ChatAttachment[];
+  /** Compiler's per-artifact token cost at the current cut. */
+  tokensByArtifact?: Record<string, number>;
+  /** Compiler's per-chapter token cost at the current cut. */
+  chapterTokens?: Record<string, number>;
+  /** Artifact titles for the attachment cards (id → title). */
+  artifactTitles?: Record<string, string>;
+  /** The dot verb on a turn card: committed items only cycle granularity. */
+  onToggleAttachment?: (artifactId: string) => void;
+  /** Unstage a staged item from the tray. */
+  onUnstageAttachment?: (artifactId: string) => void;
+  onSetAttachmentGranularity?: (artifactId: string, granularity: Granularity) => void;
+  /** Jump to the Artifacts folder (the picker). */
+  onOpenArtifacts?: () => void;
+  /** Read-aloud voice (the selector itself lives in the sidebar now). */
+  chosenVoice?: string;
   // Thread chrome (06-chat-threads)
   threadTitle?: string;
   threadTitleState?: 'placeholder' | 'auto' | 'manual';
@@ -86,6 +113,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onDeclareChapter,
   onSetChapterGranularity,
   onSelectArtifact,
+  attachments = [],
+  tokensByArtifact = {},
+  chapterTokens = {},
+  artifactTitles = {},
+  onToggleAttachment,
+  onUnstageAttachment,
+  onSetAttachmentGranularity,
+  onOpenArtifacts,
+  chosenVoice = 'Kore',
   threadTitle = 'New thread',
   threadTitleState = 'placeholder',
   threadArchived = false,
@@ -132,29 +168,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
     };
   }, [isLoading]);
 
-  // Audio / TTS State
+  // Audio / TTS State (the voice SELECTOR lives in the sidebar now; ChatView
+  // only plays back with the chosen voice)
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null);
-  const [chosenVoice, setChosenVoice] = useState('Kore');
-  const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const voiceDropdownRef = useRef<HTMLDivElement | null>(null);
-
-  // Close the voice picker when clicking outside it
-  useEffect(() => {
-    if (!voiceDropdownOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (voiceDropdownRef.current && !voiceDropdownRef.current.contains(e.target as Node)) {
-        setVoiceDropdownOpen(false);
-      }
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [voiceDropdownOpen]);
 
   // Accordion state for chapter folding
   const [collapsedChapterIds, setCollapsedChapterIds] = useState<Record<string, boolean>>({});
-  const [expandedSummaryIds, setExpandedSummaryIds] = useState<Record<string, boolean>>({});
+  /** Chapters whose description/summary we are generating right now. */
+  const [summarizingIds, setSummarizingIds] = useState<Record<string, boolean>>({});
 
   // Inline "Split Chapter" form state
   const [declaringMessageId, setDeclaringMessageId] = useState<string | null>(null);
@@ -164,8 +187,48 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setCollapsedChapterIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const toggleExpandSummary = (id: string) => {
-    setExpandedSummaryIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  // ── Attachments: staged tray + turn anchors (10_ATTACHMENT_TIMELINE.md) ──
+  const stagedAttachments = attachments.filter(isAttachmentStaged);
+  const committedAttachments = attachments.filter((a) => !isAttachmentStaged(a));
+
+  /** Attachments welded to a specific turn (turnId, or the turn's global index). */
+  const attachmentsOfTurn = (message: Turn, globalIndex: number): ChatAttachment[] =>
+    committedAttachments.filter((a) =>
+      a.turnId ? a.turnId === message.id : a.turnIndex === globalIndex
+    );
+
+  /** Attachments committed inside a chapter's window — the compacted strip. */
+  const attachmentsOfChapter = (chapter: ChapterTurns['chapter']): ChatAttachment[] => {
+    const end = typeof chapter.endIndex === 'number' ? chapter.endIndex : Number.MAX_SAFE_INTEGER;
+    return committedAttachments.filter(
+      (a) =>
+        typeof a.turnIndex === 'number' &&
+        a.turnIndex >= chapter.startIndex &&
+        a.turnIndex < end
+    );
+  };
+
+  const tokensFor = (artifactId: string) => tokensByArtifact[artifactId] ?? 0;
+  const titleFor = (artifactId: string) => artifactTitles[artifactId] || artifactId;
+
+  /**
+   * The chapter cut control. What you see is what you send (10 §5): tapping a
+   * granularity unfolds the chapter AND, if that layer does not exist yet,
+   * fires the summarize call so the body is never a mystery blank box.
+   */
+  const handleSetChapterCut = (chapter: ChapterTurns, next: Granularity) => {
+    onSetChapterGranularity?.(chapter.chapter.id, next);
+    setCollapsedChapterIds((prev) => ({ ...prev, [chapter.chapter.id]: false }));
+    const missingLayer =
+      (next === 'description' && !chapter.chapter.description) ||
+      (next === 'summary' && !chapter.chapter.summary);
+    if (!missingLayer || chapter.turns.length === 0) return;
+    setSummarizingIds((prev) => ({ ...prev, [chapter.chapter.id]: true }));
+    Promise.resolve(onSummarizeChapter(chapter.chapter.id))
+      .catch((err) => logger.error('ChatView', 'Chapter summarize failed', err))
+      .finally(() =>
+        setSummarizingIds((prev) => ({ ...prev, [chapter.chapter.id]: false }))
+      );
   };
 
   // Auto-scroll ONLY when a new message is appended (NOT on summary toggles or loading state)
@@ -373,6 +436,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
               )}
             </div>
 
+            {/* Staged tray works before the first message too — you can arm
+                notes, watch the cost, then start the conversation. */}
+            <StagedTray
+              items={stagedAttachments.map((a) => ({
+                artifactId: a.artifactId,
+                title: titleFor(a.artifactId),
+                tokens: tokensFor(a.artifactId),
+                granularity: a.granularity,
+              }))}
+              onSetGranularity={(id, g) => onSetAttachmentGranularity?.(id, g)}
+              onUnstage={(id) => onUnstageAttachment?.(id)}
+            />
+
             {/* Elevated Hero Input Card */}
             <form
               onSubmit={handleSubmit}
@@ -398,10 +474,29 @@ export const ChatView: React.FC<ChatViewProps> = ({
               />
 
               <div className="flex items-center justify-between pt-2 border-t border-[#131d2e] text-xs">
-                <div className="flex items-center gap-2 text-[11px] font-mono text-[#5b7394]">
-                  <span>Enter to send</span>
-                  <span aria-hidden="true">·</span>
-                  <span>Shift+Enter for newline</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      logger.action('ChatView', 'Open artifacts folder to attach (hero)');
+                      onOpenArtifacts?.();
+                    }}
+                    data-testid="open-artifacts"
+                    className="relative min-h-[30px] px-2.5 rounded-xl bg-[#090d15] border border-[#162234] hover:border-[#67e8f9]/50 text-[#8ab1e0] hover:text-[#eef4fc] transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-[11px] shrink-0"
+                    title="Attach artifacts from the library"
+                    aria-label="Attach artifacts"
+                  >
+                    <Plus className="w-3.5 h-3.5 shrink-0" />
+                    <span>Attach</span>
+                    {stagedAttachments.length > 0 && (
+                      <span className="min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-[9px] font-mono font-bold flex items-center justify-center">
+                        {stagedAttachments.length}
+                      </span>
+                    )}
+                  </button>
+                  <span className="text-[11px] font-mono text-[#5b7394] hidden sm:inline">
+                    Enter to send
+                  </span>
                 </div>
 
                 <button
@@ -428,9 +523,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
       ) : (
         /* Unified Vertical Chat Feed with Episodic Chapters - ZERO TOP BAR */
         <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4 space-y-4">
+          {/* In-flow clearance for the floating title pill + token orb. It
+              scrolls away with the content — never sticky, never fixed
+              (phones need every pixel back the moment you scroll). */}
+          <div
+            data-testid="scroll-top-clearance"
+            aria-hidden="true"
+            className="h-10 shrink-0 border-b border-[#162234]/80 -mt-1"
+          />
           {chapters.map(({ chapter, ongoing: isOngoing, granularity, turns }, chapterIndex) => {
           const isCollapsed = collapsedChapterIds[chapter.id] ?? false;
-          const isSummaryExpanded = expandedSummaryIds[chapter.id] ?? false;
 
           // Pick mellow dark pastel color for nuance
           const chapColor = getMellowPastelColor(chapter.id || chapterIndex);
@@ -478,118 +580,151 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                 </div>
 
-                {/* Chapter Actions: granularity (what gets sent) + recap + collapse */}
-                <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                  <span className="text-[10px] font-mono text-[#556985] hidden sm:inline mr-1">
+                {/* Chapter Actions: the four words (what gets sent) + token cost + fold */}
+                <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
+                  <span className="text-[10px] font-mono text-[#556985] mr-1 tabular-nums">
                     {turns.length} msg{turns.length !== 1 ? 's' : ''}
+                    {chapterTokens[chapter.id] !== undefined && (
+                      <> · <span className="text-[#8ab1e0]">{formatTokens(chapterTokens[chapter.id])} tok</span></>
+                    )}
                   </span>
 
                   {onSetChapterGranularity && (
-                    <div className="flex items-center gap-0.5">
-                      {GRANULARITY_ORDER.map((g) => {
-                        const active = (chapter.granularity ?? granularity) === g;
-                        return (
-                          <button
-                            key={g}
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              onSetChapterGranularity(chapter.id, g);
-                            }}
-                            aria-pressed={active}
-                            aria-label={`Send chapter ${chapterIndex + 1} as ${GRANULARITY_LABEL[g]}`}
-                            className={`min-h-[24px] px-1.5 rounded text-[10px] font-mono border cursor-pointer transition-colors ${
-                              active
-                                ? 'border-[#2f4a6b] bg-[#16273c] text-[#9dc2ec]'
-                                : 'border-[#111929] text-[#5d748f] hover:text-[#8ab1e0]'
-                            }`}
-                          >
-                            {GRANULARITY_LABEL[g]}
-                          </button>
-                        );
-                      })}
+                    <div data-testid="chapter-cut" data-chapter-id={chapter.id}>
+                      <GranularityChips
+                        value={(chapter.granularity ?? granularity) as Granularity}
+                        label={`Send chapter ${chapterIndex + 1}`}
+                        compact
+                        onChange={(g) =>
+                          handleSetChapterCut(
+                            { chapter, index: chapterIndex, ongoing: isOngoing, granularity, turns },
+                            g
+                          )
+                        }
+                      />
                     </div>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      toggleExpandSummary(chapter.id);
-                    }}
-                    className={`px-2 py-1 rounded-lg text-[10px] font-mono transition-colors border cursor-pointer ${
-                      isSummaryExpanded
-                        ? 'bg-[#182337] text-[#8ab1e0] border-[#223552]'
-                        : 'bg-[#090d16] text-[#7d93b3] border-[#111929] hover:text-[#eef4fc]'
-                    }`}
-                    title="Toggle the chapter recap (description + summary)"
-                  >
-                    {isSummaryExpanded ? 'Hide Recap' : 'Recap'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      toggleCollapseChapter(chapter.id);
-                    }}
-                    className="p-1 rounded-lg hover:bg-[#162134] text-[#8ca3c7] transition-colors cursor-pointer"
-                    title={isCollapsed ? 'Expand messages' : 'Collapse messages'}
-                  >
-                    {isCollapsed ? (
-                      <ChevronDown className="w-4 h-4" />
-                    ) : (
-                      <ChevronUp className="w-4 h-4" />
-                    )}
-                  </button>
+                  {granularity !== 'title' && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        toggleCollapseChapter(chapter.id);
+                      }}
+                      className="p-1 rounded-lg hover:bg-[#162134] text-[#8ca3c7] transition-colors cursor-pointer"
+                      title={isCollapsed ? 'Expand the cut' : 'Fold this chapter'}
+                    >
+                      {isCollapsed ? (
+                        <ChevronDown className="w-4 h-4" />
+                      ) : (
+                        <ChevronUp className="w-4 h-4" />
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Collapsible Executive Summary & Resolution Toggle */}
-              {isSummaryExpanded && (
-                <div className="p-3 sm:p-4 bg-[#0a0f19] border-b border-[#121c2d] space-y-2">
-                  {chapter.summary ? (
+              {/* Compacted attachment strip — whenever this chapter's turns are
+                  not on screen (folded, or sent below Full), its committed
+                  attachments stay visible and steerable here. Granularity is
+                  independent of the chapter cut (10 §5.5). */}
+              {(() => {
+                const chapterAtts = attachmentsOfChapter(chapter);
+                const turnsHidden = isCollapsed || granularity !== 'full';
+                if (!turnsHidden || chapterAtts.length === 0) return null;
+                return (
+                  <div className="px-3 sm:px-4 py-2 bg-[#0a1120] border-b border-[#121c2d] space-y-1.5">
+                    <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985]">
+                      Attached in this chapter (independent of the cut)
+                    </div>
+                    {chapterAtts.map((att) => (
+                      <AttachmentRow
+                        key={att.artifactId}
+                        state={att.granularity}
+                        title={titleFor(att.artifactId)}
+                        tokens={tokensFor(att.artifactId)}
+                        granularity={att.granularity}
+                        onToggle={
+                          onToggleAttachment ? () => onToggleAttachment(att.artifactId) : undefined
+                        }
+                        onSetGranularity={
+                          onSetAttachmentGranularity
+                            ? (g) => onSetAttachmentGranularity(att.artifactId, g)
+                            : undefined
+                        }
+                      />
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* What you see is what you send (10 §5): the body renders exactly
+                  the layers the current cut includes, in order — description,
+                  summary, then the verbatim turns at Full. Title renders none
+                  of them (the header IS the payload). */}
+              {!isCollapsed && granularity !== 'title' && (
+                <div
+                  data-testid="chapter-body"
+                  className="p-3 sm:p-4 bg-[#0a0f19] border-b border-[#121c2d] space-y-2"
+                >
+                  {chapter.description && (
                     <div className="text-xs text-[#b8cce6] leading-relaxed bg-[#0d1424] p-3 rounded-xl border border-[#141f33]">
                       <div className="font-semibold text-[10px] text-[#8ab1e0] mb-1 font-mono uppercase tracking-wider">
-                        Chapter recap
+                        Description
                       </div>
-                      {chapter.description && (
-                        <p className="text-[#dbe7f6]">{chapter.description}</p>
-                      )}
-                      {chapter.summary && (
-                        <p className="mt-1.5">{chapter.summary}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between text-xs text-[#7d93b3] p-2.5 bg-[#0d1424] rounded-xl border border-[#141f33]">
-                      <span>No summary compiled yet for this node.</span>
-                      <button
-                        onClick={() => onSummarizeChapter(chapter.id)}
-                        className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-[#18263e] text-[#8ab1e0] hover:bg-[#203252] border border-[#233758] font-medium transition-colors cursor-pointer"
-                      >
-                        Summarize with Gemini
-                      </button>
+                      <p className="text-[#dbe7f6]">{chapter.description}</p>
                     </div>
                   )}
-
+                  {chapter.summary && (
+                    <div className="text-xs text-[#b8cce6] leading-relaxed bg-[#0d1424] p-3 rounded-xl border border-[#141f33]">
+                      <div className="font-semibold text-[10px] text-[#e0b96c] mb-1 font-mono uppercase tracking-wider">
+                        Summary
+                      </div>
+                      <p className="whitespace-pre-wrap">{chapter.summary}</p>
+                    </div>
+                  )}
+                  {/* Missing layer under a chosen cut = chrome, not content: a
+                      real gap, honestly named, with the call that fills it.
+                      At Full there is nothing to promise, so no chrome. */}
+                  {granularity !== 'full' &&
+                    ((cutIncludes(granularity, 'description') && !chapter.description) ||
+                      (cutIncludes(granularity, 'summary') && !chapter.summary)) && (
+                      <div className="flex items-center justify-between gap-3 text-[11px] text-[#7d93b3] p-2.5 bg-[#0d1424] rounded-xl border border-[#141f33]">
+                        <span className="font-mono">
+                          {summarizingIds[chapter.id]
+                            ? 'Writing summary…'
+                            : cutIncludes(granularity, 'summary') && !chapter.summary
+                              ? 'No summary yet — this chapter is sending only what exists.'
+                              : 'No description yet for this chapter.'}
+                        </span>
+                        {!summarizingIds[chapter.id] && (
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleSetChapterCut(
+                                { chapter, index: chapterIndex, ongoing: isOngoing, granularity, turns },
+                                chapter.summary ? 'description' : 'summary'
+                              );
+                            }}
+                            className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-[#18263e] text-[#8ab1e0] hover:bg-[#203252] border border-[#233758] font-medium transition-colors cursor-pointer shrink-0"
+                          >
+                            Write it
+                          </button>
+                        )}
+                      </div>
+                    )}
                 </div>
               )}
 
-              {/* Honest payload strip: this chapter is sent at its granularity,
-                  so the messages below are NOT in the payload. The chat stays
-                  the conversation (scroll is not compaction); the mirror shows
-                  the payload itself. */}
-              {granularity !== 'full' && (
-                <div className="px-3 sm:px-5 py-2 bg-[#0b1220] border-b border-[#121c2d] text-[10px] font-mono text-[#7d93b3]">
-                  Sent to the model as <span className="text-[#9dc2ec]">{GRANULARITY_LABEL[granularity]}</span> —
-                  these messages are shown for reading, not sent.
-                </div>
-              )}
-
-              {/* Messages Container */}
-              {!isCollapsed && (
+              {/* Messages Container — only when the cut actually includes the
+                  turns. At Title/Description/Summary the body above IS the
+                  payload; showing raw messages here would be the lie the old
+                  "honest strip" confessed to (10 §5). */}
+              {!isCollapsed && granularity === 'full' && turns.length > 0 && (
                 <div className="p-3 sm:p-5 space-y-4">
-                  {turns.map((message) => {
+                  {turns.map((message, turnIdx) => {
+                    const globalTurnIndex = chapter.startIndex + turnIdx;
                     const isUser = message.role === 'user';
                     const isPlaying = playingMessageId === message.id;
                     const isTtsLoading = ttsLoadingId === message.id;
@@ -812,6 +947,36 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             </div>
                           )}
                         </div>
+
+                        {/* Attachments welded to THIS turn — where the artifact
+                            entered the conversation. No × : history has no
+                            delete key; only the cut stays steerable (10 §8). */}
+                        {attachmentsOfTurn(message, globalTurnIndex).length > 0 && (
+                          <div className="max-w-[92%] sm:max-w-[85%] w-full mt-1.5 space-y-1">
+                            <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985] px-0.5">
+                              Attached on this turn
+                            </div>
+                            {attachmentsOfTurn(message, globalTurnIndex).map((att) => (
+                              <AttachmentRow
+                                key={att.artifactId}
+                                state={att.granularity}
+                                title={titleFor(att.artifactId)}
+                                tokens={tokensFor(att.artifactId)}
+                                granularity={att.granularity}
+                                onToggle={
+                                  onToggleAttachment
+                                    ? () => onToggleAttachment(att.artifactId)
+                                    : undefined
+                                }
+                                onSetGranularity={
+                                  onSetAttachmentGranularity
+                                    ? (g) => onSetAttachmentGranularity(att.artifactId, g)
+                                    : undefined
+                                }
+                              />
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -882,59 +1047,40 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* Bottom Pinned Chat Input Bar - Active once messages exist */}
       {totalMessagesCount > 0 && (
-        <div className="p-2.5 sm:p-3 bg-[#0d121c] border-t border-[#121c2c] shrink-0">
+        <div className="p-2.5 sm:p-3 bg-[#0d121c] border-t border-[#121c2c] shrink-0 space-y-2">
+          <div className="max-w-4xl mx-auto">
+            <StagedTray
+              items={stagedAttachments.map((a) => ({
+                artifactId: a.artifactId,
+                title: titleFor(a.artifactId),
+                tokens: tokensFor(a.artifactId),
+                granularity: a.granularity,
+              }))}
+              onSetGranularity={(id, g) => onSetAttachmentGranularity?.(id, g)}
+              onUnstage={(id) => onUnstageAttachment?.(id)}
+            />
+          </div>
           <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
-            {/* TTS voice picker */}
-            <div className="relative shrink-0" ref={voiceDropdownRef}>
-              <button
-                type="button"
-                onClick={() => setVoiceDropdownOpen((v) => !v)}
-                className="h-full px-2.5 py-2.5 rounded-xl bg-[#090d15] border border-[#162234] hover:border-[#3b82f6]/40 text-[#8ab1e0] hover:text-[#eef4fc] transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-[10px] sm:text-xs"
-                title="Choose read-aloud voice"
-                aria-haspopup="listbox"
-                aria-expanded={voiceDropdownOpen}
-              >
-                <Volume2 className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline">{chosenVoice}</span>
-                {voiceDropdownOpen ? (
-                  <ChevronUp className="w-3 h-3 shrink-0" />
-                ) : (
-                  <ChevronDown className="w-3 h-3 shrink-0" />
-                )}
-              </button>
-              {voiceDropdownOpen && (
-                <div
-                  role="listbox"
-                  aria-label="TTS voice"
-                  className="absolute bottom-full mb-2 left-0 z-50 min-w-36 p-1.5 bg-[#0a0f19] border border-[#1a293e] rounded-xl shadow-xl animate-in fade-in duration-150"
-                >
-                  {TTS_VOICES.map((v) => {
-                    const isSelected = v === chosenVoice;
-                    return (
-                      <button
-                        key={v}
-                        type="button"
-                        role="option"
-                        aria-selected={isSelected}
-                        onClick={() => {
-                          setChosenVoice(v);
-                          setVoiceDropdownOpen(false);
-                          logger.action('ChatView', 'Selected TTS voice', { voice: v });
-                        }}
-                        className={`w-full px-2.5 py-1.5 rounded-lg text-left text-xs font-mono transition-colors cursor-pointer flex items-center justify-between gap-2 ${
-                          isSelected
-                            ? 'bg-[#142338] text-[#eef4fc]'
-                            : 'text-[#9bb0d1] hover:bg-[#0f1726] hover:text-white'
-                        }`}
-                      >
-                        <span>{v}</span>
-                        {isSelected && <Check className="w-3 h-3 text-[#38bdf8] shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
+            {/* [+] → the Artifacts folder IS the picker (10 §3). The voice
+                selector moved to the sidebar, where settings belong. */}
+            <button
+              type="button"
+              onClick={() => {
+                logger.action('ChatView', 'Open artifacts folder to attach');
+                onOpenArtifacts?.();
+              }}
+              data-testid="open-artifacts"
+              className="relative h-full px-2.5 py-2.5 rounded-xl bg-[#090d15] border border-[#162234] hover:border-[#67e8f9]/50 text-[#8ab1e0] hover:text-[#eef4fc] transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-[10px] sm:text-xs shrink-0"
+              title="Attach artifacts from the library"
+              aria-label="Attach artifacts"
+            >
+              <Plus className="w-3.5 h-3.5 shrink-0" />
+              {stagedAttachments.length > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-[9px] font-mono font-bold flex items-center justify-center">
+                  {stagedAttachments.length}
+                </span>
               )}
-            </div>
+            </button>
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}

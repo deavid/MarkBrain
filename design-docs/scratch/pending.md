@@ -1,5 +1,33 @@
 # Pending / open work
 
+## State (2026-10-20, ~10:15 — ATTACHMENT TIMELINE SHIPPED on dev-altair)
+
+- **What landed** (spec: `design-docs/10_ATTACHMENT_TIMELINE.md`, §18 = the
+  built list; `changelog.md` = the user-facing entry). The four screenshot
+  complaints, fixed: (1) in-flow top clearance that scrolls away (no sticky),
+  (2) the Artifacts folder IS the picker — 6-state rows with the dot verb +
+  four chips + token cost, no second modal, (3) staged tray in the composer →
+  welded to the turn on Send (`turnIndex`/`turnId`) with no detach afterwards,
+  (4) the chapter body renders the cut, `Recap` + honest strip eradicated,
+  token count per chapter in the header. Voice selector moved to the sidebar;
+  `[ + ]` opens the library; the folder has a floating back-to-chat bubble.
+- **Decisions inside the slice** (David: "trust your own gut"): stage defaults
+  to `full` every time (never accidentally under-send); unstaged rows carry one
+  verb (the dot), chips appear only once staged/committed; folder rows say
+  `Turn N`, the mirror says `Turn N` + group; cutting the ACTIVE chapter stays
+  legal (it is the preview loop he used); missing layers render chrome
+  ("No summary yet — [Write it]"), never a fake paragraph and never the turns.
+- **Finding worth keeping:** the "honest strip" was the tell that view and
+  payload were two documents. Once the body renders the cut, the strip and
+  `Recap` both had to die — a disclaimer is a confession that the view lies.
+- **Gates:** tsc clean · 118/118 vitest · evidence **GREEN** 17/17 journeys,
+  0 fails/warns, 0 geometry fails/warns, 0 console/page/http errors.
+- **Gaps left open:** model-driven chapter seals (`<topic_shift>`) are not
+  auto-summarized (summarize is active-thread-only today; a queue-level,
+  thread-aware call is a money decision) — those chapters show the honest
+  "No summary yet" chrome; no regenerate affordance for a stale summary; the
+  graph lens does not show attach state. All in `TODO.md` items 1, 9, 10.
+
 ## State (2026-10-19, ~23:30 — ATTACHMENT SLICE SHIPPED on dev-altair)
 
 - **What landed** (see `09` §11 + `changelog.md` for the full list): the

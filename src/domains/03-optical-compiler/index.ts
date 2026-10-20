@@ -54,6 +54,12 @@ export interface AttachmentBreakdownEntry {
   title: string;
   granularity: Granularity;
   tokens: number;
+  /** True when the attachment is staged for the next send (not committed to a turn yet). */
+  staged: boolean;
+  /** Turn index where this attachment was committed in the chat history, or null if staged. */
+  turnIndex: number | null;
+  /** Turn id where this attachment was committed, or null if staged. */
+  turnId?: string | null;
 }
 
 /** One chapter as compiled into <conversation_chapters> — mirror reads these. */
@@ -103,7 +109,7 @@ export interface IOpticalCompilerDomain {
 }
 
 /** One line of the cut, indented for the substrate block. */
-function artifactXml(art: UniversalArtifactDocument, granularity: Granularity): string {
+export function artifactXml(art: UniversalArtifactDocument, granularity: Granularity): string {
   const lines: string[] = [];
   const withDescription = cutIncludes(granularity, 'description') && Boolean(art.current?.description);
   const withSummary = cutIncludes(granularity, 'summary') && Boolean(art.current?.summary);
@@ -126,8 +132,16 @@ function artifactXml(art: UniversalArtifactDocument, granularity: Granularity): 
   return lines.join('\n');
 }
 
+/** Exact token estimate for an artifact at a given granularity cut (matches compiler 1:1). */
+export function estimateArtifactCutTokens(
+  art: UniversalArtifactDocument,
+  granularity: Granularity
+): number {
+  return estimateTokens(artifactXml(art, granularity));
+}
+
 /** One chapter of the cut — same shape rule as artifacts. */
-function chapterXml(
+export function chapterXml(
   chap: ChapterPartition,
   granularity: Granularity,
   turns: Turn[]
@@ -157,6 +171,16 @@ function chapterXml(
   return lines.join('\n');
 }
 
+/** Exact token estimate for a chapter at a given granularity cut (matches compiler 1:1). */
+export function estimateChapterCutTokens(
+  chap: ChapterPartition,
+  granularity: Granularity,
+  turns: Turn[]
+): number {
+  const includedTurns = cutIncludes(granularity, 'body') ? turns : [];
+  return estimateTokens(chapterXml(chap, granularity, includedTurns));
+}
+
 export class OpticalCompilerDomain implements IOpticalCompilerDomain {
   constructor(
     private artifacts: IArtifactDocumentDomain,
@@ -168,7 +192,7 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const ceiling = options.tokenCeiling || 32000;
     const chapters = options.historyChapters ?? this.segmentation.listChapters();
 
-    // 1. Attachments — exactly what this chat attached, at its own granularity.
+    // 1. Attachments — exactly what this chat attached (staged + committed), at its own granularity.
     const substrateParts: string[] = [];
     let substrateTokens = 0;
     const attachmentBreakdown: AttachmentBreakdownEntry[] = [];
@@ -188,11 +212,15 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
       const tokens = estimateTokens(xml);
       substrateTokens += tokens;
       distribution[granularity]++;
+      const turnIndex = attachment.turnIndex === null ? null : (attachment.turnIndex ?? 0);
       attachmentBreakdown.push({
         artifactId: art.id,
         title: art.title,
         granularity,
         tokens,
+        staged: turnIndex === null,
+        turnIndex,
+        turnId: attachment.turnId ?? null,
       });
     }
 

@@ -52,6 +52,15 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
     }
 
     segmentation.splitChapter(target.id, splitIndex, title);
+
+    // Sealing a chapter steps it full → summary, so the cut now promises a
+    // layer that may not exist yet. Fill it in the background (10 §5.4) —
+    // never block the split on a model call, and never leave the promise
+    // unbacked: the chapter shows "Writing summary…" chrome until it lands.
+    const sealed = segmentation.getChapter(target.id);
+    if (sealed && sealed.status === 'completed' && (!sealed.summary || !sealed.description)) {
+      void handleSummarizeChapter(sealed.id);
+    }
   };
 
   // Summarize Chapter — the server returns the chapter's description (level 2)

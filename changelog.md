@@ -2,6 +2,64 @@
 
 All notable changes to MarkBrain. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-10-20 — the attachment timeline: the chat is the payload
+
+David's four screenshots after the attachment slice each caught the same
+mistake: the data model had moved and the surfaces had not. Fixed here.
+Spec: `design-docs/10_ATTACHMENT_TIMELINE.md`.
+
+**Added**
+- **Staged attachments.** `ChatAttachment.turnIndex` (`null` = staged, a number
+  = welded to that turn). `ThreadRegistry.stageArtifact` / `unstageArtifact` /
+  `commitStagedAttachments` / `toggleStageOrCycleAttachment` /
+  `getStagedAttachments`. Staging is free and reversible; Send is what welds.
+- **The staged tray** in both composers: what will ride the next message, each
+  item removable (`×`) and re-cuttable, included in the live token total.
+- **Turn-anchored attachment cards** in the chat (no `×` — history has no
+  delete key) plus a compact strip under a chapter header whenever that
+  chapter's turns are off screen, so a chapter cut never hides an artifact.
+- **The 6-state folder row**: dim (unstaged), bright cyan (staged), and
+  green / yellow / orange / red for committed title / description / summary /
+  full — bright fill always flips the text dark. Dot = the verb (stage →
+  unstage → cycle the cut); the four chips sit on the row with the compiler's
+  own token count (`estimateArtifactCutTokens`).
+- **Chapter token count** in the chapter header, and the folder list's
+  bottom-right chat bubble (with a staged badge) to get back to the chat.
+- **`[ + ]`** in the composer opens the library, which *is* the picker.
+- **In-flow top clearance** in the chat feed and the folder list: a spacer +
+  separator that scrolls away. Nothing sticky, nothing fixed.
+- **Background summarize on a manual chapter split** — sealing steps a chapter
+  to `summary`, so the layer is filled in rather than promised.
+
+**Changed**
+- The chapter body renders **exactly the cut** (description → summary → turns at
+  Full). `Recap` and the "sent as Summary — shown for reading" strip are gone.
+  A layer a chosen cut promises but does not have renders chrome (`No summary
+  yet — [Write it]`), never a fake paragraph and never the raw turns.
+- Clicking `Description` / `Summary` on a chapter missing that layer fires the
+  summarize call and unfolds the chapter.
+- The TTS voice selector moved from the composer to the sidebar.
+- The mirror splits attachments into **Next send** (staged, removable) and
+  **In the chat** (committed, granularity only, with turn provenance).
+- Legacy snapshots without a `turnIndex` hydrate as committed at turn 0, so
+  already-sent attachments never resurrect into the staged tray.
+
+**Removed**
+- `AttachmentPicker.tsx` (the library is the picker), `Recap`, the honest
+  strip, the dead state-dot decoration on folder rows, the duplicate import
+  button in the folder's floating bar.
+
+**Gates**
+- `bunx tsc --noEmit` clean · `bunx vitest run` 118/118 (15 files) ·
+  `node scripts/evidence.cjs` **GREEN**, 17/17 journeys, 0 fails/warns,
+  0 geometry fails/warns, 0 console/page/http errors.
+- New journeys: `14-stage-from-folder`, `15-weld-on-send`, `16-chapter-cut`,
+  `17-top-clearance`; `05-chapter-summarize` rewritten for the cut.
+
+**Known gaps** (see `design-docs/TODO.md`): a chapter sealed by the model's
+`<topic_shift>` inside the stream is not auto-summarized (summarize is
+active-thread-only); no regenerate affordance for a stale chapter summary.
+
 ## 2026-10-19 — attachment model: granularity belongs to the chat
 
 The payload stops being "whatever the compiler guesses from graph proximity".

@@ -20,6 +20,7 @@ import {
   Terminal,
   Cloud,
   Check,
+  Volume2,
 
   LogOut,
 
@@ -30,6 +31,9 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
+
+/** Read-aloud voices supported by the Gemini TTS endpoint (/api/tts). */
+export const TTS_VOICES = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'] as const;
 
 export type ActiveView = 'chat' | 'artifacts';
 
@@ -43,6 +47,9 @@ interface SidebarProps {
   selectedModel: ModelOption;
   availableModels: ModelOption[];
   onSelectModel: (m: ModelOption) => void;
+  /** Read-aloud voice for TTS playback (selector lives here, not in the composer). */
+  chosenVoice?: string;
+  onSelectVoice?: (voice: string) => void;
   activeView: ActiveView;
   onChangeView: (view: ActiveView) => void;
   onOpenExport: () => void;
@@ -86,6 +93,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedModel,
   availableModels,
   onSelectModel,
+  chosenVoice = 'Kore',
+  onSelectVoice,
   activeView,
   onChangeView,
   onOpenExport,
@@ -962,6 +971,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 })}
               </div>
             )}
+          </div>
+
+          {/* Block 3.5: Read-aloud voice (moved out of the chat composer —
+              on a 350px phone the composer belongs to typing, not settings) */}
+          <div className="rounded-xl bg-[#0c1322] border border-[#141f33] overflow-hidden">
+            <div className="flex items-center justify-between p-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="p-1.5 rounded-lg bg-[#141d2d] border border-[#1e2b40] shrink-0">
+                  <Volume2 className="w-4 h-4 text-[#5ad49b]" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985] block">
+                    Read-aloud voice
+                  </span>
+                  <span className="text-xs font-semibold text-white truncate block">{chosenVoice}</span>
+                </div>
+              </div>
+            </div>
+            <div className="px-2.5 pb-2.5 flex items-center gap-1 flex-wrap">
+              {TTS_VOICES.map((v) => {
+                const isSelected = v === chosenVoice;
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={isSelected}
+                    aria-label={`Read-aloud voice ${v}`}
+                    onClick={() => {
+                      logger.action('Sidebar', `Selected TTS voice: ${v}`);
+                      onSelectVoice?.(v);
+                    }}
+                    className={`min-h-[26px] px-2.5 rounded-full text-[10px] font-mono border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#142338] text-[#eef4fc] border-[#25426e] font-semibold'
+                        : 'bg-[#0a0f19] text-[#9bb0d1] border-[#131e30] hover:bg-[#0f1726]'
+                    }`}
+                  >
+                    {v}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Block 4: Firebase Cloud Sync & Account Persistence (INLINE ACCORDION) */}

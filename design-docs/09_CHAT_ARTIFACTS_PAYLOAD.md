@@ -432,6 +432,12 @@ my lean is whatever David calls them when he yaps — probably *artifacts*, with
 
 ## 11. What actually shipped (2026-10-19 night)
 
+> **Follow-up (2026-10-20):** the *surface* half of this model shipped the next
+> morning — staged→committed attachments on turns, the folder row as the picker
+> (6 states, dot verb), the staged tray, the chapter body rendered as the cut.
+> See `10_ATTACHMENT_TIMELINE.md`. Where that doc and this one disagree about
+> UI, 10 wins; the data/compiler story here still stands.
+
 Built in one slice on `dev-altair`, gated green (`tsc`, 111/111 vitest,
 evidence pack 13/13 journeys, 0 geometry fails, 0 console/page/http errors).
 

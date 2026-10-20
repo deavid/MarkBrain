@@ -41,15 +41,41 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
   } = params;
 
   // ── Attachments (per chat; the artifact's granularity lives HERE) ────────
+  //
+  // The dot verb (10 §5): not in chat → stage; staged → unstage; committed →
+  // cycle granularity. Staging is free and reversible; Send is what welds.
 
-  /** Attach to the ACTIVE chat at full — "you attach it because you want it read". */
+  /** The dot in the folder row — one verb, three states. */
+  const handleToggleAttachment = (artifactId: string) => {
+    const before = threadRegistry
+      .getAttachments(activeThreadId)
+      .find((a) => a.artifactId === artifactId);
+    threadRegistry.toggleStageOrCycleAttachment(activeThreadId, artifactId);
+    const after = threadRegistry
+      .getAttachments(activeThreadId)
+      .find((a) => a.artifactId === artifactId);
+    logger.action(
+      'App',
+      `Attachment dot: ${artifactId} ${before ? before.granularity + (before.turnIndex === null ? ' (staged)' : '') : 'none'} → ${after ? after.granularity + (after.turnIndex === null ? ' (staged)' : '') : 'none'}`
+    );
+    triggerReRender();
+  };
+
+  /** Stage for the next message (from the detail modal / "Save as Artifact"). */
   const handleAttachArtifact = (artifactId: string) => {
-    const added = threadRegistry.attachArtifact(activeThreadId, artifactId, 'full');
+    const added = threadRegistry.stageArtifact(activeThreadId, artifactId, 'full');
     if (!added) {
-      logger.warn('App', `Attach: ${artifactId} not attached (unknown thread or artifact)`);
+      logger.warn('App', `Stage: ${artifactId} not staged (unknown thread or artifact)`);
       return;
     }
-    logger.action('App', `Attached artifact ${artifactId} to chat ${activeThreadId}`);
+    logger.action('App', `Staged artifact ${artifactId} for the next send in chat ${activeThreadId}`);
+    triggerReRender();
+  };
+
+  /** Remove a staged attachment before Send. Committed ones are a no-op. */
+  const handleUnstageAttachment = (artifactId: string) => {
+    const removed = threadRegistry.unstageArtifact(activeThreadId, artifactId);
+    logger.action('App', `Unstage ${artifactId}: ${removed ? 'removed' : 'no-op (already sent)'}`);
     triggerReRender();
   };
 
@@ -62,10 +88,11 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
   /**
    * Attach-on-save: an artifact the user saves from a turn belongs to the chat
    * it was born in, otherwise the model loses it the moment the turn stops
-   * being verbatim.
+   * being verbatim. (Extraction already commits it to the assistant turn;
+   * this is the idempotent belt-and-braces path.)
    */
   const attachArtifactToActiveChat = (artifactId: string) => {
-    threadRegistry.attachArtifact(activeThreadId, artifactId, 'full');
+    threadRegistry.stageArtifact(activeThreadId, artifactId, 'full');
     triggerReRender();
   };
 
@@ -291,6 +318,8 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
 
   return {
     handleAttachArtifact,
+    handleUnstageAttachment,
+    handleToggleAttachment,
     handleSetAttachmentGranularity,
     attachArtifactToActiveChat,
     handleUpdateArtifactContent,

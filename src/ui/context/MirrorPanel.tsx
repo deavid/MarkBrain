@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { X, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import type { Artifact, ChapterTurns } from '../../types';
+import type { ChatAttachment } from '../../domains/06-chat-threads';
+import { isAttachmentStaged } from '../../domains/06-chat-threads';
 import type { Granularity } from '../../domains/granularity';
-import { GRANULARITY_LABEL, GRANULARITY_ORDER, cutIncludes } from '../../domains/granularity';
+import {
+  GRANULARITY_LABEL,
+  GRANULARITY_ORDER,
+  cutIncludes,
+  getGranularityChipClass,
+} from '../../domains/granularity';
 import { estimateTokens } from '../../utils/estimateTokens';
 import { computeAmbientColor } from './ambientTelemetry';
+import { AttachmentRow } from './AttachmentControls';
 
 /**
  * Mirror v1 (MOBILE_UX_SPEC.md §5): "Show me what the LLM will see."
@@ -39,6 +47,9 @@ interface MirrorPanelProps {
         title: string;
         granularity: Granularity;
         tokens: number;
+        /** true = staged for the next send (not welded to a turn yet). */
+        staged?: boolean;
+        turnIndex?: number | null;
       }>;
       /** Compiler's per-chapter numbers — absent only on pre-breakdown payloads. */
       chapterBreakdown?: Array<{
@@ -53,9 +64,14 @@ interface MirrorPanelProps {
   /** Chapters with their turns — the shared selector (02-chapter-segmentation/selectors). */
   chapters: ChapterTurns[];
   ceiling: number;
+  /** This chat's attachments — the source of staged vs committed. */
+  attachments: ChatAttachment[];
   onSetAttachmentGranularity: (artifactId: string, granularity: Granularity) => void;
   onSetChapterGranularity: (chapterId: string, granularity: Granularity) => void;
-  onOpenAttachmentPicker: () => void;
+  /** The library IS the picker — jump there instead of opening a modal. */
+  onOpenArtifacts: () => void;
+  /** Unstage a staged attachment (committed ones have no remove path). */
+  onUnstageAttachment: (artifactId: string) => void;
 }
 
 /** Four-word control — the only knob. 24px tall: clears the touch rule. */
@@ -73,11 +89,8 @@ const GranularityChips: React.FC<{
           onClick={() => onChange(g)}
           aria-label={`${label}: ${GRANULARITY_LABEL[g]}`}
           aria-pressed={active}
-          className={`min-h-[24px] px-1.5 py-0.5 rounded text-[10px] border cursor-pointer transition-colors ${
-            active
-              ? 'border-[#2f4a6b] bg-[#16273c] text-[#9dc2ec]'
-              : 'border-[#162132] text-[#5d748f] hover:text-[#8ab1e0]'
-          }`}
+          data-granularity={g}
+          className={`min-h-[24px] px-1.5 py-0.5 rounded border text-[10px] font-mono cursor-pointer transition-colors ${getGranularityChipClass(g, active)}`}
         >
           {GRANULARITY_LABEL[g]}
         </button>
@@ -93,9 +106,11 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   artifacts,
   chapters,
   ceiling,
+  attachments,
   onSetAttachmentGranularity,
   onSetChapterGranularity,
-  onOpenAttachmentPicker,
+  onOpenArtifacts,
+  onUnstageAttachment,
 }) => {
   const [showRaw, setShowRaw] = useState(false);
 
@@ -124,6 +139,16 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   const attachmentRows = (compiled.telemetry.attachmentBreakdown ?? [])
     .map((entry) => ({ entry, artifact: byId.get(entry.artifactId) }))
     .filter((row) => Boolean(row.artifact));
+
+  // Staged rows ride the next send (removable); committed rows are history.
+  // Read the live attachment list when the telemetry predates the staged flag.
+  const stagedIds = new Set(attachments.filter(isAttachmentStaged).map((a) => a.artifactId));
+  const stagedRows = attachmentRows.filter(
+    ({ entry }) => entry.staged === true || stagedIds.has(entry.artifactId)
+  );
+  const committedRows = attachmentRows.filter(
+    ({ entry }) => entry.staged !== true && !stagedIds.has(entry.artifactId)
+  );
 
   // Chapters: the compiler's per-chapter entries, keyed back to the selector
   // rows so the row can say what the cut actually contains.
@@ -201,13 +226,16 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
             )}
           </section>
 
-          {/* 2 · Attachments */}
+          {/* 2 · Attachments — staged (rides the next send) then committed (on a turn) */}
           <section className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-wider text-[#6b82a3]">2 · Attached artifacts</span>
+              <span className="text-[10px] uppercase tracking-wider text-[#6b82a3]">
+                2 · Attached artifacts
+              </span>
               <button
-                onClick={onOpenAttachmentPicker}
-                title="Attach an artifact to this chat"
+                onClick={onOpenArtifacts}
+                title="Open the library to attach artifacts"
+                data-testid="mirror-attach"
                 className="flex items-center gap-1 min-h-[24px] px-2 rounded border border-[#1d2d44] text-[10px] text-[#8ab1e0] hover:bg-[#162132] cursor-pointer"
               >
                 <Plus className="w-3 h-3" /> Attach
@@ -218,19 +246,44 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
                 Nothing attached — this chat sends its chapters only.
               </p>
             )}
-            {attachmentRows.map(({ entry, artifact }) => (
-              <div key={entry.artifactId} className="py-1.5 border-b border-[#0e1522] last:border-0 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[#cad8eb]">{artifact!.title}</span>
-                  <span className="text-[10px] text-[#556985] shrink-0">{entry.tokens} tok</span>
+            {stagedRows.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[9px] uppercase tracking-wider text-[#67e8f9]">
+                  Next send — removable until you hit Send
                 </div>
-                <GranularityChips
-                  value={entry.granularity}
-                  label={`Granularity for ${artifact!.title}`}
-                  onChange={(g) => onSetAttachmentGranularity(entry.artifactId, g)}
-                />
+                {stagedRows.map(({ entry, artifact }) => (
+                  <AttachmentRow
+                    key={entry.artifactId}
+                    state="staged"
+                    title={artifact!.title}
+                    tokens={entry.tokens}
+                    granularity={entry.granularity}
+                    onSetGranularity={(g) => onSetAttachmentGranularity(entry.artifactId, g)}
+                    onUnstage={() => onUnstageAttachment(entry.artifactId)}
+                  />
+                ))}
               </div>
-            ))}
+            )}
+            {committedRows.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[9px] uppercase tracking-wider text-[#6b82a3]">
+                  In the chat — no detach, granularity only
+                </div>
+                {committedRows.map(({ entry, artifact }) => (
+                  <AttachmentRow
+                    key={entry.artifactId}
+                    state={entry.granularity}
+                    title={artifact!.title}
+                    tokens={entry.tokens}
+                    subtitle={
+                      typeof entry.turnIndex === 'number' ? `Turn ${entry.turnIndex + 1}` : undefined
+                    }
+                    granularity={entry.granularity}
+                    onSetGranularity={(g) => onSetAttachmentGranularity(entry.artifactId, g)}
+                  />
+                ))}
+              </div>
+            )}
           </section>
 
           {/* 3 · Chapters — send order */}

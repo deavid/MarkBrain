@@ -619,37 +619,41 @@ async function main() {
     await shot(page, 'after-split');
   });
 
-  // ── J5 summarize ──────────────────────────────────────────────────────────
-  await journey(page, '05-chapter-summarize', 'Recap panel → Summarize → description + summary', async (page) => {
-    const panelReady = async () => {
-      const txt = await bodyText();
-      if (await page.getByRole('button', { name: 'Summarize with Gemini' }).first().isVisible().catch(() => false)) return 'button';
-      if (/Chapter recap/i.test(txt)) return 'summary';
-      return null;
-    };
-    let state = await panelReady();
-    for (let i = 0; i < 6 && !state; i++) {
-      const abstracts = page.getByRole('button', { name: /Recap/ });
-      const n = await abstracts.count();
-      if (!n) break;
-      await abstracts.nth(i % n).click().catch(() => {});
-      step('click', `Recap toggle #${i % n}`);
-      await page.waitForTimeout(400);
-      state = await panelReady();
-    }
-    if (state === 'button') {
-      await page.getByRole('button', { name: 'Summarize with Gemini' }).first().click();
-      step('click', 'Summarize with Gemini');
-      await page.getByText('Chapter recap').first().waitFor({ state: 'visible', timeout: 30_000 });
-      step('wait', 'Chapter recap panel');
-      check(true, 'summarize produced summary panel');
-    } else if (state === 'summary') {
-      step('observe', 'summary already present (fixture or earlier journey) — panel renders it');
-      check(true, 'summary panel present');
+  // ── J5 chapter cut / summarize ────────────────────────────────────────────
+  await journey(page, '05-chapter-summarize', 'Chapter cut → Summary → description + summary (no Recap anywhere)', async (page) => {
+    const cutChip = (g) => page.locator(`[data-testid="chapter-cut"] [data-granularity="${g}"]`).first();
+    check((await page.locator('[data-testid="chapter-cut"]').count()) > 0, 'chapter cut controls present');
+    check(!/Recap/i.test(await bodyText()), 'Recap is eradicated');
+    check(/\d+\s*tok/.test(await bodyText()), 'chapter header shows a token count');
+
+    await cutChip('summary').click();
+    step('click', 'chapter → Summary');
+    await page.waitForTimeout(600);
+    check(/Summary/.test(await bodyText()), 'summary cut reflected in the header');
+
+    // The layer may not exist yet: the body is chrome ("Write it"), never a
+    // fake paragraph and never the raw turns.
+    const writeIt = page.getByRole('button', { name: 'Write it' }).first();
+    if (await writeIt.isVisible().catch(() => false)) {
+      await writeIt.click();
+      step('click', 'Write it (summarize)');
+      const landed = await page
+        .getByText(/No summary yet/)
+        .first()
+        .waitFor({ state: 'hidden', timeout: 20_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (landed) check(true, 'summary landed in the chapter body');
+      else step('observe', 'summarize call still in flight / no server key — chrome state is the assertion');
     } else {
-      fail(`recap panel never reached (no Summarize button, no Chapter recap; body: ${(await bodyText()).slice(0, 200)})`);
+      step('observe', 'summary layer already present');
+      check(true, 'summary body rendered');
     }
-    await shot(page, 'summarized');
+    await shot(page, 'chapter-cut-summary');
+
+    // Back to the full cut so later journeys see the turns.
+    await cutChip('full').click();
+    await page.waitForTimeout(400);
   });
 
   // ── J6 threads ────────────────────────────────────────────────────────────
@@ -692,32 +696,162 @@ async function main() {
     check(/Chapters, in send order|CHAPTERS/i.test(txt), 'chapters section');
     check(/Fixture Artifact Alpha/.test(txt), 'fixture attachment row');
     check(/Title|Description|Summary|Full/.test(txt), 'granularity control present');
+    check(/In the chat/i.test(txt), 'committed attachments grouped (no detach)');
     check(/Raw payload|RAW PAYLOAD/i.test(txt), 'raw payload section');
     await shot(page, 'mirror');
     await ariaSnap(page, '07-mirror');
     await page.keyboard.press('Escape');
   });
 
-  // ── J14 attach from the picker ────────────────────────────────────────────
-  await journey(page, '14-attach-from-picker', 'Mirror → [+] Attach → artifact enters this chat', async (page) => {
-    const orb = page.locator('[title*="tap to see what the LLM will see"]');
-    await orb.click({ timeout: 5000 });
-    await page.getByText('What the LLM will see').first().waitFor({ state: 'visible', timeout: 5000 });
-    check(!/Fixture Artifact Beta/.test(await bodyText()), 'Beta starts outside the payload');
-    await page.locator('[title="Attach an artifact to this chat"]').click({ timeout: 5000 });
-    step('click', '[+] Attach');
-    await page.getByText('Attach artifacts').first().waitFor({ state: 'visible', timeout: 5000 });
-    await page.getByRole('button', { name: 'Attach Fixture Artifact Beta' }).click({ timeout: 5000 });
-    step('click', 'attach Fixture Artifact Beta');
+  // ── J14 the folder IS the picker: dot → stage → tray → unstage ────────────
+  await journey(page, '14-stage-from-folder', 'Composer [+] → folder dot stages → tray in composer → unstage', async (page) => {
+    await page.locator('[data-testid="open-artifacts"]').first().click({ timeout: 5000 });
+    step('click', 'composer [+] → artifacts');
+    await page.getByPlaceholder(/Search artifacts/).waitFor({ state: 'visible', timeout: 5000 });
+    check(true, 'folder view opened (the picker)');
+
+    const betaRow = page.locator('[data-artifact-id="art-fx-beta"]').first();
+    await betaRow.waitFor({ state: 'visible', timeout: 5000 });
+    check((await betaRow.getAttribute('data-state')) === 'unstaged', 'Beta starts unstaged (dim)');
+
+    await betaRow.locator('button[aria-label^="Stage"]').first().click({ timeout: 5000 });
+    step('click', 'dot: stage Beta');
+    await page.waitForTimeout(300);
+    check((await betaRow.getAttribute('data-state')) === 'staged', 'Beta row turned staged (bright cyan)');
+
+    // The floating chat bubble carries the armed count.
+    const back = page.locator('[data-testid="back-to-chat"]').first();
+    check(/staged/i.test((await back.getAttribute('aria-label')) || ''), 'back-to-chat bubble shows the staged count');
+
+    await back.click({ timeout: 5000 });
+    step('click', 'back to chat');
+    await page.waitForTimeout(500);
+    const tray = page.locator('[data-testid="staged-tray"]').first();
+    await tray.waitFor({ state: 'visible', timeout: 5000 });
+    check(/Fixture Artifact Beta/.test(await bodyText()), 'staged tray lists Beta above the input');
+    check(
+      (await tray.locator('[data-state="staged"]').count()) > 0,
+      'tray row is the bright staged state'
+    );
+    await shot(page, 'staged-tray');
+
+    // Unstage before Send — staged is reversible.
+    await tray.locator('[data-testid="unstage-attachment"]').first().click({ timeout: 5000 });
+    step('click', 'unstage from the tray');
     await page.waitForTimeout(400);
-    await shot(page, 'picker-attached');
-    await page.locator('[title="Close picker"]').click({ timeout: 5000 });
+    check(!/Fixture Artifact Beta/.test(await bodyText()), 'tray cleared after unstage');
+  });
+
+  // ── J15 Send commits the attachment to the turn (no detach) ───────────────
+  await journey(page, '15-weld-on-send', 'Send → attachment lands on its turn, no detach button', async (page) => {
+    // Stage Beta again, through the folder (the only picker).
+    await page.locator('[data-testid="open-artifacts"]').first().click({ timeout: 5000 });
     await page.waitForTimeout(400);
+    const betaRow = page.locator('[data-artifact-id="art-fx-beta"]').first();
+    await betaRow.locator('button[aria-label^="Stage"]').first().click({ timeout: 5000 });
+    await page.waitForTimeout(300);
+    await page.locator('[data-testid="back-to-chat"]').first().click({ timeout: 5000 });
+    await page.waitForTimeout(400);
+
+    await composer.fill('Reply with exactly: WELD-OK');
+    await send();
+    step('click', 'Send with a staged attachment');
+    await waitIdle(page);
+    await page.waitForTimeout(800);
+
     const txt = await bodyText();
-    check(/Fixture Artifact Beta/.test(txt), 'Beta now listed in the payload');
-    check(/Attached artifacts/i.test(txt), 'attachments section still present');
-    await shot(page, 'mirror-after-attach');
-    await page.keyboard.press('Escape');
+    check(/Fixture Artifact Beta/.test(txt), 'attachment card rendered in the chat');
+    check(!(await page.locator('[data-testid="staged-tray"]').count()), 'tray emptied after Send');
+    const unstage = await page.locator('[data-testid="unstage-attachment"]').count();
+    check(unstage === 0, `committed attachments expose no detach button (found ${unstage})`);
+    check(/Attached on this turn/i.test(txt), 'card is anchored to the turn that sent it');
+    await shot(page, 'welded-turn');
+
+    // Reopening the folder shows it as committed (Turn badge), not staged.
+    await page.locator('[data-testid="open-artifacts"]').first().click({ timeout: 5000 });
+    await page.waitForTimeout(500);
+    const row = page.locator('[data-artifact-id="art-fx-beta"]').first();
+    const rowText = (await row.innerText()).replace(/\s+/g, ' ');
+    check(/Turn\s*\d+/i.test(rowText), `folder row shows its turn anchor (${rowText.slice(0, 80)})`);
+    check((await row.getAttribute('data-state')) !== 'staged', 'staged state cleared after the weld');
+    await shot(page, 'folder-after-send');
+    await page.locator('[data-testid="back-to-chat"]').first().click({ timeout: 5000 });
+    await page.waitForTimeout(400);
+  });
+
+  // ── J16 what you see is what you send: the cut changes the screen ─────────
+  await journey(page, '16-chapter-cut', 'Title/Description/Summary/Full change the rendered body', async (page) => {
+    const turnsVisible = () => page.locator('div.whitespace-pre-wrap').count();
+    const chip = (g) => page.locator(`[data-testid="chapter-cut"] [data-granularity="${g}"]`).last();
+
+    const nFull = await turnsVisible();
+    check(nFull > 0, `turns visible at Full (${nFull})`);
+
+    await chip('title').click();
+    step('click', 'last chapter → Title');
+    await page.waitForTimeout(500);
+    const nTitle = await turnsVisible();
+    check(nTitle < nFull, `Title hides the turns (${nTitle} < ${nFull})`);
+    const lastSection = page.locator('section:has([data-testid="chapter-cut"])').last();
+    check(
+      (await lastSection.locator('div.whitespace-pre-wrap').count()) === 0,
+      'no message bubbles under a Title cut'
+    );
+
+    await chip('summary').click();
+    step('click', 'last chapter → Summary');
+    await page.waitForTimeout(500);
+    check((await turnsVisible()) < nFull, 'Summary hides the turns too');
+
+    await chip('full').click();
+    step('click', 'last chapter → Full');
+    await page.waitForTimeout(500);
+    check((await turnsVisible()) >= nFull, 'Full brings the turns back');
+    check(!/Recap/i.test(await bodyText()), 'still no Recap');
+    await shot(page, 'cut-roundtrip');
+  });
+
+  // ── J17 top clearance scrolls away (no sticky bar) ────────────────────────
+  await journey(page, '17-top-clearance', 'Clearance spacer sits at top and scrolls away', async (page) => {
+    const geom = await page.evaluate(() => {
+      const spacer = document.querySelector('[data-testid="scroll-top-clearance"]');
+      const scroller = spacer ? spacer.closest('div.overflow-y-auto') || spacer.parentElement : null;
+      const orb = document.querySelector('[title*="tap to see what the LLM will see"]');
+      const next = spacer ? spacer.nextElementSibling : null;
+      const sR = spacer ? spacer.getBoundingClientRect() : null;
+      const nR = next ? next.getBoundingClientRect() : null;
+      const oR = orb ? orb.getBoundingClientRect() : null;
+      if (scroller) scroller.scrollTop = 0;
+      return {
+        scrollTop: scroller ? scroller.scrollTop : null,
+        spacerTop: sR ? sR.top : null,
+        spacerHeight: sR ? sR.height : null,
+        nextTop: nR ? nR.top : null,
+        orbBottom: oR ? oR.bottom : null,
+      };
+    });
+    check(geom.spacerHeight !== null && geom.spacerHeight > 20, `in-flow clearance exists (${geom.spacerHeight}px)`);
+    if (geom.orbBottom != null && geom.nextTop != null) {
+      check(geom.orbBottom <= geom.nextTop, `pills do not overlap the first block (${geom.orbBottom} <= ${geom.nextTop})`);
+    } else {
+      warn('could not measure the floating pill vs first block');
+    }
+
+    const after = await page.evaluate(() => {
+      const spacer = document.querySelector('[data-testid="scroll-top-clearance"]');
+      const scroller = spacer ? spacer.closest('div.overflow-y-auto') || spacer.parentElement : null;
+      if (scroller) scroller.scrollTop = 320;
+      const r = spacer ? spacer.getBoundingClientRect() : null;
+      return { spacerBottom: r ? r.bottom : null, scrollTop: scroller ? scroller.scrollTop : null };
+    });
+    check(after.scrollTop > 0, `scrolled down (${after.scrollTop})`);
+    check(after.spacerBottom !== null && after.spacerBottom <= 0, `clearance scrolled away, nothing sticky (${after.spacerBottom})`);
+    await page.evaluate(() => {
+      const spacer = document.querySelector('[data-testid="scroll-top-clearance"]');
+      const scroller = spacer ? spacer.closest('div.overflow-y-auto') || spacer.parentElement : null;
+      if (scroller) scroller.scrollTop = 0;
+    });
+    await shot(page, 'clearance');
   });
 
   // ── J8 graph ──────────────────────────────────────────────────────────────

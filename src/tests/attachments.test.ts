@@ -106,3 +106,100 @@ describe('attachments', () => {
     expect(registry.getAttachments(a)).toHaveLength(0);
   });
 });
+
+/**
+ * The timeline half (design-docs/10_ATTACHMENT_TIMELINE.md): staged → committed.
+ * You can unstage; you cannot unsend. The dot verb cycles when committed.
+ */
+describe('attachment timeline (staged → committed)', () => {
+  it('staging is reversible and never reaches the committed set', () => {
+    const { registry, a } = registryWithTwoChats();
+    registry.stageArtifact(a, 'art-1');
+    expect(registry.getStagedAttachments(a).map((x) => x.artifactId)).toEqual(['art-1']);
+    expect(registry.unstageArtifact(a, 'art-1')).toBe(true);
+    expect(registry.getStagedAttachments(a)).toHaveLength(0);
+  });
+
+  it('committing welds every staged item to the turn and empties the staged set', () => {
+    const { registry, a } = registryWithTwoChats();
+    registry.stageArtifact(a, 'art-1');
+    registry.stageArtifact(a, 'art-2');
+    const n = registry.commitStagedAttachments(a, 3, 'turn-3');
+    expect(n).toBe(2);
+    expect(registry.getStagedAttachments(a)).toHaveLength(0);
+    const committed = registry.getAttachments(a);
+    expect(committed.every((x) => x.turnIndex === 3 && x.turnId === 'turn-3')).toBe(true);
+  });
+
+  it('unstage on a committed attachment is a no-op — history has no delete key', () => {
+    const { registry, a } = registryWithTwoChats();
+    registry.attachArtifact(a, 'art-1', 'full', 0, 'turn-0');
+    expect(registry.unstageArtifact(a, 'art-1')).toBe(false);
+    expect(registry.getAttachments(a)).toHaveLength(1);
+  });
+
+  it('granularity stays steerable after commit', () => {
+    const { registry, a } = registryWithTwoChats();
+    registry.attachArtifact(a, 'art-1', 'full', 2, 'turn-2');
+    registry.setAttachmentGranularity(a, 'art-1', 'title');
+    expect(registry.getAttachments(a)[0].granularity).toBe('title');
+    expect(registry.getAttachments(a)[0].turnIndex).toBe(2);
+  });
+
+  it('the dot verb: none → staged → none, then cycles the cut once committed', () => {
+    const { registry, a } = registryWithTwoChats();
+    registry.toggleStageOrCycleAttachment(a, 'art-1');
+    expect(registry.getStagedAttachments(a)).toHaveLength(1);
+    expect(registry.getStagedAttachments(a)[0].granularity).toBe('full');
+
+    registry.toggleStageOrCycleAttachment(a, 'art-1');
+    expect(registry.getAttachments(a)).toHaveLength(0);
+
+    // Commit, then cycle: full → title → description → summary → full
+    registry.stageArtifact(a, 'art-1', 'full');
+    registry.commitStagedAttachments(a, 1, 'turn-1');
+    const seen: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      registry.toggleStageOrCycleAttachment(a, 'art-1');
+      seen.push(registry.getAttachments(a)[0].granularity);
+    }
+    expect(seen).toEqual(['title', 'description', 'summary', 'full']);
+    expect(registry.getAttachments(a)[0].turnIndex).toBe(1);
+  });
+
+  it('committing with no staged items is a zero-cost no-op', () => {
+    const { registry, a } = registryWithTwoChats();
+    registry.attachArtifact(a, 'art-1', 'full', 0, 'turn-0');
+    expect(registry.commitStagedAttachments(a, 1, 'turn-1')).toBe(0);
+    expect(registry.getAttachments(a)[0].turnIndex).toBe(0);
+  });
+
+  it('legacy snapshots without a turnIndex hydrate as committed (never staged)', () => {
+    const registry = new ThreadRegistry();
+    registry.hydrate({
+      projectId: 'p',
+      threads: [
+        {
+          id: 'thread-old',
+          folderId: null,
+          title: 'Old',
+          titleState: 'auto',
+          titleVersion: 2,
+          createdAt: 0,
+          updatedAt: 0,
+          lastActivityAt: 0,
+          lifecycle: 'active',
+          lastOutcome: 'ok',
+          preview: '',
+          attachments: [{ artifactId: 'art-legacy', granularity: 'summary', addedAt: 1 }],
+        } as any,
+      ],
+      turns: [],
+      chapters: [],
+      activeThreadId: 'thread-old',
+    });
+    const att = registry.getAttachments('thread-old')[0];
+    expect(att.turnIndex).toBe(0);
+    expect(registry.getStagedAttachments('thread-old')).toHaveLength(0);
+  });
+});

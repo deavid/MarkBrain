@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ModelOption } from './types';
 import { FALLBACK_MODEL } from './data/models';
 import { Sidebar, ActiveView } from './ui/workspace/Sidebar';
@@ -11,7 +11,6 @@ import { ProjectLauncher } from './ui/workspace/ProjectLauncher';
 import { ServerLogsModal } from './ui/workspace/ServerLogsModal';
 import { ArtifactDetailModal } from './ui/artifacts/ArtifactDetailModal';
 import { ArtifactsLibraryView } from './ui/artifacts/ArtifactsLibraryView';
-import { AttachmentPicker } from './ui/chat/AttachmentPicker';
 import { ImportModal } from './ui/artifacts/ImportModal';
 import { ExportModal } from './ui/artifacts/ExportModal';
 import { RevisionTriageModal } from './ui/artifacts/RevisionTriageModal';
@@ -21,6 +20,9 @@ import { EdgeHeatStrip } from './ui/context/EdgeHeatStrip';
 import { MirrorPanel } from './ui/context/MirrorPanel';
 import { logger } from './utils/logger';
 import { useDomains } from './domains/DomainRegistry';
+import { estimateArtifactCutTokens } from './domains/03-optical-compiler';
+import { isAttachmentStaged } from './domains/06-chat-threads';
+import type { Granularity } from './domains/granularity';
 import { useImportSession } from './ui/artifacts/import/useImportSession';
 import { SendQueue } from './application/sendQueue';
 import type { SendQueueDeps } from './application/sendQueue';
@@ -130,6 +132,9 @@ export default function App() {
   // Active View: 'chat' | 'artifacts'
   const [activeView, setActiveView] = useState<ActiveView>('chat');
 
+  // Read-aloud voice — a setting, not a composer control (lives in the sidebar).
+  const [chosenVoice, setChosenVoice] = useState('Kore');
+
   // Modals & Project Launcher state
   // Default-open on desktop; default-closed on phones so the drawer+backdrop
   // doesn't bury the composer on first load (review P1 #8).
@@ -138,7 +143,6 @@ export default function App() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isMirrorOpen, setIsMirrorOpen] = useState(false);
-  const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   // Phase 3: triage modal — non-null = open, value = flagged pair to focus.
@@ -201,6 +205,49 @@ export default function App() {
     tick,
   });
 
+  // ── The attachment surface's numbers, from the compiler's own strings ─────
+  // One measurer (10 §3.2): the folder row, the chat tray and the chapter
+  // header all read the same token counts the compiler assembles. The
+  // attachment rows read the LIVE telemetry when the artifact is in this
+  // chat's payload; the library's untouched artifacts are measured at Full
+  // (what staging them would cost).
+  const attachmentGranularityById = useMemo(() => {
+    const map = new Map<string, Granularity>();
+    for (const a of activeAttachments) map.set(a.artifactId, a.granularity);
+    return map;
+  }, [activeAttachments]);
+
+  const artifactTitles = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const a of artifactsDomain.listArtifacts()) map[a.id] = a.title;
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artifactsDomain, tick]);
+
+  const tokensByArtifact = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const entry of compiledContext.telemetry.attachmentBreakdown ?? []) {
+      map[entry.artifactId] = entry.tokens;
+    }
+    // Artifacts not in this chat's payload: what staging them at Full would cost.
+    for (const art of artifactsDomain.listArtifacts()) {
+      if (map[art.id] !== undefined) continue;
+      map[art.id] = estimateArtifactCutTokens(art, 'full');
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compiledContext, artifactsDomain, tick]);
+
+  const chapterTokens = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const entry of compiledContext.telemetry.chapterBreakdown ?? []) {
+      map[entry.chapterId] = entry.tokens;
+    }
+    return map;
+  }, [compiledContext]);
+
+  const stagedAttachmentCount = activeAttachments.filter(isAttachmentStaged).length;
+
   // Domain reads + selectors — NO projection layer (08_UNIFIED_DATA_MODEL.md D6).
   // tick re-derives after domain events; shapes below are domain types and the
   // chapter-turns selector output, so the mirror/compiler read the same bytes.
@@ -229,6 +276,8 @@ export default function App() {
   // Phase-3 triage → ui/artifacts slice
   const {
     handleAttachArtifact,
+    handleUnstageAttachment,
+    handleToggleAttachment,
     handleSetAttachmentGranularity,
     handleAddArtifact,
     handleImportArtifact,
@@ -370,6 +419,8 @@ export default function App() {
         selectedModel={selectedModel}
         availableModels={availableModels}
         onSelectModel={setSelectedModel}
+        chosenVoice={chosenVoice}
+        onSelectVoice={setChosenVoice}
         activeView={activeView}
         onChangeView={(v) => setActiveView(v)}
         onOpenExport={() => setIsExportOpen(true)}
@@ -431,6 +482,12 @@ export default function App() {
                 logger.action('App', `Open revision triage focused on ${id}`);
                 setTriageFocusId(id);
               }}
+              attachments={activeAttachments}
+              tokensByArtifact={tokensByArtifact}
+              onToggleAttachment={handleToggleAttachment}
+              onUnstage={handleUnstageAttachment}
+              onSetAttachmentGranularity={handleSetAttachmentGranularity}
+              onReturnToChat={() => setActiveView('chat')}
             />
           ) : (
             <div className="w-full h-full min-h-0 flex-1 flex flex-col">
@@ -463,6 +520,15 @@ export default function App() {
                   onSummarizeChapter={handleSummarizeChapter}
                   onDeclareChapter={handleDeclareChapter}
                   onSetChapterGranularity={handleSetChapterGranularity}
+                  attachments={activeAttachments}
+                  tokensByArtifact={tokensByArtifact}
+                  chapterTokens={chapterTokens}
+                  artifactTitles={artifactTitles}
+                  onToggleAttachment={handleToggleAttachment}
+                  onUnstageAttachment={handleUnstageAttachment}
+                  onSetAttachmentGranularity={handleSetAttachmentGranularity}
+                  onOpenArtifacts={() => setActiveView('artifacts')}
+                  chosenVoice={chosenVoice}
                   onSelectArtifact={(art) => {
                     logger.action('App', `Chat artifact card selected: ${art.id}`);
                     setSelectedArtifactId(art.id);
@@ -509,19 +575,13 @@ export default function App() {
             ceiling={ambientTelemetry.ceiling}
             onSetAttachmentGranularity={handleSetAttachmentGranularity}
             onSetChapterGranularity={handleSetChapterGranularity}
-            onOpenAttachmentPicker={() => {
-              logger.action('App', 'Open attachment picker');
-              setIsAttachmentPickerOpen(true);
-            }}
-          />
-          <AttachmentPicker
-            open={isAttachmentPickerOpen}
-            onClose={() => setIsAttachmentPickerOpen(false)}
-            artifacts={domainArtifacts}
             attachments={activeAttachments}
-            onAttach={(id) => {
-              handleAttachArtifact(id);
+            onOpenArtifacts={() => {
+              logger.action('App', 'Mirror → open artifacts library');
+              setIsMirrorOpen(false);
+              setActiveView('artifacts');
             }}
+            onUnstageAttachment={handleUnstageAttachment}
           />
         </div>
 
@@ -620,7 +680,11 @@ export default function App() {
               attachmentGranularity={
                 activeAttachments.find((a) => a.artifactId === art.id)?.granularity ?? null
               }
+              attachmentStaged={
+                activeAttachments.find((a) => a.artifactId === art.id)?.turnIndex === null
+              }
               onAttach={handleAttachArtifact}
+              onUnstage={handleUnstageAttachment}
               onSetAttachmentGranularity={handleSetAttachmentGranularity}
             />
           );

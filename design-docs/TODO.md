@@ -11,6 +11,30 @@
 
 ---
 
+## Done — 2026-10-20: the attachment timeline (10_ATTACHMENT_TIMELINE.md)
+
+The four things David flagged from the screenshots are built (commit on
+`dev-altair`): top clearance that scrolls away, the folder row as the picker
+(6 states, dot verb), staged tray → welded-to-turn attachments, and the chapter
+view = the cut (Recap eradicated, token count per chapter). Details: doc 10 §18.
+
+- ~~Top pills overlap content~~ → in-flow clearance spacer in the chat feed and
+  the folder list; nothing sticky (verified by journey `17-top-clearance`).
+- ~~No attach / granularity control outside the detail modal~~ → folder rows
+  carry the dot + the four chips + the token cost; `AttachmentPicker` deleted.
+- ~~Nothing shows what will be sent~~ → staged tray in the composer (both
+  composers), removable with `×`, counted in the live total.
+- ~~No record of where an attachment entered~~ → `turnIndex`/`turnId` welded at
+  Send; the card renders on that turn and in the chapter's compacted strip.
+- ~~Chapter view ≠ payload (`Recap` + honest strip)~~ → the body renders the cut
+  (description → summary → turns) + `N tok` per chapter; `Recap` is gone.
+- ~~Voice selector eats composer space~~ → it lives in the sidebar; `[ + ]`
+  opens the library.
+- **Also:** manual chapter split now fires the background summarize for the
+  chapter it seals (so the `summary` cut it steps to is backed by text).
+
+---
+
 ## Done — 2026-10-19 night: the attachment slice (all six original items)
 
 Items 1–2, 4–6 of the previous list are **built** (commits on `dev-altair`).
@@ -47,9 +71,14 @@ only produced by the explicit `/api/summarize-chapter` call. A closed chapter
 therefore often sends `title + description` while claiming granularity
 `summary` (the mirror shows the real token cost, so it is not a lie — but the
 level is empty).
-**Options:** auto-summarize on seal (costs a call per chapter, background),
-or lower the default for a summary-less chapter to `description` on seal.
-Not decided.
+**State after 10:** a *manual* split fires the background summarize for the
+chapter it seals, and clicking `Description`/`Summary` on a chapter missing
+that layer fires it too. A chapter sealed by the model's `<topic_shift>` inside
+the stream is still not auto-summarized (summarize is active-thread-only
+today). Those show the honest "No summary yet" chrome.
+**Options left:** a thread-aware summarize call in the queue (costs one call
+per chapter boundary — a money decision), or lower the sealed default to
+`description` when no summary exists. Not decided.
 
 ### 2. Import/extraction prompts don't state the cut contract
 `/api/extract-artifact-from-file` asks for "description: a few phrases" and
@@ -72,12 +101,11 @@ Remove when the provider story settles — it is a UI + server contract change,
 not part of the attachment work.
 
 ### 5. Chat shows turns even when the chapter isn't sent that way
-Deliberate call in this slice: the chat stays the conversation (scroll is not
-compaction) and shows an honest strip — *"Sent to the model as Summary — these
-messages are shown for reading, not sent."* The mirror is the payload.
-Alternative (chapter body renders its cut) was rejected for now because legacy
-chapters often have no summary, which would hide content behind nothing.
-Revisit if the strip reads as noise.
+**SUPERSEDED 2026-10-20** — the chat body now renders exactly the cut (doc 10).
+Kept here so the old objection is on record: it was rejected because legacy
+chapters often have no summary "which would hide content behind nothing". The
+resolution was chrome, not a lie: a missing layer renders a "No summary yet —
+[Write it]" prompt, so nothing hides behind nothing.
 
 ### 6. `full` sends the whole cut (Option A) — token cost
 Confirmed by David (2026-10-19): at `full`, title + description + summary +
@@ -90,10 +118,22 @@ together. If real artifacts turn out to repeat themselves, revisit whether
 body (raw YAML/rendered). Editing the description/summary layers by hand is
 not wired. Low priority; imports set them.
 
-### 8. No detach (accepted, not a bug)
-`TERMINOLOGY.md` §0: attaching is one-way, floor = title. Artifact deletion
-garbage-collects dangling attachments. If "attach forever" gets annoying in
-practice, the change is a new feature, not a fix.
+### 8. No detach once committed (accepted, not a bug)
+Attaching is one-way **at the moment it is sent**: staged items are freely
+removable (they haven't happened yet), committed ones are welded to a turn
+(`turnIndex`) and expose granularity only (doc 10 §2 L2). Artifact deletion
+garbage-collects attachments everywhere. Floor = title. If "sent forever" gets
+annoying in practice, that is a new feature (an excluded state), not a fix.
+
+### 9. No "Regenerate" next to a chapter's token count
+`Write it` appears only when the promised layer is missing. A summary that has
+gone stale (or was written from a thinner chapter) has no re-run affordance in
+the header yet — `/api/summarize-chapter` is already there to call.
+
+### 10. The graph lens is not a picker
+Staging lives in the folders lens (the rows). The graph renders nodes with no
+attach state — fine for now (it is the forest view), but a node with a "what
+does this cost me in this chat" ring would be the natural next step.
 
 ---
 

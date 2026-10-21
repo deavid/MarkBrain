@@ -64,19 +64,17 @@ export function resolveChapterSendGranularity(
   const chapter = chapters[index];
   if (!chapter) return 'full';
   if (isChapterInProgress(chapters, index)) return 'full';
-  return resolveChapterGranularity(chapter, isChapterOngoing(chapters, index));
+  return resolveChapterGranularity(chapter);
 }
 
 /**
- * THE chapter granularity rule — explicit choice wins; otherwise the default
- * follows the window (open → full, closed → summary).
+ * THE chapter granularity rule — the user's explicit choice, else Full.
+ * Nothing in the app moves a chapter's cut: no seal, no split, no "closed
+ * chapters can be summarized". An automatic downgrade ships less than the user
+ * asked for, silently, and it is indistinguishable from a summary they chose.
  */
-export function resolveChapterGranularity(
-  chapter: ChapterPartition,
-  ongoing: boolean
-): Granularity {
-  if (chapter.granularity) return normalizeGranularity(chapter.granularity);
-  return ongoing ? 'full' : 'summary';
+export function resolveChapterGranularity(chapter: ChapterPartition): Granularity {
+  return chapter.granularity ? normalizeGranularity(chapter.granularity) : 'full';
 }
 
 /**

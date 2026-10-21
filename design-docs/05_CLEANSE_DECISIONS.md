@@ -382,3 +382,33 @@ trees (d78a69c → e235e7d → 1fe9ae9 → HEAD) via commit-tree — no content
 changes; cross-phase self-review/probe/review-fix work folds into the phase
 block it sits in, named honestly in each message. End-state verified by
 diff + all three live probes afterward.
+
+## 2026-10-21 — the instrumentation law gets a UI end: `notifyCritical` (vega)
+
+The law said `error` = user-visible failure, data-loss risk. In practice
+"visible" meant "in DevTools": a cloud save that failed on every mutation, and a
+load that came back empty, both looked like a healthy session, and David lost
+work without noticing (found only when Firestore's free write quota ran out and
+he pasted the console error).
+
+**Added:** `src/utils/criticalNotifications.ts` — a framework-free channel
+(like `logger`) with one entry point, `notifyCritical(message)`. The UI renders
+it as a red `role="alert"` banner at the top of the viewport
+(`ui/system/CriticalNotifications.tsx`, mounted on every post-auth branch of
+`App.tsx`). One human sentence, **no error specifics** — the stack stays in
+`logger.error`. Ephemeral by construction: it leaves after 12s on its own, a
+dismiss button is a courtesy, and a repeating failure (a save that keeps
+failing) refreshes one banner instead of stacking twins (cap 3).
+
+**Who reports into it (only these two, both silent-data-loss paths):**
+- `application/persistWorker.ts` — the save threw: "Could not save to the cloud
+  — changes made now may be lost when you reload."
+- `application/snapshotLoader.ts` — the load threw: "Could not load this project
+  from the cloud — nothing was overwritten. Reload to try again."
+
+A `warn` that recovers (a blocked save before hydration, a skipped no-op save)
+stays a warn: it is expected, transient, and would train the user to ignore the
+banner. Evidence: `src/tests/critical-notifications.test.ts` (store behaviour +
+the wiring, since a channel nobody reports into is worse than none) and
+`/tmp/critical-banner-check.cjs` (live: fires, renders, dismisses, expires,
+never stacks).

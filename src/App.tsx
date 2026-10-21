@@ -9,6 +9,7 @@ import { BootSplash } from './ui/workspace/BootSplash';
 import { ProjectGenesis } from './ui/workspace/ProjectGenesis';
 import { ProjectLauncher } from './ui/workspace/ProjectLauncher';
 import { ServerLogsModal } from './ui/workspace/ServerLogsModal';
+import { CriticalNotifications } from './ui/system/CriticalNotifications';
 import { ArtifactDetailModal } from './ui/artifacts/ArtifactDetailModal';
 import { ArtifactsLibraryView } from './ui/artifacts/ArtifactsLibraryView';
 import { ImportModal } from './ui/artifacts/ImportModal';
@@ -383,6 +384,7 @@ export default function App() {
           isOpen={isServerLogsOpen}
           onClose={() => setIsServerLogsOpen(false)}
         />
+        <CriticalNotifications />
       </>
     );
   }
@@ -408,6 +410,7 @@ export default function App() {
           isOpen={isServerLogsOpen}
           onClose={() => setIsServerLogsOpen(false)}
         />
+        <CriticalNotifications />
       </>
     );
   }
@@ -739,6 +742,9 @@ export default function App() {
 
       {/* Hidden trigger for full-database restore (Sidebar → Restore DB) */}
       {dbImportInput}
+
+      {/* The red banner: failures severe enough that the session is lying to you */}
+      <CriticalNotifications />
     </div>
   );
 }

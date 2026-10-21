@@ -41,12 +41,13 @@ export function cutIncludes(granularity: Granularity, layer: ArtifactLayer): boo
 }
 
 /**
- * Chapter default when a chapter is sealed: full → summary; a manual choice
- * (title/description) is the user's and is never clobbered.
+ * The chapter-cut law, as a value a snapshot can carry: a build that writes
+ * this marker never moves a chapter's cut on its own. Its ABSENCE in a stored
+ * snapshot marks chapters whose `summary` came from the old auto-seal (the
+ * build downgraded every chapter the moment it closed, `full → summary`), not
+ * from a user gesture — see the one-time migration in `services/stores/hydrate.ts`.
  */
-export function sealedGranularity(current: Granularity | undefined): Granularity {
-  return current === undefined || current === 'full' ? 'summary' : current;
-}
+export const GRANULARITY_LAW = 'user-only';
 
 export function normalizeGranularity(value: unknown, fallback: Granularity = 'full'): Granularity {
   return value === 'title' || value === 'description' || value === 'summary' || value === 'full'

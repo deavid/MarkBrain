@@ -7,6 +7,7 @@
  * IndexedDB records from old sessions hydrate the same way.
  */
 import { logger } from '../../utils/logger';
+import { GRANULARITY_LAW } from '../../domains/granularity';
 import type { ProjectSnapshot } from './projectStore';
 
 /** Fills missing camelCase ids/dates and layered `current` fields (subtitle/description/summary/body). Extra legacy fields ride along untouched. */
@@ -124,19 +125,39 @@ export function hydrateSnapshot(snap: ProjectSnapshot): ProjectSnapshot {
   // Chapters: legacy snapshots carry `topicShiftReason` (the model's 1-sentence
   // essence, misfiled) and `keyPoints` (never sent). Map the first onto the
   // description layer; granularity stays absent so the resolver defaults it
-  // (open → full, closed → summary).
+  // (Full, unless the user moved it).
+  //
+  // One-time cut migration: builds before `granularityLaw` auto-sealed every
+  // chapter the moment it closed (full → summary), so a stored `summary` is the
+  // app's doing, not a gesture — and the user was left with chapters that
+  // quietly shipped a summary. Reset those to Full once; the marker makes this
+  // idempotent, so a Summary picked later by hand survives every reload.
+  const needsLawMigration = (snap as { granularityLaw?: string }).granularityLaw !== GRANULARITY_LAW;
+  let unsealed = 0;
   const chapters = Array.isArray(snap.chapters)
     ? (snap.chapters.map((c: any) => {
         if (!c || typeof c !== 'object') return c;
         const { topicShiftReason, keyPoints, ...rest } = c;
-        return {
+        const healed: any = {
           ...rest,
           ...(rest.description === undefined && typeof topicShiftReason === 'string'
             ? { description: topicShiftReason }
             : {}),
         };
+        if (needsLawMigration && healed.granularity === 'summary') {
+          unsealed++;
+          healed.granularity = 'full';
+        }
+        return healed;
       }) as ProjectSnapshot['chapters'])
     : snap.chapters;
+  if (unsealed > 0) {
+    logger.warn(
+      'Persistence',
+      `Un-sealed ${unsealed} chapters that a previous build auto-downgraded to Summary — their cut is Full until the user moves it`,
+      { projectId: snap.projectId }
+    );
+  }
 
   const turnCounters = { healed: 0, seen: 0 };
   const turns = healTurns(snap.turns as any, turnCounters) as ProjectSnapshot['turns'];

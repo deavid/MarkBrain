@@ -968,6 +968,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             : undefined
                         }
                         onOpenDetail={onOpenArtifact ? () => onOpenArtifact(att.artifactId) : undefined}
+                        hideGranularityChips
+                        size="compact"
                       />
                     ))}
                   </div>
@@ -1260,6 +1262,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                 onOpenDetail={
                                   onOpenArtifact ? () => onOpenArtifact(att.artifactId) : undefined
                                 }
+                                hideGranularityChips
+                                size="compact"
                               />
                             ))}
                           </div>

@@ -165,6 +165,14 @@ interface AttachmentRowProps {
   flagged?: boolean;
   /** Parked for cleanup: dimmed here, and the only state the cleanup tool will delete. */
   archived?: boolean;
+  /**
+   * Chat strips pass this: the four cut chips on every row are noise there, and
+   * the row body already cycles the cut. The control lives in the chapter
+   * header and the library; the chat row is a card you click.
+   */
+  hideGranularityChips?: boolean;
+  /** `compact` is the chat card (three quarters of the library row's basis). */
+  size?: 'default' | 'compact';
 }
 
 /**
@@ -186,8 +194,14 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
   badge,
   flagged,
   archived = false,
+  hideGranularityChips = false,
+  size = 'default',
 }) => {
   const palette = getAttachmentStatePalette(state);
+  // 320px is the library/staged card, which grows to fill its line. The chat
+  // card is a quarter narrower AND does not grow: with `grow` a single card
+  // fills the row and the reduction would never be visible.
+  const cardSizing = size === 'compact' ? 'basis-[240px] max-w-[240px]' : 'basis-[320px] grow';
   return (
     <div
       data-state={state}
@@ -205,7 +219,7 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
       // and the staged tray): there the row is a card that sits beside its
       // neighbours. In a block parent (library, mirror) they are inert and the
       // row fills the line exactly as before.
-      className={`group basis-[320px] grow min-w-0 text-left rounded-xl px-2 py-1.5 space-y-1 ${
+      className={`group ${cardSizing} min-w-0 text-left rounded-xl px-2 py-1.5 space-y-1 ${
         onToggle ? 'cursor-pointer select-none' : ''
       } ${palette.rowClass} ${archived ? 'opacity-70' : ''}`}
     >
@@ -287,7 +301,7 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
           )}
         </div>
       </div>
-      {onSetGranularity && state !== 'unstaged' && (
+      {onSetGranularity && !hideGranularityChips && state !== 'unstaged' && (
         <div className="pl-7">
           <GranularityChips
             value={granularity}

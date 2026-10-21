@@ -9,6 +9,8 @@
  * last chapters SEND.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   IN_PROGRESS_CHAPTERS,
   isChapterInProgress,
@@ -20,7 +22,11 @@ import { ChapterSegmentationDomain } from '../domains/02-chapter-segmentation';
 import { DialogueTimelineDomain } from '../domains/01-dialogue-timeline';
 import { ArtifactDocumentDomain } from '../domains/01-artifact-document';
 import { OpticalCompilerDomain } from '../domains/03-optical-compiler';
+import { GRANULARITY_LAW } from '../domains/granularity';
 import type { Granularity } from '../domains/granularity';
+import { hydrateSnapshot } from '../services/stores/hydrate';
+
+const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 
 const chap = (
   id: string,
@@ -122,5 +128,64 @@ describe('the compiler sends the last two chapters at Full', () => {
     const compiler = build([chap('a', { endIndex: 1 }), chap('b')]);
     const rows = compiler.compile({ attachments: [] }).telemetry.chapterBreakdown;
     expect(rows.every((r) => r.granularity === 'full')).toBe(true);
+  });
+});
+
+/**
+ * The cut law, from the other side: the app used to auto-seal every closing
+ * chapter (full → summary), so chapters "defaulted to Summary" and shipped less
+ * than the user asked for, silently. Now nothing but a gesture moves a cut —
+ * and a snapshot written before this law has those auto-seals undone once.
+ */
+describe('nothing but the user moves a chapter cut', () => {
+  it('a chapter with no cut of its own resolves to Full, closed or open', () => {
+    const list = [chap('closed', { endIndex: 1 }), chap('mid', { endIndex: 2 }), chap('open')];
+    expect(resolveChapterSendGranularity(list, 0)).toBe('full');
+    expect(resolveChapterSendGranularity(list, 1)).toBe('full');
+    expect(resolveChapterSendGranularity(list, 2)).toBe('full');
+  });
+
+  it('sealing, splitting and closing fix windows and leave the cut alone', () => {
+    const segmentation = new ChapterSegmentationDomain('p', [
+      chap('g', { status: 'active', granularity: 'title' }),
+    ]);
+    segmentation.declareNewChapter('Next', 1);
+    expect(segmentation.getChapter('g')!.granularity).toBe('title');
+
+    const split = new ChapterSegmentationDomain('p', [chap('g', { status: 'active' })]);
+    split.splitChapter('g', 1, 'Second half');
+    expect(split.getChapter('g')!.granularity).toBeUndefined();
+    expect(resolveChapterSendGranularity(split.listChapters(), 0)).toBe('full');
+
+    const closed = new ChapterSegmentationDomain('p', [
+      chap('g', { status: 'active', granularity: 'description' }),
+    ]);
+    closed.closeChapter('g');
+    expect(closed.getChapter('g')!.granularity).toBe('description');
+  });
+
+  it('a legacy snapshot has its auto-sealed summaries un-sealed exactly once', () => {
+    const legacy = {
+      projectId: 'p',
+      turns: [],
+      artifacts: [],
+      edges: [],
+      updatedAt: 0,
+      chapters: [
+        { id: 'c0', title: 'Old', granularity: 'summary' as const, status: 'completed' as const },
+        { id: 'c1', title: 'Chosen', granularity: 'description' as const, status: 'completed' as const },
+      ],
+    };
+    const healed = hydrateSnapshot(legacy as never);
+    expect(healed.chapters.map((c) => c.granularity)).toEqual(['full', 'description']);
+
+    // Marker present = the value is the user's, so a Summary survives.
+    const modern = hydrateSnapshot({ ...legacy, granularityLaw: GRANULARITY_LAW } as never);
+    expect(modern.chapters.map((c) => c.granularity)).toEqual(['summary', 'description']);
+  });
+
+  it('every save marks the snapshot as written under the law', () => {
+    const service = read('src/services/persistenceService.ts');
+    expect(service).toContain('granularityLaw: GRANULARITY_LAW');
   });
 });

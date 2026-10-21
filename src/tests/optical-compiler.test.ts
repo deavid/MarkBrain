@@ -133,7 +133,7 @@ describe('context compiler — attachments', () => {
 });
 
 describe('context compiler — chapters', () => {
-  it('a closed chapter defaults to summary once it leaves the in-progress window; the last two are forced full', () => {
+  it('a chapter keeps the cut it was given: nothing but the user moves it, and the last two are forced full', () => {
     const { compiler } = build({
       chapters: [
         { id: 'c0', title: 'Old', summary: 'Recap zero', endIndex: 1 },
@@ -143,14 +143,32 @@ describe('context compiler — chapters', () => {
       turns: ['zero turn', 'one turn', 'hello open'],
     });
     const out = compiler.compile({ attachments: [] });
-    // c1 is sealed but still one of the last two — live chapters always send Full.
+    // c0 was never cut by hand, so it stays Full — closing a chapter is not a
+    // licence to send less. c1/c2 are the last two: Full by the in-progress law.
     expect(out.telemetry.chapterBreakdown.map((c) => [c.chapterId, c.granularity])).toEqual([
-      ['c0', 'summary'],
+      ['c0', 'full'],
       ['c1', 'full'],
       ['c2', 'full'],
     ]);
     expect(out.compiledPrompt).toContain('Recap zero');
     expect(out.compiledPrompt).toContain('hello open');
+  });
+
+  it('sends the cut the user chose on a closed chapter, and only that', () => {
+    const { compiler } = build({
+      chapters: [
+        { id: 'c0', title: 'Cut by hand', granularity: 'summary', summary: 'Recap zero', endIndex: 1 },
+        { id: 'c1', title: 'Recent' },
+        { id: 'c2', title: 'Open' },
+      ],
+      turns: ['zero turn', 'one turn', 'hello open'],
+    });
+    const out = compiler.compile({ attachments: [] });
+    expect(out.telemetry.chapterBreakdown.map((c) => [c.chapterId, c.granularity])).toEqual([
+      ['c0', 'summary'],
+      ['c1', 'full'],
+      ['c2', 'full'],
+    ]);
   });
 
   it('honors an explicit chapter granularity outside the in-progress window', () => {
@@ -178,16 +196,18 @@ describe('context compiler — chapters', () => {
     expect(out.compiledPrompt).toContain('verbatim turn');
   });
 
-  it('sealing a chapter steps full → summary but keeps a manual choice', () => {
+  it('sealing a chapter never moves its cut — not a manual one, not the default', () => {
     const { segmentation } = build({ chapters: [{ id: 'g', title: 'Genesis' }] });
     segmentation.setGranularity('g', 'description');
     segmentation.declareNewChapter('Next', 1);
     expect(segmentation.getChapter('g')!.granularity).toBe('description');
     expect(segmentation.getChapter('g')!.status).toBe('completed');
 
-    const second = build({ chapters: [{ id: 'g', title: 'Genesis' }] });
+    // The default (Full) survives the seal too: the old auto-downgrade to
+    // Summary is what made every closed chapter silently ship less.
+    const second = build({ chapters: [{ id: 'g', title: 'Genesis', granularity: 'full' }] });
     second.segmentation.declareNewChapter('Next', 1);
-    expect(second.segmentation.getChapter('g')!.granularity).toBe('summary');
+    expect(second.segmentation.getChapter('g')!.granularity).toBe('full');
   });
 
   it('a new chapter starts at full with the subtitle and description the model emitted', () => {

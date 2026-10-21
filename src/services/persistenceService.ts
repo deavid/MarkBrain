@@ -2,6 +2,7 @@ import { logger } from '../utils/logger';
 import { sanitizeForStorage } from '../utils/storageSanitize';
 import { HEADLESS_FIXTURE } from '../data/headlessFixture';
 import type { ChapterPartition } from '../domains/02-chapter-segmentation/types';
+import { GRANULARITY_LAW } from '../domains/granularity';
 import { firestoreStore } from './stores/firestoreStore';
 import { localStore } from './stores/localStore';
 import { hydrateSnapshot } from './stores/hydrate';
@@ -105,6 +106,9 @@ export async function saveProjectSnapshot(
     codeName: snapshot.codeName,
     description: snapshot.description,
     color: snapshot.color,
+    // Marks this snapshot as written by a build that never moves a chapter's
+    // cut on its own — see the one-time migration in stores/hydrate.ts.
+    granularityLaw: GRANULARITY_LAW,
   });
 
   // Fingerprint CONTENT only: updatedAt moves on every call by design and must

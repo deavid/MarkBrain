@@ -315,3 +315,28 @@ clean, `bunx vitest run` 118/118 across 15 files, `node scripts/evidence.cjs`
 2. **No "Regenerate" affordance** next to a chapter's token count. `Write it`
    covers the empty-layer case only; re-summarizing a stale summary has no
    button yet.
+
+## 19. Laws added 2026-10-21 (`dev-vega`) — chat noise, and the cut law
+
+**The chat card is a card, not a control panel.** Inside the chat, an artifact
+renders WITHOUT the `Title | Description | Summary | Full` chips: the row body is
+the whole control (click cycles the cut, the dot does the same), and the card is
+a fixed **240px** — a quarter narrower than the 320px library/staged row, and
+deliberately NOT `grow`ing, because a growing card fills its line and the
+reduction would never be visible. The chips stay where a cut is *chosen*: the
+folder row, the staged tray (with its bulk "Set all to"), the chapter header,
+the detail modal. Props: `AttachmentRow`'s `hideGranularityChips` +
+`size="compact"`; `ChatView` passes both on the chapter strip and the per-turn
+strip. Evidence: J15 counts `[data-granularity]` inside the chat card (0),
+measures its width (≤260px) and clicks it to prove the cycle.
+
+**Nothing but the user moves a chapter's cut.** The app auto-sealed every
+chapter the moment it closed (`full → summary`), so chapters "defaulted to
+Summary" and quietly sent less than the user asked for — indistinguishable from
+a summary the user had chosen. `sealedGranularity` is deleted; sealing,
+splitting and closing only fix turn windows now, and
+`resolveChapterGranularity(chapter)` is "the explicit choice, else Full". A
+snapshot written before the law carries no `granularityLaw` marker, so hydrate
+resets those auto-sealed `summary` values to Full **exactly once** — the marker
+(`GRANULARITY_LAW`, written on every save) makes it idempotent, so a Summary
+picked by hand afterwards survives every reload.

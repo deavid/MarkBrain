@@ -14,6 +14,7 @@ import type { ITopologicalGraphDomain } from '../domains/02-topological-graph';
 import type { ThreadRegistry } from '../domains/06-chat-threads';
 import type { ProjectSnapshot } from '../services/stores/projectStore';
 import { logger } from '../utils/logger';
+import { notifyCritical } from '../utils/criticalNotifications';
 
 /** Shared with snapshotLoader: saves stay blocked until hydration lands. */
 export type HydratedRef = { current: boolean };
@@ -76,6 +77,9 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
     });
   } catch (err) {
     logger.error('DomainRegistry', 'Persistence failed', err);
+    // The console has the specifics; the user needs to know the session is not
+    // being saved at all. This is the failure that silently ate days of work.
+    notifyCritical('Could not save to the cloud — changes made now may be lost when you reload.');
   }
 }
 

@@ -856,6 +856,30 @@ async function main() {
     check(/Attached on this turn/i.test(txt), 'card is anchored to the turn that sent it');
     await shot(page, 'welded-turn');
 
+    // Noise law: a chat card carries NO cut chips — the row body is the whole
+    // control (click cycles the cut), and the card is a quarter narrower so it
+    // sits beside the message instead of owning the column.
+    const card = page.locator('[data-artifact-id="art-fx-beta"]').first();
+    check(
+      (await card.locator('[data-granularity]').count()) === 0,
+      'a chat artifact card carries no granularity chips'
+    );
+    const cardWidth = Math.round((await card.boundingBox())?.width ?? 0);
+    check(
+      cardWidth > 0 && cardWidth <= 260,
+      `the chat card is the compact width (${cardWidth}px, library row is 320px)`
+    );
+    const cutBefore = await card.getAttribute('data-state');
+    await card.click({ timeout: 5000 });
+    step('click', 'chat artifact card → cycle the cut');
+    await page.waitForTimeout(500);
+    const cutAfter = await card.getAttribute('data-state');
+    check(
+      cutBefore !== cutAfter,
+      `clicking the card cycles its cut (${cutBefore} → ${cutAfter})`
+    );
+    await shot(page, 'chat-card-cycled');
+
     // Reopening the folder shows it as committed (Turn badge), not staged.
     await page.locator('[data-testid="open-artifacts"]').first().click({ timeout: 5000 });
     await page.waitForTimeout(500);
@@ -884,8 +908,8 @@ async function main() {
     // The fixture chapter (first) has a summary and NO description — the shape
     // where screen and payload diverge if the layer gating is wrong.
     const fxSection = page.locator('section:has([data-testid="chapter-cut"])').first();
-    // Scoped to the chapter's OWN control — attachment rows inside the section
-    // carry granularity chips with the same data-granularity values.
+    // Scoped to the chapter's OWN control: the chapter header is the only place
+    // a chapter cut is chosen in the chat (attachment cards carry no chips).
     const fxCut = (g) =>
       fxSection.locator(`[data-testid="chapter-cut"] [data-granularity="${g}"]`).first();
     const SUMMARY_SENTENCE = 'Synthetic chapter for headless capture.';

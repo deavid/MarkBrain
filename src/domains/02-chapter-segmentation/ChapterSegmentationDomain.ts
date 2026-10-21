@@ -1,6 +1,6 @@
 import { IChapterSegmentationDomain } from './interface';
 import { ChapterPartition, SegmentationEvent } from './types';
-import { Granularity, sealedGranularity } from '../granularity';
+import { Granularity } from '../granularity';
 import { logger } from '../../utils/logger';
 
 const makeChapterId = () => `chap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -36,12 +36,12 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     summary?: string
   ): ChapterPartition {
     logger.info('Segmentation', `Declare new chapter "${title}" at turn #${startIndex}`, { subtitle, description });
-    // Seal the open chapter: full → summary; a manual title/description stays.
+    // Seal the open chapter. Its CUT is not touched: closing a chapter is a
+    // fact about turn windows, not permission to summarize the user's work.
     this.chapters.forEach((c) => {
       if (c.status === 'active') {
         c.status = 'completed';
         if (c.endIndex === undefined) c.endIndex = startIndex;
-        c.granularity = sealedGranularity(c.granularity);
       }
     });
 
@@ -77,7 +77,8 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     const prevEnd = target.endIndex;
     target.endIndex = splitIndex;
     target.status = 'completed';
-    target.granularity = sealedGranularity(target.granularity);
+    // The cut stays where it was: splitting is a boundary edit, and a chapter
+    // that suddenly ships less than the user asked for is a silent downgrade.
 
     // A stale/absent end (the ongoing rule runs the last chapter to the latest
     // turn regardless of endIndex) means the new chapter owns the tail — never
@@ -144,11 +145,11 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     this.emit({ type: 'chapterGranularityChanged', chapterId, granularity });
   }
 
+  /** Closing a chapter fixes its turn window — the cut is the user's, not ours. */
   closeChapter(chapterId: string): void {
     const chapter = this.chapters.find((c) => c.id === chapterId);
     if (!chapter) return;
     chapter.status = 'completed';
-    chapter.granularity = sealedGranularity(chapter.granularity);
   }
 
   loadChapters(chapters: ChapterPartition[]): void {

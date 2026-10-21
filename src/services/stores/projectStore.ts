@@ -20,6 +20,12 @@ export interface ProjectSnapshot {
   codeName?: string;
   description?: string;
   color?: string;
+  /**
+   * Written by builds where nothing but the user moves a chapter's cut. Its
+   * absence marks a legacy snapshot, whose chapters were auto-sealed to
+   * `summary` on close — hydrate.ts resets those to Full exactly once.
+   */
+  granularityLaw?: 'user-only';
 }
 
 /**

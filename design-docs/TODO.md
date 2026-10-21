@@ -11,6 +11,44 @@
 
 ---
 
+## Done — 2026-10-21 night: the four noise/data-loss items (`dev-vega`)
+
+David, verbatim: *"shouldn't we have some ephemeral red notification for critical
+errors? like, we've been losing data and didn't notice… the chapters default to
+granularity=Summary… They should default to Full, and nothing except the user
+should move them… hide the Title-Description-Summary-Full controls, the user can
+click to cycle the granularity and that's it. And I would make the width of the
+artifact 25% smaller in the chat."* All four shipped.
+
+- **Critical failures are now visible.** `utils/criticalNotifications.ts` +
+  `ui/system/CriticalNotifications.tsx`: a red `role="alert"` banner, one human
+  sentence, no stack (that stays in the console), gone on its own after 12s, a
+  repeating failure refreshes one banner instead of stacking. Reported into from
+  exactly two places, both silent-data-loss paths: a failed **save**
+  (`persistWorker`) and a failed **load** (`snapshotLoader`). Law recorded in
+  `05_CLEANSE_DECISIONS.md`; tests in `src/tests/critical-notifications.test.ts`;
+  live proof in `/tmp/critical-banner-check.cjs` (fires, renders, dismisses,
+  expires, never stacks).
+- **Nothing but the user moves a chapter's cut.** `sealedGranularity` is deleted
+  (it was called at `ChapterSegmentationDomain` ×3 and `ThreadRegistry` ×1);
+  sealing/splitting/closing now only fix turn windows, and
+  `resolveChapterGranularity(chapter)` = explicit choice, else Full. Legacy
+  snapshots are migrated ONCE on hydrate (`granularityLaw` marker written on
+  every save), so the chapters that already read Summary come back Full and a
+  Summary the user picks afterwards stays. See `10_…` §19, item 1 below.
+- **The chat artifact card lost its chips** (`hideGranularityChips`): the row
+  body is the control — click cycles the cut, exactly as asked. Chips remain
+  where a cut is *chosen*: folder row, staged tray, chapter header, detail modal.
+- **The chat card is 25% narrower**: a fixed 240px (`size="compact"`) instead of
+  the 320px library row, and it no longer `grow`s — the first attempt kept
+  `grow`, measured 852px in evidence, and the reduction was invisible.
+
+Evidence: J15 gained the card checks (no chips, ≤260px, click cycles the cut);
+gates GREEN — `tsc` clean, **226/226** vitest, evidence 18/18 journeys, 0 fails,
+0 warns, 0 console errors.
+
+---
+
 ## Done — 2026-10-20: the attachment timeline (10_ATTACHMENT_TIMELINE.md)
 
 The four things David flagged from the screenshots are built (commit on
@@ -47,7 +85,8 @@ distance. Details in `09_CHAT_ARTIFACTS_PAYLOAD.md` §11 and `changelog.md`.
 - ~~Chapter row: real granularity control~~ → the chat header and the mirror
   both carry the four-word control; the compiler honors it.
 - ~~Chapter resolution rule~~ → `resolveChapterGranularity()` + explicit
-  `chapter.granularity`; sealing steps full → summary and keeps a manual choice.
+  `chapter.granularity`; **sealing does NOT step full → summary** (that
+  auto-seal was removed 2026-10-21 — see the top of this file).
 - ~~Attachment model~~ → `ChatAttachment` on `ChatThread`, per chat, attach at
   full, no detach, no excluded state. `ThreadRegistry.attachArtifact` /
   `setAttachmentGranularity` / `purgeArtifact`.
@@ -128,7 +167,11 @@ the stream is still not auto-summarized (summarize is active-thread-only
 today). Those show the honest "No summary yet" chrome.
 **Options left:** a thread-aware summarize call in the queue (costs one call
 per chapter boundary — a money decision), or lower the sealed default to
-`description` when no summary exists. Not decided.
+`description` when no summary exists. Not decided — and note the second option
+is now partly moot: since 2026-10-21 (top of this file) a closed chapter does
+NOT drop to a lower cut at all; it stays Full until the user moves it, so the
+"level is empty" problem only appears when the user asks for a layer nobody
+wrote (which the "Write it" chrome handles honestly).
 
 **Law added 2026-10-21 (David): the last TWO chapters are in progress.** They
 are forced to Full, their cut controls are replaced with an "In progress ·

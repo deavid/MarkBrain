@@ -8,6 +8,7 @@ import type { ThreadRegistry } from '../domains/06-chat-threads';
 import type { ProjectSnapshot } from '../services/stores/projectStore';
 import type { HydratedRef } from './persistWorker';
 import { logger } from '../utils/logger';
+import { notifyCritical } from '../utils/criticalNotifications';
 
 /** Live domains + thread registry + the hydration gate flag. */
 export interface HydrationDeps {
@@ -75,6 +76,9 @@ export function loadProjectSnapshotIntoDomains(deps: ProjectLoadDeps): () => voi
         `Snapshot load failed for ${activeProjectId} — domains stay empty, saves blocked until a successful load`,
         err
       );
+      // An empty studio after a failed load looks exactly like deleted work.
+      // Nothing was overwritten (the save gate stays shut), so say so.
+      notifyCritical('Could not load this project from the cloud — nothing was overwritten. Reload to try again.');
     }
   })();
   return () => {

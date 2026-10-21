@@ -1,7 +1,7 @@
 import type { Turn } from '../01-dialogue-timeline';
 import type { ChapterPartition } from '../02-chapter-segmentation';
 import type { Granularity } from '../granularity';
-import { cycleGranularity, normalizeGranularity, sealedGranularity } from '../granularity';
+import { cycleGranularity, normalizeGranularity } from '../granularity';
 import {
   ChatAttachment,
   ChatThread,
@@ -541,7 +541,7 @@ export class ThreadRegistry {
       if (c.status === 'active') {
         c.status = 'completed';
         if (c.endIndex === undefined) c.endIndex = startIndex;
-        c.granularity = sealedGranularity(c.granularity);
+        // The cut is untouched: sealing a window never downgrades what is sent.
       }
     });
     const chapter: ChapterPartition = {

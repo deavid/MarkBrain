@@ -1215,6 +1215,64 @@ async function main() {
     }
   });
 
+  // ── J19 critical notice — a save that never settles must still be visible ──
+  // The failure David hit live: with the free Firestore write quota gone,
+  // `setDoc` never settles (the client retries with a backoff cap forever), so
+  // the catch never ran and nothing reached the UI — work was lost in silence.
+  // `?slowsave=1` reproduces exactly that shape and cannot touch a backend.
+  await journey(page, '19-critical-notice', 'A save that never settles raises the red banner', async (page) => {
+    forceFailurePhase = true;
+    try {
+      await page.goto(`${startUrl}&slowsave=1`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page.locator('textarea').first().waitFor({ state: 'visible', timeout: 30_000 });
+      await page.waitForTimeout(2000);
+      check(
+        (await page.locator('[data-testid="critical-notification"]').count()) === 0,
+        'nothing on screen before the deadline passes'
+      );
+
+      // Any mutation starts the debounced save; that save hangs, and the
+      // acknowledgement deadline is what turns "stuck" into "failed".
+      const cutChip = page.locator('[data-testid="chapter-cut"] [data-granularity="summary"]').first();
+      if (await cutChip.isVisible().catch(() => false)) {
+        await cutChip.click({ timeout: 8000 });
+        step('click', 'chapter → Summary (starts a save)');
+      } else {
+        step('skip', 'no cut control visible — the boot save alone must raise the banner');
+      }
+
+      const banner = page.locator('[data-testid="critical-notification"]').first();
+      await banner.waitFor({ state: 'visible', timeout: 35_000 });
+      step('wait', 'the watchdog fired (15s acknowledgement deadline)');
+      const notice = (await banner.innerText()).replace(/\s+/g, ' ');
+      check(/Could not save to the cloud/.test(notice), `the banner says what happened: "${notice}"`);
+      check(/may be lost/.test(notice), 'it says what the user stands to lose');
+      check(
+        !/resource-exhausted|FirebaseError|Error:|at /.test(notice),
+        'it carries no error specifics — the console keeps those'
+      );
+      check((await banner.getAttribute('role')) === 'alert', 'it is a live region, not a silent div');
+      await shot(page, 'critical-notice');
+
+      await banner.locator('button').first().click({ timeout: 5000 });
+      step('click', 'dismiss the banner');
+      await page.waitForTimeout(500);
+      check(
+        (await page.locator('[data-testid="critical-notification"]').count()) === 0,
+        'the ✕ dismisses it'
+      );
+    } finally {
+      forceFailurePhase = false;
+      await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
+      await page
+        .locator('textarea')
+        .first()
+        .waitFor({ state: 'visible', timeout: 30_000 })
+        .catch(() => {});
+      await page.waitForTimeout(1500);
+    }
+  });
+
   // ── geometry audit: viewport × surface matrix ─────────────────────────────
   log('── audit: viewport × surface geometry');
   for (const vp of VIEWPORTS) {

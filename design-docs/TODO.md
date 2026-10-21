@@ -29,6 +29,32 @@ artifact 25% smaller in the chat."* All four shipped.
   `05_CLEANSE_DECISIONS.md`; tests in `src/tests/critical-notifications.test.ts`;
   live proof in `/tmp/critical-banner-check.cjs` (fires, renders, dismisses,
   expires, never stacks).
+- **…and it did not fire. Fixed the same night, properly.** David reloaded and
+  said so, with his console attached: the writes were failing with
+  `resource-exhausted` and the banner never appeared. Root cause: **a
+  quota-blocked Firestore write does not reject.** The client keeps it in its
+  retry loop with a backoff cap ("Using maximum backoff delay to prevent
+  overloading the backend"), so `setDoc` NEVER settles — the `catch` that raises
+  the banner simply never ran. The wiring was fine; the failure was invisible by
+  construction.
+  - `utils/deadline.ts` — `withDeadline(op, ms, what)`: an operation that never
+    settles still fails loudly (the deadline does not cancel the write; it stops
+    waiting for it).
+  - `SAVE_ACK_DEADLINE_MS = 15s` around `getStore().save(...)` in
+    `persistenceService` — a save that sits unacknowledged for 15s counts as
+    failed, so the fingerprint stays unset (it retries) and the user is told.
+    `LOAD_DEADLINE_MS = 30s` for reads (a hung load is at least *visible*: the
+    boot loader spins, the save gate stays shut).
+  - `persistWorker` no longer blames the cloud for every error in the block:
+    payload assembly and transmission are separate `try`s, with separate
+    messages (an assembly crash says "Could not save your work").
+  - Evidence seam `?slowsave=1` (dev only): the save path hangs exactly like a
+    quota-blocked write and never consults a backend, so fixture runs stay
+    read-only. **Journey `19-critical-notice`** drives it end to end and asserts
+    the banner appears, says what is at risk, carries no error specifics, is a
+    live region, and dismisses. Tests: `deadline.test.ts` (5),
+    `save-watchdog.test.ts` (4), plus the app-layer wiring in
+    `critical-notifications.test.ts`.
 - **Nothing but the user moves a chapter's cut.** `sealedGranularity` is deleted
   (it was called at `ChapterSegmentationDomain` ×3 and `ThreadRegistry` ×1);
   sealing/splitting/closing now only fix turn windows, and

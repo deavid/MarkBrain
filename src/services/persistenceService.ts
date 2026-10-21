@@ -3,6 +3,7 @@ import { sanitizeForStorage } from '../utils/storageSanitize';
 import { HEADLESS_FIXTURE } from '../data/headlessFixture';
 import type { ChapterPartition } from '../domains/02-chapter-segmentation/types';
 import { GRANULARITY_LAW } from '../domains/granularity';
+import { withDeadline } from '../utils/deadline';
 import { firestoreStore } from './stores/firestoreStore';
 import { localStore } from './stores/localStore';
 import { hydrateSnapshot } from './stores/hydrate';
@@ -25,6 +26,24 @@ export type StorageBackend = 'firestore' | 'local';
 
 const BACKEND_KEY = 'markbrain:backend';
 export const LOCAL_UID = 'local';
+
+/**
+ * How long a save may sit unacknowledged before it counts as failed. Firestore
+ * does not reject a quota-blocked write — it retries with a backoff cap and the
+ * promise never settles — so without a deadline the app cannot distinguish
+ * "saved" from "stuck forever" (see utils/deadline.ts). 15s is long enough for
+ * a slow link to land a real save, short enough that the user hears about it
+ * while they are still in the session.
+ */
+export const SAVE_ACK_DEADLINE_MS = 15_000;
+
+/**
+ * Loads get a longer deadline: a big project on a slow link legitimately takes
+ * seconds, and a hung load is at least VISIBLE (the app stays on the boot
+ * loader), unlike a hung save. The deadline exists so a stuck load reports
+ * instead of spinning forever with the save gate shut.
+ */
+export const LOAD_DEADLINE_MS = 30_000;
 
 export function getBackend(): StorageBackend {
   try {
@@ -73,6 +92,16 @@ export const isFixtureMode = (): boolean => devParam('fixture');
 export const isCaptureMode = (): boolean => devParam('fixture') || devParam('capture');
 
 /**
+ * Evidence seam (`?slowsave=1`, dev only): every save hangs. Nothing is written
+ * anywhere — the seam never consults a backend — so a fixture run stays
+ * read-only, and the only thing that can end the hang is the acknowledgement
+ * deadline. It exists so a journey can watch the watchdog fire, which is the
+ * failure David hit live: Firestore retries a quota-blocked write forever, so
+ * `setDoc` never settles and no `catch` ever runs.
+ */
+export const isSlowSaveSeam = (): boolean => devParam('slowsave');
+
+/**
  * Last successfully persisted JSON per project. Firestore meters writes against
  * document size (100KB chunks) out of a small daily free quota, so a save of
  * unchanged content is the most expensive no-op there is — every duplicate
@@ -84,7 +113,14 @@ export async function saveProjectSnapshot(
   projectId: string,
   snapshot: Omit<ProjectSnapshot, 'projectId' | 'updatedAt'>
 ): Promise<void> {
-  if (isCaptureMode()) return;
+  // Evidence seam (`?slowsave=1`, dev only): the save never settles — exactly
+  // the shape of a Firestore write stuck in its retry loop once the free write
+  // quota is gone. Nothing is written anywhere, so a fixture run stays
+  // read-only; the deadline below is the only thing that can end it, which is
+  // the point: the evidence pack watches the watchdog fire.
+  if (isSlowSaveSeam()) {
+    await withDeadline(new Promise<never>(() => {}), SAVE_ACK_DEADLINE_MS, 'the simulated slow save');
+  }  if (isCaptureMode()) return;
 
   // Strip undefined BEFORE touching either backend: Firestore throws
   // "Unsupported field value: undefined" on setDoc (default settings), which
@@ -119,7 +155,13 @@ export async function saveProjectSnapshot(
 
   // The store must reject on failure (quota, permission) — otherwise the
   // fingerprint would mark unsaved content as saved and it would never retry.
-  await getStore().save(fullSnapshot);
+  // The deadline covers the failure the store cannot report: a write that never
+  // settles at all (Firestore retries a quota-blocked write forever).
+  await withDeadline(
+    getStore().save(fullSnapshot),
+    SAVE_ACK_DEADLINE_MS,
+    `the save of ${projectId}`
+  );
   lastSavedJson.set(projectId, json);
 }
 
@@ -134,7 +176,14 @@ export async function saveProjectSnapshot(
 export async function loadProjectSnapshot(
   projectId: string
 ): Promise<ProjectSnapshot | null> {
-  const snap = await loadSnapshotRaw(projectId);
+  // A read can hang for the same reason a write can (offline client, blocked
+  // request): report it instead of spinning on the boot loader with the save
+  // gate shut and the domains empty.
+  const snap = await withDeadline(
+    loadSnapshotRaw(projectId),
+    LOAD_DEADLINE_MS,
+    `the load of ${projectId}`
+  );
   return snap ? hydrateSnapshot(snap) : null;
 }
 

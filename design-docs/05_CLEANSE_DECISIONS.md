@@ -412,3 +412,22 @@ banner. Evidence: `src/tests/critical-notifications.test.ts` (store behaviour +
 the wiring, since a channel nobody reports into is worse than none) and
 `/tmp/critical-banner-check.cjs` (live: fires, renders, dismisses, expires,
 never stacks).
+
+**Same night — the channel was correct and still silent.** David reloaded, no
+banner, and his console showed why: the write failures were
+`resource-exhausted`, and **a quota-blocked Firestore write does not reject** —
+the client retries it with a backoff cap forever ("Using maximum backoff delay
+to prevent overloading the backend"), so `setDoc` never settles and the `catch`
+never ran. Reporting into a channel is not enough if the failure never arrives:
+the data path needs a deadline of its own.
+
+- `utils/deadline.ts` — `withDeadline(op, ms, what)`.
+- `persistenceService` — `SAVE_ACK_DEADLINE_MS = 15s` (an unacknowledged save is
+  a failed save: the fingerprint stays unset so it retries, and the user hears
+  about it), `LOAD_DEADLINE_MS = 30s`.
+- `persistWorker` — assembly and transmission are separate `try`s with separate
+  messages: a crash in our own payload assembly is a critical failure too, but
+  it is not the cloud's fault, and saying so would send the user hunting for a
+  network problem that isn't there.
+- Evidence seam `?slowsave=1` (dev only, cannot touch a backend) + journey
+  `19-critical-notice`, which asserts the banner end to end in the browser.

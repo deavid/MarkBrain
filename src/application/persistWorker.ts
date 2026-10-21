@@ -15,6 +15,7 @@ import type { ThreadRegistry } from '../domains/06-chat-threads';
 import type { ProjectSnapshot } from '../services/stores/projectStore';
 import { logger } from '../utils/logger';
 import { notifyCritical } from '../utils/criticalNotifications';
+import { isSlowSaveSeam } from '../services/persistenceService';
 
 /** Shared with snapshotLoader: saves stay blocked until hydration lands. */
 export type HydratedRef = { current: boolean };
@@ -54,7 +55,17 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
     logger.warn('DomainRegistry', 'Snapshot save blocked: project not hydrated yet — this session will not be persisted');
     return;
   }
-  if (isCaptureMode()) return; // capture/fixture runs are read-only
+  // Capture/fixture runs are read-only. The one exception is the evidence seam
+  // `?slowsave=1`, which must reach the save path so the watchdog can be
+  // watched — and that path cannot touch a backend at all: it hangs before the
+  // store is ever consulted, then fails on the deadline.
+  if (isCaptureMode() && !isSlowSaveSeam()) return;
+
+  // Assembly and transmission fail for different reasons, and only one of them
+  // is the cloud's fault. Lying about which would send the user hunting for a
+  // network problem that isn't there — but both mean the same thing to them:
+  // nothing is being saved.
+  let payload: Omit<ProjectSnapshot, 'projectId' | 'updatedAt'>;
   try {
     // Meta MUST ride along: IndexedDB put() REPLACES the record, so an omission
     // here wipes name/codeName/description/color on the first auto-save.
@@ -62,7 +73,7 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
     // Threads: compose re-flattens live (active thread) + cached (inactive)
     // content and tags every turn/chapter with its threadId.
     const composed = threadRegistry.compose(timeline.getTurns(), segmentation.listChapters());
-    await saveProjectSnapshot(activeId, {
+    payload = {
       turns: composed.turns,
       chapters: composed.chapters,
       threads: composed.threads,
@@ -74,7 +85,15 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
       codeName: container?.metadata.codeName,
       description: container?.metadata.description,
       color: container?.metadata.color,
-    });
+    };
+  } catch (err) {
+    logger.error('DomainRegistry', 'Snapshot assembly failed — nothing was sent to storage', err);
+    notifyCritical('Could not save your work — changes made now may be lost when you reload.');
+    return;
+  }
+
+  try {
+    await saveProjectSnapshot(activeId, payload);
   } catch (err) {
     logger.error('DomainRegistry', 'Persistence failed', err);
     // The console has the specifics; the user needs to know the session is not

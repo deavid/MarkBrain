@@ -18,6 +18,9 @@ import {
   resetCriticalNotices,
   subscribeCriticalNotices,
 } from '../utils/criticalNotifications';
+import { persistProjectSnapshot } from '../application/persistWorker';
+import type { PersistDeps } from '../application/persistWorker';
+import { loadProjectSnapshotIntoDomains } from '../application/snapshotLoader';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 
@@ -104,5 +107,87 @@ describe('critical notifications', () => {
     // The store's only entry point takes a string. If a stack ever needs a
     // home, it goes to logger.error — never into the banner.
     expect(notifyCritical.length).toBe(1);
+  });
+});
+
+/**
+ * The wiring, driven for real: the app layer's two data paths, with the
+ * failures that used to be console-only. This is the half a source-string
+ * assertion cannot prove — that the catch actually runs and the banner actually
+ * gets a message.
+ */
+describe('the app layer reports its failures', () => {
+  beforeEach(() => resetCriticalNotices());
+  afterEach(() => resetCriticalNotices());
+
+  const persistDeps = (saveProjectSnapshot: PersistDeps['saveProjectSnapshot']) =>
+    ({
+      workspace: {
+        getActiveProjectId: () => 'p1',
+        getProject: () => ({ metadata: { name: 'P', codeName: 'P', description: '', color: '#000' } }),
+      },
+      timeline: { getTurns: () => [] },
+      segmentation: { listChapters: () => [] },
+      artifacts: { listArtifacts: () => [] },
+      graph: { listEdges: () => [] },
+      threadRegistry: {
+        compose: () => ({ turns: [], chapters: [], threads: [], folders: [], activeThreadId: 'th1' }),
+      },
+      hydratedRef: { current: true },
+      saveProjectSnapshot,
+      isCaptureMode: () => false,
+    }) as unknown as PersistDeps;
+
+  it('a failed save raises exactly one notice, in the user’s words', async () => {
+    await persistProjectSnapshot(
+      persistDeps(() => Promise.reject(new Error('the save of p1 did not settle within 15000ms')))
+    );
+    expect(getCriticalNotices().map((n) => n.message)).toEqual([
+      'Could not save to the cloud — changes made now may be lost when you reload.',
+    ]);
+  });
+
+  it('a failed load says nothing was overwritten, because nothing was', async () => {
+    const deps = {
+      activeProjectId: 'p1',
+      loadProjectSnapshot: () => Promise.reject(new Error('unavailable')),
+      threadRegistry: {},
+      timeline: {},
+      segmentation: {},
+      artifacts: {},
+      graph: {},
+      hydratedRef: { current: false },
+    };
+    loadProjectSnapshotIntoDomains(deps as never);
+    await new Promise((r) => setTimeout(r, 0)); // the loader is fire-and-forget
+    expect(getCriticalNotices().map((n) => n.message)).toEqual([
+      'Could not load this project from the cloud — nothing was overwritten. Reload to try again.',
+    ]);
+  });
+
+  it('a save that succeeds, and a save blocked before hydration, stay quiet', async () => {
+    await persistProjectSnapshot(persistDeps(() => Promise.resolve()));
+    expect(getCriticalNotices()).toHaveLength(0);
+
+    const blocked = persistDeps(() => Promise.resolve());
+    (blocked as unknown as { hydratedRef: { current: boolean } }).hydratedRef.current = false;
+    await persistProjectSnapshot(blocked);
+    expect(getCriticalNotices()).toHaveLength(0); // expected on boot: a warn, not a banner
+  });
+
+  it('a crash while assembling the payload is reported, and not blamed on the cloud', async () => {
+    const broken = persistDeps(() => Promise.resolve());
+    (broken as unknown as { timeline: { getTurns: () => never } }).timeline = {
+      getTurns: () => {
+        throw new Error('client bug');
+      },
+    };
+    await persistProjectSnapshot(broken);
+    const notices = getCriticalNotices();
+    expect(notices).toHaveLength(1);
+    expect(notices[0].message).toBe(
+      'Could not save your work — changes made now may be lost when you reload.'
+    );
+    expect(notices[0].message).not.toMatch(/cloud/);
   });
 });

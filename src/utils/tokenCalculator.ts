@@ -144,6 +144,7 @@ export function exportToMarkdown(project: ProjectExportInput): string {
   for (const art of project.artifacts) {
     md += `### ${art.title} (\`${art.code || art.id}\`)\n`;
     md += `**Type:** ${art.type} | **High Concept:** ${art.isHighConcept ? 'Yes' : 'No'}\n\n`;
+    md += `**Subtitle:** ${art.current?.subtitle}\n\n`;
     md += `**Description:** ${art.current?.description}\n\n`;
     md += `**Summary:** ${art.current?.summary}\n\n`;
     md += `\`\`\`markdown\n${art.current?.body}\n\`\`\`\n\n`;
@@ -178,6 +179,7 @@ export function exportToYAML(project: ProjectExportInput): string {
         title: a.title,
         type: a.type,
         is_high_concept: a.isHighConcept ?? false,
+        subtitle: a.current?.subtitle,
         description: a.current?.description,
         summary: a.current?.summary,
         content: a.current?.body,
@@ -185,6 +187,7 @@ export function exportToYAML(project: ProjectExportInput): string {
       chapters: project.chapters.map(({ chapter, turns }) => ({
         id: chapter.id,
         title: chapter.title,
+        subtitle: chapter.subtitle || null,
         description: chapter.description || null,
         summary: chapter.summary || null,
         granularity: chapter.granularity || null,

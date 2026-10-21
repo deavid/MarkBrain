@@ -9,10 +9,20 @@
 import { logger } from '../../utils/logger';
 import type { ProjectSnapshot } from './projectStore';
 
-/** Fills missing camelCase ids/dates and layered `current` fields (description/summary/body). Extra legacy fields ride along untouched. */
+/** Fills missing camelCase ids/dates and layered `current` fields (subtitle/description/summary/body). Extra legacy fields ride along untouched. */
 export function hydrateArtifact(raw: any, projectId: string): any {
   const cur = raw?.current || {};
   const flatDesc = raw?.description ?? raw?.abstract ?? '';
+  const description = cur.description ?? flatDesc;
+  // Pre-`subtitle` notes stored a one-line hook in `description` (the old
+  // prompts asked for "a few phrases"). Copying it up gives those notes the
+  // two-line title display without a re-import; the original stays where it is,
+  // so nothing is lost if the guess is wrong.
+  const subtitle =
+    cur.subtitle ??
+    (typeof description === 'string' && description.length > 0 && description.length <= 240
+      ? description
+      : '');
   return {
     ...raw,
     id: raw?.id || `art-${Math.random().toString(36).slice(2, 10)}`,
@@ -34,9 +44,10 @@ export function hydrateArtifact(raw: any, projectId: string): any {
           ? raw.updated_at
           : Date.now(),
     current: {
-      description: cur.description ?? cur.description ?? flatDesc,
-      summary: cur.summary ?? cur.summary ?? raw?.summary ?? '',
-      body: cur.body ?? cur.body ?? raw?.content ?? '',
+      subtitle,
+      description,
+      summary: cur.summary ?? raw?.summary ?? '',
+      body: cur.body ?? raw?.content ?? '',
     },
     // `resolution` was an artifact-level husk the compiler never read; drop it.
     resolution: undefined,

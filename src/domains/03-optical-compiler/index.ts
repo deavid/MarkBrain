@@ -87,8 +87,11 @@ export function artifactXml(art: UniversalArtifactDocument, granularity: Granula
   const withSummary = cutIncludes(granularity, 'summary') && Boolean(art.current?.summary);
   const withBody = cutIncludes(granularity, 'body') && Boolean(art.current?.body);
 
+  // The title cut carries title + subtitle: a bare name tells a reader nothing,
+  // and the hook is what lets the model recognise the note it needs to expand.
+  const subtitle = (art.current?.subtitle || '').trim();
   lines.push(`  <artifact id="${art.id}" granularity="${granularity}">`);
-  lines.push(`    <title>${art.title}</title>`);
+  lines.push(`    <title>${subtitle ? `${art.title} — ${subtitle}` : art.title}</title>`);
   if (withDescription) lines.push(`    <description>${art.current.description}</description>`);
   if (withSummary) {
     lines.push(`    <summary>`);
@@ -121,8 +124,9 @@ export function chapterXml(
   const withSummary = cutIncludes(granularity, 'summary') && Boolean(chap.summary);
   const withTurns = cutIncludes(granularity, 'body');
 
+  const chapSubtitle = (chap.subtitle || '').trim();
   lines.push(`  <chapter id="${chap.id}" granularity="${granularity}" status="${chap.status}">`);
-  lines.push(`    <title>${chap.title}</title>`);
+  lines.push(`    <title>${chapSubtitle ? `${chap.title} — ${chapSubtitle}` : chap.title}</title>`);
   if (withDescription) lines.push(`    <description>${chap.description}</description>`);
   if (withSummary) {
     lines.push(`    <summary>`);
@@ -221,13 +225,34 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const historyBlock = `<conversation_chapters>\n${historyParts.join('\n\n')}\n</conversation_chapters>`;
 
     const compiledPrompt = `${substrateBlock}\n\n${historyBlock}`;
-    const systemInstruction = `You are MarkBrain, a thinking partner for a brain that overflows with ideas. Collect thoughts before they evaporate, keep them organized, and keep the forest in view. Talk WITH the user — direct, plain-spoken, no corporate filler.
-Ground your thinking directly in the provided notes and conversation chapters.
-Notes arrive at the size the user chose; an artifact without a <description>, <summary> or <content> was cut short on purpose — do not ask for the rest.
-Emit functional XML tags when appropriate:
-- <topic_shift title="New Chapter Title" description="1-2 sentences: what this chapter is about" />
-- <artifact_upsert id="unique_id" title="Note Title" type="document"><description>...</description><summary>...</summary><content>...</content></artifact_upsert>
-- <link source="id1" target="id2" kind="relates_to|refines|parent_of|child_of|born_from" />`;
+    const systemInstruction = `You are MarkBrain, a thinking partner for a brain that overflows with ideas. Collect thoughts before they evaporate, keep them organized, and keep the forest in view. Talk WITH the user, direct, plain-spoken, no corporate filler.
+Ground your thinking in the notes and chapters provided.
+Notes arrive at the compaction level the user chose (title, description, summary, full). A layer that is missing was compacted on purpose: do not ask for it unless you genuinely cannot answer without it.
+Emit these functional blocks in your reply when appropriate. Never emit JSON.
+
+1. When the conversation shifts to a substantially new topic:
+<topic_shift title="New Chapter Title" subtitle="One or two sentences stating what this chapter is about and its main takeaway, directly" />
+
+2. When an idea crystallizes into a durable note, emit an artifact_upsert carrying all four layers. They are read together in this order, so each one continues where the previous stopped and never re-introduces the note:
+<artifact_upsert id="kebab-case-slug" title="Short Note Title" type="document">
+<subtitle>
+One or two sentences (~40 tokens): what this note is and its single main takeaway. This is what a human reads next to the title in a list of fifty notes.
+</subtitle>
+<description>
+Two or three dense paragraphs (~200 tokens) continuing from the subtitle: the core thesis, the main pillars, and the conclusions reached. State facts, decisions and rules directly.
+</description>
+<summary>
+A multi-section digest (~800 to 1500 tokens for a substantial note) continuing from the description: walk every major section with Markdown headings and bullets, and extract the concrete rules, numbers, mechanics, rejected alternatives and open questions, so a reader at this level rarely needs the full note.
+</summary>
+<content>
+The complete Markdown note body.
+</content>
+</artifact_upsert>
+
+3. To link two notes in the graph:
+<link source="id1" target="id2" kind="relates_to|refines|parent_of|child_of|born_from" />
+
+Never open a layer with "This document outlines", "This note describes", "The user and AI discuss" or any other book report: name the thing and state what is in it.`;
 
     const systemTokens = estimateTokens(systemInstruction);
     const totalTokens = systemTokens + substrateTokens + historyTokens;

@@ -530,6 +530,7 @@ export class ThreadRegistry {
     threadId: string,
     title: string,
     startIndex: number,
+    subtitle?: string,
     description?: string,
     summary?: string
   ): ChapterPartition | null {
@@ -548,6 +549,7 @@ export class ThreadRegistry {
       workspaceId: this.projectId,
       threadId,
       title,
+      subtitle: subtitle || '',
       description: description || '',
       summary: summary || '',
       granularity: 'full',

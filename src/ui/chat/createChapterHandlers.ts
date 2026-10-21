@@ -88,17 +88,19 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
       // empty-chapter placeholder returns summary: '') must not wipe a layer the
       // chapter already had — that would remove real text from the payload on a
       // call the user made to ADD something.
+      const subtitle =
+        typeof data.subtitle === 'string' && data.subtitle.trim() ? data.subtitle : undefined;
       const description =
         typeof data.description === 'string' && data.description.trim()
           ? data.description
           : undefined;
       const summary =
         typeof data.summary === 'string' && data.summary.trim() ? data.summary : undefined;
-      if (description === undefined && summary === undefined) {
+      if (subtitle === undefined && description === undefined && summary === undefined) {
         logger.warn('App', `Summarize returned no text for chapter ${chapterId} — kept existing layers`);
         return;
       }
-      segmentation.updateLevels(chapterId, { description, summary });
+      segmentation.updateLevels(chapterId, { subtitle, description, summary });
     } catch (err) {
       // warn, not error: a timeout is an EXPECTED outcome of a slow model call
       // and the chapter chrome already shows the failure plus Retry. An error

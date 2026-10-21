@@ -1,9 +1,21 @@
-/** Cumulative document layers (`title` is on the parent document; `description → summary → body` are read together). */
+/**
+ * Cumulative document layers. `title` lives on the parent document; these are
+ * read together in order, each continuing where the previous one stopped.
+ */
 export type ArtifactLifecycle = 'active' | 'archived';
 
 export interface ArtifactLayers {
+  /**
+   * The index-card hook, shown next to the title in every row and sent with it
+   * at the `title` cut (~40 tokens). A bare 4-word title tells a reader nothing,
+   * and 40 tokens is free, so the two always travel as `title — subtitle`.
+   */
+  subtitle?: string;
+  /** The executive overview: core thesis, pillars, conclusions (~200 tokens). */
   description: string;
+  /** The substantive digest: every section, rule, number, rejection (~800-1500). */
   summary: string;
+  /** The verbatim source document. Spliced, never generated. */
   body: string;
 }
 

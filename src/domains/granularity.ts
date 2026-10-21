@@ -1,5 +1,7 @@
 /**
  * Granularity: the four-level cumulative cut (`title ⊂ description ⊂ summary ⊂ full`).
+ * `title` carries the title AND the subtitle hook together: a 4-word name alone
+ * says nothing, and the hook costs about 40 tokens.
  * Dependency-free so every domain and UI surface shares one ordering and one palette.
  * Palette math and contrast invariants are locked in `src/tests/attachment-palette.test.ts`.
  */

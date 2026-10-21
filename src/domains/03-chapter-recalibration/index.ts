@@ -6,7 +6,7 @@ export interface IChapterRecalibrationDomain {
   recalibrateSummary(
     chapterId: string,
     steeringPrompt?: string
-  ): Promise<{ description: string; summary: string }>;
+  ): Promise<{ subtitle: string; description: string; summary: string }>;
 }
 
 export class ChapterRecalibrationDomain implements IChapterRecalibrationDomain {
@@ -18,7 +18,7 @@ export class ChapterRecalibrationDomain implements IChapterRecalibrationDomain {
   async recalibrateSummary(
     chapterId: string,
     steeringPrompt?: string
-  ): Promise<{ description: string; summary: string }> {
+  ): Promise<{ subtitle: string; description: string; summary: string }> {
     const chapter = this.segmentation.getChapter(chapterId);
     if (!chapter) throw new Error(`Chapter ${chapterId} not found`);
 
@@ -32,14 +32,15 @@ export class ChapterRecalibrationDomain implements IChapterRecalibrationDomain {
         steeringPrompt,
       });
       const data = await res.json();
+      const subtitle = data.subtitle || '';
       const description = data.description || '';
       const summary = data.summary || '';
-      this.segmentation.updateLevels(chapterId, { description, summary });
-      return { description, summary };
+      this.segmentation.updateLevels(chapterId, { subtitle, description, summary });
+      return { subtitle, description, summary };
     } catch {
       const fallback = `Recap of ${chapter.title}.`;
-      this.segmentation.updateLevels(chapterId, { summary: fallback });
-      return { description: chapter.description || '', summary: fallback };
+      this.segmentation.updateLevels(chapterId, { subtitle: fallback });
+      return { subtitle: fallback, description: chapter.description || '', summary: chapter.summary || '' };
     }
   }
 }

@@ -176,9 +176,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
                       title={art.title}
                       tokens={tokens}
                       granularity={att?.granularity ?? 'full'}
-                      description={
-                        art.current?.description || art.current?.summary || 'No description yet.'
-                      }
+                      subtitle={art.current?.subtitle || art.current?.description || ''}
                       tags={art.tags || []}
                       flagged={flagged}
                       archived={isArtifactArchived(art)}

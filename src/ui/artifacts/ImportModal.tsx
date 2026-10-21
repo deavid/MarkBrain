@@ -67,6 +67,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   const [artifactType, setArtifactType] = useState<ArtifactType>('note');
   const [isHighConcept, setIsHighConcept] = useState(false);
   const [artifactDescription, setArtifactDescription] = useState('');
+  const [artifactSubtitle, setArtifactSubtitle] = useState('');
   const [artifactSummary, setArtifactSummary] = useState('');
   const [artifactTags, setArtifactTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState('');
@@ -181,6 +182,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     setUploadFileName('');
     setArtifactTitle('');
     setArtifactCode('');
+    setArtifactSubtitle('');
     setArtifactDescription('');
     setArtifactSummary('');
     setArtifactTags([]);
@@ -217,6 +219,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       if (data.artifact) {
         setArtifactTitle(data.artifact.title || filename);
         setArtifactCode(data.artifact.code || filename.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
+        setArtifactSubtitle(data.artifact.current?.subtitle || data.artifact.subtitle || '');
         setArtifactDescription(data.artifact.current?.description || data.artifact.description || '');
         setArtifactSummary(data.artifact.current?.summary || data.artifact.summary || '');
         setArtifactType((data.artifact.type as ArtifactType) || 'note');
@@ -229,8 +232,10 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           setArtifactTags(['imported-gdoc', 'note']);
         }
 
+        // Only fill the body from the model when we have no file text of our
+        // own; a generated body is a lossy retelling of a file we already hold.
         const extractedBody = data.artifact.current?.body || data.artifact.content;
-        if (extractedBody) {
+        if (!contentToExtract.trim() && extractedBody) {
           setUploadContent(extractedBody);
         }
         setExtractedSuccess(true);
@@ -385,11 +390,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       baseTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
 
     const now = Date.now();
+    const sub = artifactSubtitle.trim();
     const desc = artifactDescription.trim() || `Imported note: ${baseTitle}`;
-    const summ =
-      artifactSummary.trim() ||
-      artifactDescription.trim() ||
-      'Imported note.';
+    const summ = artifactSummary.trim();
 
     const fullArtifact: Artifact = {
       id: `art-${now}-${Math.floor(Math.random() * 1000)}`,
@@ -400,6 +403,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       category: 'note',
       isHighConcept,
       current: {
+        subtitle: sub,
         description: desc,
         summary: summ,
         body: uploadContent,
@@ -423,6 +427,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     if (!uploadContent) return '';
     const now = Date.now();
     const title = artifactTitle || 'Specification Title';
+    const sub = artifactSubtitle || 'Specification subtitle';
     const desc = artifactDescription || 'Specification description';
     const summ = artifactSummary || 'Specification summary';
 
@@ -436,6 +441,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
       isHighConcept,
       tags: artifactTags,
       current: {
+        subtitle: sub,
         description: desc,
         summary: summ,
         body: uploadContent,
@@ -453,6 +459,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     artifactCode,
     artifactTitle,
     artifactType,
+    artifactSubtitle,
     artifactDescription,
     artifactSummary,
     artifactTags,
@@ -963,22 +970,34 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
                   <div>
                     <label className="block text-[10px] font-mono text-[#788fa8] mb-1">
-                      Short Description (Few phrases)
+                      Subtitle (the hook shown beside the title)
                     </label>
                     <input
                       type="text"
-                      value={artifactDescription}
-                      onChange={(e) => setArtifactDescription(e.target.value)}
+                      value={artifactSubtitle}
+                      onChange={(e) => setArtifactSubtitle(e.target.value)}
                       className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-xs text-ink focus:outline-none focus:bg-recess-2 shadow-well"
                     />
                   </div>
 
                   <div>
                     <label className="block text-[10px] font-mono text-[#788fa8] mb-1">
-                      Summary of Contents (Executive abstract)
+                      Description (thesis, pillars, conclusions)
                     </label>
                     <textarea
-                      rows={2}
+                      rows={3}
+                      value={artifactDescription}
+                      onChange={(e) => setArtifactDescription(e.target.value)}
+                      className="w-full bg-recess-1 rounded-lg p-2 text-xs text-ink focus:outline-none focus:bg-recess-2 resize-none shadow-well"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono text-[#788fa8] mb-1">
+                      Summary (section-by-section digest)
+                    </label>
+                    <textarea
+                      rows={3}
                       value={artifactSummary}
                       onChange={(e) => setArtifactSummary(e.target.value)}
                       className="w-full bg-recess-1 rounded-lg p-2 text-xs text-ink focus:outline-none focus:bg-recess-2 resize-none shadow-well"

@@ -2,6 +2,7 @@ import { RelationKind } from '../02-topological-graph';
 
 export interface ExtractedTopicShift {
   title: string;
+  subtitle?: string;
   description?: string;
   summary?: string;
 }
@@ -11,6 +12,7 @@ export interface ExtractedArtifactUpsert {
   title: string;
   type: 'document' | 'chapter';
   content: {
+    subtitle: string;
     description: string;
     summary: string;
     body: string;

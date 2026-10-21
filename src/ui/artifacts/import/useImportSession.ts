@@ -120,8 +120,12 @@ function attachRowArtifact(base: Artifact, finalId: string, flag: ImportFlag | n
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
 
-/** Build a complete Artifact from an AI extraction result. Body falls back to
- *  the original file text — extraction must never make content disappear. */
+/**
+ * Build a complete Artifact from an AI extraction result.
+ * The body is the file text the user picked, never the model's retelling of it:
+ * a generated body lost 41% of the source across the imports measured on
+ * 2026-10-21 (one kept 5%), and the server no longer returns one.
+ */
 function buildArtifactFromExtraction(
   ex: Record<string, any>,
   fallbackBody: string,
@@ -150,9 +154,10 @@ function buildArtifactFromExtraction(
     category: ex.category || 'note',
     isHighConcept: Boolean(ex.graph?.is_high_concept),
     current: {
+      subtitle: ex.current?.subtitle || ex.subtitle || '',
       description: ex.current?.description || ex.description || '',
       summary: ex.current?.summary || ex.summary || '',
-      body: ex.current?.body || ex.content || fallbackBody,
+      body: fallbackBody || ex.current?.body || ex.content || '',
     },
     tags: Array.isArray(ex.tags) && ex.tags.length > 0 ? ex.tags : ['imported', 'note'],
     createdAt: now,

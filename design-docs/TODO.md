@@ -130,13 +130,24 @@ today). Those show the honest "No summary yet" chrome.
 per chapter boundary — a money decision), or lower the sealed default to
 `description` when no summary exists. Not decided.
 
-### 2. Import/extraction prompts don't state the cut contract
-`/api/extract-artifact-from-file` asks for "description: a few phrases" and
-"summary: a few paragraphs" separately. They are close to the cut, but the
-prompt does not tell the model *not to repeat* the previous layer. Same for
-`<artifact_upsert>` in the compiler's system instruction. Worth aligning when
-we touch those prompts — otherwise "read together" degrades into three
-restatements.
+### 2. Import/extraction prompts don't state the cut contract — CLOSED 2026-10-21
+**Measured, then rebuilt.** The prompts asked for "a few phrases" and "a few
+paragraphs"; the export showed 31-token descriptions, 151-token summaries, 33 of
+41 summaries opening by restating the description, and imported bodies that had
+kept 59% of their source files. The layers are now four distinct jobs at four
+scales, the prompts say the layers are read together in order, JSON is gone from
+every LLM call (sentinel `=== HEADER ===` blocks), and the body is spliced from
+the uploaded file instead of being retyped by the model.
+Evidence: `src/tests/compaction-prompts.test.ts`, design-docs/09 §"The
+compaction contract".
+
+#### 2b. NEW — the subtitle is a layer, and every row shows it
+The old one-sentence `description` was the missing half of a title: a bare
+four-word name told the reader (and the model) nothing, and ~40 tokens is free.
+`subtitle` is now a layer sent with the title at the `title` cut, rendered inline
+in every row (`title — subtitle`, two lines, italic hook), and legacy notes get
+it on hydrate from a short description. Re-importing the surviving source files
+is still the only way to recover the content the old imports dropped.
 
 ### 3. Terminology sitting (unchanged)
 `TERMINOLOGY.md` §1–§5 inventory is still the agenda. §0 (granularity /

@@ -186,10 +186,11 @@ describe('context compiler — chapters', () => {
     expect(second.segmentation.getChapter('g')!.granularity).toBe('summary');
   });
 
-  it('a new chapter starts at full with the description the model emitted', () => {
+  it('a new chapter starts at full with the subtitle and description the model emitted', () => {
     const { segmentation } = build({ chapters: [] });
-    const chap = segmentation.declareNewChapter('Shifted', 0, 'what it is about');
+    const chap = segmentation.declareNewChapter('Shifted', 0, 'the hook', 'what it is about');
     expect(chap.granularity).toBe('full');
+    expect(chap.subtitle).toBe('the hook');
     expect(chap.description).toBe('what it is about');
   });
 });

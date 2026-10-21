@@ -44,6 +44,7 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
       id: 'chap-fx-1',
       workspaceId: 'proj-fixture',
       title: 'Chapter 1: Fixture Genesis',
+      subtitle: 'Why the headless fixture exists.',
       summary: 'Synthetic chapter for headless capture.',
       description: '',
       granularity: 'full',
@@ -94,6 +95,7 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
       category: 'note',
       isHighConcept: true,
       current: {
+        subtitle: 'Synthetic artifact A for graph rendering.',
         description: 'Synthetic artifact A for graph rendering.',
         summary: 'Synthetic summary A.',
         body: 'Synthetic body A — proves artifact detail surfaces render.',
@@ -112,6 +114,7 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
       category: 'note',
       isHighConcept: false,
       current: {
+        subtitle: 'Synthetic artifact B for graph rendering.',
         description: 'Synthetic artifact B for graph rendering.',
         summary: 'Synthetic summary B.',
         body: 'Synthetic body B.',

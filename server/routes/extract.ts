@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
-import { parseModelJson } from '../lib/modelJson';
+import { EXTRACT_READ_CHAR_CAP, buildExtractPrompt, readSentinelArtifact } from '../lib/prompt';
 
 export function registerExtractRoutes(app: Express): void {
 app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) => {
@@ -19,77 +19,55 @@ app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) 
     }
 
     if (ai) {
-      const prompt = `You are MarkBrain, importing a document into a thinking workbench.
-Analyze the following document (imported from ${fileType === 'gdoc' ? 'Google Docs' : 'file'}: "${filename}") for the project "${projectTitle}".
-Synthesize it into a MarkBrain note with YAML frontmatter metadata and structured Markdown content.
-
-Requirements:
-1. Title: A concise title (few words).
-2. Code: A clean, memorable kebab-case identifier/nickname (e.g., "reading-list", "garden-plan", "pricing-notes").
-3. Type: One of ["note", "decision-record", "research-note", "summary", "reference", "topic"].
-4. Description: A short description (a few phrases).
-5. Summary: A summary of the contents in a few paragraphs — what it says, what matters, why it might matter later.
-6. Tags: 4 to 8 highly relevant, lowercase, kebab-case tags (e.g., ["pricing", "family", "reading", "garden"]). These tags will be embedded in the YAML header to tentatively and automatically cross-link related notes.
-7. Graph:
-   - parent: A parent note code if this belongs under one, or null.
-   - children: Array of child note codes if identified, or [].
-   - relationships: Array of tentative relational objects: [{"target": "other-note-code", "type": "depends_on" | "implements" | "bridges", "note": "Tentative cross-link"}]
-   - is_high_concept: boolean (true if this is a core thread tying many other thoughts together, false for a regular note).
-8. Content: The full, clean Markdown content with clear hierarchy (headings, bullet lists, code blocks).
-
-Respond ONLY with a JSON object in this exact schema:
-{
-  "title": "Short title in a few words",
-  "code": "unique-slug-or-nickname",
-  "type": "note",
-  "category": "note",
-  "description": "Short description in a few phrases",
-  "summary": "Summary of contents in a few paragraphs",
-  "tags": ["tag1", "tag2", "tag3", "tag4"],
-  "graph": {
-    "parent": null,
-    "children": [],
-    "relationships": [],
-    "is_high_concept": true
-  },
-  "content": "Full markdown specification body"
-}
-
-${previousError ? `
-RETRY — your previous attempt produced invalid JSON: ${String(previousError).slice(0, 500)}
-Here is that invalid output; fix it and do not repeat its mistakes:
-${String(previousOutput || '(no output captured)').slice(0, 2000)}
-` : ''}
-Output rules: STRICT JSON only — no markdown fences, no commentary. Inside strings, escape newlines as \\n, tabs as \\t, quotes as \\"; never emit literal control characters.
-
-Raw Input Document (${filename}):
-${content.slice(0, 24000)}`;
+      if (content.length > EXTRACT_READ_CHAR_CAP) {
+        logServer('warn', 'API:EXTRACT', `Import source is ${content.length} chars, the model only reads the first ${EXTRACT_READ_CHAR_CAP} of it (${filename})`);
+      }
+      const prompt = buildExtractPrompt({
+        content,
+        filename,
+        projectTitle,
+        fileType,
+        previousError,
+        previousOutput,
+      });
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.5-flash-lite',
         contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.2,
-        },
+        config: { temperature: 0.2 },
       });
 
-      let parsed: Record<string, any>;
-      try {
-        parsed = parseModelJson(response.text || '') as Record<string, any>;
-      } catch (parseErr) {
-        // Hand the raw text back so the client's Retry can be failure-aware.
-        const detail = parseErr instanceof Error ? parseErr.message : String(parseErr);
-        logServer('warn', 'API:EXTRACT', `Invalid model JSON (${detail}) — returning raw for failure-aware retry`);
+      const raw = response.text || '';
+      const read = readSentinelArtifact(raw, filename.replace(/\.[^/.]+$/, ''));
+      if (!read.hasLayers) {
+        // Hand the raw text back so the client's Retry is failure-aware.
+        logServer('warn', 'API:EXTRACT', 'Model output carried no sentinel layers — returning raw for retry');
         return res.status(502).json({
-          error: `Model returned invalid JSON: ${detail}`,
-          raw: (response.text || '').slice(0, 20000),
+          error: 'Model output did not contain === SECTION === blocks',
+          raw: raw.slice(0, 20000),
         });
       }
-      if (!Array.isArray(parsed.tags) || parsed.tags.length === 0) {
-        parsed.tags = ['google-docs', 'imported-note', parsed.code || 'note'];
-      }
 
+      const parsed = {
+        title: read.title,
+        code: read.code,
+        type: read.type,
+        category: read.type,
+        subtitle: read.subtitle,
+        description: read.description,
+        summary: read.summary,
+        tags: read.tags,
+        graph: {
+          parent: read.parent,
+          children: [],
+          relationships: read.relationships,
+          is_high_concept: read.isHighConcept,
+        },
+        // The body is the file, not the model's retelling of it. This splice is
+        // what makes "full" verbatim by construction and removes both failure
+        // modes: the model condensing a long document, and the old 24k-char cut.
+        content,
+      };
       return res.json({
         artifact: parsed,
       });
@@ -106,8 +84,9 @@ ${content.slice(0, 24000)}`;
     }
     const code = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
     const nonHeaders = lines.filter((l: string) => l.trim().length > 0 && !l.startsWith('#'));
-    const description = nonHeaders[0]?.slice(0, 160) || `Imported Google Doc specification: ${title}`;
-    const summary = nonHeaders.slice(0, 4).join(' ').slice(0, 400) || 'Imported note summary.';
+    const subtitle = nonHeaders[0]?.slice(0, 200) || `Imported document: ${title}.`;
+    const description = nonHeaders.slice(0, 3).join(' ').slice(0, 900) || `Imported document: ${title}.`;
+    const summary = nonHeaders.slice(0, 10).join(' ').slice(0, 3000) || 'Imported note summary.';
 
     const rawTokens = (title + ' ' + description).toLowerCase().match(/[a-z]{4,}/g) || [];
     const uniqueTokens = Array.from(new Set(rawTokens)).slice(0, 5);
@@ -119,6 +98,7 @@ ${content.slice(0, 24000)}`;
         code,
         type: 'note',
         category: 'note',
+        subtitle,
         description,
         summary,
         tags,

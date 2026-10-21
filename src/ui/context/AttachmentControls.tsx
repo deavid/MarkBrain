@@ -157,7 +157,8 @@ interface AttachmentRowProps {
   onUnstage?: () => void;
   /** Arrow-out → detail popup. */
   onOpenDetail?: () => void;
-  description?: string;
+  /** The index-card hook, rendered inline after the title. */
+  subtitle?: string;
   tags?: string[];
   /** Provenance / state badge ('next send', 'msg 4', 'review'…). */
   badge?: string;
@@ -180,7 +181,7 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
   onSetGranularity,
   onUnstage,
   onOpenDetail,
-  description,
+  subtitle,
   tags,
   badge,
   flagged,
@@ -212,12 +213,18 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
           size="sm"
         />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className={`text-[11px] font-mono truncate ${palette.titleTextClass}`} title={title}>
-              {title}
-            </span>
+          {/* Title and subtitle flow as one sentence and clamp at two lines: a
+              bare four-word title tells a reader nothing, and the row has the
+              space anyway. */}
+          <div className="text-[11px] leading-snug line-clamp-2" title={title}>
+            <span className={`font-mono font-semibold ${palette.titleTextClass}`}>{title}</span>
+            {subtitle && (
+              <span className={`font-normal italic ml-1.5 ${palette.subTextClass}`}>
+                — {subtitle}
+              </span>
+            )}
             {flagged && (
-              <span className={`text-[9px] font-mono px-1 py-0.2 rounded ${palette.tagClass}`}>
+              <span className={`text-[9px] font-mono px-1 py-0.2 rounded ml-1.5 ${palette.tagClass}`}>
                 review
               </span>
             )}
@@ -231,18 +238,13 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
             )}
             {badge && (
               <span
-                className={`text-[9px] font-mono px-1.5 py-0.2 rounded ${palette.tagClass}`}
+                className={`text-[9px] font-mono px-1.5 py-0.2 rounded ml-1.5 ${palette.tagClass}`}
                 title={state === 'staged' ? 'Rides the next send' : undefined}
               >
                 {badge}
               </span>
             )}
           </div>
-          {description && (
-            <div className={`text-[10px] font-mono line-clamp-2 mt-0.5 ${palette.subTextClass}`}>
-              {description}
-            </div>
-          )}
           <div className={`text-[9px] font-mono tabular-nums ${palette.subTextClass}`}>
             {formatTokens(tokens)} tok
           </div>
@@ -306,7 +308,13 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
 };
 
 interface StagedTrayProps {
-  items: Array<{ artifactId: string; title: string; tokens: number; granularity: Granularity }>;
+  items: Array<{
+    artifactId: string;
+    title: string;
+    subtitle?: string;
+    tokens: number;
+    granularity: Granularity;
+  }>;
   onSetGranularity: (artifactId: string, g: Granularity) => void;
   onUnstage: (artifactId: string) => void;
   onOpenDetail?: (artifactId: string) => void;
@@ -342,6 +350,7 @@ export const StagedTray: React.FC<StagedTrayProps> = ({
           artifactId={item.artifactId}
           state="staged"
           title={item.title}
+          subtitle={item.subtitle}
           tokens={item.tokens}
           granularity={item.granularity}
           onSetGranularity={(g) => onSetGranularity(item.artifactId, g)}

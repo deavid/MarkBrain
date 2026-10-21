@@ -6,6 +6,8 @@ export interface ChapterPartition {
   workspaceId: string;
   threadId?: string;
   title: string;
+  /** The index-card hook, sent with the title at the `title` cut. */
+  subtitle?: string;
   description?: string;
   summary?: string;
   granularity?: Granularity;
@@ -19,6 +21,12 @@ export type SegmentationEvent =
   | { type: 'chapterDeclared'; chapter: ChapterPartition }
   | { type: 'chapterSplit'; oldChapterId: string; newChapter: ChapterPartition }
   | { type: 'boundaryShifted'; chapterId: string; newStartIndex: number }
-  | { type: 'chapterLevelsUpdated'; chapterId: string; description?: string; summary?: string }
+  | {
+      type: 'chapterLevelsUpdated';
+      chapterId: string;
+      subtitle?: string;
+      description?: string;
+      summary?: string;
+    }
   | { type: 'chapterGranularityChanged'; chapterId: string; granularity: Granularity }
   | { type: 'chaptersLoaded'; chapters: ChapterPartition[] };

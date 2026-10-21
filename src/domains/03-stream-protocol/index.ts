@@ -77,11 +77,13 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       // some models still emit from older prompts — accepted, never preferred.
       const descriptionMatch =
         /description=["']([^"']+)["']/i.exec(attrsStr) || /abstract=["']([^"']+)["']/i.exec(attrsStr);
+      const subtitleMatch = /subtitle=["']([^"']+)["']/i.exec(attrsStr);
       const summaryMatch = /summary=["']([^"']+)["']/i.exec(attrsStr);
 
       if (titleMatch) {
         topicShift = {
           title: titleMatch[1],
+          subtitle: subtitleMatch ? subtitleMatch[1] : undefined,
           description: descriptionMatch ? descriptionMatch[1] : undefined,
           summary: summaryMatch ? summaryMatch[1] : undefined,
         };
@@ -134,11 +136,15 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       const descMatch =
         /<description>([\s\S]*?)<\/description>/i.exec(inner) ||
         /<abstract>([\s\S]*?)<\/abstract>/i.exec(inner);
+      const subtitleMatch = /<subtitle>([\s\S]*?)<\/subtitle>/i.exec(inner);
       const sumMatch = /<summary>([\s\S]*?)<\/summary>/i.exec(inner);
       const bodyMatch = /<content>([\s\S]*?)<\/content>/i.exec(inner);
 
+      const subtitleText = subtitleMatch ? subtitleMatch[1].trim() : '';
       const descriptionText = descMatch ? descMatch[1].trim() : '';
-      const summaryText = sumMatch ? sumMatch[1].trim() : descriptionText;
+      // A rung the model did not write stays empty: copying the description into
+      // the summary ships the same text twice and calls it a ladder.
+      const summaryText = sumMatch ? sumMatch[1].trim() : '';
       const bodyText = bodyMatch ? bodyMatch[1].trim() : inner.trim();
 
       const up: ExtractedArtifactUpsert = {
@@ -146,6 +152,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
         title,
         type: type === 'chapter' ? 'chapter' : 'document',
         content: {
+          subtitle: subtitleText,
           description: descriptionText,
           summary: summaryText,
           body: bodyText,
@@ -161,27 +168,36 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       const block = cbMatch[1];
       const titleMatch = block.match(/title:\s*(.*)/i);
       const typeMatch = block.match(/type:\s*(.*)/i);
+      const subtitleMatch = block.match(/subtitle:\s*(.*)/i);
       const descriptionMatch = block.match(/description:\s*(.*)/i) || block.match(/abstract:\s*(.*)/i);
+      const summaryMatch = block.match(/summary:\s*(.*)/i);
 
+      // `summary:` must be stripped from the body too: it is a frontmatter line,
+      // and a stray one lands in the note as literal text.
       const bodyText = block
         .replace(/title:.*\n/i, '')
         .replace(/type:.*\n/i, '')
+        .replace(/subtitle:.*\n/i, '')
         .replace(/description:.*\n/i, '')
         .replace(/abstract:.*\n/i, '')
+        .replace(/summary:.*\n/i, '')
         .replace(/highConcept:.*\n/i, '')
         .trim();
 
       const title = titleMatch ? titleMatch[1].trim() : 'Extracted note';
       const type = (typeMatch ? typeMatch[1].trim() : 'document') as any;
+      const subtitleText = subtitleMatch ? subtitleMatch[1].trim() : '';
       const descriptionText = descriptionMatch ? descriptionMatch[1].trim() : '';
+      const summaryText = summaryMatch ? summaryMatch[1].trim() : '';
 
       const up: ExtractedArtifactUpsert = {
         id: `art-${Date.now()}-${artifactUpserts.length}`,
         title,
         type: type === 'chapter' ? 'chapter' : 'document',
         content: {
+          subtitle: subtitleText,
           description: descriptionText,
-          summary: descriptionText,
+          summary: summaryText,
           body: bodyText || block,
         },
       };

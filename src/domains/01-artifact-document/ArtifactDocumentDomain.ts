@@ -12,8 +12,11 @@ export function getArtifactCut(
   art: Pick<UniversalArtifactDocument, 'title' | 'current'>,
   granularity: Granularity
 ): { title: string; description?: string; summary?: string; body?: string } {
+  const subtitle = (art.current?.subtitle || '').trim();
   const cut: { title: string; description?: string; summary?: string; body?: string } = {
-    title: art.title || '',
+    // The title cut is title + subtitle: the hook is what makes a 4-word name
+    // mean something to a reader (or a model) who has never opened the note.
+    title: subtitle ? `${art.title || ''} — ${subtitle}` : art.title || '',
   };
   if (cutIncludes(granularity, 'description')) {
     const description = art.current?.description || '';
@@ -69,6 +72,7 @@ export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
     const existing = this.artifacts.get(doc.id);
     const now = Date.now();
 
+    const subtitle = doc.current?.subtitle ?? existing?.current?.subtitle ?? '';
     const description = doc.current?.description ?? existing?.current?.description ?? '';
     const summary = doc.current?.summary ?? existing?.current?.summary ?? '';
     const body = doc.current?.body ?? existing?.current?.body ?? '';
@@ -82,7 +86,7 @@ export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
       category: doc.category || 'note',
       isHighConcept: Boolean(doc.isHighConcept),
       color: doc.color || existing?.color || '#5d87b8',
-      current: { description, summary, body },
+      current: { subtitle, description, summary, body },
       tags: doc.tags || existing?.tags || ['note'],
       createdAt: existing?.createdAt || now,
       updatedAt: now,

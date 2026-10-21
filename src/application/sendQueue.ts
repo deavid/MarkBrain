@@ -379,6 +379,7 @@ export class SendQueue {
               deps.segmentation.declareNewChapter(
                 shift.title,
                 deps.timeline.count(),
+                shift.subtitle,
                 shift.description,
                 shift.summary
               );
@@ -387,6 +388,7 @@ export class SendQueue {
                 threadId,
                 shift.title,
                 this.turnsOf(deps, threadId).length,
+                shift.subtitle,
                 shift.description,
                 shift.summary
               );
@@ -407,6 +409,7 @@ export class SendQueue {
             } else {
               const now = Date.now();
               const artTitle = u.title || 'Extracted note';
+              const artSubtitle = u.content.subtitle || '';
               const artDesc = u.content.description || '';
               const artSumm = u.content.summary || '';
               const artContent = u.content.body || `# ${artTitle}`;
@@ -422,6 +425,7 @@ export class SendQueue {
                 color: artColor,
                 isHighConcept: false,
                 current: {
+                  subtitle: artSubtitle,
                   description: artDesc,
                   summary: artSumm,
                   body: artContent,
@@ -466,6 +470,7 @@ export class SendQueue {
         type: u.type,
         code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
         category: u.type === 'chapter' ? 'chapter' : 'note',
+        subtitle: u.content.subtitle,
         description: u.content.description,
         summary: u.content.summary,
         content: u.content.body,

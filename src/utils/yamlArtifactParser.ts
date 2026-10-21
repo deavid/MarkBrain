@@ -9,7 +9,7 @@ export interface ParsedYamlArtifact {
   hasFrontmatter: boolean;
 }
 
-/** Serializes an Artifact into YAML frontmatter (`title`, `description`, `summary`, `graph`) plus Markdown body. */
+/** Serializes an Artifact into YAML frontmatter (`title`, `subtitle`, `description`, `summary`, `graph`) plus Markdown body. */
 export function serializeArtifactToYamlDoc(art: Artifact): string {
   const frontmatterData: Record<string, unknown> = {
     id: art.id,
@@ -17,6 +17,7 @@ export function serializeArtifactToYamlDoc(art: Artifact): string {
     title: art.title,
     type: art.type || 'note',
     category: art.category || 'note',
+    subtitle: art.current?.subtitle || '',
     description: art.current?.description || '',
     summary: art.current?.summary || '',
     graph: {
@@ -68,8 +69,9 @@ export function parseYamlArtifactDoc(
       };
 
       const now = Date.now();
+      const artSub = parsedData.subtitle || '';
       const artDesc = parsedData.description || `Imported note: ${title}`;
-      const artSumm = parsedData.summary || parsedData.description || 'Imported note summary.';
+      const artSumm = parsedData.summary || '';
       const parseTime = (v: unknown, fallback: number): number =>
         typeof v === 'number'
           ? v
@@ -86,6 +88,7 @@ export function parseYamlArtifactDoc(
         category: (parsedData.category as ArtifactCategory) || 'note',
         isHighConcept: Boolean(graphData.is_high_concept),
         current: {
+          subtitle: artSub,
           description: artDesc,
           summary: artSumm,
           body: markdownPart,
@@ -122,8 +125,9 @@ export function parseYamlArtifactDoc(
   const firstParagraph = lines.filter((l) => l.trim().length > 0 && !l.startsWith('#'))[0] || '';
 
   const now = Date.now();
-  const desc = firstParagraph.slice(0, 160);
-  const summ = trimmed.slice(0, 400);
+  const sub = firstParagraph.slice(0, 240);
+  const desc = lines.filter((l) => l.trim().length > 0 && !l.startsWith('#')).slice(0, 4).join(' ').slice(0, 900);
+  const summ = '';
 
   const artifact: Artifact = {
     id: `art-${now}-${Math.floor(Math.random() * 1000)}`,
@@ -134,6 +138,7 @@ export function parseYamlArtifactDoc(
     category: 'note',
     isHighConcept: false,
     current: {
+      subtitle: sub,
       description: desc,
       summary: summ,
       body: trimmed,

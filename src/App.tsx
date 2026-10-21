@@ -215,6 +215,17 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifactsDomain, tick]);
 
+  const artifactSubtitles = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const a of artifactsDomain.listArtifacts()) {
+      // A note without a hook still shows something useful: the old one-line
+      // description is what a reader recognises it by.
+      map[a.id] = a.current?.subtitle || a.current?.description || '';
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artifactsDomain, tick]);
+
   const tokensByArtifact = useMemo(() => {
     const map: Record<string, number> = {};
     for (const entry of compiledContext.telemetry.attachmentBreakdown ?? []) {
@@ -525,6 +536,7 @@ export default function App() {
                   tokensByArtifact={tokensByArtifact}
                   chapterTokens={chapterTokens}
                   artifactTitles={artifactTitles}
+                  artifactSubtitles={artifactSubtitles}
                   onToggleAttachment={handleToggleAttachment}
                   onUnstageAttachment={handleUnstageAttachment}
                   onSetAttachmentGranularity={handleSetAttachmentGranularity}

@@ -31,10 +31,11 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
   declareNewChapter(
     title: string,
     startIndex: number,
+    subtitle?: string,
     description?: string,
     summary?: string
   ): ChapterPartition {
-    logger.info('Segmentation', `Declare new chapter "${title}" at turn #${startIndex}`, { description });
+    logger.info('Segmentation', `Declare new chapter "${title}" at turn #${startIndex}`, { subtitle, description });
     // Seal the open chapter: full → summary; a manual title/description stays.
     this.chapters.forEach((c) => {
       if (c.status === 'active') {
@@ -48,6 +49,7 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
       id: makeChapterId(),
       workspaceId: this.workspaceId,
       title,
+      subtitle: subtitle || '',
       description: description || '',
       summary: summary || '',
       granularity: 'full',
@@ -65,6 +67,7 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     chapterId: string,
     splitIndex: number,
     newTitle: string,
+    subtitle?: string,
     description?: string
   ): ChapterPartition {
     const targetIdx = this.chapters.findIndex((c) => c.id === chapterId);
@@ -85,6 +88,7 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
       id: makeChapterId(),
       workspaceId: this.workspaceId,
       title: newTitle,
+      subtitle: subtitle || '',
       description: description || '',
       summary: '',
       granularity: 'full',
@@ -109,17 +113,22 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     this.emit({ type: 'boundaryShifted', chapterId, newStartIndex });
   }
 
-  updateLevels(chapterId: string, levels: { description?: string; summary?: string }): void {
+  updateLevels(
+    chapterId: string,
+    levels: { subtitle?: string; description?: string; summary?: string }
+  ): void {
     const chapter = this.chapters.find((c) => c.id === chapterId);
     if (!chapter) {
       logger.warn('Segmentation', `updateLevels: unknown chapter ${chapterId} — ignored`);
       return;
     }
+    if (levels.subtitle !== undefined) chapter.subtitle = levels.subtitle;
     if (levels.description !== undefined) chapter.description = levels.description;
     if (levels.summary !== undefined) chapter.summary = levels.summary;
     this.emit({
       type: 'chapterLevelsUpdated',
       chapterId,
+      subtitle: chapter.subtitle,
       description: chapter.description,
       summary: chapter.summary,
     });

@@ -211,6 +211,63 @@ The **four levels are generated when the artifact is created** — i.e. on
 body. For documents the body subsumes the rest; for chapters "full" is the
 verbatim turns. Confirm at implementation.
 
+### The compaction contract (2026-10-21)
+
+The word counts above were intent with no producer. The prompts asked for "a few
+phrases" and "a few paragraphs", the parser copied the description into the
+summary whenever the model omitted one, and the import prompt made the model
+re-type the whole document inside a JSON string. Measured on that day's export
+(41 artifacts carrying a body):
+
+- description **31 tokens**, summary **151 tokens** — neither compacts anything,
+  and the step from summary to full was an 80x cliff.
+- **33 of 41 summaries opened by restating the description.** Both fields were
+  asked the same question at two lengths, so the model answered it twice.
+- Of the 20 artifacts whose source file was still on disk, the bodies had kept
+  **59%** of the source (one kept 5%). Files under the old 24,000-character cut
+  lost exactly what the cut took (`Classic Mode.md`: 63% gone, ending mid-word);
+  files over it lost content at the model's own discretion
+  (`Unhaunter_ Challenges.md` 78,388 chars landed as 3,934).
+
+**The four levels and what they carry.** The old `description` was really the
+missing half of a title, and the old `summary` was really a description. Each
+level now has a distinct job, and each is a different scale:
+
+| level | sends | target | job |
+| --- | --- | --- | --- |
+| `title` | `title — subtitle` | ~40 tok | the name plus the one-sentence hook that makes it recognisable in a list |
+| `description` | + `description` | ~200 tok | the thesis, the pillars, the conclusions |
+| `summary` | + `summary` | ~800-1500 tok | every section, rule, number, rejection and open question |
+| `full` | + the verbatim body | the file | nothing the model wrote: the app splices the upload in |
+
+The layers are **read together, in order**, and that fact is stated in every
+prompt: each layer continues where the previous one stopped, and none of them
+re-introduces the document. The "book report" opener (`This document outlines…`)
+is banned by name, because a layer that describes the document instead of
+stating its content is worth nothing to a reader who has not opened it.
+
+**The body is spliced, never generated.** Asking the model to re-type the source
+cost a full output pass over the input, mutated it (markdown escapes rewritten),
+and silently condensed it as soon as the document got long. The import prompt now
+returns metadata and the three layers, and `server/routes/extract.ts` assigns the
+uploaded file as the body. The read bound (400,000 characters) never touches the
+stored body.
+
+**Plain text, not JSON.** Every LLM call that returns fields now answers with
+`=== HEADER ===` blocks (`src/utils/sentinelParser.ts`). Inside a
+`"summary": "…"` string a model gives up after two paragraphs and eventually
+emits an unescaped quote or a literal newline and breaks `JSON.parse`; plain
+markdown under a sentinel header has no escaping to get wrong and no brevity
+bias. `responseMimeType: 'application/json'` and `server/lib/modelJson.ts` are
+gone.
+
+**The UI shows the hook.** Every attachment row, library row, mirror row and
+chapter header renders `title` bold followed by `— subtitle` in lighter italic,
+clamped to two lines. The rows had the space; a bare four-word title did not tell
+the reader what was inside. Legacy notes get this for free: `hydrate.ts` copies a
+one-line description (240 characters or less) up into the subtitle, and the
+original stays where it was.
+
 ---
 
 ## 2. What already exists on `dev-orion` (study notes — read before building)

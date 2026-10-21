@@ -69,6 +69,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
 
   const title = artifact.title || artifact.title || artifact.id;
   const provenance = formatAttachmentProvenance(attachmentTurnIndex);
+  const subtitle = artifact.current?.subtitle || '';
   const description = artifact.current?.description || '';
   const summary = artifact.current?.summary || '';
   const body = artifact.current?.body || '';
@@ -231,6 +232,15 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-[#cad8eb] leading-relaxed">
           {activeTab === 'content' && (
             <div className="space-y-4">
+              {subtitle && (
+                <div className="p-3 rounded-lg bg-surface-2 space-y-1">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#79ca4b] font-semibold block">
+                    Subtitle (ships with the title)
+                  </span>
+                  <p className="text-[#b5cae6] text-[11px] italic leading-relaxed">{subtitle}</p>
+                </div>
+              )}
+
               {description && (
                 <div className="p-3 rounded-lg bg-surface-2 space-y-1">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#8ab1e0] font-semibold block">

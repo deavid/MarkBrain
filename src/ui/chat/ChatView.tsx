@@ -66,6 +66,7 @@ interface ChatViewProps {
   tokensByArtifact?: Record<string, number>;
   chapterTokens?: Record<string, number>;
   artifactTitles?: Record<string, string>;
+  artifactSubtitles?: Record<string, string>;
   onToggleAttachment?: (artifactId: string) => void;
   onUnstageAttachment?: (artifactId: string) => void;
   onSetAttachmentGranularity?: (artifactId: string, granularity: Granularity) => void;
@@ -112,6 +113,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   tokensByArtifact = {},
   chapterTokens = {},
   artifactTitles = {},
+  artifactSubtitles = {},
   onToggleAttachment,
   onUnstageAttachment,
   onSetAttachmentGranularity,
@@ -285,6 +287,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const tokensFor = (artifactId: string) => tokensByArtifact[artifactId] ?? 0;
   const titleFor = (artifactId: string) => artifactTitles[artifactId] || artifactId;
+  const subtitleFor = (artifactId: string) => artifactSubtitles[artifactId] || '';
 
   /**
    * Fill a missing layer WITHOUT touching the chosen cut. "Write it" is a
@@ -508,6 +511,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               items={stagedAttachments.map((a) => ({
                 artifactId: a.artifactId,
                 title: titleFor(a.artifactId),
+                subtitle: subtitleFor(a.artifactId),
                 tokens: tokensFor(a.artifactId),
                 granularity: a.granularity,
               }))}
@@ -719,8 +723,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       Chapter {chapterIndex + 1}
                     </span>
 
-                    <h3 className="font-semibold text-xs sm:text-sm text-ink truncate font-mono">
+                    <h3 className="font-semibold text-xs sm:text-sm text-ink font-mono line-clamp-2 leading-snug">
                       {chapter.title}
+                      {chapter.subtitle && (
+                        <span className="font-normal italic text-ink-dim ml-1.5">
+                          — {chapter.subtitle}
+                        </span>
+                      )}
                     </h3>
                   </div>
 
@@ -793,6 +802,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         artifactId={att.artifactId}
                         state={att.granularity}
                         title={titleFor(att.artifactId)}
+                        subtitle={subtitleFor(att.artifactId)}
                         tokens={tokensFor(att.artifactId)}
                         granularity={att.granularity}
                         badge={formatAttachmentProvenance(att.turnIndex)?.badge}
@@ -1148,6 +1158,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                 artifactId={att.artifactId}
                                 state={att.granularity}
                                 title={titleFor(att.artifactId)}
+                                subtitle={subtitleFor(att.artifactId)}
                                 tokens={tokensFor(att.artifactId)}
                                 granularity={att.granularity}
                                 badge={formatAttachmentProvenance(att.turnIndex)?.badge}
@@ -1242,6 +1253,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               items={stagedAttachments.map((a) => ({
                 artifactId: a.artifactId,
                 title: titleFor(a.artifactId),
+                subtitle: subtitleFor(a.artifactId),
                 tokens: tokensFor(a.artifactId),
                 granularity: a.granularity,
               }))}

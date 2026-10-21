@@ -2,40 +2,28 @@ import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import { estimateTokens } from '../lib/tokens';
+import { buildSummarizePrompt } from '../lib/prompt';
+import { parseSentinelBlocks } from '../../src/utils/sentinelParser';
 
 export function registerSummarizeRoutes(app: Express): void {
 app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
   try {
-    const { title, messages = [] } = req.body;
+    const { title, messages = [], steeringPrompt } = req.body;
 
     if (!messages || messages.length === 0) {
       return res.json({
-        description: `An empty chapter${title ? ` titled "${title}"` : ''}.`,
+        subtitle: `An empty chapter${title ? ` titled "${title}"` : ''}.`,
+        description: '',
         summary: '',
       });
     }
 
-    const conversationTranscript = messages
-      .map((m: { role: string; content: string }) => `${m.role}: ${m.content}`)
-      .join('\n');
-
+    let subtitleText = '';
     let descriptionText = '';
     let summaryText = '';
 
     if (ai) {
-      const prompt = `Summarize the following conversation chapter titled "${title}".
-The two texts are LAYERS of one recap and are read together — the summary continues the description, it does not restate it.
-
-Provide:
-1. DESCRIPTION: 1-2 sentences — what this chapter is about.
-2. SUMMARY: several paragraphs — what was actually discussed, decided, and left open. Do not repeat the description.
-
-Output format (exactly):
-DESCRIPTION: [1-2 sentences]
-SUMMARY: [several paragraphs]
-
-Transcript:
-${conversationTranscript}`;
+      const prompt = buildSummarizePrompt({ title, messages, steeringPrompt });
 
       // Hard server-side deadline. Without it a slow model call holds the socket
       // open indefinitely and the client only finds out when a navigation kills
@@ -55,22 +43,29 @@ ${conversationTranscript}`;
       ]);
 
       const raw = response.text || '';
-      const descMatch = raw.match(/DESCRIPTION:\s*([\s\S]*?)(?=SUMMARY:|$)/i);
-      const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]*)$/i);
-      descriptionText = descMatch ? descMatch[1].trim() : '';
-      summaryText = summaryMatch ? summaryMatch[1].trim() : '';
-      // Failure-tolerant: if the model ignored the labels, keep its text as the
-      // summary rather than losing it, and let the description stay empty.
-      if (!summaryText) summaryText = raw.trim().slice(0, 2000);
+      const blocks = parseSentinelBlocks(raw);
+      subtitleText = blocks.subtitle || '';
+      descriptionText = blocks.description || '';
+      summaryText = blocks.summary || '';
+      // Failure-tolerant: a model that ignored the sentinels still gets read
+      // rather than losing the whole call, and the chapter shows what landed.
+      if (!subtitleText && !descriptionText && !summaryText) {
+        const descMatch = raw.match(/DESCRIPTION:\s*([\s\S]*?)(?=SUMMARY:|$)/i);
+        const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]*)$/i);
+        descriptionText = descMatch ? descMatch[1].trim() : '';
+        summaryText = summaryMatch ? summaryMatch[1].trim() : raw.trim().slice(0, 4000);
+      }
     } else {
-      descriptionText = `Chapter: ${title}.`;
-      summaryText = 'No API key set — this recap is a placeholder, not a real one.';
+      subtitleText = `Chapter: ${title}.`;
+      descriptionText = 'No API key set, so this recap is a placeholder, not a real one.';
+      summaryText = '';
     }
 
     res.json({
+      subtitle: subtitleText,
       description: descriptionText,
       summary: summaryText,
-      tokens: estimateTokens(descriptionText + summaryText),
+      tokens: estimateTokens(subtitleText + descriptionText + summaryText),
     });
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : 'Summarization error';

@@ -10,6 +10,7 @@ export interface IChapterSegmentationDomain {
   declareNewChapter(
     title: string,
     startIndex: number,
+    subtitle?: string,
     description?: string,
     summary?: string
   ): ChapterPartition;
@@ -17,10 +18,14 @@ export interface IChapterSegmentationDomain {
     chapterId: string,
     splitIndex: number,
     newTitle: string,
+    subtitle?: string,
     description?: string
   ): ChapterPartition;
   shiftBoundary(chapterId: string, newStartIndex: number): void;
-  updateLevels(chapterId: string, levels: { description?: string; summary?: string }): void;
+  updateLevels(
+    chapterId: string,
+    levels: { subtitle?: string; description?: string; summary?: string }
+  ): void;
   setGranularity(chapterId: string, granularity: Granularity): void;
   closeChapter(chapterId: string): void;
   loadChapters(chapters: ChapterPartition[]): void;

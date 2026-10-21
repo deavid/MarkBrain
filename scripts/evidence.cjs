@@ -855,7 +855,11 @@ async function main() {
   // checks cannot catch that. This one compares the screen against the Mirror's
   // literal compiled bytes.
   await journey(page, '16-chapter-cut', 'All four cuts render exactly what the payload carries', async (page) => {
-    const turnsVisible = () => page.locator('div.whitespace-pre-wrap').count();
+    // Count message bodies by their testid, never by a style class: the body
+    // moved into MessageBody (markdown by default), so a class-based count
+    // reads 0 turns and blames the chapter cut instead of the selector.
+    const MESSAGE_BODY = '[data-testid="message-markdown"], [data-testid="message-raw"]';
+    const turnsVisible = () => page.locator(MESSAGE_BODY).count();
     const chip = (g) => page.locator(`[data-testid="chapter-cut"] [data-granularity="${g}"]`).last();
     // The fixture chapter (first) has a summary and NO description — the shape
     // where screen and payload diverge if the layer gating is wrong.
@@ -876,7 +880,7 @@ async function main() {
     check(nTitle < nFull, `Title hides the turns (${nTitle} < nFull=${nFull})`);
     const lastSection = page.locator('section:has([data-testid="chapter-cut"])').last();
     check(
-      (await lastSection.locator('div.whitespace-pre-wrap').count()) === 0,
+      (await lastSection.locator(MESSAGE_BODY).count()) === 0,
       'no message bubbles under a Title cut'
     );
 

@@ -611,15 +611,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
           }}
         >
           {/* THE TITLE — a real title, in flow at the top of the feed and edited
-              right here. Once you scroll past it, it pins as a slim bar so the
-              conversation never becomes anonymous; at rest it costs nothing
-              but its own line (the old pill floated over the text at 11px and
-              could not be renamed). Right padding keeps the token orb clear. */}
+              right here. It pins as a slim bar once you scroll past it. The
+              identity sits CENTERED with a fixed 16/24px gutter on both sides:
+              the sidebar's brain toggle is position:fixed at (12, 12) z-50 at
+              any viewport width when the dock is closed (it used to swallow the
+              auto-title sparkle once the sm:pl-6 kicked in), and the token orb
+              floats at the top-right. Centering keeps the identity out of both
+              corners; the gutters keep the two buttons clear of the text. */}
           {!threadArchived && (
             <div
               data-testid="thread-title-row"
               data-scrolled={feedScrolled ? 'true' : 'false'}
-              className={`sticky top-0 z-20 flex items-center gap-2 min-w-0 pl-14 pr-16 sm:pl-6 -mx-3 sm:-mx-6 transition-colors ${
+              className={`sticky top-0 z-20 flex items-center gap-2 min-w-0 pl-16 pr-24 -mx-3 sm:-mx-6 transition-colors ${
                 feedScrolled ? 'py-1.5 bg-surface-0/95 backdrop-blur-md' : 'py-0'
               }`}
             >
@@ -630,7 +633,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 aria-busy={titleBusy}
                 aria-label="Generate a title from this conversation"
                 title="Generate a title from this conversation"
-                className="p-1.5 -ml-1.5 rounded-lg text-ink-faint hover:text-brand-gold hover:bg-surface-2 transition-colors cursor-pointer shrink-0 disabled:opacity-60"
+                className="p-1.5 rounded-lg text-ink-faint hover:text-brand-gold hover:bg-surface-2 transition-colors cursor-pointer shrink-0 disabled:opacity-60"
               >
                 {titleBusy ? (
                   <Loader2 className="w-4 h-4 animate-spin text-brand-gold" />
@@ -652,7 +655,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   }}
                   placeholder="Name this conversation…"
                   aria-label="Conversation title"
-                  className={`flex-1 min-w-0 bg-transparent font-semibold tracking-tight text-ink font-mono placeholder:text-ink-faint focus:outline-none border-b border-line pb-0.5 ${
+                  className={`flex-1 min-w-0 bg-transparent font-semibold tracking-tight text-ink font-mono placeholder:text-ink-faint focus:outline-none border-b border-line pb-0.5 text-center ${
                     feedScrolled ? 'text-sm' : 'text-xl sm:text-2xl'
                   }`}
                 />
@@ -660,9 +663,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <button
                   type="button"
                   onClick={startTitleRename}
-                  className="group flex items-baseline gap-2 min-w-0 flex-1 text-left cursor-text"
+                  className="group flex items-center justify-center gap-2 min-w-0 flex-1 text-left cursor-text"
                   title="Click to rename"
                 >
+                  {/* The hero's identity mark, compacted: the active header
+                      carries the project the way the empty state does, so the
+                      conversation is never anonymous and the identity sits in
+                      the middle of the row, far from both floating corners. */}
+                  <span
+                    aria-hidden="true"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: `${project.color || '#3b82f6'}22` }}
+                  >
+                    <Brain className="w-4 h-4" style={{ color: project.color || '#3b82f6' }} />
+                  </span>
                   <h1
                     className={`truncate font-semibold tracking-tight font-mono ${
                       feedScrolled ? 'text-sm' : 'text-xl sm:text-2xl'

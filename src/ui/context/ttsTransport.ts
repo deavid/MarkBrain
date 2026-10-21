@@ -166,6 +166,12 @@ export const ttsTransport = {
   },
 };
 
+/** Unity is 0 dB, silence is -∞ — gain is a ratio, a percentage never said loudness. */
+export function formatGainDb(gain: number): string {
+  if (!Number.isFinite(gain) || gain <= 0) return '-∞ dB';
+  return `${(20 * Math.log10(gain)).toFixed(1)} dB`;
+}
+
 /** `m:ss` for the track head's ends. */
 export function formatTtsTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';

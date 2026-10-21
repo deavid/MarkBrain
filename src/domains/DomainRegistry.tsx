@@ -92,20 +92,6 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const hydratedRef = useRef(false);
-  useEffect(() => {
-    if (!activeProjectId) return;
-    hydratedRef.current = false; // block saves until this project's data lands
-    return loadProjectSnapshotIntoDomains({
-      activeProjectId,
-      loadProjectSnapshot,
-      threadRegistry,
-      timeline,
-      segmentation,
-      artifacts,
-      graph,
-      hydratedRef,
-    });
-  }, [activeProjectId, timeline, segmentation, artifacts, graph, threadRegistry]);
 
   const {
     currentUser,
@@ -125,6 +111,38 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     listUserProjects,
     workspace,
   });
+
+  // Load only after the auth observer has resolved, and re-load when the
+  // session identity changes. A cloud load fired before the observer lands
+  // throws "no active Google session"; the loader's contract is then correct
+  // and brutal — no hydration, save gate stays closed — and the old dependency
+  // list never retried, so every refresh showed an empty chat while saves
+  // silently skipped. Local mode flips authInitialized in the same observer,
+  // so both backends gate the same way.
+  useEffect(() => {
+    if (!activeProjectId) return;
+    if (!authInitialized) return;
+    hydratedRef.current = false; // block saves until this project's data lands
+    return loadProjectSnapshotIntoDomains({
+      activeProjectId,
+      loadProjectSnapshot,
+      threadRegistry,
+      timeline,
+      segmentation,
+      artifacts,
+      graph,
+      hydratedRef,
+    });
+  }, [
+    activeProjectId,
+    authInitialized,
+    currentUser?.uid,
+    timeline,
+    segmentation,
+    artifacts,
+    graph,
+    threadRegistry,
+  ]);
 
   const persistState = useCallback(
     () =>

@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  formatGainDb,
   formatTtsTime,
   gainToSlider,
   getTtsSnapshot,
@@ -100,6 +101,17 @@ describe('the transport lifecycle mirrors what the sidebar needs', () => {
     expect(fake.currentTime).toBeCloseTo(12, 6);
     ttsTransport.seek(-3); // before the start → clamped
     expect(fake.currentTime).toBe(0);
+  });
+
+  it('reads volume in dB: unity 0, silence -∞', () => {
+    expect(formatGainDb(1)).toBe('0.0 dB');
+    expect(formatGainDb(0.5)).toBe('-6.0 dB');
+    expect(formatGainDb(0.125)).toBe('-18.1 dB');
+    expect(formatGainDb(0)).toBe('-∞ dB');
+    expect(formatGainDb(-1)).toBe('-∞ dB');
+    expect(formatGainDb(Number.NaN)).toBe('-∞ dB');
+    // half the cbrt-slider travel really is -18.1 dB, not "13%"
+    expect(formatGainDb(sliderToGain(50))).toBe('-18.1 dB');
   });
 
   it('formats the track head ends', () => {

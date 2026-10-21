@@ -68,7 +68,27 @@ export const firestoreStore: ProjectStore = {
 
   async save(snapshot: ProjectSnapshot): Promise<void> {
     const currentUser = auth?.currentUser;
-    if (!currentUser || !db) return;
+    if (!currentUser || !db) {
+      // This no-op used to be invisible: the session looks fine, every save
+      // drops on the floor, and the next refresh shows a project from whenever
+      // the last good save happened.
+      logger.warn(
+        'Persistence',
+        `Save skipped for ${snapshot.projectId}: ${!db ? 'Firestore not initialized' : 'no active Google session — this session will NOT be persisted'}`
+      );
+      return;
+    }
+
+    // Firestore rejects documents over 1,048,576 bytes with
+    // failed-precondition — caught below, but size is the context that makes
+    // the error actionable.
+    const approxBytes = JSON.stringify(snapshot).length;
+    if (approxBytes > 900_000) {
+      logger.warn(
+        'Persistence',
+        `Snapshot ${snapshot.projectId} is ~${approxBytes} bytes; Firestore rejects docs over 1,048,576 — this save may fail`
+      );
+    }
 
     const docPath = `users/${currentUser.uid}/projects/${snapshot.projectId}`;
     try {
@@ -85,9 +105,10 @@ export const firestoreStore: ProjectStore = {
       logger.info('Persistence', `Saved project snapshot to Firestore`, {
         uid: currentUser.uid,
         projectId: snapshot.projectId,
+        approxBytes,
       });
     } catch (err: any) {
-      logger.warn('Persistence', `Firestore save error for ${snapshot.projectId}`, err);
+      logger.warn('Persistence', `Firestore save error for ${snapshot.projectId} (~${approxBytes} bytes, code=${err?.code ?? 'unknown'})`, err);
       if (err?.code === 'permission-denied') {
         handleFirestoreError(err, OperationType.WRITE, docPath);
       }

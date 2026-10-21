@@ -48,7 +48,11 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
   } = deps;
   const activeId = workspace.getActiveProjectId();
   if (!activeId) return;
-  if (!hydratedRef.current) return; // project switch in flight — data unreliable
+  if (!hydratedRef.current) {
+    // Every silently-blocked save is a session that dies on refresh — say so.
+    logger.warn('DomainRegistry', 'Snapshot save blocked: project not hydrated yet — this session will not be persisted');
+    return;
+  }
   if (isCaptureMode()) return; // capture/fixture runs are read-only
   try {
     // Meta MUST ride along: IndexedDB put() REPLACES the record, so an omission

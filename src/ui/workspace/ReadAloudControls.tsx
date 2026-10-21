@@ -1,6 +1,7 @@
 import React, { useSyncExternalStore } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
+  formatGainDb,
   formatTtsTime,
   gainToSlider,
   getTtsSnapshot,
@@ -33,10 +34,14 @@ export const ReadAloudControls: React.FC = () => {
           value={Math.round(gainToSlider(state.volume))}
           onChange={(e) => ttsTransport.setVolumeGain(sliderToGain(Number(e.target.value)))}
           aria-label="Volume"
+          aria-valuetext={formatGainDb(state.volume)}
           className="flex-1 h-6 min-h-[24px] accent-[#5ad49b] cursor-pointer"
         />
-        <span className="text-[10px] font-mono text-ink-mute tabular-nums w-8 text-right shrink-0">
-          {Math.round(state.volume * 100)}%
+        <span
+          className="text-[10px] font-mono text-ink-mute tabular-nums w-14 text-right shrink-0"
+          data-testid="tts-volume-db"
+        >
+          {formatGainDb(state.volume)}
         </span>
       </div>
 

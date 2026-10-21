@@ -1208,7 +1208,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 logger.action('Sidebar', 'Open Cleanup tool');
                 onOpenCleanup();
               }}
-              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-2 shadow-lift hover:bg-veil-1 text-left transition-colors cursor-pointer group"
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-2 hover:bg-veil-1 text-left transition-colors cursor-pointer group"
               title="Archive chats and artifacts in bulk, then delete the archived ones for good"
             >
               <div className="flex items-center gap-2">
@@ -1229,7 +1229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 logger.action('Sidebar', 'Open Server Logs Modal');
                 onOpenServerLogs();
               }}
-              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-2 shadow-lift hover:bg-veil-1 text-left transition-colors cursor-pointer group"
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-2 hover:bg-veil-1 text-left transition-colors cursor-pointer group"
               title="Inspect backend live streaming logs and token telemetry"
             >
               <div className="flex items-center gap-2">

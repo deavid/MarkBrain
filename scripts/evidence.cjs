@@ -30,8 +30,8 @@ const VIEWPORTS = [
   { w: 1440, h: 900, name: '1440x900' }, // desktop
 ];
 const DESKTOP = new Set(['768x1024', '1440x900']);
-// Touch-target thresholds: min dimension <12px = fail, <16px = warn
-// (project thresholds, David 2026-10-19; superseded WCAG 2.5.8 16/24).
+// Touch-target thresholds: min dimension <12px = fail, <16px = warn. Stricter
+// than WCAG 2.5.8 (16/24): the 350px viewport is the real constraint here.
 const MIN_TOUCH = 16;
 const HARD_MIN = 12;
 const COVERAGE_MIN_HITS = 6; // of 9 sampled points
@@ -317,11 +317,11 @@ const AUDIT_FN = `(() => {
       warns.push({ type: 'touch-small', detail: 'min dimension ' + Math.round(minDim) + 'px < ' + MIN_TOUCH + 'px',
         path: cssPath(el), html: snippet(el), rect });
     }
-    // Horizontal clipping (ledger V1.6): a control that pokes past the viewport,
-    // or is cut by a NON-scrollable overflow ancestor, is unreachable even when
-    // it is partially on screen. The old audit only checked document-level
-    // h-scroll, so a "Full" chip 5px off a 350px screen inside an
-    // overflow-hidden chapter header passed as "0 fails".
+    // Horizontal clipping: a control that pokes past the viewport, or is cut by
+    // a NON-scrollable overflow ancestor, is unreachable even when it is
+    // partially on screen. Checking document-level h-scroll alone is not enough —
+    // an overflow-hidden parent hides the overflow without widening the document,
+    // so the control silently becomes untappable while the audit reports green.
     if (rect.x < -1 || rect.x + rect.w > vw + 1) {
       fails.push({
         type: 'clipped-by-viewport',
@@ -680,8 +680,9 @@ async function main() {
         .waitFor({ state: 'hidden', timeout: 20_000 })
         .then(() => true)
         .catch(() => false);
-      // "No summary yet" also disappears when the call FAILS — that state must
-      // be read as a failure with a Retry, never as a landed summary (12 §5.2).
+      // "No summary yet" also disappears when the call FAILS — so absence of the
+      // placeholder is not proof a layer landed. Check the layer itself, and
+      // treat a failure-with-Retry as a failure.
       const layerLanded = await page
         .locator('[data-testid="chapter-layer-summary"]')
         .first()
@@ -765,15 +766,15 @@ async function main() {
     await betaRow.waitFor({ state: 'visible', timeout: 5000 });
     check((await betaRow.getAttribute('data-state')) === 'unstaged', 'Beta starts unstaged (dim)');
 
-    // The ROW is the verb now (12 §2): clicking the body stages it — the dot
-    // is the same verb on a smaller target, not the only handle.
+    // The ROW is the verb: clicking the body stages it. The dot is the same verb
+    // on a smaller target, not the only handle.
     await betaRow.click({ position: { x: 40, y: 12 }, timeout: 5000 });
     step('click', 'row body: stage Beta');
     await page.waitForTimeout(300);
     check((await betaRow.getAttribute('data-state')) === 'staged', 'Beta row turned staged (punchy cyan)');
 
     // The arrow-out on the right opens the detail popup — same widget, same
-    // arrow, in the folder AND in the chat (R1.3/R1.4).
+    // arrow, in the folder AND in the chat.
     await betaRow.locator('[data-testid="open-artifact-detail"]').first().click({ timeout: 5000 });
     step('click', 'arrow-out: open detail popup');
     const popup = await page
@@ -849,15 +850,15 @@ async function main() {
   });
 
   // ── J16 what you see is what you send — all FOUR cuts, and UI == payload ──
-  // The S1 Vega caught lived on the Description cut, which J16 never clicked:
-  // the screen rendered the summary while the payload carried only the title.
-  // Presence checks cannot catch that. This one compares the screen against
-  // the Mirror's literal compiled bytes (ledger V1.9).
+  // All four cuts are clicked on purpose: the divergence shows up on Description,
+  // where the screen renders a summary the payload does not carry. Presence
+  // checks cannot catch that. This one compares the screen against the Mirror's
+  // literal compiled bytes.
   await journey(page, '16-chapter-cut', 'All four cuts render exactly what the payload carries', async (page) => {
     const turnsVisible = () => page.locator('div.whitespace-pre-wrap').count();
     const chip = (g) => page.locator(`[data-testid="chapter-cut"] [data-granularity="${g}"]`).last();
-    // The fixture chapter (first) is the one with a summary and NO description
-    // — the exact shape the old code lied on.
+    // The fixture chapter (first) has a summary and NO description — the shape
+    // where screen and payload diverge if the layer gating is wrong.
     const fxSection = page.locator('section:has([data-testid="chapter-cut"])').first();
     // Scoped to the chapter's OWN control — attachment rows inside the section
     // carry granularity chips with the same data-granularity values.
@@ -880,7 +881,7 @@ async function main() {
     );
 
     await fxCut('description').click();
-    step('click', 'fixture chapter → Description (the cut Vega found broken)');
+    step('click', 'fixture chapter → Description (the cut that diverged)');
     await page.waitForTimeout(500);
     check(
       (await fxSection.locator('[data-testid="chapter-layer-summary"]').count()) === 0,

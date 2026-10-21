@@ -13,8 +13,8 @@ export interface ThreadUiParams {
   tick: number;
 }
 
-// Presentation-side thread state: queue wrappers ChatView/Sidebar bind,
-// per-thread runtimes, and unread tracking. Moved verbatim from App.tsx.
+// Presentation-side thread state: the queue wrappers ChatView and Sidebar bind
+// to, per-thread runtimes, and unread tracking.
 export function useThreadUi(params: ThreadUiParams) {
   const { sendQueue, threadRegistry, tick } = params;
 
@@ -22,20 +22,14 @@ export function useThreadUi(params: ThreadUiParams) {
     sendQueue.stopGeneration();
   }, [sendQueue, threadRegistry]);
 
-  // ── Thread-aware turn routing / serial queue handlers ──────────────────────
-  // Routing helpers (getTurnsOf & co.), noteSendIntent/maybeRetitle, executeTurn
-  // and the queue pump all moved to application/sendQueue.ts. These thin
-  // wrappers keep the exact names/signatures ChatView/Sidebar already bind.
   const handleSendMessage = async (text: string) => {
     sendQueue.handleSendMessage(text);
   };
 
-  // Cancel this thread's PENDING jobs (never touches an in-flight stream).
   const handleCancelQueued = (threadId: string) => {
     sendQueue.handleCancelQueued(threadId);
   };
 
-  // Regenerate the last assistant turn of the active thread (error/interrupted).
   const handleRetryThread = () => {
     sendQueue.handleRetryThread();
   };

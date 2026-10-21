@@ -7,11 +7,8 @@ import {
 } from '../../services/persistenceService';
 import { logger } from '../../utils/logger';
 
-// Full-database backup / restore — moved verbatim from App.tsx (incl. the
-// hidden file-input trigger mounted on BOTH the Genesis screen and the studio).
 export function useDatabaseTransfer() {
 
-  // Full-database backup / restore (canonical format lives in persistenceService).
   const importDbFileRef = useRef<HTMLInputElement | null>(null);
 
   const handleExportDatabase = useCallback(async () => {
@@ -48,9 +45,6 @@ export function useDatabaseTransfer() {
     }
   }, []);
 
-  // Mounted on BOTH the Genesis screen and the main studio (exclusive early
-  // returns) — a fresh browser must be able to restore with zero projects,
-  // which means the trigger has to exist where the Sidebar doesn't.
   const dbImportInput = (
     <input
       ref={importDbFileRef}

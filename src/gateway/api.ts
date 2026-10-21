@@ -7,8 +7,6 @@
  * response parsing here; call sites keep owning non-ok/shape handling).
  */
 
-// ── /api/tts ────────────────────────────────────────────────────────────────
-
 export interface TtsRequest {
   text: string;
   voice: string;
@@ -21,8 +19,6 @@ export function tts(params: TtsRequest): Promise<Response> {
     body: JSON.stringify({ text: params.text, voice: params.voice }),
   });
 }
-
-// ── /api/extract-artifact-from-file ────────────────────────────────────────
 
 export interface ExtractArtifactFromFileRequest {
   content: string;
@@ -58,8 +54,6 @@ export function extractArtifactFromFile(
   });
 }
 
-// ── /api/server-logs ───────────────────────────────────────────────────────
-
 export function serverLogs(): Promise<Response> {
   return fetch('/api/server-logs');
 }
@@ -68,13 +62,9 @@ export function clearServerLogs(): Promise<Response> {
   return fetch('/api/server-logs/clear', { method: 'POST' });
 }
 
-// ── /api/auth/config ───────────────────────────────────────────────────────
-
 export function authConfig(): Promise<Response> {
   return fetch('/api/auth/config');
 }
-
-// ── /api/chat/stream ───────────────────────────────────────────────────────
 
 export interface ChatStreamPayload {
   model?: string;
@@ -107,8 +97,6 @@ export function chatStream(
   });
 }
 
-// ── /api/title-thread ──────────────────────────────────────────────────────
-
 export interface TitleThreadRequest {
   messages: Array<{ role: string; content: string }>;
   version: number;
@@ -122,8 +110,6 @@ export function titleThread(params: TitleThreadRequest): Promise<Response> {
   });
 }
 
-// ── /api/chat/cancel ───────────────────────────────────────────────────────
-
 export function chatCancel(reason: string): Promise<Response> {
   return fetch('/api/chat/cancel', {
     method: 'POST',
@@ -132,8 +118,6 @@ export function chatCancel(reason: string): Promise<Response> {
   });
 }
 
-// ── /api/summarize-chapter ─────────────────────────────────────────────────
-
 export interface SummarizeChapterRequest {
   title: string;
   messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
@@ -141,13 +125,12 @@ export interface SummarizeChapterRequest {
 }
 
 /**
- * Summarize a chapter, with a hard client-side deadline (12 §5.2).
+ * Summarize a chapter, with a hard client-side deadline.
  *
- * The old call had no timeout at all: one unanswered request sat open until a
- * later page reload killed it, the console logged an error, and the evidence
- * pack went RED on a phantom. A hung model call now becomes a visible
- * "Summary request timed out or failed. [Retry]" in the chapter chrome — the
- * user learns the truth instead of watching a spinner quietly give up.
+ * Do not remove the deadline: an unanswered request stays open until the page
+ * reloads, and the user watches a spinner that will never resolve. A timeout
+ * becomes visible text in the chapter chrome ("Summary request timed out or
+ * failed." + Retry) — the user learns the truth instead.
  */
 export async function summarizeChapter(
   params: SummarizeChapterRequest,
@@ -174,9 +157,6 @@ export async function summarizeChapter(
   }
 }
 
-// ── /api/models ─────────────────────────────────────────────────────────────
-
-/** Server-owned catalog entry (mirror of server/lib/models.ts `CatalogModel`). */
 export interface CatalogModel {
   id: string;
   provider: string;
@@ -190,17 +170,12 @@ export interface CatalogModel {
   costMultiplier: number;
 }
 
-/** Body of GET /api/models — the single source of truth for the lineup. */
 export interface ModelsResponse {
   models: CatalogModel[];
   default: string;
 }
 
-/**
- * Fetches the server-owned model catalog. Resolves with the parsed body;
- * rejects on network/parse failure — callers keep their own fallback and own
- * shape validation (nothing throws from inside this module).
- */
+/** Rejects on network/parse failure; callers keep their own fallback and shape validation. */
 export function models(): Promise<ModelsResponse> {
   return fetch('/api/models').then((res) => res.json());
 }

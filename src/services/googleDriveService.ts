@@ -39,13 +39,11 @@ async function fetchAppConfig(): Promise<AuthConfig | null> {
   }
 }
 
-// Helper to initialize Firebase App from server environment config
 async function getOrInitAuth(): Promise<Auth | null> {
   if (authInstance) return authInstance;
   try {
     const config = await fetchAppConfig();
     if (!config || !config.apiKey || !config.projectId) {
-      // Configuration not provided in environment
       return null;
     }
     if (getApps().length === 0) {
@@ -156,8 +154,6 @@ export const googleReconnect = async (): Promise<{ user: User; accessToken: stri
   return googleSignIn();
 };
 
-// drive.readonly covers list/download/export; documents.readonly only upgrades
-// the optional Docs-API AST fallback path, so it's not gated on here.
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 
 export interface ScopeVerification {
@@ -202,34 +198,22 @@ export interface DriveFileItem {
   isGoogleDoc?: boolean;
 }
 
-/**
- * Extracts Google Document ID from a shared URL or raw ID string
- */
 export function extractGoogleDocIdFromUrl(input: string): string | null {
   if (!input || !input.trim()) return null;
   const trimmed = input.trim();
-  // Standard Google Docs URL: /document/d/<id>/
   const match = trimmed.match(/\/document\/d\/([a-zA-Z0-9_-]{25,})/);
   if (match) {
     return match[1];
   }
-  // Drive file URL: /file/d/<id>/
   const driveMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]{25,})/);
   if (driveMatch) {
     return driveMatch[1];
   }
-  // Raw ID check (typically 30-50 chars alphanumeric with - and _)
   if (/^[a-zA-Z0-9_-]{25,70}$/.test(trimmed)) {
     return trimmed;
   }
   return null;
 }
-
-// ---------------------------------------------------------------------------
-// Google Picker — Google's own hosted file-selection dialog.
-// Replaces the hand-rolled in-app Drive file list: the user browses/searches
-// inside a real Google popup, picks a file, and we get the id back here.
-// ---------------------------------------------------------------------------
 
 declare global {
   interface Window {
@@ -289,7 +273,6 @@ function loadGooglePickerApi(): Promise<void> {
     document.head.appendChild(script);
   });
 
-  // Allow a retry after a failed load attempt.
   pickerLoadPromise.catch(() => {
     pickerLoadPromise = null;
   });
@@ -435,14 +418,12 @@ export function convertGoogleDocAstToMarkdown(doc: any): string {
         }
       }
 
-      // Check bullet list item
       if (p.bullet) {
         const bulletPrefix = p.bullet.listId ? '* ' : '- ';
         lines.push(bulletPrefix + paragraphText.trim());
         continue;
       }
 
-      // Apply Heading Styles
       const cleanText = paragraphText.trim();
       if (!cleanText) {
         lines.push('');
@@ -510,7 +491,6 @@ export async function fetchGoogleDocById(
   documentId: string
 ): Promise<{ title: string; markdown: string }> {
   try {
-    // 1. First try: Google Docs API v1 (most accurate structure with headings)
     const docsApiUrl = `https://docs.googleapis.com/v1/documents/${documentId}`;
     const docRes = await fetch(docsApiUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -525,7 +505,6 @@ export async function fetchGoogleDocById(
       }
     }
 
-    // 2. Second try: Drive export endpoint with text/markdown
     const exportMdUrl = `https://www.googleapis.com/drive/v3/files/${documentId}/export?mimeType=text/markdown`;
     const mdRes = await fetch(exportMdUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -535,7 +514,6 @@ export async function fetchGoogleDocById(
       return { title: 'Imported Google Doc', markdown: mdText };
     }
 
-    // 3. Third try: Drive export endpoint with text/plain
     const plainUrl = `https://www.googleapis.com/drive/v3/files/${documentId}/export?mimeType=text/plain`;
     const plainRes = await fetch(plainUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -560,9 +538,7 @@ export async function fetchDriveFileContent(
   file: DriveFileItem
 ): Promise<{ markdown: string; format: 'native_markdown' | 'gdoc_exported' | 'gdoc_ast' | 'text' }> {
   try {
-    // 1. Handling Google Docs
     if (file.mimeType === 'application/vnd.google-apps.document') {
-      // First try: Native Drive API export to text/markdown
       try {
         const exportMdUrl = `https://www.googleapis.com/drive/v3/files/${file.id}/export?mimeType=text/markdown`;
         const mdRes = await fetch(exportMdUrl, {
@@ -579,7 +555,6 @@ export async function fetchDriveFileContent(
         logger.warn('Drive', 'Native markdown export unavailable — falling back to Docs API AST parsing', e);
       }
 
-      // Second try: Google Docs API v1 AST document fetch and structured Markdown conversion
       try {
         const docsApiUrl = `https://docs.googleapis.com/v1/documents/${file.id}`;
         const docRes = await fetch(docsApiUrl, {
@@ -597,7 +572,6 @@ export async function fetchDriveFileContent(
         logger.warn('Drive', 'Docs API fetch failed — falling back to text/plain export', e);
       }
 
-      // Third try: plain text export
       const plainUrl = `https://www.googleapis.com/drive/v3/files/${file.id}/export?mimeType=text/plain`;
       const plainRes = await fetch(plainUrl, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -610,7 +584,6 @@ export async function fetchDriveFileContent(
       throw new Error('Unable to export or read Google Doc content');
     }
 
-    // 2. Regular Drive file (e.g. .md, .txt)
     const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
     const res = await fetch(downloadUrl, {
       headers: {

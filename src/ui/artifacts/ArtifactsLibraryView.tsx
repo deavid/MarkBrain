@@ -23,34 +23,26 @@ interface ArtifactsLibraryViewProps {
   onOpenSidebar: () => void;
   onOpenImport: () => void;
   onTriageArtifact: (artifactId: string) => void;
-  /** This chat's attachments — the rows wear their state (10 §1). */
   attachments: ChatAttachment[];
-  /** Cost of each artifact at its current cut in this chat (compiler's own numbers). */
   tokensByArtifact: Record<string, number>;
-  /** The dot verb: not in chat → stage; staged → unstage; committed → cycle cut. */
   onToggleAttachment: (artifactId: string) => void;
-  /** Unstage a staged artifact (no-op for committed ones — history has no delete key). */
   onUnstage: (artifactId: string) => void;
   onSetAttachmentGranularity: (artifactId: string, granularity: Granularity) => void;
-  /** Back to the conversation (floating bubble, bottom right). */
   onReturnToChat: () => void;
 }
 
 /**
- * The LIBRARY — everything that exists, at full size (09 §3).
+ * The library — everything that exists — and the picker: the same view is where
+ * a chat's attachments are chosen. The ROW is the verb (stage / unstage / cycle
+ * the cut), the four words sit on the row, and the arrow-out opens the detail
+ * popup.
  *
- * It is also the PICKER (10 §3, corrected by 12 §2): the ROW is the verb
- * (click to stage / unstage / cycle the cut), the four words sit right there,
- * and the arrow-out on the right opens the detail popup. A row that is in the
- * chat presses down into a dark well with a punchy lit circle; a row that is
- * not sits a touch brighter with a dead grey circle.
+ * Two lenses over one set: `folders` (find things, steer them) and `graph` (the
+ * forest view). Neither lens decides what is sent: that is an attachment inside
+ * a chat, and nothing else.
  *
- * Two lenses over the same set: `folders` (find things, steer them) and
- * `graph` (the forest view). Neither lens decides what is sent to the model;
- * that is an attachment inside a chat, and nothing else.
- *
- * No top bar, no sticky header (hard rule): a clearance spacer scrolls away
- * at the top, and the controls float.
+ * No top bar and no sticky header. The clearance spacer scrolls away; controls
+ * float. Adding a fixed bar here has been tried and rejected twice.
  */
 export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
   projectId,
@@ -126,7 +118,6 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             className="h-10 shrink-0 -mt-3 mb-1"
           />
 
-          {/* Search + actions */}
           <div className="flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#556985]" />
@@ -165,9 +156,6 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
                 </span>
                 <span className="text-[10px] font-mono text-[#3f4d61]">{list.length}</span>
               </div>
-              {/* ONE widget with the chat, the tray, the chapter strip and the
-                  mirror (12 §2): click the ROW to run the verb, arrow-out on the
-                  right to open the detail popup. */}
               <div className="rounded-xl bg-surface-2 p-1 space-y-1">
                 {list.map((art) => {
                   const flagged = isFlaggedArtifact(art);
@@ -246,7 +234,6 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
           </button>
         </div>
 
-        {/* Back to the conversation. The badge says how much is armed. */}
         <button
           onClick={onReturnToChat}
           data-testid="back-to-chat"

@@ -35,7 +35,6 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-/** Read all records. */
 export async function localListProjects(): Promise<ProjectSnapshot[]> {
   const db = await openDb();
   try {
@@ -50,7 +49,6 @@ export async function localListProjects(): Promise<ProjectSnapshot[]> {
   }
 }
 
-/** Read one record by projectId; null when absent. */
 export async function localLoadProject(projectId: string): Promise<ProjectSnapshot | null> {
   const db = await openDb();
   try {
@@ -65,7 +63,6 @@ export async function localLoadProject(projectId: string): Promise<ProjectSnapsh
   }
 }
 
-/** Upsert one record (save and create are the same operation here). */
 export async function localPutProject(snapshot: ProjectSnapshot): Promise<void> {
   const db = await openDb();
   try {
@@ -81,9 +78,6 @@ export async function localPutProject(snapshot: ProjectSnapshot): Promise<void> 
   }
 }
 
-/**
- * Delete one record by projectId (no-op when absent).
- */
 export async function localDeleteProject(projectId: string): Promise<void> {
   const db = await openDb();
   try {
@@ -99,10 +93,7 @@ export async function localDeleteProject(projectId: string): Promise<void> {
   }
 }
 
-/**
- * Replace the entire local store with `projects` — import semantics.
- * One transaction: either the whole restore lands or nothing does.
- */
+/** Import semantics: one transaction, so the whole restore lands or none of it does. */
 export async function localReplaceAll(projects: ProjectSnapshot[]): Promise<void> {
   const db = await openDb();
   try {

@@ -22,8 +22,7 @@ export interface ArtifactHandlerParams {
   setTriageFocusId: (id: string | null) => void;
 }
 
-// Artifact CRUD, pin/tier overrides, import landing, and Phase-3 triage.
-// Moved verbatim from App.tsx — same handler names/signatures the children bind.
+// Artifact CRUD, chat attachment handlers, import landing, and post-import triage.
 export function createArtifactHandlers(params: ArtifactHandlerParams) {
   const {
     artifactsDomain,
@@ -40,12 +39,8 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     setTriageFocusId,
   } = params;
 
-  // ── Attachments (per chat; the artifact's granularity lives HERE) ────────
-  //
-  // The dot verb (10 §5): not in chat → stage; staged → unstage; committed →
-  // cycle granularity. Staging is free and reversible; Send is what welds.
-
-  /** The dot in the folder row — one verb, three states. */
+  /** The dot verb: not in chat → stage; staged → unstage; committed → cycle the cut.
+   *  Staging is free and reversible; Send is what welds. */
   const handleToggleAttachment = (artifactId: string) => {
     const before = threadRegistry
       .getAttachments(activeThreadId)
@@ -72,7 +67,6 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     triggerReRender();
   };
 
-  /** Remove a staged attachment before Send. Committed ones are a no-op. */
   const handleUnstageAttachment = (artifactId: string) => {
     const removed = threadRegistry.unstageArtifact(activeThreadId, artifactId);
     logger.action('App', `Unstage ${artifactId}: ${removed ? 'removed' : 'no-op (already sent)'}`);
@@ -96,7 +90,6 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     triggerReRender();
   };
 
-  // Update Artifact Content (auto-records version history in domain)
   const handleUpdateArtifactContent = (artifactId: string, newContent: string) => {
     const art = artifactsDomain.getArtifact(artifactId);
     if (art) {
@@ -105,11 +98,9 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     }
   };
 
-  // Add New Artifact
   const handleAddArtifact = (newArt: Artifact) => {
-    // Idempotent by title (review P1 #7): extracted notes are already
-    // auto-upserted via onArtifact with a different id — "Save as Artifact"
-    // must update that record, not create a second copy.
+    // Idempotent by title: extracted notes are already auto-upserted with a
+    // different id — "Save as Artifact" must update that record, not duplicate it.
     const title = (newArt.title || '').trim();
     const existing = !title
       ? undefined
@@ -146,13 +137,11 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     setSelectedArtifactId(existing?.id ?? newArt.id);
   };
 
-  // Import-session land (multi-import plan): ALWAYS a separate artifact.
-  // Unlike handleAddArtifact (title-idempotent for the chat flow), a colliding
-  // frontmatter `id` must never silently overwrite an existing record — mint a
-  // fresh id instead. Phase 2: when the body/code/title matches something
-  // already imported, auto-attach a revision-of/duplicate-of relationship (the
-  // flag) — never merge or block here; triage is post-import. Returns the final
-  // id + flag so the session row can reference and display them.
+  // Import land is ALWAYS a separate artifact: unlike handleAddArtifact
+  // (title-idempotent for the chat flow), a colliding frontmatter `id` must never
+  // silently overwrite an existing record — mint a fresh id instead. A matching
+  // body/code/title auto-attaches a revision-of/duplicate-of flag; triage happens
+  // post-import. Returns the final id + flag for the session row.
   const handleImportArtifact = (newArt: Artifact): { id: string; flag: ImportFlag | null } => {
     let id = newArt.id;
     if (artifactsDomain.getArtifact(id)) {
@@ -190,7 +179,7 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
       updatedAt: newArt.updatedAt ?? Date.now(),
       // Number-only coordinates — `{x: undefined}` poisons Firestore saves
       // (same guard as handleAddArtifact; see utils/storageSanitize.ts).
-      // Relationships: carry incoming edges + append the Phase-2 flag edge.
+      // Relationships: carry incoming edges + append the flag edge.
       graph: (() => {
         const relationships = [...(newArt.graph?.relationships || [])];
         if (flag) relationships.push(flagRelationship(flag));
@@ -211,8 +200,6 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     return { id, flag };
   };
 
-
-  // ---- Phase 3: post-import triage (work AFTER the fact, never during) ----
   // Graph-only upsert that preserves everything else (incl. regenerating the
   // cached yamlDocument snapshot when the artifact had one).
   const upsertGraphOf = (art: Artifact, graph: NonNullable<Artifact['graph']>) => {
@@ -300,7 +287,6 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     //    the pre-overwrite entry restores the old body.
     versioning.recordRevision(oldId, newBody, `Overwritten by import triage from "${newArt.title}"`);
 
-    // 4) Carrier removal + dangling-edge/focus scrub.
     artifactsDomain.deleteArtifact(newId);
     scrubReferencesTo(newId);
     logger.action(

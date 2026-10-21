@@ -1,7 +1,7 @@
 /**
- * Semantic edge vocabulary — OPEN (requirement 01 §4.8): the known kinds are
- * a starting set, not a closed union. Graph traversal logic (getAncestors,
- * dedupe) matches known kind strings; unknown kinds round-trip untouched.
+ * The edge vocabulary is OPEN: these kinds are a starting set, not a closed
+ * union. Graph traversal and dedupe match known kind strings; an unknown kind
+ * round-trips untouched, and nothing may coerce it to 'relates_to'.
  */
 export const KNOWN_RELATION_KINDS = [
   'parent_of',
@@ -13,7 +13,6 @@ export const KNOWN_RELATION_KINDS = [
 
 export type KnownRelationKind = (typeof KNOWN_RELATION_KINDS)[number];
 
-/** Open vocabulary — arbitrary kinds are legal and survive storage. */
 export type RelationKind = string;
 
 export interface SemanticEdge {

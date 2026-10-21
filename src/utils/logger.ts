@@ -1,7 +1,8 @@
 /**
  * MarkBrain centralized logger.
  *
- * THE INSTRUMENTATION LAW (David, 2026-10-18 — see design-docs/05_CLEANSE_DECISIONS.md):
+ * The instrumentation law (design-docs/05_CLEANSE_DECISIONS.md). Every line of
+ * console output has to be earned:
  * - `action`  — exactly one per human gesture (tap send, toggle, confirm). NEVER
  *               from domain internals, NEVER from stream chunks, NEVER in loops.
  * - `info`    — lifecycle that is not a gesture (boot, load, turn completed).
@@ -26,9 +27,7 @@ export type LogCategory =
   | 'AuthGate'
   | 'ProjectGenesis'
   | 'ErrorBoundary'
-  // Open tail — any component/domain may log without joining this union
-  // by hand. (Previously closed: ImportModal, Compiler, Drive, TTS, etc.
-  // were forced into raw console.*.)
+  // Open tail — any module may log without widening this union first.
   | (string & {});
 
 export interface LogEntry {

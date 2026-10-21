@@ -22,12 +22,12 @@ interface ProjectGenesisProps {
 }
 
 const PALETTE = [
-  '#3b82f6', // blue
-  '#10b981', // emerald
-  '#8b5cf6', // purple
-  '#f59e0b', // amber
-  '#e05a66', // coral rose
-  '#06b6d4', // cyan
+  '#3b82f6',
+  '#10b981',
+  '#8b5cf6',
+  '#f59e0b',
+  '#e05a66',
+  '#06b6d4',
 ];
 
 export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
@@ -74,12 +74,9 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen w-screen bg-surface-0 text-ink p-4 select-none relative overflow-hidden font-sans">
-      {/* Background ambient grid lines */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a15_1px,transparent_1px),linear-gradient(to_bottom,#0f172a15_1px,transparent_1px)] bg-[size:48px_48px] pointer-events-none" />
 
-      {/* Main Container */}
       <div className="relative z-10 w-full max-w-lg p-6 sm:p-8 bg-surface-0 rounded-2xl shadow-2xl space-y-6">
-        {/* User Welcome Header */}
         <div className="flex items-center justify-between pb-4 ">
           <div className="flex items-center gap-3 min-w-0">
             {user.photoURL ? (
@@ -112,7 +109,6 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
           </button>
         </div>
 
-        {/* Informative Intro */}
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <FolderPlus className="w-5 h-5 text-[#38bdf8]" />
@@ -131,7 +127,6 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
           </div>
         )}
 
-        {/* Creation Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">

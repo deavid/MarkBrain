@@ -4,7 +4,6 @@ import { logServer } from '../lib/log';
 import { parseModelJson } from '../lib/modelJson';
 
 export function registerExtractRoutes(app: Express): void {
-// API: Extract structured YAML + Markdown artifact from raw TXT, MD, or Google Docs export
 app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) => {
   try {
     const {
@@ -96,7 +95,6 @@ ${content.slice(0, 24000)}`;
       });
     }
 
-    // High quality deterministic fallback when AI key is absent
     const lines = content.split('\n');
     let title = filename.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
     for (const l of lines) {
@@ -111,7 +109,6 @@ ${content.slice(0, 24000)}`;
     const description = nonHeaders[0]?.slice(0, 160) || `Imported Google Doc specification: ${title}`;
     const summary = nonHeaders.slice(0, 4).join(' ').slice(0, 400) || 'Imported note summary.';
 
-    // Generate tentative tags from words in title and content
     const rawTokens = (title + ' ' + description).toLowerCase().match(/[a-z]{4,}/g) || [];
     const uniqueTokens = Array.from(new Set(rawTokens)).slice(0, 5);
     const tags = ['imported-doc', 'google-docs', ...uniqueTokens];

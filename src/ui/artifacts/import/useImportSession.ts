@@ -7,11 +7,10 @@ import { ImportFlag, flagRelationship } from '../../../utils/importDetect';
 import { BatchRules, EMPTY_BATCH_RULES, applyImportRules } from '../../../utils/importRules';
 import { extractArtifactFromFile } from '../../../gateway/api';
 
-// Multi-import plan — Phase 1: import sessions.
-// The session lives ABOVE ImportModal (owned by App) so closing the modal
-// keeps processing; rows land as artifacts one at a time, as we go.
-// Instrumentation law: one logger.action per add + one per pump completion;
-// per-row problems are logger.warn only.
+// The session lives ABOVE ImportModal (owned by App) so closing the modal keeps
+// processing; rows land as artifacts one at a time.
+// Instrumentation: one logger.action per add and per pump completion; per-row
+// problems are logger.warn only.
 
 export type ImportRowStatus = 'queued' | 'extracting' | 'landed' | 'failed' | 'canceled';
 export type ImportLane = 'frontmatter' | 'ai';
@@ -28,9 +27,7 @@ export interface ImportRow {
   artifactTitle?: string;
   /** Landed artifact snapshot for in-place inspection (Raw YAML preview). */
   artifact?: Artifact;
-  /** Phase-2 auto-flag: this landed as a suspected revision/duplicate of an older artifact. */
   flag?: ImportFlag;
-  /** Phase-4 per-row parent override — beats frontmatter + batch at land time. */
   parentOverride?: string;
   error?: string;
   /** Failure-aware retry: last extraction error + raw invalid model output. */
@@ -41,8 +38,7 @@ export interface ImportRow {
 export interface ImportSessionApi {
   rows: ImportRow[];
   running: boolean;
-  /** Phase-4 batch rules — read at row-land via ref, so rules set mid-session
-   *  still apply to rows not yet landed. */
+  /** Batch rules are read at row-land via ref, so rules set mid-session still apply to rows not yet landed. */
   rules: BatchRules;
   setRules: React.Dispatch<React.SetStateAction<BatchRules>>;
   addFiles: (files: FileList | File[]) => void;
@@ -216,7 +212,6 @@ export function useImportSession(
           const parsed = parseYamlArtifactDoc(next.content, proj.id);
 
           if (parsed.hasFrontmatter) {
-            // Frontmatter lane: rules → land (Phase 4 applies at row-land).
             const prepared = applyImportRules(parsed.artifact, rulesRef.current, next.parentOverride);
             const res = landRef.current(prepared);
             if (res.flag) flagged += 1;
@@ -237,7 +232,6 @@ export function useImportSession(
               )
             );
           } else {
-            // AI lane: sequential extraction (serial on purpose — kind to the API).
             commit((rs) =>
               rs.map((r) =>
                 r.id === next.id ? { ...r, status: 'extracting' as const, lane: 'ai' as const } : r

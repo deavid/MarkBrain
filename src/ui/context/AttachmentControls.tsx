@@ -11,20 +11,16 @@ import {
 } from '../../domains/granularity';
 
 /**
- * The attachment controls — ONE widget for every surface that shows an
- * artifact (12_PLAN_OF_RECORD.md §2).
+ * The one attachment widget. Same visual object, same two verbs, on every
+ * surface that shows an artifact: the folder rows, the staged tray, the turn
+ * cards, the chapter strip and the mirror.
  *
- * Surfaces: the Artifacts folder rows, the chat staged tray, the turn cards,
- * the chapter attachment strip, the mirror panel, the detail modal.
- *
- * Interaction contract (David, 2026-10-20 — R1.3/R1.4):
- *   · clicking the ROW BODY (or its dot) runs the verb: unstaged → stage,
- *     staged → unstage, committed → cycle the cut;
- *   · the ARROW-OUT button on the right opens the detail popup, everywhere;
+ *   · the ROW BODY (or its dot) runs the verb — unstaged stages, staged
+ *     unstages, committed cycles the cut;
+ *   · the ARROW-OUT on the right opens the detail popup, on every surface;
  *   · one token readout per row, never two.
  *
- * Colour law lives in domains/granularity.ts (12 §1): dark plate, bright ink,
- * one filled thing per row.
+ * Colours come from domains/granularity.ts; nothing here hardcodes a hue.
  */
 
 interface AttachmentDotProps {
@@ -74,7 +70,6 @@ interface GranularityChipsProps {
   compact?: boolean;
 }
 
-/** The four words. Active = pressed dark well + lit indicator; inactive = brighter key. */
 export const GranularityChips: React.FC<GranularityChipsProps> = ({
   value,
   onChange,
@@ -104,7 +99,6 @@ export const GranularityChips: React.FC<GranularityChipsProps> = ({
           data-granularity={g}
           className={`flex items-center gap-1 min-h-[24px] ${compact ? 'px-1.5' : 'px-2'} py-0.5 rounded-md text-[10px] font-mono cursor-pointer transition-colors ${cls}`}
         >
-          {/* The rainbow, right on the key — hue is visible before you click. */}
           <span
             className="w-1.5 h-1.5 rounded-full shrink-0"
             style={{
@@ -120,10 +114,7 @@ export const GranularityChips: React.FC<GranularityChipsProps> = ({
   </div>
 );
 
-/**
- * What tapping the dot does right now — one sentence, so the aria label and
- * the tooltip never disagree with the behaviour.
- */
+/** One sentence, so the aria label and the tooltip never disagree with the behaviour. */
 export function dotVerbLabel(state: AttachmentVisualState, title: string): string {
   switch (state) {
     case 'unstaged':
@@ -140,9 +131,10 @@ export function formatTokens(tokens: number): string {
 }
 
 /**
- * ONE provenance counter for the whole app (12 §2.2): the same 1-based `msg N`
- * the chapter headers use. Legacy attachments (welded to turn 0 before the
- * timeline existed) say so instead of pretending to a turn they don't have.
+ * One provenance counter for the whole app: the same 1-based `msg N` the
+ * chapter headers use. `turnIndex` is -1 for attachments from before turn
+ * tracking — they say "in chat" rather than claiming a message, and `null`
+ * (staged, not sent yet) has no provenance at all.
  */
 export function formatAttachmentProvenance(
   turnIndex: number | null | undefined
@@ -153,25 +145,19 @@ export function formatAttachmentProvenance(
 }
 
 interface AttachmentRowProps {
-  /** Needed for `data-artifact-id` (folder rows, journeys). */
   artifactId?: string;
   state: AttachmentVisualState;
   title: string;
   tokens: number;
   granularity: Granularity;
-  /**
-   * The row verb: click anywhere on the body (or the dot) → unstaged stages,
-   * staged unstages, committed cycles. Chips/✕/arrow stop propagation.
-   */
+  /** The row verb. Chips, ✕ and the arrow stop propagation themselves. */
   onToggle?: () => void;
   onSetGranularity?: (g: Granularity) => void;
-  /** Only staged rows get an unstage button; committed rows never do. */
+  /** Only staged rows get an unstage button; a committed row never does. */
   onUnstage?: () => void;
-  /** The arrow-out: opens the detail popup. Present on every surface that has one. */
+  /** Arrow-out → detail popup. */
   onOpenDetail?: () => void;
-  /** Folder rows show a description snippet. */
   description?: string;
-  /** Folder rows show tags. */
   tags?: string[];
   /** Provenance / state badge ('next send', 'msg 4', 'review'…). */
   badge?: string;
@@ -179,8 +165,7 @@ interface AttachmentRowProps {
 }
 
 /**
- * One artifact, rendered as its state. Used by the folder, the staged tray, the
- * turn cards, the chapter strip and the mirror so all five read as the same
+ * One artifact, rendered as its state, so all five surfaces read as the same
  * object with the same verbs.
  */
 export const AttachmentRow: React.FC<AttachmentRowProps> = ({
@@ -207,8 +192,6 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
       onClick={
         onToggle
           ? (e) => {
-              // Chips, ✕ and the arrow stopPropagation themselves; anything else
-              // on the body is the verb.
               e.preventDefault();
               onToggle();
             }
@@ -315,14 +298,12 @@ interface StagedTrayProps {
   items: Array<{ artifactId: string; title: string; tokens: number; granularity: Granularity }>;
   onSetGranularity: (artifactId: string, g: Granularity) => void;
   onUnstage: (artifactId: string) => void;
-  /** Open the detail popup from a tray row — same widget, same arrow. */
   onOpenDetail?: (artifactId: string) => void;
 }
 
 /**
- * The staged tray — what will ride the NEXT message. It sits in the composer's
- * flow, so it reserves real space and can be cleared before Send. After Send
- * the items move into the chat history on their turn (10 §7).
+ * What will ride the next message. It sits in the composer's flow so it reserves
+ * real space, and it can be cleared before Send.
  */
 export const StagedTray: React.FC<StagedTrayProps> = ({
   items,

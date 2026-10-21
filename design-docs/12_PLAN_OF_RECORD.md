@@ -2,6 +2,12 @@
 
 > **Status:** Plan of Record (PoR) — ready for mechanical execution.
 > **Author:** Altair (opus pass — self-review of `11_DESIGN_LEDGER.md` + concrete execution spec).
+
+> **Note (2026-10-21):** the palette/surface treatment in §1 Package 1 below was
+> superseded by `11_DESIGN_LEDGER.md` V2.1 ("step, don't stroke"): rows are alpha
+> tints of their own hue, not opaque `ROW_WELL` plates. Keep the four hexes; do not
+> revert the tints.
+
 > **Supersedes:** the colour palette, widget surface, and rail portions of `10_ATTACHMENT_TIMELINE.md` and `11_DESIGN_LEDGER.md` where they differ.
 
 ---

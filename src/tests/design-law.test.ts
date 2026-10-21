@@ -1,15 +1,14 @@
 /**
- * THE DESIGN LAW — surfaces separate, borders do not.
+ * Surfaces separate; borders do not.
  *
- * Before 2026-10-20 the UI carried 107 distinct `border-[#…]` colours across
- * 325 uses and 180 distinct background hexes, 167 of which sat within 1.5%
- * relative luminance of their neighbour (≈1.00:1 — the same colour with a
- * different name). Elevation was unreadable, so a 1px line became the only
- * instrument that worked. The result read as a wireframe: "I don't know how
- * to make colour separate things, so I use borders."
+ * The rule exists because the opposite was measured: 180 background hexes, 167
+ * of them within 1.5% relative luminance of a neighbour (≈1.00:1 — the same
+ * colour under a different name), 107 distinct border colours in 325 places. No
+ * surface could carry elevation, so a 1px line became the only instrument that
+ * worked, and the whole UI read as a wireframe.
  *
- * These assertions make the replacement enforceable instead of a note in a
- * doc. If someone reaches for another hairline, this fails with a number.
+ * An assertion, not a note in a doc: reach for another hairline and this fails
+ * with a number.
  */
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';

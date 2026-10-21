@@ -14,17 +14,9 @@ import { logger } from '../../utils/logger';
 import { estimateTokens } from '../../utils/estimateTokens';
 
 /**
- * The Context Compiler — one turn does everything: it takes the chat's
- * attachments (each at its own granularity) and the chat's chapters (each at
- * its own granularity) and emits the exact text the model receives.
- *
- * There is no distance, no radius, no focal point, no culling and no ancestor
- * backbone. An artifact reaches the model only because a chat attached it;
- * a chapter is always in, at a size the user picked (floor: title).
- * (Focus was eradicated — design-docs/TERMINOLOGY.md §Eradicated.)
- *
- * Granularity is a CUT, not a substitution: each level contains the shorter
- * ones plus one layer (`../granularity`).
+ * Context compiler: assembles `<knowledge_substrate>` (attached artifacts at their cut)
+ * and `<conversation_chapters>` (chapters at their cut, in chronological order).
+ * Only explicitly attached artifacts enter the payload — no proximity or graph heuristics.
  */
 export interface OpticalCompilerOptions {
   /** The target chat's attachments, in attach order. Empty = no artifacts sent. */
@@ -48,21 +40,16 @@ export interface OpticalCompilerOptions {
   log?: boolean;
 }
 
-/** One attachment as compiled into <knowledge_substrate> — mirror reads these. */
 export interface AttachmentBreakdownEntry {
   artifactId: string;
   title: string;
   granularity: Granularity;
   tokens: number;
-  /** True when the attachment is staged for the next send (not committed to a turn yet). */
   staged: boolean;
-  /** Turn index where this attachment was committed in the chat history, or null if staged. */
   turnIndex: number | null;
-  /** Turn id where this attachment was committed, or null if staged. */
   turnId?: string | null;
 }
 
-/** One chapter as compiled into <conversation_chapters> — mirror reads these. */
 export interface ChapterBreakdownEntry {
   chapterId: string;
   title: string;
@@ -77,24 +64,10 @@ export interface ContextTelemetry {
     historyTokens: number;
     totalTokens: number;
   };
-  /** How many rows (artifacts + chapters) sit at each granularity. */
   granularityDistribution: Record<Granularity, number>;
-  /**
-   * One entry per artifact INCLUDED in <knowledge_substrate>, in attach order.
-   * `tokens` is the estimate of that artifact's actual assembled XML (the very
-   * text pushed into substrateParts), via the shared estimateTokens — so the
-   * mirror can display the compiler's numbers instead of re-deriving them.
-   *
-   * Rounding tolerance: entries and substrateTokens both ceil per artifact over
-   * the same strings, so Σentries === substrateTokens exactly today. If
-   * substrate were ever estimated as one whole block instead, the sum could
-   * drift by <1 token per artifact.
-   */
+  /** Per-artifact token estimates measured on the exact assembled XML (`Σentries === substrateTokens`). */
   attachmentBreakdown: AttachmentBreakdownEntry[];
-  /**
-   * One entry per chapter INCLUDED in <conversation_chapters>, in send order.
-   * Same single-source rule as above: Σentries === historyTokens today.
-   */
+  /** Per-chapter token estimates measured on the exact assembled XML (`Σentries === historyTokens`). */
   chapterBreakdown: ChapterBreakdownEntry[];
 }
 
@@ -108,7 +81,6 @@ export interface IOpticalCompilerDomain {
   compile(options: OpticalCompilerOptions): CompiledContextPayload;
 }
 
-/** One line of the cut, indented for the substrate block. */
 export function artifactXml(art: UniversalArtifactDocument, granularity: Granularity): string {
   const lines: string[] = [];
   const withDescription = cutIncludes(granularity, 'description') && Boolean(art.current?.description);
@@ -132,7 +104,6 @@ export function artifactXml(art: UniversalArtifactDocument, granularity: Granula
   return lines.join('\n');
 }
 
-/** Exact token estimate for an artifact at a given granularity cut (matches compiler 1:1). */
 export function estimateArtifactCutTokens(
   art: UniversalArtifactDocument,
   granularity: Granularity
@@ -140,7 +111,6 @@ export function estimateArtifactCutTokens(
   return estimateTokens(artifactXml(art, granularity));
 }
 
-/** One chapter of the cut — same shape rule as artifacts. */
 export function chapterXml(
   chap: ChapterPartition,
   granularity: Granularity,
@@ -171,7 +141,6 @@ export function chapterXml(
   return lines.join('\n');
 }
 
-/** Exact token estimate for a chapter at a given granularity cut (matches compiler 1:1). */
 export function estimateChapterCutTokens(
   chap: ChapterPartition,
   granularity: Granularity,
@@ -192,7 +161,6 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const ceiling = options.tokenCeiling || 32000;
     const chapters = options.historyChapters ?? this.segmentation.listChapters();
 
-    // 1. Attachments — exactly what this chat attached (staged + committed), at its own granularity.
     const substrateParts: string[] = [];
     let substrateTokens = 0;
     const attachmentBreakdown: AttachmentBreakdownEntry[] = [];
@@ -224,7 +192,6 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
       });
     }
 
-    // 2. Chapters — always in, each at its own granularity, chat order.
     const historyParts: string[] = [];
     let historyTokens = 0;
     const chapterBreakdown: ChapterBreakdownEntry[] = [];
@@ -232,7 +199,6 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     chapters.forEach((chap, cIdx) => {
       const ongoing = isChapterOngoing(chapters, cIdx);
       const granularity = resolveChapterGranularity(chap, ongoing);
-      // Only read turns when the cut actually includes them.
       const turns = cutIncludes(granularity, 'body')
         ? options.historyTurns
           ? sliceChapterTurns(options.historyTurns, chap, ongoing)

@@ -1,22 +1,4 @@
-/**
- * Snapshot loader — project snapshot hydration.
- *
- * Two entry points, one hydration body (extracted verbatim from
- * DomainRegistry.tsx — mechanical split, ZERO behavior change):
- *   - `loadProjectSnapshotIntoDomains` — the single content load path:
- *     boot and project switching both come through here (the active project
- *     or its fresh domain instances changed → fetch snapshot → hydrate).
- *     Replaces the old chain of localStorage sync-read → static seed →
- *     cloud overlay.
- *   - `loadNewWorkspace` — create-workspace data load (create on the active
- *     backend, register it, hydrate its genesis content).
- *
- * Thread hydration rides along: the registry partitions snapshot
- * turns/chapters by threadId (backfilling legacy snapshots with a default
- * "Main" thread) and returns only the ACTIVE thread's content for the live
- * domains. All dependencies arrive via parameters so this is unit-testable;
- * DomainRegistry stays the composition root that injects them.
- */
+/** The single project-content load path: boot, project switching, and new-workspace creation all hydrate through here. */
 import type { IWorkspaceDomain } from '../domains/00-workspace';
 import type { IDialogueTimelineDomain } from '../domains/01-dialogue-timeline';
 import type { IArtifactDocumentDomain } from '../domains/01-artifact-document';
@@ -38,8 +20,7 @@ export interface HydrationDeps {
 }
 
 /**
- * Shared hydration body: partition the snapshot by thread, load the ACTIVE
- * thread's content into the live domains, then open the save gate.
+ * Loads the ACTIVE thread's content into the live domains, then opens the save gate.
  */
 export function hydrateProjectFromSnapshot(
   projectId: string,
@@ -110,25 +91,16 @@ export interface NewWorkspaceMeta {
 }
 
 export interface NewWorkspaceDeps extends HydrationDeps {
-  /** persistenceService.createCloudProject — resolves identity per branch. */
   createCloudProject: (meta: NewWorkspaceMeta) => Promise<ProjectSnapshot>;
   workspace: IWorkspaceDomain;
 }
 
-/**
- * Create-workspace data load: persist the new project on the ACTIVE backend,
- * register it in the workspace (replaces the registry — count becomes 1),
- * hydrate its genesis content, open the save gate. The caller updates
- * `cloudProjectsCount` afterwards.
- */
+/** Persists the project, registers it, hydrates genesis content, and opens the save gate. The caller updates `cloudProjectsCount`. */
 export async function loadNewWorkspace(
   meta: NewWorkspaceMeta,
   deps: NewWorkspaceDeps
 ): Promise<void> {
   const { createCloudProject, workspace, threadRegistry, hydratedRef } = deps;
-  // Backend-agnostic: persistenceService resolves identity per branch
-  // (firestore requires a signed-in user; local needs none) and throws
-  // a clear error when it can't proceed.
   const snap = await createCloudProject(meta);
   workspace.loadUserProjects([snap]);
   hydrateProjectFromSnapshot(meta.id, snap, {

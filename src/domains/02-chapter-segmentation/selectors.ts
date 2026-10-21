@@ -1,18 +1,8 @@
-/**
- * Chapter ↔ turns selectors — the ONE place the "chapter with its turns"
- * view is derived, and the ONE ongoing rule (it used to be duplicated in
- * three consumers).
- *
- * Selectors derive views over domain types; they are not a second type
- * system. A chapter is a WINDOW (startIndex/endIndex) over the turn list,
- * never an owner of embedded messages — the seam toolkit (move/split/merge)
- * operates on windows (requirement §4.13).
- */
+/** Shared chapter-window selectors. Chapters are `[startIndex, endIndex)` windows over the turn list, never owners of embedded turns. */
 import type { Turn } from '../01-dialogue-timeline/types';
 import type { ChapterPartition } from './types';
 import { Granularity, cutIncludes, normalizeGranularity } from '../granularity';
 
-/** A chapter paired with the turns inside its window — derived, not stored. */
 export interface ChapterTurns {
   chapter: ChapterPartition;
   index: number;
@@ -21,17 +11,14 @@ export interface ChapterTurns {
    * list (the trailing chapter always runs to the latest turn).
    */
   ongoing: boolean;
-  /** The granularity this chapter is sent at (default: open → full, closed → summary). */
   granularity: Granularity;
   turns: Turn[];
 }
 
-/** Minimal timeline surface the grouping needs (the domain satisfies it). */
 export interface TimelineSliceReader {
   getTurnSlice(startIndex: number, endIndex?: number): Turn[];
 }
 
-/** Minimal segmentation surface the grouping needs (the domain satisfies it). */
 export interface SegmentationReader {
   listChapters(): ChapterPartition[];
 }
@@ -87,7 +74,6 @@ export function chapterCutIncludes(
   };
 }
 
-/** Synthesized window when no chapter is registered (chat surface stays usable). */
 export const GENESIS_CHAPTER_ID = 'chap-genesis';
 
 /**
@@ -112,8 +98,7 @@ export function groupTurnsByChapter(
       };
     });
   }
-  // No registered chapters — synthesize a genesis window over the whole
-  // timeline so the chat surface is never hidden (was the projection's guard).
+  // Synthesize a genesis window when no chapters exist so the chat surface stays usable.
   return [
     {
       chapter: {

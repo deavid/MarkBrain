@@ -18,14 +18,12 @@ export interface TokenColorInfo {
 }
 
 /**
- * Assigns colors to token sizes as requested:
- * - 16k is blue
- * - 32k is cyan
- * - 64k is green
- * - 128k is yellow
- * - 256k is orange
- * - 512k is red
- * Calibrated in OKLCH muted/tasteful palette with blue shadows and subtle ruby highlights
+ * A bucketed size scale for token counts: 16k blue → 32k cyan → 64k green →
+ * 128k yellow → 256k orange → 512k red.
+ *
+ * This is NOT the attachment palette (domains/granularity.ts), and it must not be
+ * reused for anything that carries attachment state — two colour languages on one
+ * row is what makes a screen unreadable.
  */
 export function getTokenColor(tokens: number): TokenColorInfo {
   if (tokens <= 16000) {
@@ -109,14 +107,8 @@ export function getTokenColor(tokens: number): TokenColorInfo {
   }
 }
 
-// THE client-side estimator lives in estimateTokens.ts — re-exported here for
-// existing importers. One implementation, so mirror rows and compiler totals
-// cannot drift.
 export { estimateTokens };
 
-// ── Export (domain shapes — chapters arrive as the chapter-turns selector) ──
-
-/** Everything an export needs from one project — domain types + selector output. */
 export interface ProjectExportInput {
   meta: Pick<ProjectMetadata, 'id' | 'name' | 'codeName' | 'description'>;
   artifacts: UniversalArtifactDocument[];
@@ -124,9 +116,6 @@ export interface ProjectExportInput {
   edges: SemanticEdge[];
 }
 
-/**
- * Export to JSON
- */
 export function exportToJSON(
   projects: ProjectMetadata[],
   activeProject: ProjectExportInput
@@ -145,9 +134,6 @@ export function exportToJSON(
   );
 }
 
-/**
- * Export to Markdown
- */
 export function exportToMarkdown(project: ProjectExportInput): string {
   let md = `# MarkBrain — Project: ${project.meta.name} (${project.meta.codeName || project.meta.id})\n\n`;
   md += `> ${project.meta.description}\n\n`;
@@ -178,9 +164,6 @@ export function exportToMarkdown(project: ProjectExportInput): string {
   return md;
 }
 
-/**
- * Export to YAML
- */
 export function exportToYAML(project: ProjectExportInput): string {
   return YAML.stringify({
     markbrain_project: {
@@ -208,7 +191,6 @@ export function exportToYAML(project: ProjectExportInput): string {
         messages_count: turns.length,
       })),
       spatial_graph: {
-        // Artifacts ARE the graph nodes (the view derives x/y from artifact.graph).
         nodes_count: project.artifacts.length,
         edges_count: project.edges.length,
       },
@@ -216,7 +198,6 @@ export function exportToYAML(project: ProjectExportInput): string {
   });
 }
 
-// Aliases for any existing callers
 export const exportProjectToJSON = exportToJSON;
 export const exportProjectToMarkdown = exportToMarkdown;
 export const exportProjectToYAML = exportToYAML;

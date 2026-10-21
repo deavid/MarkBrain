@@ -3,10 +3,9 @@ import { Artifact } from '../../types';
 import { diffLines, diffStats } from '../../utils/lineDiff';
 import { AlertCircle, X } from 'lucide-react';
 
-// Multi-import plan — Phase 3: post-import triage. The flag (a relationship
-// edge) IS the queue: every flagged pair gets a colored line diff + meta chips
-// and four resolution tools. Nothing here is import-time — misclicks are
-// undoable (overwrite records a pre-overwrite revision first).
+// Post-import triage. The flag (a relationship edge) IS the queue: every flagged
+// pair gets a line diff, meta chips, and four resolution tools. Misclicks are
+// undoable — overwrite records a pre-overwrite revision first.
 
 interface RevisionTriageModalProps {
   artifacts: Artifact[];
@@ -73,7 +72,6 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-surface-0/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
       <div className="bg-surface-1 rounded-2xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl text-ink overflow-hidden">
-        {/* Header */}
         <div className="p-4 flex items-center justify-between shrink-0 bg-surface-1">
           <div>
             <h2 className="text-sm font-bold text-ink font-mono flex items-center gap-2">
@@ -95,7 +93,6 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
           </button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {pairs.length === 0 ? (
             <div className="p-8 text-center text-[#556985] text-xs font-mono">
@@ -127,7 +124,6 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
                   id={`triage-${newArt.id}`}
                   className="bg-surface-1 rounded-xl p-3.5 space-y-3"
                 >
-                  {/* Pair header */}
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-mono font-semibold text-ink truncate">
                       {newArt.title}
@@ -147,7 +143,6 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
                     </span>
                   </div>
 
-                  {/* Meta delta chips */}
                   {metaChips.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                       {metaChips.map((c) => (
@@ -161,7 +156,6 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
                     </div>
                   )}
 
-                  {/* Colored line diff: old (del) → new (add) */}
                   <div className="bg-surface-0 rounded-lg overflow-auto max-h-72 text-[10px] font-mono leading-relaxed">
                     {lines.map((l, i) => (
                       <div
@@ -180,7 +174,6 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
                     ))}
                   </div>
 
-                  {/* Actions */}
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => onKeepBoth(newArt.id, oldArt.id)}
@@ -233,7 +226,6 @@ export const RevisionTriageModal: React.FC<RevisionTriageModalProps> = ({
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-3 bg-surface-1 flex items-start gap-2 shrink-0">
           <AlertCircle className="w-3.5 h-3.5 text-[#8ab1e0] shrink-0 mt-0.5" />
           <p className="text-[10px] font-mono text-[#627794]">

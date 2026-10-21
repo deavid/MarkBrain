@@ -26,7 +26,6 @@ function escapeAttr(text: string): string {
   return escapeHtml(text).replace(/"/g, '&quot;');
 }
 
-/** Returns an attribute-safe URL, or null when the scheme is not allowed. */
 function sanitizeUrl(url: string): string | null {
   const trimmed = url.trim();
   if (!trimmed || /[<>"\u0000-\u001f]/.test(trimmed)) return null;
@@ -45,7 +44,6 @@ function emphasis(text: string): string {
   return s;
 }
 
-/** Inline pipeline: extract raw slots → escape → emphasis → restore slots. */
 function inline(raw: string): string {
   const slots: string[] = [];
   const slot = (html: string) => {
@@ -53,16 +51,13 @@ function inline(raw: string): string {
     return `${SLOT}${slots.length - 1}${SLOT}`;
   };
 
-  // 1. Code spans — content preserved raw, restored escaped at the end.
   let s = raw.replace(/`([^`]+)`/g, (_m, code) => slot(`<code>${escapeHtml(code)}</code>`));
 
-  // 2. Images
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, url) => {
     const safe = sanitizeUrl(url);
     return safe ? slot(`<img src="${safe}" alt="${escapeAttr(String(alt))}" />`) : m;
   });
 
-  // 3. Links
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => {
     const safe = sanitizeUrl(url);
     return safe
@@ -72,13 +67,10 @@ function inline(raw: string): string {
       : m;
   });
 
-  // 4. Escape everything that is not inside a slot.
   s = escapeHtml(s);
 
-  // 5. Emphasis on the escaped text.
   s = emphasis(s);
 
-  // 6. Restore slots.
   return s.replace(new RegExp(`${SLOT}(\\d+)${SLOT}`, 'g'), (_m, i) => slots[Number(i)] ?? '');
 }
 
@@ -111,7 +103,6 @@ function splitTableRow(line: string): string[] {
   return s.split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, '|').trim());
 }
 
-/** Render a contiguous list block starting at `start` (stack-based nesting). */
 function renderList(lines: string[], start: number): { html: string; next: number } {
   type Level = { indent: number; ordered: boolean; items: string[]; current: string | null };
   const first = matchListItem(lines[start])!;
@@ -186,7 +177,7 @@ function renderList(lines: string[], start: number): { html: string; next: numbe
   }
 
   while (stack.length > 1) popLevel();
-  const html = popLevel(); // root level (no parent to append into)
+  const html = popLevel();
   return { html, next: i };
 }
 
@@ -202,7 +193,6 @@ function renderBlocks(lines: string[]): string {
       continue;
     }
 
-    // Fenced code block
     const fence = line.match(/^ {0,3}```\s*([A-Za-z0-9_+#.-]*)\s*$/);
     if (fence) {
       const lang = fence[1];
@@ -212,13 +202,12 @@ function renderBlocks(lines: string[]): string {
         buf.push(lines[i]);
         i++;
       }
-      i++; // skip closing fence (or stop at EOF)
+      i++;
       const cls = lang ? ` class="language-${escapeHtml(lang.toLowerCase())}"` : '';
       out.push(`<pre><code${cls}>${escapeHtml(buf.join('\n'))}</code></pre>`);
       continue;
     }
 
-    // ATX heading
     const h = line.match(/^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/);
     if (h) {
       const level = h[1].length;
@@ -227,14 +216,12 @@ function renderBlocks(lines: string[]): string {
       continue;
     }
 
-    // Horizontal rule
     if (/^ {0,3}([-*_])( *\1){2,} *$/.test(line)) {
       out.push('<hr />');
       i++;
       continue;
     }
 
-    // Blockquote
     if (/^ {0,3}>/.test(line)) {
       const buf: string[] = [];
       while (i < n && /^ {0,3}>/.test(lines[i])) {
@@ -245,7 +232,6 @@ function renderBlocks(lines: string[]): string {
       continue;
     }
 
-    // Pipe table
     if (line.includes('|') && i + 1 < n && isTableSeparator(lines[i + 1])) {
       const header = splitTableRow(line);
       const alignments = splitTableRow(lines[i + 1]).map((c) => {
@@ -281,7 +267,6 @@ function renderBlocks(lines: string[]): string {
       continue;
     }
 
-    // Lists
     if (matchListItem(line)) {
       const res = renderList(lines, i);
       if (res.html) out.push(res.html);
@@ -289,7 +274,6 @@ function renderBlocks(lines: string[]): string {
       continue;
     }
 
-    // Paragraph — accumulates until a blank line or a new block start.
     const buf: string[] = [];
     while (
       i < n &&
@@ -308,7 +292,10 @@ function renderBlocks(lines: string[]): string {
   return out.join('\n');
 }
 
-/** Render markdown source to a safe HTML string. */
+/**
+ * The only entry point. Output is injected with dangerouslySetInnerHTML, so the
+ * escaping in this file is the security boundary — never pass through raw HTML.
+ */
 export function renderMarkdown(source: string): string {
   if (!source || !source.trim()) return '';
   const lines = source.replace(/\r\n?/g, '\n').split('\n');

@@ -7,8 +7,9 @@ interface SaturationOrbProps {
 }
 
 /**
- * The saturation orb — the one route into the Mirror, so it is a real button
- * (keyboard + screen reader), not a clickable div (12 §6 / ledger V1.8).
+ * The saturation orb — the one route into the mirror. It is a real <button> so
+ * it works from the keyboard and reaches screen readers; do not turn it back
+ * into a div with onClick.
  */
 export const SaturationOrb: React.FC<SaturationOrbProps> = ({ telemetry, onClick }) => {
   const color = computeAmbientColor(telemetry.saturationRatio);

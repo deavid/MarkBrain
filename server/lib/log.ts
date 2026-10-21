@@ -1,4 +1,3 @@
-// Server Telemetry & Ring Buffer Logging Subsystem
 export interface ServerLogEntry {
   id: string;
   timestamp: string;
@@ -21,7 +20,6 @@ export function logServer(level: 'info' | 'warn' | 'error' | 'success', tag: str
     serverLogsBuffer.shift();
   }
 
-  // Colored terminal logs
   const colors = {
     info: '\x1b[36m', // Cyan
     warn: '\x1b[33m', // Yellow
@@ -33,12 +31,11 @@ export function logServer(level: 'info' | 'warn' | 'error' | 'success', tag: str
   const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
   console.log(`${colors[level]}[${timeShort}] [${tag}]${reset} ${message}${metaStr}`);
 
-  // Broadcast to connected web clients
   logSubscribers.forEach((sub) => {
     try {
       sub(entry);
     } catch {
-      // client disconnected
+
     }
   });
 }

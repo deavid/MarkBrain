@@ -9,13 +9,10 @@ export interface ThreadSwitcherParams {
   setActiveView: (view: ActiveView) => void;
 }
 
-// Quick switcher open-state + Cmd/Ctrl+K/N/Shift+A shortcuts.
-// Moved verbatim from App.tsx (same effect, same dep array).
+// Quick switcher open-state + the Cmd/Ctrl+K/N/Shift+A shortcuts.
 export function useThreadSwitcher(params: ThreadSwitcherParams) {
   const { createThread, threadRegistry, setActiveView } = params;
 
-  // Quick switcher + shortcuts: Cmd/Ctrl+K switcher, Cmd/Ctrl+N new thread,
-  // Cmd/Ctrl+Shift+A archive/unarchive active thread.
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -42,7 +39,6 @@ export function useThreadSwitcher(params: ThreadSwitcherParams) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [createThread, threadRegistry]);
-
 
   return { isSwitcherOpen, setIsSwitcherOpen };
 }

@@ -19,7 +19,6 @@ import { logger } from '../utils/logger';
 const getClientApiKey = (): string =>
   (import.meta.env.VITE_FIREBASE_API_KEY as string) || '';
 export const firebaseConfig = {
-  // All values come from .env (gitignored) — no hardcoded project fallbacks.
   projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID as string) || '',
   appId: (import.meta.env.VITE_FIREBASE_APP_ID as string) || '',
   apiKey: getClientApiKey(),
@@ -29,17 +28,14 @@ export const firebaseConfig = {
   messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string) || '',
 };
 
-// Initialize Firebase App
 export const app = initializeApp(firebaseConfig);
 
-// Initialize Auth
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 // Always show the account chooser — sign-out must actually reset the journey
 // (otherwise Google silently re-grants the cached session in the popup).
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// Initialize Firestore with specific database ID if configured
 export const db = firebaseConfig.firestoreDatabaseId
   ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
   : getFirestore(app);
@@ -96,7 +92,6 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Test connection on boot per Firebase skill guidelines
 export async function testConnection(): Promise<void> {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
@@ -109,7 +104,6 @@ export async function testConnection(): Promise<void> {
 
 testConnection();
 
-// Authentication helper methods
 export async function signInWithGoogle(): Promise<User> {
   try {
     logger.info('Auth', 'Initiating Google Sign-In with popup...');
@@ -118,9 +112,9 @@ export async function signInWithGoogle(): Promise<User> {
     return result.user;
   } catch (error: any) {
     logger.error('Auth', 'Google Sign-In error', { code: error?.code, message: error?.message });
-    // Preserve the error CODE on every path — AuthGate classifies on codes,
-    // never on message strings (the old string-matching was load-bearing
-    // rot caused by exactly this function throwing bare Errors).
+    // Preserve the error CODE on every path: AuthGate classifies on codes, never
+    // on message strings. This function throwing bare Errors is what used to
+    // break that, so every throw here goes through withCode().
     const withCode = (code: string, message: string): Error & { code: string } => {
       const e = new Error(message) as Error & { code: string };
       e.code = code;

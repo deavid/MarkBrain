@@ -56,7 +56,6 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
   // and render "+ New thread" above them — cursor indexes results directly.
   useEffect(() => setCursor(0), [query]);
 
-  // Keep the cursor row in view
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>(`[data-idx="${cursor}"]`);
     el?.scrollIntoView({ block: 'nearest' });
@@ -95,7 +94,6 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
         className="w-full max-w-xl bg-surface-0 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in duration-100"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Search input */}
         <div className="flex items-center gap-2.5 px-3.5 py-3 ">
           <Search className="w-4 h-4 text-[#556985] shrink-0" />
           <input
@@ -110,7 +108,6 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
           </span>
         </div>
 
-        {/* New thread action */}
         <button
           onClick={() => {
             onNewThread();
@@ -122,7 +119,6 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
           <span>New thread</span>
         </button>
 
-        {/* Results */}
         <div ref={listRef} className="max-h-[46vh] overflow-y-auto p-1.5">
           {results.length === 0 && (
             <p className="text-xs font-mono text-[#556985] p-3 text-center">No matching threads.</p>
@@ -164,7 +160,6 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
           })}
         </div>
 
-        {/* Hints */}
         <div className="px-3.5 py-2 flex items-center gap-3 text-[9px] font-mono text-[#455770]">
           <span>↑↓ navigate</span>
           <span>↵ open</span>

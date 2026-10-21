@@ -10,22 +10,15 @@ import type { ProjectStore, ProjectSnapshot } from './stores/projectStore';
 export type { ProjectSnapshot } from './stores/projectStore';
 
 /**
- * ── The port ─────────────────────────────────────────────────────────────
- * persistenceService is the SINGLE module that knows more than one storage
- * backend exists — and even it only dispatches ONCE, through getStore().
- * Everything else in the app calls these functions and stays backend-agnostic:
+ * The only module that knows more than one storage backend exists, and even it
+ * dispatches once, in getStore(). Everything above calls these functions and
+ * stays backend-agnostic; the ProjectStore port keeps Firebase and IndexedDB
+ * types from leaking upward.
  *
- *   - 'firestore' (default): Storage IS Firebase — per-user rules tree
- *     (stores/firestoreStore.ts).
- *   - 'local': IndexedDB (stores/localStore.ts → localBackend.ts) — no
- *     account, this browser only.
- *
- * The ProjectStore port (stores/projectStore.ts) is the anticorruption
- * boundary: CRUD shape only, no Firebase and no IndexedDB types leak upward.
- *
- * The backend choice is a meta-key in localStorage (markbrain:backend) —
- * meta-use of localStorage, not a data mirror. Data lives in exactly one
- * place per session. Orthogonal to capture/fixture guards, which run first.
+ * Two backends: 'firestore' (default, per-user tree) and 'local' (IndexedDB, no
+ * account, this browser only). The choice is a meta-key in localStorage
+ * (markbrain:backend) — meta-use of localStorage, not a data mirror. Data
+ * itself lives in exactly one place per session.
  */
 export type StorageBackend = 'firestore' | 'local';
 
@@ -78,15 +71,11 @@ const devParam = (name: string): boolean =>
 export const isFixtureMode = (): boolean => devParam('fixture');
 export const isCaptureMode = (): boolean => devParam('fixture') || devParam('capture');
 
-/**
- * Save a project snapshot to the ACTIVE backend.
- * (capture/fixture runs never write — guard runs before any dispatch.)
- */
 export async function saveProjectSnapshot(
   projectId: string,
   snapshot: Omit<ProjectSnapshot, 'projectId' | 'updatedAt'>
 ): Promise<void> {
-  if (isCaptureMode()) return; // capture/fixture runs never write
+  if (isCaptureMode()) return;
 
   // Strip undefined BEFORE touching either backend: Firestore throws
   // "Unsupported field value: undefined" on setDoc (default settings), which
@@ -138,22 +127,14 @@ async function loadSnapshotRaw(
   return getStore().load(projectId);
 }
 
-/**
- * List all projects on the ACTIVE backend.
- * (No userId param — each backend resolves its own scope: firestore → the
- * signed-in user's tree, local → the whole local store.)
- */
+/** Each backend resolves its own scope: Firestore → the signed-in user's tree, local → the whole store. */
 export async function listUserProjects(): Promise<ProjectSnapshot[]> {
   if (isFixtureMode()) return [HEADLESS_FIXTURE];
 
   return getStore().list();
 }
 
-/**
- * Create a new project on the ACTIVE backend.
- * (No userId param — firestore resolves the signed-in user and throws a
- * clear error when there isn't one; local needs no identity.)
- */
+/** Firestore resolves the signed-in user and throws without one; local needs no identity. */
 export async function createCloudProject(meta: {
   id: string;
   name: string;
@@ -172,7 +153,7 @@ export async function createCloudProject(meta: {
         title: 'Genesis Chapter',
         summary: '',
         description: '',
-      granularity: 'full',
+        granularity: 'full',
         status: 'active',
         startIndex: 0,
         createdAt: Date.now(),
@@ -194,23 +175,17 @@ export async function createCloudProject(meta: {
   return withMeta; // meta included — WorkspaceDomain maps snap.name → display
 }
 
-/**
- * Delete a project from the ACTIVE backend — permanent. Dispatch is the
- * same shape as every other CRUD op: local = IDB delete, firestore = deleteDoc
- * under the signed-in user's tree (rules enforce isOwner).
- */
+/** Permanent. Local = IDB delete; Firestore = deleteDoc under the user's tree (rules enforce isOwner). */
 export async function deleteProject(projectId: string): Promise<void> {
-  if (isCaptureMode()) return; // capture/fixture runs never write
+  if (isCaptureMode()) return;
 
   await getStore().delete(projectId);
 }
 
 /**
- * ── Canonical database export / import ───────────────────────────────────
- * This format IS the architecture: both backends speak these exact
- * ProjectSnapshots, so a file exported from Firestore restores into local
- * (and vice versa). Round-trip test: export → fresh browser → import →
- * same UI, same data.
+ * The canonical export/import format. Both backends speak these exact
+ * ProjectSnapshots, so a file exported from Firestore restores into local and
+ * vice versa. scripts/roundtrip-test.cjs is the acceptance test.
  */
 export interface DatabaseExport {
   format: 'markbrain-database';
@@ -237,7 +212,6 @@ export function serializeDatabase(data: DatabaseExport): string {
   return JSON.stringify(data, null, 2);
 }
 
-/** Parse + validate a database export file. Throws with a clear message. */
 export function parseDatabaseExport(json: string): DatabaseExport {
   let data: any;
   try {
@@ -259,16 +233,9 @@ export function parseDatabaseExport(json: string): DatabaseExport {
   return data as DatabaseExport;
 }
 
-/**
- * Import a database export into the ACTIVE backend.
- * Local: full replace in one transaction (restore semantics).
- * Firestore: upserts into the signed-in user's tree (never deletes remote
- * docs not in the file — a restore must not silently destroy extra data
- * written after the export).
- * Returns the number of projects written.
- */
+/** Returns the number of projects written. */
 export async function importDatabase(data: DatabaseExport): Promise<number> {
-  if (isCaptureMode()) return 0; // capture/fixture runs never write
+  if (isCaptureMode()) return 0;
 
   await getStore().replaceAll(data.projects);
   return data.projects.length;

@@ -15,17 +15,13 @@ import {
 import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
 
 /**
- * Mirror v1 (MOBILE_UX_SPEC.md §5): "Show me what the LLM will see."
+ * The mirror: show me what the model will see, in send order — totals against
+ * the ceiling, attachments (each at its cut), chapters (each at its cut, in chat
+ * order), then the literal `compiledPrompt` and system instruction.
  *
- * It is the payload, in send order:
- *   1. totals vs ceiling
- *   2. attached artifacts — each at its granularity (the row IS the cut)
- *   3. chapters — each at its granularity, in chat order
- *   4. raw payload (literal compiledPrompt + systemInstruction)
- *
- * The mirror is no longer read-only: granularity is the one knob, and this is
- * where you turn it. There is no pin, no reason badge, no out/culled section —
- * an artifact is attached or it is not in the payload at all.
+ * The cut is the one knob, and this is where you turn it. There is no pin, no
+ * reason badge and no culled section: an artifact is attached, or it is not in
+ * the payload at all.
  */
 interface MirrorPanelProps {
   open: boolean;
@@ -61,18 +57,13 @@ interface MirrorPanelProps {
     };
   };
   artifacts: Artifact[];
-  /** Chapters with their turns — the shared selector (02-chapter-segmentation/selectors). */
   chapters: ChapterTurns[];
   ceiling: number;
-  /** This chat's attachments — the source of staged vs committed. */
   attachments: ChatAttachment[];
   onSetAttachmentGranularity: (artifactId: string, granularity: Granularity) => void;
   onSetChapterGranularity: (chapterId: string, granularity: Granularity) => void;
-  /** The library IS the picker — jump there instead of opening a modal. */
   onOpenArtifacts: () => void;
-  /** Unstage a staged attachment (committed ones have no remove path). */
   onUnstageAttachment: (artifactId: string) => void;
-  /** Arrow-out: open the detail popup (same widget, same verb as everywhere). */
   onOpenArtifact?: (artifactId: string) => void;
 }
 
@@ -166,7 +157,6 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
         className="bg-surface-2 rounded-2xl max-w-md w-full max-h-[85vh] flex flex-col shadow-pop text-ink"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="p-4 flex items-center justify-between shrink-0 bg-surface-3 rounded-t-2xl">
           <div>
             <h2 className="text-sm font-bold font-mono">What the LLM will see</h2>
@@ -178,7 +168,6 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs font-mono">
-          {/* 1 · Totals */}
           <section className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] uppercase tracking-wider text-[#6b82a3]">1 · Payload</span>
@@ -212,7 +201,6 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
             )}
           </section>
 
-          {/* 2 · Attachments — staged (rides the next send) then committed (on a turn) */}
           <section className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] uppercase tracking-wider text-[#6b82a3]">
@@ -279,7 +267,6 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
             )}
           </section>
 
-          {/* 3 · Chapters — send order */}
           <section className="space-y-2">
             <div className="text-[10px] uppercase tracking-wider text-[#6b82a3]">3 · Chapters, in send order</div>
             {chapterRows.map((c, i) => (
@@ -301,7 +288,6 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
             ))}
           </section>
 
-          {/* 4 · Raw payload — the literal 1:1 */}
           <section className="space-y-1.5">
             <button
               onClick={() => setShowRaw(!showRaw)}

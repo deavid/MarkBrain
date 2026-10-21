@@ -1,8 +1,4 @@
-/**
- * Provider-neutral turn telemetry — ONE vocabulary (see
- * design-docs/08_UNIFIED_DATA_MODEL.md D3). Kept small on purpose: every
- * field here must have a writer AND a reader or it is a zombie.
- */
+/** Provider-neutral turn telemetry. Every field here must have both a writer and a reader. */
 export interface TurnMeta {
   model?: string;
   inputTokens?: number;
@@ -38,9 +34,7 @@ export interface Turn {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  /** Epoch ms — formatting happens at the one display site. */
   timestamp: number;
-  /** Chat-thread ownership — tagged at snapshot boundaries (see 06-chat-threads). */
   threadId?: string;
   extractedArtifacts?: ExtractedArtifact[];
   meta?: TurnMeta;

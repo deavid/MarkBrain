@@ -6,13 +6,11 @@ export interface GraphHandlerParams {
   graph: DomainContextValue['graph'];
 }
 
-// Graph node/edge handlers. Ids arrive as ARTIFACT ids — the view-local
-// `node-` prefix convention lives inside SpatialGraph (it never leaks here),
-// and the edge kind is already a valid open-vocabulary RelationKind (D5).
+// Graph node/edge handlers. Ids arrive as ARTIFACT ids; the edge kind is already a
+// valid open-vocabulary RelationKind.
 export function createGraphHandlers(params: GraphHandlerParams) {
   const { artifactsDomain, graph } = params;
 
-  // Node position handlers
   const handleUpdateNodePosition = (artifactId: string, x: number, y: number) => {
     const art = artifactsDomain.getArtifact(artifactId);
     if (art) {
@@ -37,8 +35,6 @@ export function createGraphHandlers(params: GraphHandlerParams) {
     });
   };
 
-  // Add Edge — kind is open-vocabulary (KNOWN_RELATION_KINDS is the suggested
-  // set), so whatever SpatialGraph authors is stored verbatim.
   const handleAddEdge = (sourceId: string, targetId: string, kind: RelationKind, weight?: number) => {
     if (sourceId && targetId) {
       graph.addEdge(sourceId, targetId, kind, weight ?? 1.0);

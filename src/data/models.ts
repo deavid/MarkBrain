@@ -1,16 +1,6 @@
 import { ModelOption } from '../types';
 
-/**
- * Minimal fallback used while GET /api/models is in flight or has failed, so
- * the model picker never renders empty (same always-populated state as the old
- * static list). Mirrors the server catalog default — server/lib/models.ts
- * `DEFAULT_MODEL_ID` / first entry — and is intentionally id/name-first; the
- * remaining ModelOption fields carry the same display values as before.
- *
- * The live lineup itself is server-owned: see gateway/api.ts `models()` and
- * the catalog state in App.tsx. This file must NOT grow back into a second
- * list.
- */
+/** Boot/offline fallback while `GET /api/models` is in flight. The live catalog is server-owned (`server/lib/models.ts`); do not add a second model list here. */
 export const FALLBACK_MODEL: ModelOption = {
   id: 'gemini-3.5-flash-lite',
   name: 'Google: Gemini 3.5 Flash Lite',

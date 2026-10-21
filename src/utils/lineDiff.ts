@@ -1,4 +1,4 @@
-// Phase 3: line-based LCS diff for import triage — dependency-free.
+// Line-based LCS diff for import triage — dependency-free.
 // Common prefix/suffix trimmed first (typical case → near-zero DP), with a
 // degraded whole-middle replace above 4M cells so huge files can't stall.
 
@@ -18,10 +18,8 @@ export function diffLines(oldText: string, newText: string): DiffLine[] {
   const a = (oldText || '').split('\n');
   const b = (newText || '').split('\n');
 
-  // Trim identical prefix
   let start = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
-  // Trim identical suffix
   let endA = a.length;
   let endB = b.length;
   while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {

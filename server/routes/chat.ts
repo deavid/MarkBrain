@@ -6,20 +6,17 @@ import { DEFAULT_SYSTEM_INSTRUCTION, buildCompiledPrompt } from '../lib/prompt';
 import { DEFAULT_MODEL_ID, resolveModelId } from '../lib/models';
 
 export function registerChatRoutes(app: Express): void {
-// API: Explicit Chat Cancellation
 app.post('/api/chat/cancel', (req: Request, res: Response) => {
   const { reason = 'User pressed stop' } = req.body;
   logServer('warn', 'CHAT:CANCEL', `Client canceled operation: ${reason}`);
   res.json({ success: true, message: 'Stream canceled' });
 });
 
-// API: Real-Time Server-Sent Events (SSE) Streaming Endpoint
 app.post('/api/chat/stream', async (req: Request, res: Response) => {
   const reqId = (req as any).reqId || Math.floor(Math.random() * 10000);
   const startTime = Date.now();
   let isClientAborted = false;
 
-  // Setup SSE Headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -52,14 +49,12 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     const systemInstruction = clientSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
     const compiledPrompt = buildCompiledPrompt(req.body);
 
-    // Allowlist is derived from the server-owned catalog (server/lib/models.ts),
-    // so the two cannot diverge. Unknown model → catalog default (unchanged
-    // failover behavior). OpenRouter models get appended to the catalog later.
+    // Allowlist derives from the server-owned catalog so the two cannot diverge.
+    // Unknown model → catalog default.
     let targetModel = resolveModelId(model);
 
     logServer('info', 'STREAM:INIT', `#${reqId} Initiating stream for project="${projectTitle}", model=${targetModel}, promptChars=${compiledPrompt.length}`);
 
-    // Step 1: Connecting Status
     sendSSE('status', {
       state: 'connecting',
       message: `Connecting to ${targetModel}...`,
@@ -137,7 +132,6 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
           });
 
           const now = Date.now();
-          // Client status tick every ~900ms
           if (now - lastStatusTick >= 900) {
             lastStatusTick = now;
             sendSSE('status', {
@@ -151,7 +145,6 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
             });
           }
 
-          // Server console log every ~2.5s to avoid flood while maintaining high observability
           if (now - lastLogTick >= 2500) {
             lastLogTick = now;
             logServer('info', 'STREAM:PROGRESS', `#${reqId} Chunk #${chunkCount}, totalChars=${fullText.length}, elapsed=${now - startTime}ms`);
@@ -171,9 +164,8 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       // Client-side demux is the sole parser of artifacts/topic shifts
       // (stream-protocol demuxFullTurn — superset of any server parse).
 
-      // Raw provider usage normalized to OUR provider-neutral vocabulary
-      // (usageMetadata carries the provider's wire names — they never leave
-      // this adapter; see 08_UNIFIED_DATA_MODEL.md D3).
+      // Raw provider usage normalized to our provider-neutral vocabulary — the
+      // provider's wire names never leave this adapter.
       const inputTokens = usageMetadata?.promptTokenCount ?? estimateTokens(compiledPrompt);
       const outputTokens = usageMetadata?.candidatesTokenCount ?? estimateTokens(fullText);
       const totalTokens = usageMetadata?.totalTokenCount ?? (inputTokens + outputTokens);
@@ -204,7 +196,6 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       sendSSE('done', { success: true });
       res.end();
     } else {
-      // High-fidelity fallback streaming simulation when GEMINI_API_KEY is not set
       logServer('info', 'STREAM:FALLBACK', `#${reqId} Running in local simulation fallback`);
       sendSSE('status', {
         state: 'thinking',

@@ -4,7 +4,6 @@ import { logServer } from '../lib/log';
 import { estimateTokens } from '../lib/tokens';
 
 export function registerSummarizeRoutes(app: Express): void {
-// API: Summarize a Chapter
 app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
   try {
     const { title, messages = [] } = req.body;
@@ -38,11 +37,10 @@ SUMMARY: [several paragraphs]
 Transcript:
 ${conversationTranscript}`;
 
-      // Hard server-side deadline (12 §5.2). Without it a slow model call held
-      // the socket open indefinitely — observed unanswered for >40s — and the
-      // client only found out when a later navigation killed the fetch. The
-      // answer is always within 12s: real text, or an honest error the chapter
-      // chrome can show next to a Retry.
+      // Hard server-side deadline. Without it a slow model call holds the socket
+      // open indefinitely and the client only finds out when a navigation kills
+      // the fetch. Within 12s the answer is always one of two things: real text,
+      // or an honest error the chapter chrome shows next to a Retry.
       const response = await Promise.race([
         ai.models.generateContent({
           model: 'gemini-3.5-flash-lite',

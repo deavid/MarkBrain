@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * scripts/roundtrip-test.cjs — David's acceptance test for the Local branch:
- *
- *   "user has data, exports it all. New browser, imports data —
- *    same UI result, all data is imported."
+ * The cross-backend round-trip acceptance test: user has data, exports it all;
+ * new browser, imports it — same UI, all data present. A file written by one
+ * backend must restore into the other.
  *
  * Flow (STRICTLY SERIAL, one Chromium — see AGENT_RUNBOOK OOM law):
  *   Context A ("browser 1"): Continue locally → create project →

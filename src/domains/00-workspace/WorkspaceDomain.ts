@@ -1,21 +1,13 @@
 import { IWorkspaceDomain } from './interface';
 import { ProjectMetadata, WorkspaceContainer, WorkspaceEvent } from './types';
 
-/**
- * Workspace registry — IN-MEMORY ONLY.
- *
- * Storage is Firebase (see services/persistenceService.ts). This domain used
- * to mirror itself into localStorage and auto-seed a demo project when empty;
- * both are gone: projects arrive exclusively from `loadUserProjects()` (cloud),
- * and an empty workspace is a legitimate state (Project Genesis handles it).
- */
+/** In-memory workspace registry. Populated exclusively from `loadUserProjects()`; empty is valid (triggers Project Genesis). */
 export class WorkspaceDomain implements IWorkspaceDomain {
   private projects: Map<string, WorkspaceContainer> = new Map();
   private activeProjectId: string = '';
   private listeners: Set<(event: WorkspaceEvent) => void> = new Set();
 
   constructor() {
-    // intentionally empty — no local persistence, no default project
   }
 
   getActiveProjectId(): string {
@@ -84,10 +76,6 @@ export class WorkspaceDomain implements IWorkspaceDomain {
     this.projects.set(container.metadata.id, { ...container });
   }
 
-  /**
-   * Remove a project from the registry. If it was active, promote the next
-   * project (or '' → Project Genesis when the last one dies).
-   */
   removeProject(id: string): void {
     if (!this.projects.has(id)) return;
     this.projects.delete(id);

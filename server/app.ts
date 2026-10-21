@@ -15,9 +15,8 @@ import { registerTitleRoutes } from './routes/title';
 import { registerTtsRoutes } from './routes/tts';
 import { registerExtractRoutes } from './routes/extract';
 
-// Project root (this file lives in server/), so __dirname keeps the same
-// meaning it had in the old top-level server.ts — path.join(__dirname, 'dist')
-// below resolves identically.
+// Project root, not server/. This file lives one level down, so __dirname is
+// re-derived here; path.join(__dirname, 'dist') below depends on that.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
 
@@ -26,7 +25,6 @@ const port = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json({ limit: '10mb' }));
 
-// Global request counter & middleware instrumentation
 let globalReqCounter = 0;
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') && !req.path.includes('/server-logs')) {
@@ -44,7 +42,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Route modules — mounted in the original registration order.
 registerServerLogsRoutes(app);
 registerHealthRoutes(app);
 registerModelsRoutes(app); // GET /api/models — server-owned model catalog
@@ -55,7 +52,6 @@ registerTitleRoutes(app);
 registerTtsRoutes(app);
 registerExtractRoutes(app);
 
-// Dev vs Prod Vite Mounting
 const isProd = process.env.NODE_ENV === 'production';
 
 export async function startServer() {

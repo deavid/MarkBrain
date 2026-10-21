@@ -1,9 +1,9 @@
 /**
  * Attachments — the unit that carries granularity (per chat).
  *
- * Locks the rules David settled 2026-10-19: attach at Full, same artifact in
- * two chats can differ, re-attaching never resets a user's choice, no detach
- * exists, and artifact deletion garbage-collects dangling attachments.
+ * The rules: attach at Full by default, the same artifact can sit at different
+ * cuts in two chats, re-attaching never resets a user's choice, there is no
+ * detach, and deleting an artifact garbage-collects its dangling attachments.
  */
 import { describe, it, expect } from 'vitest';
 import { ThreadRegistry } from '../domains/06-chat-threads';

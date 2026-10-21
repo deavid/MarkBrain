@@ -9,13 +9,7 @@
 import { logger } from '../../utils/logger';
 import type { ProjectSnapshot } from './projectStore';
 
-/**
- * Hydrate a raw stored artifact into canonical shape (domain model = source
- * of truth): ensure camelCase ids/dates exist and the layered `current`
- * fields (description/summary/body) are populated — from the legacy tier
- * names (description/summary/body) or flat fields when missing.
- * Extra legacy fields ride along untouched (nothing stripped).
- */
+/** Fills missing camelCase ids/dates and layered `current` fields (description/summary/body). Extra legacy fields ride along untouched. */
 export function hydrateArtifact(raw: any, projectId: string): any {
   const cur = raw?.current || {};
   const flatDesc = raw?.description ?? raw?.abstract ?? '';
@@ -49,7 +43,6 @@ export function hydrateArtifact(raw: any, projectId: string): any {
   };
 }
 
-/** True when the record is already canonical — no hydration needed. */
 function isCanonical(raw: any): boolean {
   return Boolean(
     raw &&
@@ -73,7 +66,6 @@ const TURN_META_RENAMES: ReadonlyArray<readonly [target: string, legacy: string]
   ['outputTokens', 'candidatesTokens'],
 ];
 
-/** Backfill one turn's meta. Returns the (possibly copied) meta + whether anything healed. */
 function backfillTurnMeta(meta: any): { meta: any; healed: boolean } {
   if (!meta || typeof meta !== 'object') return { meta, healed: false };
   let healed = false;
@@ -88,7 +80,6 @@ function backfillTurnMeta(meta: any): { meta: any; healed: boolean } {
   return { meta: next, healed };
 }
 
-/** Map a turn array through the meta backfill; bumps healed/seen counters. */
 function healTurns(
   turns: any[] | undefined,
   counters: { healed: number; seen: number }
@@ -103,13 +94,7 @@ function healTurns(
   });
 }
 
-/**
- * Normalize every artifact in a loaded snapshot; one warn per project load.
- * Also backfills legacy turn meta across ALL turn arrays in the snapshot —
- * the top-level `turns` (active + inactive threads are flattened there at
- * the compose boundary) plus any turns embedded in `threads` entries
- * defensively (ChatThread itself carries no turns field today).
- */
+/** One warn per project load. Backfills legacy turn meta across the top-level `turns` and any embedded in `threads`. */
 export function hydrateSnapshot(snap: ProjectSnapshot): ProjectSnapshot {
   let backfilled = 0;
   const artifacts = (snap.artifacts || []).map((raw: any) => {

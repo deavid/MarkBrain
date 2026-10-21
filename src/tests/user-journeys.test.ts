@@ -1,12 +1,10 @@
 /**
- * Core journey suite (the honest survivors).
+ * Core journey suite. Only journeys that can actually fail are here: J1 (timeline
+ * smoke), J2 (parser — load-bearing), J3 (abort before dispatch),
+ * J4 (chapter seal — load-bearing), J8 (workspace load smoke).
  *
- * 2026-10-18 purge — see design-docs/05_CLEANSE_DECISIONS.md:
- * Journeys 5, 6, 7, 9 were tautologies (test-local reimplementations of App
- * logic / constructor roundtrips) and were deleted. Journey 3 was misnamed
- * and renamed. What remains: J1 timeline smoke, J2 parser (load-bearing),
- * J3 abort-before-dispatch contract, J4 chapter seal (load-bearing),
- * J8 workspace load smoke.
+ * Do not re-add a journey that reimplements App logic in the test body or only
+ * round-trips a constructor. Those were deleted because they could not fail.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { DialogueTimelineDomain } from '../domains/01-dialogue-timeline/DialogueTimelineDomain';

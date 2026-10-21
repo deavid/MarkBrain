@@ -1,8 +1,7 @@
-// Normalized content hash for import duplicate detection (Phase 2).
+// Normalized content hash for import duplicate detection.
 // Not cryptographic — FNV-1a over whitespace-collapsed text is plenty for
 // "did we already import this body?" and stays dependency-free.
 
-/** Trim + collapse all whitespace runs to single spaces. */
 export function normalizedBody(text: string): string {
   return (text || '').trim().replace(/\s+/g, ' ');
 }

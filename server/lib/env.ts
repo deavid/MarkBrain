@@ -3,9 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
-// Project root derived from this file's location (this file now lives at
-// server/lib/env.ts; before the routes/providers split it was derived from the
-// top-level server.ts). All resolved paths are unchanged.
+// Project root is two levels up from server/lib/env.ts.
 const __dirname = path.resolve(path.dirname(__filename), '../..');
 
 // Layered env loading (env files have no native "import" — we layer them).

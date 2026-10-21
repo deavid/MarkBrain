@@ -2,7 +2,6 @@ import { RelationKind } from '../02-topological-graph';
 
 export interface ExtractedTopicShift {
   title: string;
-  /** 1–2 sentences: what the new chapter is about (level 2 of the cut). */
   description?: string;
   summary?: string;
 }
@@ -35,12 +34,7 @@ export interface StreamStatusPayload {
   timeToFirstChunkMs?: number;
 }
 
-/**
- * Provider-neutral telemetry vocabulary (see 08_UNIFIED_DATA_MODEL.md D3) —
- * the wire payload the server sends on `complete` and the abort-path
- * synthesis mirrors. input/output/latency names are provider-neutral so a
- * multi-provider future doesn't leak Gemini-vs-OpenAI names into OUR types.
- */
+/** Provider-neutral wire telemetry sent on SSE `complete` (and synthesized on abort). */
 export interface BackendTelemetry {
   model: string;
   inputTokens: number;

@@ -25,11 +25,9 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
   const [copied, setCopied] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  // Connect to SSE Log stream
   useEffect(() => {
     if (!isOpen) return;
 
-    // Fetch initial logs
     serverLogs()
       .then((res) => res.json())
       .then((data) => {
@@ -39,7 +37,6 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
       })
       .catch((err) => logger.error('ServerLogs', 'Failed to load initial server logs', err));
 
-    // Connect to live SSE stream
     const eventSource = new EventSource('/api/server-logs/stream');
 
     eventSource.addEventListener('log_init', (e) => {
@@ -67,7 +64,6 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
     };
   }, [isOpen]);
 
-  // Auto-scroll
   useEffect(() => {
     if (autoScroll && isOpen) {
       logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -123,7 +119,6 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
       <div className="relative w-full max-w-5xl h-[85vh] bg-surface-0 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-ink font-mono animate-in fade-in zoom-in-95 duration-200">
-        {/* Header Bar */}
         <div className="px-5 py-3.5 bg-surface-1 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-surface-3 flex items-center justify-center text-[#38bdf8]">
@@ -170,7 +165,6 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
           </div>
         </div>
 
-        {/* Toolbar: Filters & Controls */}
         <div className="px-5 py-2.5 bg-surface-0 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
           <div className="flex items-center gap-2 flex-1 min-w-[200px]">
             <input
@@ -213,7 +207,6 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
           </div>
         </div>
 
-        {/* Log Viewer Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-1.5 text-[11px] leading-relaxed selection:bg-[#203657]">
           {filteredLogs.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-[#556985] space-y-2 py-16">
@@ -252,7 +245,6 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
           <div ref={logsEndRef} />
         </div>
 
-        {/* Footer Status Bar */}
         <div className="px-5 py-2 bg-surface-0 flex items-center justify-between text-[10px] text-[#556a88] shrink-0">
           <div>
             Showing <span className="text-[#a4bad6]">{filteredLogs.length}</span> of{' '}

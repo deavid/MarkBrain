@@ -44,57 +44,40 @@ import { tts } from '../../gateway/api';
 
 interface ChatViewProps {
   project: ProjectMetadata;
-  /** Chapters with their turns — the shared selector (02-chapter-segmentation/selectors). */
   chapters: ChapterTurns[];
   onSendMessage: (text: string) => Promise<void>;
   isLoading: boolean;
   streamingStatus?: string | null;
-  /** Which serial-queue phase the active thread's job is in (working only). */
   streamPhase?: 'waiting' | 'streaming' | null;
   onStopGeneration?: () => void;
   onOpenServerLogs?: () => void;
   onAddArtifactToProject: (artifact: Artifact) => void;
   onSummarizeChapter: (chapterId: string) => Promise<void>;
   onDeclareChapter: (messageId: string, title: string) => void;
-  /** Chapter granularity — the one knob; the compiler honors all four. */
   onSetChapterGranularity?: (chapterId: string, granularity: Granularity) => void;
   onSelectArtifact?: (artifact: Artifact | ExtractedArtifact) => void;
-  // ── Attachments (10_ATTACHMENT_TIMELINE.md) ──────────────────────────────
-  /** This chat's attachments — staged + committed, in attach order. */
   attachments?: ChatAttachment[];
-  /** Compiler's per-artifact token cost at the current cut. */
   tokensByArtifact?: Record<string, number>;
-  /** Compiler's per-chapter token cost at the current cut. */
   chapterTokens?: Record<string, number>;
-  /** Artifact titles for the attachment cards (id → title). */
   artifactTitles?: Record<string, string>;
-  /** The dot verb on a turn card: committed items only cycle granularity. */
   onToggleAttachment?: (artifactId: string) => void;
-  /** Unstage a staged item from the tray. */
   onUnstageAttachment?: (artifactId: string) => void;
   onSetAttachmentGranularity?: (artifactId: string, granularity: Granularity) => void;
-  /** Jump to the Artifacts folder (the picker). */
   onOpenArtifacts?: () => void;
-  /** Read-aloud voice (the selector itself lives in the sidebar now). */
   chosenVoice?: string;
-  /** Open an artifact's detail popup by id (the arrow-out on any attachment row). */
   onOpenArtifact?: (artifactId: string) => void;
-  // Thread chrome (06-chat-threads)
   threadTitle?: string;
   threadTitleState?: 'placeholder' | 'auto' | 'manual';
   threadArchived?: boolean;
   threadRuntime?: ThreadRuntime;
   queuePosition?: number;
-  /** Generate a title from the conversation. Resolves true when applied. */
   onSuggestTitle?: () => void | Promise<boolean>;
-  /** Rename the thread from the chat itself (no trip to the sidebar). */
   onRenameTitle?: (title: string) => void;
   onUnarchive?: () => void;
   onRetry?: () => void;
   onCancelQueued?: () => void;
 }
 
-// Consistent mellow dark pastel palette for chapters
 const CHAPTER_PASTEL_COLORS = [
   { bgHeader: 'bg-surface-2', dot: '#7093be', text: 'text-[#8ab1e0]' }, // slate steel blue
   { bgHeader: 'bg-surface-2', dot: '#5da88b', text: 'text-[#7ec2a6]' }, // mellow sage green
@@ -145,7 +128,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [titleFlash, setTitleFlash] = useState<'ok' | 'fail' | null>(null);
   const [feedScrolled, setFeedScrolled] = useState(false);
 
-  // ── Title: editable in place, and the auto-title has visible states ──────
   const startTitleRename = () => {
     setTitleDraft(threadTitleState === 'placeholder' ? '' : threadTitle);
     setRenamingTitle(true);
@@ -183,20 +165,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const heroInputRef = useRef<HTMLTextAreaElement>(null);
   const prevMessagesCountRef = useRef<number>(0);
 
-  // Total turn count across chapter windows (safe navigation against undefined)
   const totalMessagesCount = (chapters || []).reduce(
     (acc, grp) => acc + (grp.turns ? grp.turns.length : 0),
     0
   );
 
-  // Auto-focus hero input on fresh workspace
   useEffect(() => {
     if (totalMessagesCount === 0 && heroInputRef.current) {
       heroInputRef.current.focus();
     }
   }, [totalMessagesCount]);
 
-  // Live timer while request is running
   useEffect(() => {
     let timer: any = null;
     if (isLoading) {
@@ -212,17 +191,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
     };
   }, [isLoading]);
 
-  // Audio / TTS State (the voice SELECTOR lives in the sidebar now; ChatView
-  // only plays back with the chosen voice)
+  // ChatView only plays back with the voice chosen in the sidebar.
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Accordion state for chapter folding
   const [collapsedChapterIds, setCollapsedChapterIds] = useState<Record<string, boolean>>({});
-  /** Chapters whose description/summary we are generating right now. */
   const [summarizingIds, setSummarizingIds] = useState<Record<string, boolean>>({});
-  /** Chapters whose summarize call failed — shows a Retry, never a silent gap. */
   const [summarizeErrorIds, setSummarizeErrorIds] = useState<Record<string, string>>({});
 
   // Inline "Split Chapter" form state
@@ -233,11 +208,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setCollapsedChapterIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // ── Attachments: staged tray + turn anchors (10_ATTACHMENT_TIMELINE.md) ──
   const stagedAttachments = attachments.filter(isAttachmentStaged);
   const committedAttachments = attachments.filter((a) => !isAttachmentStaged(a));
 
-  /** Attachments welded to a specific turn (turnId, or the turn's global index). */
   const attachmentsOfTurn = (message: Turn, globalIndex: number): ChatAttachment[] =>
     committedAttachments.filter((a) =>
       a.turnId ? a.turnId === message.id : a.turnIndex === globalIndex
@@ -245,9 +218,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   /**
    * Attachments committed inside a chapter's window — the compacted strip.
-   * `turnIndex === -1` is a legacy attachment of unknown provenance: it rides
-   * the FIRST chapter (which starts at 0) rather than claiming a turn it
-   * doesn't have (12 §2.2).
+   * `turnIndex === -1` means unknown provenance (pre-tracking data), so it rides
+   * the first chapter instead of claiming a turn it doesn't have.
    */
   const attachmentsOfChapter = (chapter: ChapterTurns['chapter']): ChatAttachment[] => {
     const end = typeof chapter.endIndex === 'number' ? chapter.endIndex : Number.MAX_SAFE_INTEGER;
@@ -262,10 +234,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const titleFor = (artifactId: string) => artifactTitles[artifactId] || artifactId;
 
   /**
-   * Fill a missing layer WITHOUT touching the chosen cut (12 §4.2). "Write it"
-   * is a request for text, not a stealth change of what gets sent — the old
-   * implementation downgraded `summary → description` on the most common seal
-   * case and quietly removed 17 tokens from the payload.
+   * Fill a missing layer WITHOUT touching the chosen cut. "Write it" is a
+   * request for text, never a stealth change of what gets sent.
    */
   const triggerChapterSummarize = (chapterId: string) => {
     setSummarizeErrorIds((prev) => {
@@ -284,9 +254,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   /**
-   * The chapter cut control. What you see is what you send (10 §5): tapping a
-   * granularity unfolds the chapter AND, if that layer does not exist yet,
-   * fires the summarize call so the body is never a mystery blank box.
+   * The chapter cut control: tapping a granularity unfolds the chapter AND, if
+   * that layer does not exist yet, fires the summarize call — so the body is
+   * never a mystery blank box.
    */
   const handleSetChapterCut = (chapter: ChapterTurns, next: Granularity) => {
     onSetChapterGranularity?.(chapter.chapter.id, next);
@@ -330,7 +300,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     onSendMessage(msg);
   };
 
-  // TTS Handler with explicit waiting indicator
   const handlePlayTTS = async (message: Turn) => {
     logger.action('ChatView', 'Toggle TTS Audio playback', { messageId: message.id });
     if (playingMessageId === message.id) {
@@ -411,8 +380,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setNewChapterTitle('');
   };
 
-  // Retry affordance: only for the LAST assistant message when the thread is
-  // idle (not working/queued) and that reply died (error/interrupted).
   const lastGroup = chapters[chapters.length - 1];
   const lastMessage = lastGroup?.turns[lastGroup.turns.length - 1];
   const lastMessageFailed =
@@ -451,11 +418,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
           was not a title, and rename was a trip to the sidebar. The title is
           now the first thing in the feed (in flow, scrolls away, editable). */}
 
-      {/* If project has zero messages, render the Centered Hero Input Composer */}
       {totalMessagesCount === 0 ? (
         <div className="flex-1 min-h-[400px] flex flex-col items-center justify-center p-4 sm:p-8 overflow-y-auto">
           <div className="w-full max-w-2xl space-y-6 my-auto transition-opacity duration-300">
-            {/* Project Brand */}
             <div className="text-center space-y-3">
               <div
                 style={{ backgroundColor: `${project.color || '#3b82f6'}22` }}
@@ -498,7 +463,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
               onOpenDetail={onOpenArtifact}
             />
 
-            {/* Elevated Hero Input Card */}
             <form
               onSubmit={handleSubmit}
               className="bg-veil-1 focus-within:bg-veil-2 rounded-2xl p-4 shadow-pop transition-colors space-y-3"
@@ -670,7 +634,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
           {chapters.map(({ chapter, ongoing: isOngoing, granularity, turns }, chapterIndex) => {
           const isCollapsed = collapsedChapterIds[chapter.id] ?? false;
 
-          // Pick mellow dark pastel color for nuance
           const chapColor = getMellowPastelColor(chapter.id || chapterIndex);
           const pastel = CHAPTER_PASTEL_COLORS[chapterIndex % CHAPTER_PASTEL_COLORS.length];
 
@@ -682,16 +645,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 isOngoing ? 'mt-2' : ''
               }`}
             >
-              {/* Chapter Header Ribbon */}
               <div
                 style={{ backgroundColor: `${chapColor}16` }}
                 className="p-3 sm:p-3.5 space-y-1.5 transition-colors"
               >
-                {/* Row 1 — identity + inventory (12 §4.3: two rows so the four
-                    words never get pushed off a 350px screen) */}
+                {/* Two rows on purpose: identity + inventory, then the cut. One
+                    row pushes the four words off a 350px screen. */}
                 <div className="flex items-center justify-between gap-2 min-w-0">
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    {/* Status Indicator Dot with pastel nuance */}
                     <span
                       className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
                       style={{ backgroundColor: chapColor }}
@@ -743,7 +704,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 </div>
 
-                {/* Row 2 — the four words, always on their own line */}
                 {onSetChapterGranularity && (
                   <div data-testid="chapter-cut" data-chapter-id={chapter.id} className="max-w-full">
                     <GranularityChips
@@ -763,8 +723,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
               {/* Compacted attachment strip — whenever this chapter's turns are
                   not on screen (folded, or sent below Full), its committed
-                  attachments stay visible and steerable here. Granularity is
-                  independent of the chapter cut (10 §5.5). */}
+                  attachments stay visible and steerable here. An attachment's
+                  cut is independent of the chapter's. */}
               {(() => {
                 const chapterAtts = attachmentsOfChapter(chapter);
                 const turnsHidden = isCollapsed || granularity !== 'full';
@@ -798,20 +758,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 );
               })()}
 
-              {/* What you see is what you send (10 §5): the body renders exactly
-                  the layers the current cut includes, in order — description,
-                  summary, then the verbatim turns at Full. Title renders none
-                  of them (the header IS the payload). */}
+              {/* What you see is what you send: the body renders exactly the
+                  layers the current cut includes, in order — description,
+                  summary, then the verbatim turns at Full. Title renders none of
+                  them; the header IS the payload. */}
               {!isCollapsed && granularity !== 'title' && (
                 <div
                   data-testid="chapter-body"
                   className="p-3 sm:p-4 space-y-2"
                 >
-                  {/* What you see is what you send — each layer is gated on the
-                      SAME cutIncludes() the compiler uses (12 §4.1). Before this
-                      guard, a Description cut still rendered the summary: the
-                      payload carried the title while the screen showed prose
-                      that was not in it (ledger V1.2, the S1). */}
+                  {/* Each layer is gated on the SAME cutIncludes() the compiler
+                      uses. Dropping this guard lets the screen show prose the
+                      payload does not carry — the exact failure that made the
+                      chapter body untrustworthy. */}
                   {cutIncludes(granularity, 'description') && chapter.description && (
                     <div
                       data-testid="chapter-layer-description"
@@ -854,7 +813,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           <button
                             onClick={(e) => {
                               e.preventDefault();
-                              // Fill the layer — NEVER change the cut (12 §4.2).
+                              // Fill the layer; never change the cut.
                               triggerChapterSummarize(chapter.id);
                             }}
                             className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-surface-3 text-ink-dim hover:bg-surface-4 hover:text-ink font-medium transition-colors cursor-pointer shrink-0"
@@ -869,8 +828,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
               {/* Messages Container — only when the cut actually includes the
                   turns. At Title/Description/Summary the body above IS the
-                  payload; showing raw messages here would be the lie the old
-                  "honest strip" confessed to (10 §5). */}
+                  payload, so rendering raw messages here would show the model
+                  text it never receives. */}
               {!isCollapsed && granularity === 'full' && turns.length > 0 && (
                 <div className="p-3 sm:p-5 space-y-4">
                   {turns.map((message, turnIdx) => {
@@ -884,7 +843,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         key={message.id}
                         className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
                       >
-                        {/* Speaker & Timestamp Header */}
                         <div className="flex items-center gap-2 mb-1 text-[11px] font-mono text-[#627794]">
                           <span className={isUser ? 'text-[#8ab1e0]' : 'text-[#e05a66] font-semibold'}>
                             {isUser ? 'You' : 'MarkBrain'}
@@ -892,7 +850,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           <span>•</span>
                           <span>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
 
-                          {/* TTS Audio Button */}
                           <button
                             onClick={() => handlePlayTTS(message)}
                             disabled={isTtsLoading}
@@ -910,7 +867,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             )}
                           </button>
 
-                          {/* Timeline Split Button (Declare Chapter Boundary) */}
                           <button
                             onClick={() => {
                               setDeclaringMessageId(
@@ -925,7 +881,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           </button>
                         </div>
 
-                        {/* Inline Timeline Split Form */}
                         {declaringMessageId === message.id && (
                           <div className="w-full max-w-lg my-2 p-3 bg-surface-4 rounded-xl shadow-pop space-y-2 animate-in fade-in duration-150">
                             <div className="text-[10px] font-mono text-[#38bdf8] uppercase tracking-wider font-semibold">
@@ -956,7 +911,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           </div>
                         )}
 
-                        {/* Bubble Content */}
                         <div
                           className={`max-w-[92%] sm:max-w-[85%] rounded-2xl p-3 sm:p-4 text-xs sm:text-sm leading-relaxed ${
                             isUser
@@ -975,7 +929,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             )}
                           </div>
 
-                          {/* Extracted notes */}
                           {message.extractedArtifacts && message.extractedArtifacts.length > 0 && (
                             <div className="mt-3 pt-2.5 space-y-2">
                               <div className="text-[10px] font-semibold text-[#8ab1e0] flex items-center justify-between font-mono">
@@ -1054,7 +1007,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             </div>
                           )}
 
-                          {/* Real 1:1 API Usage & Telemetry (provider-neutral vocab) */}
                           {message.meta && !isUser && (
                             <div className="mt-2.5 pt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-[#637894]">
                               <div className="flex items-center gap-1.5 flex-wrap">
@@ -1081,7 +1033,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             </div>
                           )}
 
-                          {/* Live Streaming State Feedback */}
                           {message.meta?.isStreaming && (
                             <div className="mt-2 flex items-center gap-2 text-[11px] font-mono text-[#38bdf8] animate-pulse">
                               <Loader2 className="w-3 h-3 animate-spin text-[#38bdf8]" />
@@ -1089,7 +1040,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             </div>
                           )}
 
-                          {/* Interrupted Response Badge */}
                           {message.meta?.streamState === 'interrupted' && (
                             <div className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 text-[10px] font-mono">
                               <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -1099,8 +1049,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         </div>
 
                         {/* Attachments welded to THIS turn — where the artifact
-                            entered the conversation. No × : history has no
-                            delete key; only the cut stays steerable (10 §8). */}
+                            entered the conversation. No ×: the turn already
+                            happened; only the cut stays steerable. */}
                         {attachmentsOfTurn(message, globalTurnIndex).length > 0 && (
                           <div className="max-w-[92%] sm:max-w-[85%] w-full mt-1.5 space-y-1">
                             <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985] px-0.5">
@@ -1181,7 +1131,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </div>
       )}
 
-      {/* Retry banner for a failed/interrupted last reply */}
       {showRetry && (
         <div className="mx-3 sm:mx-6 mb-2 flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-wash-warn text-[11px] font-mono text-[#e0b96c] animate-in fade-in duration-150 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
@@ -1200,7 +1149,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       )}
 
-      {/* Bottom Pinned Chat Input Bar - Active once messages exist */}
       {totalMessagesCount > 0 && (
         <div className="p-2.5 sm:p-3 bg-surface-0 shrink-0 space-y-2">
           <div className="max-w-4xl mx-auto">
@@ -1217,7 +1165,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             />
           </div>
           <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
-            {/* [+] → the Artifacts folder IS the picker (10 §3). The voice
+            {/* [+] → the Artifacts folder IS the picker. The voice
                 selector moved to the sidebar, where settings belong. */}
             <button
               type="button"

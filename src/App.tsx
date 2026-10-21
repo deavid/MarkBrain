@@ -65,11 +65,9 @@ export default function App() {
     deleteThread,
   } = useDomains();
 
-  // Tick state to force re-render on domain events
   const [tick, setTick] = useState(0);
   const triggerReRender = useCallback(() => setTick((t) => t + 1), []);
 
-  // Subscribe to domain event streams for real-time reactivity
   useEffect(() => {
     const unsubWorkspace = workspace.subscribe(() => triggerReRender());
     const unsubTimeline = timeline.subscribe(() => triggerReRender());
@@ -99,14 +97,11 @@ export default function App() {
     triggerReRender,
   ]);
 
-  // Active Project ID from Workspace Domain
   const activeProjectId = workspace.getActiveProjectId();
   const currentContainer = workspace.getProject(activeProjectId);
 
-  // Model catalog — server-owned (GET /api/models, unauthenticated), fetched
-  // once on boot. Until it lands — or if it fails — the picker renders
-  // [FALLBACK_MODEL], the same always-populated state the old static list had
-  // (failure never becomes visible where it wasn't before).
+  // Server-owned catalog (GET /api/models). FALLBACK_MODEL keeps the picker populated
+  // while it is in flight or if it fails.
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([FALLBACK_MODEL]);
   const [selectedModel, setSelectedModel] = useState<ModelOption>(FALLBACK_MODEL);
 
@@ -129,15 +124,12 @@ export default function App() {
     };
   }, []);
 
-  // Active View: 'chat' | 'artifacts'
   const [activeView, setActiveView] = useState<ActiveView>('chat');
 
-  // Read-aloud voice — a setting, not a composer control (lives in the sidebar).
   const [chosenVoice, setChosenVoice] = useState('Kore');
 
-  // Modals & Project Launcher state
-  // Default-open on desktop; default-closed on phones so the drawer+backdrop
-  // doesn't bury the composer on first load (review P1 #8).
+  // Default-open on desktop, default-closed on phones so the drawer+backdrop
+  // doesn't bury the composer on first load.
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [isProjectLauncherOpen, setIsProjectLauncherOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -145,13 +137,10 @@ export default function App() {
   const [isMirrorOpen, setIsMirrorOpen] = useState(false);
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
-  // Phase 3: triage modal — non-null = open, value = flagged pair to focus.
   const [triageFocusId, setTriageFocusId] = useState<string | null>(null);
 
-  // Full-database backup / restore trigger + handlers → ui/workspace slice
   const { importDbFileRef, handleExportDatabase, dbImportInput } = useDatabaseTransfer();
 
-  // Workspace/project CRUD handlers → ui/workspace slice
   const { handleSelectProjectAndLaunchChat, handleCreateProject } = createWorkspaceHandlers({
     workspace,
     currentContainer,
@@ -160,30 +149,19 @@ export default function App() {
     setIsProjectLauncherOpen,
   });
 
-  // ── Serial generation queue ────────────────────────────────────────────────
-  // One stream at a time (Gemini quota + serial by design). Sends in other
-  // threads enqueue; queued sends within one thread buffer-append (each job =
-  // one user turn + one assistant turn when it starts).
-  // Orchestration (queue refs, pump, executeTurn, title pipeline, handlers)
-  // lives in application/sendQueue.ts. This component keeps only PRESENTATION
-  // state: streamingStatus/streamPhase are ChatView display strings, driven by
-  // the queue through injected setters; the re-render tick stays here too.
+  // Queue orchestration lives in application/sendQueue.ts; App holds only the
+  // presentation state it drives.
   const [streamingStatus, setStreamingStatus] = useState<string | null>(null);
   const [streamPhase, setStreamPhase] = useState<'waiting' | 'streaming' | null>(null);
 
-  // Queue-owned refs (pending jobs / active job / abort controller) moved into
-  // the module. Deps are re-published on every render (publish block below);
-  // the queue snapshots deps + render context when a chain starts.
   const queueDepsRef = useRef<SendQueueDeps | null>(null);
   const sendQueueRef = useRef<SendQueue | null>(null);
   if (!sendQueueRef.current) sendQueueRef.current = new SendQueue(() => queueDepsRef.current!);
   const sendQueue = sendQueueRef.current;
 
-  // Derived (queue refs aren't reactive — every queue mutation calls triggerReRender)
   const activeThreadId = threadRegistry.getActiveThreadId();
   const isChatLoading = sendQueue.getActiveJob()?.threadId === activeThreadId;
 
-  // Queue presentation wrappers + per-thread runtimes + unread tracking → ui/chat slice
   const {
     handleStopGeneration,
     handleSendMessage,
@@ -195,8 +173,9 @@ export default function App() {
     clearThreadUnread,
   } = useThreadUi({ sendQueue, threadRegistry, tick });
 
-  // The payload for THIS chat: its attachments (each at its granularity) and
-  // its chapters. Nothing is included by proximity — see 09 §1c.
+  // The payload for THIS chat: its attachments (each at its cut) and its
+  // chapters. Nothing is included by proximity — an artifact is attached, or it
+  // is not in the payload at all.
   const activeAttachments = threadRegistry.getAttachments(activeThreadId);
   const { compiledContext, ambientTelemetry } = useContextPayload({
     compiler,
@@ -205,12 +184,10 @@ export default function App() {
     tick,
   });
 
-  // ── The attachment surface's numbers, from the compiler's own strings ─────
-  // One measurer (10 §3.2): the folder row, the chat tray and the chapter
-  // header all read the same token counts the compiler assembles. The
-  // attachment rows read the LIVE telemetry when the artifact is in this
-  // chat's payload; the library's untouched artifacts are measured at Full
-  // (what staging them would cost).
+  // One measurer: the folder row, the chat tray and the chapter header all read
+  // the counts the compiler assembles — never a second estimator. Rows for
+  // artifacts already in this payload read live telemetry; untouched library
+  // artifacts are measured at Full, i.e. what staging them would cost.
   const attachmentGranularityById = useMemo(() => {
     const map = new Map<string, Granularity>();
     for (const a of activeAttachments) map.set(a.artifactId, a.granularity);
@@ -248,9 +225,6 @@ export default function App() {
 
   const stagedAttachmentCount = activeAttachments.filter(isAttachmentStaged).length;
 
-  // Domain reads + selectors — NO projection layer (08_UNIFIED_DATA_MODEL.md D6).
-  // tick re-derives after domain events; shapes below are domain types and the
-  // chapter-turns selector output, so the mirror/compiler read the same bytes.
   const domainProjectsList = workspace.listProjects();
   const projectMeta = currentContainer?.metadata ?? {
     id: activeProjectId || 'default-workspace',
@@ -272,8 +246,6 @@ export default function App() {
     edges: domainEdges,
   };
 
-  // Artifact CRUD / attachment (attach + granularity) / import landing /
-  // Phase-3 triage → ui/artifacts slice
   const {
     handleAttachArtifact,
     handleUnstageAttachment,
@@ -302,18 +274,13 @@ export default function App() {
   // Session lives at App level: closing ImportModal keeps the queue processing.
   const importSession = useImportSession(projectMeta, handleImportArtifact);
 
-  // Graph node/edge handlers → ui/graph slice
   const { handleUpdateNodePosition, handleBatchUpdateNodePositions, handleAddEdge } =
     createGraphHandlers({ artifactsDomain, graph });
 
-  // Chapter declare/summarize/granularity handlers → ui/chat slice
   const { handleDeclareChapter, handleSummarizeChapter, handleSetChapterGranularity } =
     createChapterHandlers({ timeline, segmentation });
 
-  // ── Publish deps for application/sendQueue.ts ──────────────────────────────
-  // Re-assigned every render; the queue snapshots deps + getContext() when a
-  // chain starts (same closure semantics the inline implementation had).
-  // Call sites stay in App.tsx; both POSTs now go through gateway/api.ts.
+  // Re-published each render; sendQueue snapshots deps + getContext() when a chain starts.
   const requestAutoTitle = (
     messages: Array<{ role: string; content: string }>,
     version: number
@@ -349,14 +316,12 @@ export default function App() {
     }),
   };
 
-  // Quick switcher open-state + Cmd/Ctrl+K/N/Shift+A shortcuts → ui/chat slice
   const { isSwitcherOpen, setIsSwitcherOpen } = useThreadSwitcher({
     createThread,
     threadRegistry,
     setActiveView,
   });
 
-  // User-initiated title suggestion (POST /api/title-thread via gateway)
   const handleSuggestTitle = createSuggestTitle({ sendQueue, threadRegistry, triggerReRender });
 
   // 1. Pre-flight Auth Gate: Loading State during initial auth probe
@@ -657,7 +622,7 @@ export default function App() {
         />
       )}
 
-      {/* Revision triage modal (Phase 3 — post-import duplicate/flag resolution) */}
+      {/* Post-import duplicate/flag resolution */}
       {triageFocusId !== null && (
         <RevisionTriageModal
           artifacts={domainArtifacts}

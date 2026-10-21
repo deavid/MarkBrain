@@ -42,14 +42,12 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
 
   return (
     <div className="flex items-center justify-center min-h-screen w-screen bg-surface-0 text-ink p-5 select-none relative overflow-hidden font-sans">
-      {/* One soft light behind the mark. The only decoration on the screen. */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute left-1/2 top-1/2 w-[560px] h-[560px] -translate-x-1/2 -translate-y-[64%] rounded-full bg-[radial-gradient(circle,rgba(224,90,102,0.12),transparent_62%)]"
       />
 
       <div className="relative z-10 w-full max-w-[360px] flex flex-col items-center gap-8">
-        {/* Brand — centred, one type system, one focal point */}
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="w-14 h-14 rounded-2xl bg-surface-2 flex items-center justify-center shadow-step">
             <Brain className="w-7 h-7 text-brand" />
@@ -62,7 +60,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
           </p>
         </div>
 
-        {/* Actions — one primary path, the fallback demoted to a link */}
         <div className="w-full flex flex-col items-center gap-4">
           <button
             type="button"
@@ -180,8 +177,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
           </div>
         )}
 
-        {/* One quiet line instead of an info box plus a status bar: the promise,
-            not the documentation. */}
         <p className="text-[11px] leading-relaxed text-ink-mute text-center max-w-[300px]">
           Cloud sync, or stay in this browser only — either way you can export everything at any
           time.

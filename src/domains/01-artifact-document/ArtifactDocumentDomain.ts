@@ -2,11 +2,7 @@ import { IArtifactDocumentDomain } from './interface';
 import { UniversalArtifactDocument, ArtifactLayers, ArtifactDocumentEvent } from './types';
 import { Granularity, cutIncludes } from '../granularity';
 
-/**
- * THE artifact cut — one implementation, shared by the compiler, the token
- * estimator and every preview. Missing layers are simply absent (never
- * synthesized here; writers are responsible for filling them).
- */
+/** Cumulative plain-text cut (`title ⊂ description ⊂ summary ⊂ body`). Missing layers are omitted, never synthesized. */
 export function getArtifactCut(
   art: Pick<UniversalArtifactDocument, 'title' | 'current'>,
   granularity: Granularity
@@ -29,7 +25,6 @@ export function getArtifactCut(
   return cut;
 }
 
-/** The cut as one plain-text block (previews, copy, token math). */
 export function artifactCutText(
   art: Pick<UniversalArtifactDocument, 'title' | 'current'>,
   granularity: Granularity

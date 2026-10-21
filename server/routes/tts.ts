@@ -3,7 +3,6 @@ import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 
 export function registerTtsRoutes(app: Express): void {
-// API: Text-to-Speech (TTS) using gemini-3.8-flash-lite-tts
 app.post('/api/tts', async (req: Request, res: Response) => {
   try {
     const { text, voice = 'Kore' } = req.body;
@@ -11,7 +10,6 @@ app.post('/api/tts', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Text is required for TTS' });
     }
 
-    // Clean markdown code blocks / markdown links to make spoken audio fluid
     const cleanSpokenText = text
       .replace(/```[\s\S]*?```/g, ' [code specification block omitted] ')
       .replace(/`([^`]+)`/g, '$1')
@@ -58,14 +56,12 @@ app.post('/api/tts', async (req: Request, res: Response) => {
       }
     }
 
-    // Fallback indicator so client can use Web Speech API
     res.json({
       fallback: true,
       cleanSpokenText,
     });
   } catch (err: unknown) {
     logServer('error', 'API:TTS', `Error in /api/tts: ${err instanceof Error ? err.message : err}`, err);
-    // Return fallback: true so client seamlessly plays via Web Speech API
     const cleanSpokenText = (req.body.text || '')
       .replace(/```[\s\S]*?```/g, '')
       .slice(0, 1000);

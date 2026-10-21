@@ -1,7 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { logServer } from '../lib/log';
 
-// Shared Gemini Client
 const apiKey = process.env.GEMINI_API_KEY;
 export let ai: GoogleGenAI | null = null;
 if (apiKey) {
@@ -11,9 +10,6 @@ if (apiKey) {
   logServer('warn', 'GEMINI:INIT', 'GEMINI_API_KEY not found in environment; running in local synthesis fallback mode');
 }
 
-// Helper function to stream from a given model
-// (moved from the inline closure in /api/chat/stream; former closure
-// captures are now explicit parameters — same log line, same config).
 export async function streamFromModel(
   modelName: string,
   contents: string,

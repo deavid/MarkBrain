@@ -1,26 +1,16 @@
 /**
- * Serial send-queue / thread-turn orchestration.
+ * Serial send queue and thread-turn orchestration.
  *
- * Extracted verbatim from App.tsx (the "Serial generation queue" section) —
- * pure orchestration, ZERO behavior change. One stream at a time (Gemini
- * quota + serial by design): sends in other threads enqueue; queued sends
- * within one thread buffer-append (each job = one user turn + one assistant
- * turn when it starts).
+ * One stream at a time — by design (Gemini quota). A send in another thread
+ * enqueues; a send queued in the same thread buffer-appends, so a chain is a
+ * sequence of jobs, each producing one user turn and one assistant turn.
  *
- * Dependencies arrive via a getter injected at construction:
- *   - `deps` are re-published by App on every render; the queue SNAPS them
- *     (together with `getContext()`) when a chain starts, so an entire
- *     drain chain runs against the same closure values the inline
- *     implementation captured in render scope.
- *   - `getContext()` is read only at chain start (model / project info /
- *     compile options for that send).
- *
- * React seam: streamPhase/streamingStatus useState + the re-render tick
- * stay in App (presentation); the queue drives them through the injected
- * `setStreamingStatus` / `setStreamPhase` / `triggerReRender` callbacks.
- * Fetch sites (title meta-call, stop-cancel ping) and window.confirm also
- * stay in App.tsx (injected as callbacks) so nothing outside this new
- * directory moves.
+ * Two invariants, both easy to break:
+ *   - `deps` are re-published by App on every render, but a CHAIN snapshots
+ *     them (plus `getContext()`) at chain start and keeps them for its whole
+ *     life. Re-reading mid-chain mixes two renders' state into one conversation.
+ *   - React state (stream phase, status, re-render tick) stays in App; the
+ *     queue only drives it through injected callbacks.
  */
 import type { DomainContextValue } from '../domains/DomainRegistry';
 import {
@@ -35,7 +25,6 @@ import { serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 import { logger } from '../utils/logger';
 import { placeholderTitle, sampleTurnsForTitle, titlePipelineStep } from '../domains/06-chat-threads';
 
-/** One queued unit: a new send (user + assistant turn) or an assistant retry. */
 export interface QueueJob {
   id: string;
   threadId: string;
@@ -44,11 +33,7 @@ export interface QueueJob {
   turnId?: string; // retry target (assistant turn to regenerate)
 }
 
-/**
- * App render values snapshotted when a queue chain starts. The inline
- * implementation read these from the render closure of the send that began
- * the chain; the chain kept that closure for every subsequent job.
- */
+/** App render values, snapshotted once when a chain starts (see the header). */
 export interface TurnSendContext {
   model: ModelOption;
   projectId: string;
@@ -56,7 +41,6 @@ export interface TurnSendContext {
   tokenCeiling: number;
 }
 
-/** React glue + fetch/confirm call sites that remain owned by App.tsx. */
 export interface SendQueueDeps
   extends Pick<
     DomainContextValue,
@@ -66,35 +50,30 @@ export interface SendQueueDeps
   setStreamingStatus: (status: string | null) => void;
   setStreamPhase: (phase: 'waiting' | 'streaming' | null) => void;
   markThreadUnread: (threadId: string) => void;
-  /** POST /api/title-thread (fetch stays in App). Resolves to the title or null. */
   requestAutoTitle: (
     messages: Array<{ role: string; content: string }>,
     version: number
   ) => Promise<string | null>;
-  /** POST /api/chat/cancel fire-and-forget (fetch stays in App). */
   postChatCancel: (reason: string) => void;
-  /** window.confirm (stays in App) for the archived-thread continue prompt. */
   confirm: (message: string) => boolean;
-  /** Render-scope snapshot for a chain-starting enqueue (read at enqueue time). */
   getContext: () => TurnSendContext;
 }
 
-/** Deps + context captured at chain start — mirrors the old render closure. */
+/** Deps + context captured at chain start; never refreshed mid-chain. */
 interface QueueChain {
   deps: SendQueueDeps;
   ctx: TurnSendContext;
 }
 
 /**
- * Which turn does a retry weld staged attachments to? (12 §5.1 / ledger V1.3)
+ * Which turn does a retry weld staged attachments to?
  *
  * A retry compiles every attachment on the thread — staged included — so
  * anything armed right now is about to be delivered again. It must land on the
- * user turn this assistant reply answers, otherwise history claims the
+ * user turn this assistant reply answers; otherwise history claims the
  * attachment never entered while the model reads it twice.
  *
- * Exported as a pure function so the anchor rule is unit-testable rather than
- * buried inside the queue's I/O.
+ * Pure, and exported, so the anchor rule is testable outside the queue's I/O.
  */
 export function resolveRetryAnchorIndex(
   turns: Array<{ id: string; role: string }>,
@@ -119,9 +98,7 @@ export class SendQueue {
     this.getDeps = getDeps;
   }
 
-  // ── Read API for App's derived/rendered state ──────────────────────────────
-
-  /** Live pending jobs (same object identity semantics as the old queueRef). */
+  /** Live pending jobs — the array itself, not a copy. */
   getQueue(): QueueJob[] {
     return this.queue;
   }
@@ -135,15 +112,12 @@ export class SendQueue {
     return this.turnsOf(this.getDeps(), threadId);
   }
 
-  // ── Public entry points (App keeps thin same-named wrappers) ───────────────
-
   handleSendMessage(text: string): void {
     const deps = this.getDeps();
     const threadId = deps.threadRegistry.getActiveThreadId();
     if (!threadId) return;
     const thread = deps.threadRegistry.getThread(threadId);
     if (thread?.lifecycle === 'archived') {
-      // Archived threads are readable; continuing one requires unarchiving.
       if (!deps.confirm('Unarchive and continue this thread?')) return;
       deps.threadRegistry.patch(threadId, { lifecycle: 'active' });
     }
@@ -156,7 +130,6 @@ export class SendQueue {
     });
   }
 
-  /** Cancel this thread's PENDING jobs (never touches an in-flight stream). */
   handleCancelQueued(threadId: string): void {
     const deps = this.getDeps();
     const before = this.queue.length;
@@ -172,14 +145,12 @@ export class SendQueue {
       thread.titleState === 'placeholder' &&
       thread.titleVersion === 0
     ) {
-      // Nothing ever ran — drop the speculative placeholder title/preview.
       deps.threadRegistry.patch(threadId, { title: 'New thread', preview: '' });
     }
     logger.action('App', 'Cancelled queued messages', { threadId, removed });
     deps.triggerReRender();
   }
 
-  /** Regenerate the last assistant turn of the active thread (error/interrupted). */
   handleRetryThread(): void {
     const deps = this.getDeps();
     const threadId = deps.threadRegistry.getActiveThreadId();
@@ -206,7 +177,6 @@ export class SendQueue {
     }
   }
 
-  // ── Thread-aware turn routing ──────────────────────────────────────────────
   // Live domains hold ONLY the active thread's turns/chapters; background
   // jobs write through the registry into the inactive thread's cached content.
   private isActiveThread(deps: SendQueueDeps, threadId: string): boolean {
@@ -251,8 +221,6 @@ export class SendQueue {
     else deps.threadRegistry.updateInactiveTurn(threadId, turnId, partial);
   }
 
-  // Stage-0 title: truncated first message, set at send time (instant sidebar
-  // feedback even while the job sits in the queue). No LLM involved.
   private noteSendIntent(deps: SendQueueDeps, threadId: string, text: string) {
     const thread = deps.threadRegistry.getThread(threadId);
     if (!thread) return;
@@ -276,9 +244,8 @@ export class SendQueue {
     }
   }
 
-  // Staged titling pipeline — fires after a successful assistant reply:
-  // stage1 after the 1st, stage2 once after the 3rd. Fire-and-forget meta
-  // call; failures keep the current title (titles never block the UX).
+  // Staged titling pipeline: stage1 after the 1st reply, stage2 once after the 3rd.
+  // Fire-and-forget — failures keep the current title.
   private maybeRetitle(chain: QueueChain, threadId: string) {
     const deps = chain.deps;
     const thread = deps.threadRegistry.getThread(threadId);
@@ -304,8 +271,6 @@ export class SendQueue {
       .catch((err) => logger.warn('App', 'title-thread request failed', err));
   }
 
-  // Execute ONE job (new send or retry) against its thread — active thread via
-  // live domains, background threads via the registry cache.
   private async executeTurn(chain: QueueChain, job: QueueJob) {
     const deps = chain.deps;
     const ctx = chain.ctx;
@@ -318,11 +283,7 @@ export class SendQueue {
     let assistantTurnId: string;
     if (job.mode === 'retry' && job.turnId) {
       assistantTurnId = job.turnId;
-      // A retry compiles `getAttachments(threadId)` — staged included — so
-      // anything armed right now IS about to be sent a second time. Weld it to
-      // the user turn this assistant reply answers, so payload === history and
-      // the tray can't promise "next send" for something already delivered
-      // (12 §5.1 / ledger V1.3).
+      // Weld any staged attachments to the user turn this retry answers (see resolveRetryAnchorIndex).
       const turnsForAnchor = this.turnsOf(deps, threadId);
       const anchorIdx = resolveRetryAnchorIndex(turnsForAnchor, assistantTurnId);
       const anchorTurn = turnsForAnchor[anchorIdx];
@@ -345,10 +306,7 @@ export class SendQueue {
       });
     } else {
       const userTurn = this.appendTurnToThread(deps, threadId, 'user', job.text!);
-      // Weld staged attachments to the turn that was just persisted — from
-      // here they are history (no detach; granularity still steerable).
-      // Compile later in this same job reads them as committed, so the turn
-      // that announced them and the payload that carries them agree.
+      // Weld staged attachments before compile() so history and payload agree.
       const userTurnIndex = this.turnsOf(deps, threadId).length - 1;
       const committed = deps.threadRegistry.commitStagedAttachments(
         threadId,
@@ -371,11 +329,9 @@ export class SendQueue {
     let streamedContent = '';
     let compiled: any = null;
     try {
-      // Compile against THIS thread's turns/chapters (historyTurns override) —
-      // background jobs must never leak the visible thread's context.
+      // Background jobs must never leak the visible thread's context.
       compiled = deps.compiler.compile({
-        // Per-thread attachments, read at job time: a chain can span threads,
-        // and each payload must carry THAT thread's attachments only.
+        // A chain can span threads: each payload carries only its own thread's attachments.
         attachments: deps.threadRegistry.getAttachments(threadId),
         tokenCeiling: ctx.tokenCeiling,
         log: true, // once-per-send lifecycle log (display memo must stay silent)
@@ -485,12 +441,8 @@ export class SendQueue {
               });
               artifactId = saved.id;
             }
-            // The artifact was born (or updated) in THIS chat: attach it to
-            // this chat, welded to the assistant turn that produced it, so the
-            // chat stream shows where it entered and the model keeps seeing it
-            // once the announcing turn is no longer verbatim in context.
-            // Idempotent — re-extraction never moves the anchor nor resets a
-            // granularity the user lowered.
+            // Attach it to this chat, welded to the turn that produced it. Idempotent:
+            // re-extraction never moves the anchor nor resets a lowered granularity.
             if (artifactId) {
               const assistantTurnIndex = this.turnsOf(deps, threadId).findIndex(
                 (t) => t.id === assistantTurnId
@@ -508,7 +460,6 @@ export class SendQueue {
         }
       );
 
-      // Finalize assistant turn with clean reply, extracted artifacts, and real Gemini API telemetry
       const extractedList: ExtractedArtifact[] = result.artifacts.map((u) => ({
         id: u.id,
         title: u.title,
@@ -608,7 +559,6 @@ export class SendQueue {
     }
   }
 
-  // Serial queue runner: one job at a time; on completion promote the next.
   private async runJob(chain: QueueChain, job: QueueJob) {
     this.activeJob = job;
     chain.deps.triggerReRender();
@@ -633,8 +583,8 @@ export class SendQueue {
   private enqueueJob(job: QueueJob) {
     this.queue.push(job);
     if (!this.activeJob) {
-      // Chain start: snapshot deps + render context (the old code used the
-      // render closure of the send that started the chain for its whole life).
+      // Chain start: snapshot deps + render context for the whole chain. Do not
+      // re-read getDeps() inside the chain — a chain spans renders.
       const deps = this.getDeps();
       const chain: QueueChain = { deps, ctx: deps.getContext() };
       this.chain = chain;

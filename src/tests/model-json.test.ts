@@ -1,6 +1,7 @@
 /**
- * Extraction JSON-robustness tests (2026-10-19 fix): the bare JSON.parse was
- * failing intermittently on Gemini's literal control chars / bad escapes.
+ * Extraction JSON robustness: a bare JSON.parse fails intermittently on literal
+ * control characters and bad escapes in model output. Each test below is one of
+ * those observed shapes.
  */
 import { describe, it, expect } from 'vitest';
 import { parseModelJson } from '../../server/lib/modelJson';

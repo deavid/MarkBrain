@@ -41,7 +41,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
   const [newName, setNewName] = useState('');
   const [newCodeName, setNewCodeName] = useState('');
   const [newDescription, setNewDescription] = useState('');
-  const [selectedColor, setSelectedColor] = useState('#be3a49'); // default Unhaunter ruby
+  const [selectedColor, setSelectedColor] = useState('#be3a49');
   // Delete flow: pendingDelete holds the target until the user confirms.
   const [pendingDelete, setPendingDelete] = useState<ProjectMetadata | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -93,7 +93,6 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-surface-0/95 backdrop-blur-md flex flex-col p-4 sm:p-6 overflow-y-auto">
-      {/* Top Bar */}
       <div className="max-w-3xl w-full mx-auto flex items-center justify-between pb-4 shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#e05a66] to-[#8c52ff] flex items-center justify-center shadow-lg shadow-[#e05a66]/20">
@@ -121,9 +120,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
         )}
       </div>
 
-      {/* Main Content */}
       <div className="max-w-3xl w-full mx-auto py-6 space-y-6 flex-1">
-        {/* Callout / Subheader */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface-1 p-4 rounded-2xl">
           <div>
             <h2 className="text-sm font-semibold text-ink">What project do you want to open?</h2>
@@ -142,7 +139,6 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
           )}
         </div>
 
-        {/* Create Project Form Drawer/Card */}
         {isCreating && (
           <form
             onSubmit={handleCreateSubmit}
@@ -235,7 +231,6 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
           </form>
         )}
 
-        {/* Existing Projects List */}
         <div className="space-y-3">
           <div className="text-[11px] font-mono text-[#6c82a1] uppercase tracking-wider flex items-center gap-1.5">
             <FolderOpen className="w-3.5 h-3.5" />
@@ -298,7 +293,6 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                     </div>
                   </div>
 
-                  {/* Launch Action */}
                   <div className="sm:self-center shrink-0 flex items-center justify-end gap-2">
                     <button
                       type="button"
@@ -332,7 +326,6 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
         </div>
       </div>
 
-      {/* Destructive confirmation — explicit target, explicit consequences */}
       {pendingDelete && (
         <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-surface-1 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">

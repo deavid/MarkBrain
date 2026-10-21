@@ -9,7 +9,6 @@ export interface ChapterHandlerParams {
   segmentation: DomainContextValue['segmentation'];
 }
 
-// Chapter declare/summarize handlers.
 export function createChapterHandlers(params: ChapterHandlerParams) {
   const { timeline, segmentation } = params;
 
@@ -54,9 +53,9 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
     segmentation.splitChapter(target.id, splitIndex, title);
 
     // Sealing a chapter steps it full → summary, so the cut now promises a
-    // layer that may not exist yet. Fill it in the background (10 §5.4) —
-    // never block the split on a model call, and never leave the promise
-    // unbacked: the chapter shows "Writing summary…" chrome until it lands.
+    // layer that may not exist yet. Fill it in the background — never block the
+    // split on a model call, and never leave the promise unbacked: the chapter
+    // shows "Writing summary…" chrome until it lands.
     const sealed = segmentation.getChapter(target.id);
     if (sealed && sealed.status === 'completed' && (!sealed.summary || !sealed.description)) {
       // Fire-and-forget: the chapter carries the "Writing summary…" chrome and,
@@ -101,10 +100,10 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
       }
       segmentation.updateLevels(chapterId, { description, summary });
     } catch (err) {
-      // warn, not error: a timeout/abort is an EXPECTED outcome of a hung model
-      // call, and the chapter chrome already shows the failure + Retry (12 §5.2).
-      // Logging it as an error put `console.error` in the browser and turned
-      // the evidence pack RED for a state the UI handles honestly.
+      // warn, not error: a timeout is an EXPECTED outcome of a slow model call
+      // and the chapter chrome already shows the failure plus Retry. An error
+      // here puts `console.error` in the browser for a state the UI handles
+      // honestly, which is what turns the evidence pack red.
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn('App', `Summarize failed for chapter ${chapterId}: ${msg}`);
       throw err instanceof Error ? err : new Error(msg);

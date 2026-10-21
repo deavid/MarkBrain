@@ -52,7 +52,6 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
   }
 
   demuxChunk(chunk: string): string {
-    // Strips any in-flight XML tags from immediate visual chat text
     const clean = chunk
       .replace(/<topic_shift[\s\S]*?\/>/gi, '')
       .replace(/<link[\s\S]*?\/>/gi, '')
@@ -69,7 +68,6 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
     const links: ExtractedLink[] = [];
     let topicShift: ExtractedTopicShift | undefined;
 
-    // 1. Parse <topic_shift ... />
     const topicShiftRegex = /<topic_shift\s+([^>]*?)\/?>/gi;
     let match = topicShiftRegex.exec(clean);
     if (match) {
@@ -91,7 +89,6 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       }
     }
 
-    // Legacy JSON topic_shift support
     const legacyTopicShift = /```topic_shift\s*(\{[\s\S]*?\})\s*```/gi;
     let legacyMatch = legacyTopicShift.exec(clean);
     if (legacyMatch && !topicShift) {
@@ -109,8 +106,6 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       }
     }
 
-    // 2. Parse <link ... /> — edge vocabulary is OPEN (01 §4.8): unknown kinds
-    // survive the round-trip untouched instead of being laundered to 'relates_to'.
     const linkRegex = /<link\s+source=["']([^"']+)["']\s+target=["']([^"']+)["']\s+kind=["']([^"']+)["']\s*\/?>/gi;
     let linkMatch: RegExpExecArray | null;
     while ((linkMatch = linkRegex.exec(clean)) !== null) {
@@ -123,7 +118,6 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       this.handlers.onLinkDetected?.forEach((fn) => fn(link));
     }
 
-    // 3. Parse <artifact_upsert> or <artifact> tags (attributes in any order)
     const upsertRegex = /<(?:artifact_upsert|artifact)\b([^>]*)>([\s\S]*?)<\/(?:artifact_upsert|artifact)>/gi;
     let upsertMatch: RegExpExecArray | null;
     while ((upsertMatch = upsertRegex.exec(clean)) !== null) {
@@ -161,7 +155,6 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       this.handlers.onArtifactUpsertDetected?.forEach((fn) => fn(up));
     }
 
-    // 4. Parse ```artifact ... ``` blocks
     const codeBlockRegex = /```artifact\s*([\s\S]*?)```/gi;
     let cbMatch: RegExpExecArray | null;
     while ((cbMatch = codeBlockRegex.exec(clean)) !== null) {
@@ -196,7 +189,6 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       this.handlers.onArtifactUpsertDetected?.forEach((fn) => fn(up));
     }
 
-    // Strip tags cleanly
     clean = clean
       .replace(/<topic_shift[\s\S]*?\/>/gi, '')
       .replace(/```topic_shift[\s\S]*?```/gi, '')

@@ -97,7 +97,7 @@ describe('unified model: meta vocabulary', () => {
 describe('unified model: edge-kind openness', () => {
   it('round-trips arbitrary kinds and still matches ancestors on known kinds', () => {
     const graph = new TopologicalGraphDomain();
-    // arbitrary kind survives the round-trip (vocabulary is open per 01 §4.8)
+    // an arbitrary kind survives the round-trip (the vocabulary is open)
     const custom = graph.addEdge('x', 'y', 'supported_by_v2');
     expect(graph.listEdges().find((e) => e.id === custom.id)?.kind).toBe('supported_by_v2');
     // known kinds keep traversing: parent_of reaches ancestors

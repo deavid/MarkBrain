@@ -15,7 +15,6 @@ export class TopologicalGraphDomain implements ITopologicalGraphDomain {
   }
 
   addEdge(sourceId: string, targetId: string, kind: RelationKind, weight = 1): SemanticEdge {
-    // Avoid duplicates
     for (const edge of this.edges.values()) {
       if (edge.sourceId === sourceId && edge.targetId === targetId && edge.kind === kind) {
         return edge;

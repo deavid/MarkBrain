@@ -1,20 +1,7 @@
-/**
- * Artifact document — a stored thought unit in the library.
- *
- * Its content is stored as LAYERS of one document (not as alternative texts):
- * `title` lives on the artifact, and `description → summary → body` are written
- * to be read together. Granularity picks where the document is cut
- * (see `../granularity`). The artifact itself carries NO granularity: that
- * belongs to the attachment in a chat.
- */
-
-/** The three layered text fields (level 1 — the title — is `title` below). */
+/** Cumulative document layers (`title` is on the parent document; `description → summary → body` are read together). */
 export interface ArtifactLayers {
-  /** ~200 words. Second layer: what this is, continuing from the title. */
   description: string;
-  /** ~2000 words. Third layer: the substance, continuing from the description. */
   summary: string;
-  /** The source text (markdown / verbatim document). */
   body: string;
 }
 

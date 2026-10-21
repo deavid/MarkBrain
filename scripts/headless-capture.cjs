@@ -69,12 +69,12 @@ function findChrome() {
 }
 
 // ── Layered env resolution ────────────────────────────────────────────────
-// FIREBASE_* / HEADLESS_* no longer live in root .env — same 3-layer scheme
-// as server/lib/env.ts and vite.config.ts:
+// FIREBASE_* / HEADLESS_* resolve through the same layers as server/lib/env.ts
+// and vite.config.ts:
 //   OS env > .env > .env.shared > ../MarkBrain/.env.markbrain-main.shared
-// Precedence = order below: earlier sources win (first writer keeps the key),
-// real OS/runtime env beats every file (never overwritten). Missing files are
-// silently skipped (ENOENT). READ-ONLY: this script never writes an env file.
+// Precedence is the order below: earlier sources win (first writer keeps the
+// key), and real OS env beats every file (never overwritten). Missing files are
+// skipped silently. READ-ONLY: this script never writes an env file.
 const ENV_LAYERS = [
   path.join(ROOT, '.env'),
   path.join(ROOT, '.env.shared'),
@@ -136,12 +136,12 @@ async function main() {
   }
 
   // --- Mode: fixture (default, fully offline) vs real (--real) -------------
-  // Real mode reads HEADLESS_REFRESH_TOKEN from .env (harvested from David's
-  // own session, see AGENT_RUNBOOK §3.5). Writes are impossible either way:
+  // Real mode authenticates with HEADLESS_REFRESH_TOKEN from .env (see
+  // AGENT_RUNBOOK §4.1 for how to get one). Writes are impossible either way:
   // ?capture=1 / ?fixture=1 flip isCaptureMode() in persistenceService.ts.
   const REAL = process.argv.includes('--real') || process.env.MARKBRAIN_CAPTURE_MODE === 'real';
   const REAL_REFRESH = envVal('HEADLESS_REFRESH_TOKEN');
-  const REAL_USER_B64 = envVal('HEADLESS_AUTH_USER_B64'); // full verbatim record from David's browser
+  const REAL_USER_B64 = envVal('HEADLESS_AUTH_USER_B64'); // serialized auth record (never committed)
   if (REAL && !REAL_REFRESH) {
     console.error('Real mode requested but HEADLESS_REFRESH_TOKEN missing from the layered env.');
     process.exit(1);

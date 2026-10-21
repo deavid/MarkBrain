@@ -1,8 +1,7 @@
 import { Artifact } from '../types';
 import { contentHash } from './contentHash';
 
-// Multi-import plan — Phase 2: smart duplicate/version detection.
-// Tiers (cheap → expensive… actually: strongest signal first at equal cost):
+// Import duplicate/version detection. Tiers, strongest signal first:
 //   1. identical normalized body  → duplicate-of
 //   2. same frontmatter `code`    → revision-of
 //   3. same title (case-folded)   → revision-of
@@ -27,7 +26,6 @@ export interface DetectTarget {
 
 const IMPORT_FLAG_TYPES: ReadonlySet<string> = new Set(['duplicate-of', 'revision-of']);
 
-/** True when the artifact carries an unresolved import flag relationship. */
 export function isFlaggedArtifact(art: Artifact): boolean {
   return Boolean(
     art.graph?.relationships?.some((r) => r && IMPORT_FLAG_TYPES.has(r.type))
@@ -48,12 +46,7 @@ export function flagRelationship(flag: ImportFlag): {
   };
 }
 
-/**
- * Detect whether an incoming import looks like an already-imported artifact.
- * Checks every existing artifact tier-by-tier (hash across all, then code,
- * then title), so an identical body wins over a coincidental title clash.
- * `skipId` prevents self-matches (incoming id already present).
- */
+/** `skipId` prevents self-matches (incoming id already present). */
 export function detectImportFlag(
   incoming: { title: string; code?: string; body: string },
   existing: DetectTarget[],
@@ -61,7 +54,6 @@ export function detectImportFlag(
 ): ImportFlag | null {
   const incomingHash = contentHash(incoming.body);
 
-  // Tier 1: identical (normalized) content → duplicate-of
   for (const ex of existing) {
     if (skipId && ex.id === skipId) continue;
     if (contentHash(ex.body) === incomingHash) {
@@ -69,7 +61,6 @@ export function detectImportFlag(
     }
   }
 
-  // Tier 2: same code → revision-of
   const codeN = (incoming.code || '').trim().toLowerCase();
   if (codeN) {
     for (const ex of existing) {
@@ -80,7 +71,6 @@ export function detectImportFlag(
     }
   }
 
-  // Tier 3: same title (trimmed, case-folded) → revision-of
   const titleN = (incoming.title || '').trim().toLowerCase();
   if (titleN) {
     for (const ex of existing) {

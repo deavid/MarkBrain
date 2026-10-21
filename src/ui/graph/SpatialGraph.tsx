@@ -13,11 +13,11 @@ import {
 } from 'lucide-react';
 
 /**
- * View-local shapes — x/y layout state lives HERE (a view concern), built
- * from domain inputs (UniversalArtifactDocument[] + SemanticEdge[]). Shared
- * legacy GraphNode/GraphEdge types are dead (08_UNIFIED_DATA_MODEL.md D5);
- * the old `node-` id prefix convention died with them — view nodes are keyed
- * by artifact id, and handlers receive artifact ids.
+ * View-local shapes: x/y layout state lives here, a view concern, built from the
+ * domain inputs (UniversalArtifactDocument[] + SemanticEdge[]).
+ *
+ * View nodes are keyed by ARTIFACT id, never a prefixed view id, and handlers
+ * receive artifact ids. The graph therefore needs no id-mapping layer either side.
  */
 interface ViewNode {
   id: string; // = artifact id
@@ -120,9 +120,9 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
     [domainEdges]
   );
 
-  // Tags are NOT connections (2026-10-19): shared-tag "tentative cross-links"
-  // meshed the graph into noise — removed. Real edges come only from explicit
-  // relationships; kept as a stable [] so dependent renders stay inert.
+  // Tags are NOT connections. Shared-tag "tentative cross-links" meshed the
+  // graph into noise and were removed; real edges come only from explicit
+  // relationships. Kept as a stable [] so dependent renders stay inert.
   const tentativeLinks = useMemo<TentativeLink[]>(() => [], []);
 
   // Fit View to nodes (ONLY called when explicitly clicked or on initial load)
@@ -399,7 +399,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       onPointerUp={handlePointerUpBg}
       className="relative w-full h-full min-h-0 flex-1 overflow-hidden bg-surface-1 select-none touch-none cursor-grab active:cursor-grabbing"
     >
-      {/* Bluer shadow background grid */}
       <div
         className="absolute inset-0 pointer-events-none opacity-25"
         style={{
@@ -409,7 +408,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         }}
       />
 
-      {/* Floating Toolbar: Zoom, Fit, Auto-Arrange Physics */}
       <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 bg-surface-2/95 backdrop-blur-md p-1.5 rounded-xl shadow-xl">
         <button
           onClick={() => setZoom((z) => Math.min(z + 0.15, 2.2))}
@@ -444,7 +442,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         </button>
       </div>
 
-      {/* Linking status banner */}
       {linkingSourceNode && (
         <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-surface-2 text-[#fad4d8] px-4 py-2 rounded-full text-xs font-mono shadow-2xl flex items-center gap-2 animate-bounce">
           <LinkIcon className="w-3.5 h-3.5 text-[#e65a6c]" />
@@ -458,7 +455,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         </div>
       )}
 
-      {/* SVG Canvas for Edges */}
       <svg
         className="absolute inset-0 w-full h-full pointer-events-none"
         style={{ overflow: 'visible' }}
@@ -510,7 +506,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
             );
           })}
 
-          {/* Tentative cross-links inferred from shared YAML tags */}
           {tentativeLinks.map((link: TentativeLink) => {
             const sx = link.sourceNode.x + 105;
             const sy = link.sourceNode.y + 40;
@@ -568,7 +563,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         </g>
       </svg>
 
-      {/* Nodes DOM Layer */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -597,7 +591,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                 isSelected ? 'ring-2 ring-[#e65a6c]' : ''
               }`}
             >
-              {/* Type Badge & Context State */}
               <div className="flex items-center justify-between text-[10px] font-mono mb-1.5 gap-1">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span
@@ -611,12 +604,10 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
 
               </div>
 
-              {/* Title */}
               <div className="font-semibold text-xs text-ink truncate mb-1.5 font-mono">
                 {node.title}
               </div>
 
-              {/* Tags row */}
               {tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
                   {tags.slice(0, 3).map((t) => (
@@ -630,7 +621,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                 </div>
               )}
 
-              {/* Actions row */}
               <div className="flex items-center justify-between text-[10px] text-[#869ab8] pt-1.5">
                 <button
                   onClick={(e) => {
@@ -664,7 +654,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         })}
       </div>
 
-      {/* Selected Node Details Drawer */}
       {selectedNode && (
         <div className="absolute bottom-3 left-3 right-3 sm:left-auto sm:right-3 sm:w-80 z-30 bg-surface-2/95 backdrop-blur-md rounded-xl p-3 shadow-2xl">
           <div className="flex items-center justify-between mb-1.5">
@@ -680,7 +669,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
             Type: <span className="capitalize">{selectedNode.type}</span>
           </div>
 
-          {/* Node tags */}
           {(() => {
             const tags = selectedNode.tags || selectedNode.artifact.tags || [];
             if (tags.length === 0) return null;
@@ -698,7 +686,6 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
             );
           })()}
 
-          {/* Tentative cross-links for selected node */}
           {(() => {
             const nodeTentatives = tentativeLinks.filter(
               (l: TentativeLink) => l.sourceNode.id === selectedNode.id || l.targetNode.id === selectedNode.id

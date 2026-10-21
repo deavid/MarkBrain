@@ -1,9 +1,9 @@
 import { Brain } from 'lucide-react';
 
 /**
- * Full-screen boot/hold splash used by App's pre-flight early returns.
- * Markup extracted verbatim from App.tsx (auth probe + cloud-list loading),
- * which rendered the identical card twice with different label text.
+ * Full-screen boot/hold splash for App's pre-flight early returns (auth probe,
+ * cloud-project list). One component because the same card is needed twice with
+ * different label text.
  */
 export function BootSplash({ label }: { label: string }) {
   return (

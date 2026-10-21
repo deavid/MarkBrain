@@ -29,12 +29,13 @@ export interface ThreadHydrateInput {
 const rand = () => Math.random().toString(36).slice(2, 6);
 
 /**
- * Legacy/foreign snapshots: attachment arrays may be absent or half-formed.
- * Legacy attachments without an explicit `turnIndex` hydrate as committed at
- * `-1` = "in the chat, provenance unknown" — NOT as turn 0. They must never
- * resurrect into the staged tray (that would send them a second time), and
- * they must never claim "msg 1" when nobody knows which message carried them
- * (12 §2.2 / ledger V1.8.3). `-1` is still committed: only `null` is staged.
+ * Legacy and foreign snapshots: attachment arrays may be absent or half-formed.
+ * An attachment with no explicit `turnIndex` hydrates as committed at `-1` —
+ * "in the chat, provenance unknown" — NOT at turn 0 and NOT as staged. Two
+ * failure modes this prevents: resurrecting it into the staged tray sends it a
+ * second time; claiming "msg 1" invents a message nobody can point at.
+ *
+ * `-1` is committed. Only `null` means staged.
  */
 function normalizeAttachments(raw: unknown): ChatAttachment[] {
   if (!Array.isArray(raw)) return [];
@@ -62,20 +63,20 @@ function normalizeAttachments(raw: unknown): ChatAttachment[] {
 }
 
 /**
- * ThreadRegistry — owner of thread/folder metadata + the content of every
- * INACTIVE thread in the active project.
+ * Owner of thread/folder metadata plus the content of every INACTIVE thread in
+ * the active project.
  *
- * Split-brain invariant (the whole design in one line):
- *   - LIVE domains (timeline/segmentation) hold ONLY the active thread's
- *     turns/chapters; the registry's inactive map holds everyone else's.
- *   - `select()` flushes live → cache for the outgoing thread and pops the
- *     incoming thread's content for the live domains to load.
+ * The split-brain invariant — the whole design in four lines:
+ *   - the LIVE domains hold ONLY the active thread's turns and chapters;
+ *     this registry's inactive map holds everyone else's;
+ *   - `select()` flushes live → cache for the outgoing thread and hands the
+ *     incoming thread's content to the live domains;
  *   - `compose()` re-flattens both halves for the snapshot save.
  *
- * Mutations on inactive threads (background generation streaming into a
- * thread you're not looking at) go through appendInactiveTurn /
- * updateInactiveTurn / declareChapterInactive — same Turn/Chapter shapes,
- * so a later select() is seamless.
+ * Background generation writes through the appendInactiveTurn /
+ * updateInactiveTurn / declareChapterInactive methods, with the same Turn and
+ * Chapter shapes, so a later select() is seamless. Writing an inactive thread
+ * through the live domains instead would corrupt the visible conversation.
  */
 export class ThreadRegistry {
   private threads: ChatThread[] = [];
@@ -94,8 +95,6 @@ export class ThreadRegistry {
     this.listeners.forEach((l) => l());
   }
 
-  // ── Queries ────────────────────────────────────────────────────────────
-
   getThreads(): ChatThread[] {
     return [...this.threads];
   }
@@ -112,32 +111,18 @@ export class ThreadRegistry {
     return this.threads.find((t) => t.id === id) || null;
   }
 
-  /** Attachments of a thread (defaults to the active one), in attach order. */
+  /** A copy: callers may sort or splice it without touching registry state. */
   getAttachments(threadId?: string): ChatAttachment[] {
     const id = threadId || this.activeId;
     return [...(this.getThread(id)?.attachments || [])];
   }
 
-  // ── Attachments (per chat — the unit that carries granularity) ─────────
-  //
-  // Attachments are a TIMELINE: staged (turnIndex null, freely removable
-  // before Send) → committed (welded to a turn, cannot be detached; only
-  // granularity stays steerable). design-docs/10_ATTACHMENT_TIMELINE.md.
-
-  /** Staged attachments of a thread — the ones about to ride the next send. */
+  /** Staged attachments (`turnIndex === null`) — the ones about to ride the next send. */
   getStagedAttachments(threadId?: string): ChatAttachment[] {
     return this.getAttachments(threadId).filter(isAttachmentStaged);
   }
 
-  /**
-   * Attach an artifact to a chat at a granularity.
-   *
-   * - Committed (`turnIndex` a number) = the anchor in history: never moved.
-   * - Staged (`turnIndex` null) = waiting for the next send.
-   *
-   * Idempotent: an already-present artifact is left exactly as it is
-   * (RE-ATTACHING never resets a user's granularity nor moves its anchor).
-   */
+  /** Idempotent: re-attaching never resets the granularity nor moves the turn anchor. */
   attachArtifact(
     threadId: string,
     artifactId: string,
@@ -166,7 +151,6 @@ export class ThreadRegistry {
     return attachment;
   }
 
-  /** Stage an artifact for the NEXT send (turnIndex null). Committed anchors are untouched. */
   stageArtifact(
     threadId: string,
     artifactId: string,
@@ -175,11 +159,7 @@ export class ThreadRegistry {
     return this.attachArtifact(threadId, artifactId, granularity, null, null);
   }
 
-  /**
-   * Unstage a STAGED attachment. A committed attachment is a no-op — the
-   * turn already happened, and history has no delete key (10 §2 L2).
-   * Returns true when something was actually removed.
-   */
+  /** Removes a STAGED attachment. A committed one is a no-op: the turn already happened. Returns true when something was removed. */
   unstageArtifact(threadId: string, artifactId: string): boolean {
     const idx = this.threads.findIndex((t) => t.id === threadId);
     if (idx === -1) return false;
@@ -195,10 +175,7 @@ export class ThreadRegistry {
     return true;
   }
 
-  /**
-   * The folder-row dot verb: not in chat → stage; staged → unstage; committed
-   * → cycle granularity (title → description → summary → full → title).
-   */
+  /** Not in chat → stage at Full; staged → unstage; committed → cycle granularity. */
   toggleStageOrCycleAttachment(threadId: string, artifactId: string): void {
     const idx = this.threads.findIndex((t) => t.id === threadId);
     if (idx === -1 || !artifactId) return;
@@ -215,11 +192,7 @@ export class ThreadRegistry {
     this.setAttachmentGranularity(threadId, artifactId, cycleGranularity(existing.granularity));
   }
 
-  /**
-   * Weld every staged attachment to the turn being sent. Called by the send
-   * queue the moment the user turn is appended — after this, the items are
-   * history and only granularity remains adjustable.
-   */
+  /** Welds all staged attachments (`turnIndex === null`) to `turnIndex`/`turnId`. */
   commitStagedAttachments(
     threadId: string,
     turnIndex: number | null,
@@ -260,10 +233,7 @@ export class ThreadRegistry {
     this.emit();
   }
 
-  /**
-   * The artifact left the library — drop every dangling attachment. This is
-   * garbage collection on artifact deletion, NOT a user-facing "detach".
-   */
+  /** Garbage collection on artifact deletion — NOT a user-facing "detach". */
   purgeArtifact(artifactId: string): void {
     let changed = false;
     this.threads = this.threads.map((t) => {
@@ -274,7 +244,7 @@ export class ThreadRegistry {
     if (changed) this.emit();
   }
 
-  /** Content of a NON-active thread (auto-seeds genesis chapter). Null for the active one. */
+  /** Null for the active thread. */
   getInactiveContent(threadId: string): ThreadContent | null {
     if (threadId === this.activeId) return null;
     let content = this.inactive.get(threadId);
@@ -285,14 +255,7 @@ export class ThreadRegistry {
     return content;
   }
 
-  // ── Snapshot hydration ────────────────────────────────────────────────
-
-  /**
-   * Replace ALL registry state from a loaded snapshot and return the ACTIVE
-   * thread's content for the live domains. Normalizes legacy snapshots:
-   * missing threads → one default "Main" thread; turns/chapters without a
-   * known threadId → assigned to the first thread.
-   */
+  /** Replaces registry state from a snapshot and returns the active thread's content. Backfills missing threads with "Main". */
   hydrate(input: ThreadHydrateInput): ThreadContent {
     this.projectId = input.projectId;
     this.inactive.clear();
@@ -342,10 +305,7 @@ export class ThreadRegistry {
     return activeContent;
   }
 
-  /**
-   * Flatten live (active) + cached (inactive) into snapshot arrays. Every
-   * turn/chapter is tagged with its owning threadId at this boundary.
-   */
+  /** Flattens live + cached turns/chapters into snapshot arrays tagged with `threadId`. */
   compose(activeTurns: Turn[], activeChapters: ChapterPartition[]): {
     threads: ChatThread[];
     folders: ThreadFolder[];
@@ -375,13 +335,7 @@ export class ThreadRegistry {
     };
   }
 
-  // ── Thread lifecycle ──────────────────────────────────────────────────
-
-  /**
-   * Switch the active thread. `live` is the outgoing thread's current live
-   * content (flushed to cache); returns the incoming thread's content for
-   * the caller to load into timeline/segmentation. Null = no-op.
-   */
+  /** Flushes `live` into the outgoing thread's cache; returns the incoming thread's content. Null = no-op. */
   select(threadId: string, live: ThreadContent): ThreadContent | null {
     if (threadId === this.activeId) return null;
     if (!this.threads.some((t) => t.id === threadId)) return null;
@@ -396,10 +350,7 @@ export class ThreadRegistry {
     return incoming;
   }
 
-  /**
-   * Create a thread (NOT selected). Seeds its cache entry so a follow-up
-   * select() finds empty content + genesis chapter.
-   */
+  /** Creates a thread without selecting it; seeds its cache with a genesis chapter. */
   createThread(partial: Partial<ChatThread> = {}): ChatThread {
     const thread: ChatThread = {
       id: makeThreadId(),
@@ -425,11 +376,7 @@ export class ThreadRegistry {
     return thread;
   }
 
-  /**
-   * Delete a thread. When the ACTIVE thread dies, its live content is
-   * discarded (not flushed) and a fallback thread becomes active — returns
-   * its content for the caller to load. Returns null when no switch needed.
-   */
+  /** Discards live content if the active thread is deleted; returns the fallback thread's content. Null when no switch is needed. */
   deleteThread(threadId: string): ThreadContent | null {
     const idx = this.threads.findIndex((t) => t.id === threadId);
     if (idx === -1) return null;
@@ -459,7 +406,7 @@ export class ThreadRegistry {
     return incoming;
   }
 
-  /** Merge metadata into a thread (preview, lastOutcome, activity, …). */
+  /** Shallow merge of metadata. Not for turns, chapters or attachments. */
   patch(threadId: string, partial: Partial<ChatThread>): void {
     const idx = this.threads.findIndex((t) => t.id === threadId);
     if (idx === -1) return;
@@ -473,8 +420,6 @@ export class ThreadRegistry {
     if (!clean) return;
     this.patch(threadId, { title: clean, titleState: 'manual' });
   }
-
-  // ── Folders (one level deep — Inbox is folderId null) ─────────────────
 
   createFolder(name: string): ThreadFolder {
     const folder: ThreadFolder = {
@@ -496,10 +441,7 @@ export class ThreadRegistry {
     this.emit();
   }
 
-  /**
-   * Delete a folder — its threads RETURN TO INBOX (never deleted with it).
-   * Dangling references are rehomed here in one pass before emit.
-   */
+  /** Deletes the folder; its threads return to Inbox (`folderId = null`). */
   deleteFolder(folderId: string): void {
     this.folders = this.folders.filter((f) => f.id !== folderId);
     this.threads = this.threads.map((t) =>
@@ -517,7 +459,6 @@ export class ThreadRegistry {
     this.patch(threadId, { lifecycle });
   }
 
-  /** Drag-reorder: place `dragId` immediately before `targetId`, renumber. */
   reorderFolderBefore(dragId: string, targetId: string): void {
     if (dragId === targetId) return;
     const ordered = [...this.folders].sort((a, b) => a.order - b.order);
@@ -532,10 +473,7 @@ export class ThreadRegistry {
     this.emit();
   }
 
-  /**
-   * Auto-title from the pipeline. Never downgrades a newer version, never
-   * touches a manual lock.
-   */
+  /** Never downgrades a newer title version and never touches a manual lock. */
   applyAutoTitle(threadId: string, title: string, version: number): boolean {
     const thread = this.getThread(threadId);
     if (!thread || thread.titleState === 'manual') return false;
@@ -546,19 +484,13 @@ export class ThreadRegistry {
     return true;
   }
 
-  /**
-   * User-initiated "Suggest new title" — explicitly overrides even a manual
-   * lock (the user asked for it) and retires the pipeline (version 2).
-   */
+  /** Explicit user action: overrides even a manual lock and sets `titleVersion = 2`. */
   forceAutoTitle(threadId: string, title: string): boolean {
     const clean = title.replace(/\s+/g, ' ').trim();
     if (!clean || !this.getThread(threadId)) return false;
     this.patch(threadId, { title: clean, titleState: 'auto', titleVersion: 2 });
     return true;
   }
-
-  // ── Background-thread content mutations (serial queue may run jobs
-  //    against threads the user is NOT looking at) ───────────────────────
 
   appendInactiveTurn(
     threadId: string,
@@ -594,7 +526,6 @@ export class ThreadRegistry {
     this.emit();
   }
 
-  /** Same sealing semantics as ChapterSegmentationDomain.declareNewChapter. */
   declareChapterInactive(
     threadId: string,
     title: string,

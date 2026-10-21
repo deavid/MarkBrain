@@ -10,14 +10,12 @@ export interface SuggestTitleDeps {
   triggerReRender: () => void;
 }
 
-// User-initiated title suggestion — moved from App.tsx; the POST /api/title-thread
-// call site now goes through the gateway (same payload, same response handling).
+// User-initiated title suggestion (the sparkles button), via POST /api/title-thread.
 export function createSuggestTitle(deps: SuggestTitleDeps) {
   const { sendQueue, threadRegistry, triggerReRender } = deps;
   // Resolves true when a title was actually applied, false when there was
-  // nothing to title or the request failed. The caller (the chat title's
-  // sparkles button) needs that answer to show feedback — this used to be
-  // fire-and-forget, so a failed or empty suggestion looked like a dead button.
+  // nothing to title or the request failed. The caller NEEDS that answer to show
+  // feedback; fire-and-forget makes a failed suggestion look like a dead button.
   const handleSuggestTitle = async (threadId: string): Promise<boolean> => {
     const turns = sendQueue.getTurnsOf(threadId);
     if (turns.filter((t) => (t.content || '').trim()).length === 0) return false;

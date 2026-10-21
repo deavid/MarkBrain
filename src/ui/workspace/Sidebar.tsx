@@ -55,15 +55,12 @@ interface SidebarProps {
   onChangeView: (view: ActiveView) => void;
   onOpenExport: () => void;
   onOpenImport: () => void;
-  // Full-database backup / restore (canonical format — works on any backend)
   onExportDatabase: () => void;
   onImportDatabase: () => void;
   onOpenProjectLauncher: () => void;
   onOpenServerLogs?: () => void;
-  // Firebase Auth & account
   currentUser?: { displayName?: string | null; email?: string | null; photoURL?: string | null } | null;
   onSignOut?: () => void;
-  // Chat threads (per project)
   threads?: ChatThread[];
   folders?: ThreadFolder[];
   activeThreadId?: string;
@@ -124,35 +121,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSuggestTitle,
   unreadThreadIds = [],
 }) => {
-  // Inline accordion toggles (all expand inline in document flow, guaranteeing ZERO container clipping)
+  // Accordion toggles expand inline in document flow, which guarantees the panels can never be clipped.
   const [projectAccordionOpen, setProjectAccordionOpen] = useState(false);
   const [modelAccordionOpen, setModelAccordionOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [ioToolsOpen, setIoToolsOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(true);
 
-  // Thread rename (double-click or context menu) + right-click menu
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [threadMenu, setThreadMenu] = useState<{ x: number; y: number; threadId: string } | null>(null);
   const [menuMoveOpen, setMenuMoveOpen] = useState(false);
   const [folderMenu, setFolderMenu] = useState<{ x: number; y: number; folderId: string } | null>(null);
-  // Folder create/rename inline name box (one machine for both modes)
   const [folderNameBox, setFolderNameBox] = useState<{ mode: 'create' | 'rename'; folderId?: string } | null>(null);
   const [folderDraft, setFolderDraft] = useState('');
   // Fold state per folder (default open; only explicit folds stay closed)
   const [folderOpen, setFolderOpen] = useState<Record<string, boolean>>({});
   const [archivedOpen, setArchivedOpen] = useState(false);
-  // Drag & drop highlight target: 'inbox' | 'archived' | folderId
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const unreadSet = useMemo(() => new Set(unreadThreadIds), [unreadThreadIds]);
 
-
-  // Drag payload MIME types (HTML5 dnd — no library)
   const DRAG_THREAD = 'application/x-markbrain-thread';
   const DRAG_FOLDER = 'application/x-markbrain-folder';
 
-  // Close the thread/folder context menus on any outside pointerdown
   useEffect(() => {
     if (!threadMenu && !folderMenu) return;
     const onPointerDown = () => {
@@ -200,7 +191,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  // ── Grouping: Inbox (active, unfiled) · folders (ordered) · archived ──
   const byActivity = (a: ChatThread, b: ChatThread) => b.lastActivityAt - a.lastActivityAt;
   const activeThreads = threads.filter((t) => t.lifecycle === 'active');
   const archivedThreads = threads.filter((t) => t.lifecycle === 'archived').sort(byActivity);
@@ -226,7 +216,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return null;
   };
 
-  // One row renderer for Inbox / folder / archived lists (draggable + droppable)
   const renderThreadRow = (t: ChatThread, opts: { dimmed?: boolean } = {}) => {
     const isActive = t.id === activeThreadId;
     const runtime = threadRuntimes[t.id];
@@ -243,7 +232,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           e.stopPropagation();
         }}
         onDrop={(e) => {
-          // Drop a thread ON a thread → move it into the target's folder
           e.preventDefault();
           e.stopPropagation();
           const draggedThread = e.dataTransfer.getData(DRAG_THREAD);
@@ -304,9 +292,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
             {runtimeDot(runtime?.state)}
 
-            {/* Row actions. Archiving and deleting used to be reachable only
-                by right-click or by dragging the row onto "Archived" — which
-                is nothing at all on a touch screen. This is the button. */}
+            {/* Row actions. Archiving and deleting must never be reachable only
+                by right-click or by dragging onto "Archived" — neither exists on
+                a touch screen. This button is the path on every device. */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -334,10 +322,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     );
   };
 
-
   return (
     <>
-      {/* Floating Toggle: The Brain Icon when sidebar is closed */}
       {!isOpen && (
         <button
           onClick={() => {
@@ -352,7 +338,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
       )}
 
-      {/* Backdrop overlay for small screens when open */}
       {isOpen && (
         <div
           onClick={() => {
@@ -363,7 +348,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
 
-      {/* Unified Left Sidebar: Docked in flex layout on desktop, slide-out drawer on mobile */}
       <aside
         className={`fixed md:relative top-0 bottom-0 left-0 z-40 md:z-20 h-full bg-surface-1/98 md:bg-surface-1 flex flex-col transition-all duration-200 ease-in-out text-ink backdrop-blur-xl shrink-0 ${
           isOpen
@@ -371,12 +355,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             : '-translate-x-full md:translate-x-0 md:w-0 md:overflow-hidden'
         }`}
       >
-        {/* Single Scrolling Panel */}
         <div className="flex-1 overflow-y-auto p-3 space-y-3.5">
-          {/* Brand + identity. The account block used to be a collapsible card at
-              the bottom of the column; it is now a single flat row at the top —
-              avatar opens a popover with the address and Sign Out. No card, no
-              accordion, no divider rule: the gap below is the separator. */}
+          {/* Brand + identity: one flat row at the top, avatar opens a popover
+              with the address and Sign Out. No card, no accordion, no divider
+              rule — the gap below is the separator. */}
           <div className="relative flex items-center gap-2 px-1">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <Brain className="w-4 h-4 text-brand shrink-0" />
@@ -446,7 +428,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* Block 1: View Navigation Switcher (Chat vs the Artifacts library) */}
           <div className="p-1 bg-recess-1 shadow-well rounded-xl flex items-center gap-1">
             <button
               onClick={() => {
@@ -480,7 +461,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          {/* Block 2: Project Selector (INLINE ACCORDION - NO FLOATING CLIPPED DROPDOWN) */}
           <div className="rounded-xl bg-surface-2 p-1.5">
             <button
               onClick={() => {
@@ -510,7 +490,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </button>
 
-            {/* Inline Accordion Body */}
             {projectAccordionOpen && (
               <div className="mt-0.5 pb-1.5 space-y-0.5 animate-in fade-in duration-100">
                 <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
@@ -557,7 +536,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* Block 2.5: Chat Threads (per project — select / rename / delete) */}
           <div className="rounded-xl bg-surface-2 p-1.5">
             {/* Header row. Order is deliberate: label · new folder · new thread ·
                 chevron LAST, so the collapse affordance is the final glyph on
@@ -635,7 +613,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }
                   }}
                 >
-                  {/* Inline folder name box (create / rename) */}
                   {folderNameBox && folderNameBox.mode === 'create' && (
                     <div className="p-1">
                       <input
@@ -654,7 +631,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                   )}
 
-                  {/* Inbox label (drop target for unfiled) */}
                   <div
                     className={`flex items-center gap-1.5 px-1.5 pt-1 pb-0.5 rounded ${
                       dragOverTarget === 'inbox' ? 'ring-1 ring-[#38bdf8]/70 bg-surface-2' : ''
@@ -670,7 +646,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <p className="text-[9px] font-mono text-[#455770] px-2 py-1">Drop threads here</p>
                   )}
 
-                  {/* Folders (one level, ordered, collapsible) */}
                   {foldersSorted.map((f) => {
                     const open = folderOpen[f.id] !== false;
                     const fThreads = threadsInFolder(f.id);
@@ -756,7 +731,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     );
                   })}
 
-                  {/* Archived (collapsed by default, dimmed rows, drop target) */}
                   {archivedThreads.length > 0 && (
                     <div
                       className={`mt-1 rounded-lg ${
@@ -807,13 +781,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <p className="text-[10px] font-mono text-[#526682] p-2">No threads yet.</p>
                   )}
 
-
                 </div>
               </div>
             )}
           </div>
 
-          {/* Thread context menu — Rename / Move to / Archive / Delete */}
           {threadMenu && (
             <div
               className="fixed z-[60] min-w-40 p-1.5 bg-surface-4 rounded-xl shadow-pop animate-in fade-in duration-100"
@@ -923,7 +895,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
 
-          {/* Folder context menu — Rename / New thread here / Delete */}
           {folderMenu && (
             <div
               className="fixed z-[60] min-w-40 p-1.5 bg-surface-4 rounded-xl shadow-pop animate-in fade-in duration-100"
@@ -973,7 +944,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
 
-          {/* Block 3: Inference Model Selector (INLINE ACCORDION - NO CONTAINER CLIPPING) */}
           <div className="rounded-xl bg-surface-2 p-1.5">
             <button
               onClick={() => {
@@ -1002,7 +972,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </button>
 
-            {/* Inline Accordion Body */}
             {modelAccordionOpen && (
               <div className="mt-0.5 pb-1.5 space-y-1 animate-in fade-in duration-100">
                 {availableModels.map((m) => {
@@ -1101,7 +1070,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          {/* Block 7: Import / Export Tools */}
           <div className="rounded-xl bg-surface-2 p-1.5">
             <button
               onClick={() => {
@@ -1173,7 +1141,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* Block 8: Live Server Logs & Telemetry trigger */}
           {onOpenServerLogs && (
             <button
               onClick={() => {

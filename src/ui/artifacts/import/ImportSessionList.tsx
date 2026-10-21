@@ -72,7 +72,6 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
 
   return (
     <div className="space-y-2">
-      {/* Session summary bar — size awareness, no ceremony */}
       <div className="flex items-center justify-between gap-2 px-3 py-2 bg-surface-2 rounded-xl text-[10px] font-mono">
         <span className="text-[#6ee7b7]">
           {rows.length} file{rows.length === 1 ? '' : 's'} · {counts.landed} landed
@@ -91,7 +90,6 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
         )}
       </div>
 
-      {/* Rows */}
       <div className="space-y-1.5">
         {rows.map((row) => {
           const dot = STATUS_DOT[row.status];
@@ -102,7 +100,6 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
               key={row.id}
               className="bg-surface-1 rounded-xl overflow-hidden"
             >
-              {/* Row header — click to inspect */}
               <div
                 onClick={() => row.status !== 'extracting' && toggle(row.id)}
                 role="button"
@@ -119,7 +116,6 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                     : 'cursor-default'
                 } transition-colors`}
               >
-                {/* Disclosure chevron — ▼ collapsed, flips to ▲ when expanded */}
                 {row.status !== 'extracting' && (
                   <button
                     type="button"
@@ -140,7 +136,6 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                 <span className="text-[11px] font-mono text-[#c2d1e0] truncate flex-1 min-w-0">
                   {row.fileName}
                 </span>
-                {/* Two-step remove — left of the lane badge, per UX review */}
                 {(row.status === 'landed' || row.status === 'failed' || row.status === 'canceled') && (
                   <button
                     type="button"
@@ -200,10 +195,8 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                 </span>
               </div>
 
-              {/* In-place inspector — never a second modal (single-modal rule) */}
               {isExpanded && (
                 <div className="px-3 py-2.5 space-y-2 bg-surface-0/60">
-                  {/* Phase-4 per-row parent override — any non-landed status (retry path matters). */}
                   {row.status !== 'landed' && (
                     <input
                       type="text"

@@ -1,13 +1,10 @@
 /**
- * Persistence worker — debounced snapshot save on domain mutations, plus a
- * flush when the tab hides/dies (pagehide / visibilitychange) so reloading
- * within the 500ms window never loses the last mutation.
+ * Debounced snapshot save on domain mutations, plus a flush when the tab hides
+ * or dies (pagehide / visibilitychange) — otherwise reloading inside the debounce
+ * window silently loses the last mutation.
  *
- * Extracted verbatim from DomainRegistry.tsx (mechanical split — ZERO
- * behavior change, ZERO change to the registry's public API). All
- * dependencies arrive via parameters so the worker is unit-testable;
- * DomainRegistry stays the composition root that instantiates domains and
- * injects the persistence entry points.
+ * Saves stay blocked until hydration lands (`hydratedRef`): a save fired against
+ * half-loaded domains would write empty arrays over the real snapshot.
  */
 import type { IWorkspaceDomain } from '../domains/00-workspace';
 import type { IDialogueTimelineDomain } from '../domains/01-dialogue-timeline';
@@ -36,12 +33,7 @@ export interface PersistDeps {
   isCaptureMode: () => boolean;
 }
 
-/**
- * One debounced-save tick: compose live + cached thread content and write
- * the full snapshot to the ACTIVE backend. Skips when there is no active
- * project, when hydration hasn't landed yet (project switch in flight —
- * data unreliable), and in capture/fixture runs (read-only).
- */
+/** Skips when there is no active project, hydration hasn't landed, or the run is read-only. */
 export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
   const {
     workspace,
@@ -59,9 +51,8 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
   if (!hydratedRef.current) return; // project switch in flight — data unreliable
   if (isCaptureMode()) return; // capture/fixture runs are read-only
   try {
-    // Meta MUST ride along: IndexedDB put() REPLACES the record, so an
-    // omission here wipes name/codeName/description/color on first
-    // auto-save (review P0#3 — caller-side, not snapshot-side).
+    // Meta MUST ride along: IndexedDB put() REPLACES the record, so an omission
+    // here wipes name/codeName/description/color on the first auto-save.
     const container = workspace.getProject(activeId);
     // Threads: compose re-flattens live (active thread) + cached (inactive)
     // content and tags every turn/chapter with its threadId.
@@ -90,20 +81,14 @@ export interface PersistWorkerDeps {
   artifacts: IArtifactDocumentDomain;
   graph: ITopologicalGraphDomain;
   threadRegistry: ThreadRegistry;
-  /** Typically the wrapped `persistProjectSnapshot` call. */
   persistState: () => void | Promise<void>;
 }
 
-/**
- * Hook every content domain's subscription to a 500ms-debounced save and
- * install the pagehide/visibilitychange flush. Returns the effect cleanup
- * (clears the pending timer, removes listeners, unsubscribes everything).
- */
+/** Returns the effect cleanup (clears the timer, removes listeners, unsubscribes). */
 export function attachPersistWorker(deps: PersistWorkerDeps): () => void {
   const { timeline, segmentation, artifacts, graph, threadRegistry, persistState } = deps;
   let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  // Debounced auto-save hook on domain state mutations
   const triggerDebouncedSave = () => {
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
@@ -117,8 +102,6 @@ export function attachPersistWorker(deps: PersistWorkerDeps): () => void {
   const unsubGraph = graph.subscribe(triggerDebouncedSave);
   const unsubThreads = threadRegistry.subscribe(triggerDebouncedSave);
 
-  // Flush a pending debounced save when the tab hides/dies — reloading
-  // within the 500ms window must not lose the last mutation.
   const flushPendingSave = () => {
     if (saveTimeout) {
       clearTimeout(saveTimeout);

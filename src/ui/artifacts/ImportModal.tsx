@@ -60,7 +60,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   const [activeTab, setActiveTab] = useState<'upload' | 'drive'>('drive');
   const [previewMode, setPreviewMode] = useState<'form' | 'raw_yaml'>('form');
 
-  // Artifact Form State
   const [uploadFileName, setUploadFileName] = useState('');
   const [uploadContent, setUploadContent] = useState('');
   const [artifactTitle, setArtifactTitle] = useState('');
@@ -75,7 +74,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   const [isExtractingWithAI, setIsExtractingWithAI] = useState(false);
   const [extractedSuccess, setExtractedSuccess] = useState(false);
 
-  // Google Drive & Docs State
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
@@ -89,7 +87,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   const [directDocUrl, setDirectDocUrl] = useState('');
   const [isFetchingDirectDoc, setIsFetchingDirectDoc] = useState(false);
 
-  // Initialize auth state
   useEffect(() => {
     const unsubscribe = initAuth(
       (currentUser, token) => {
@@ -104,7 +101,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     return () => unsubscribe();
   }, []);
 
-  // Close on Escape — consistent with ArtifactDetailModal/ExportModal/MirrorPanel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -176,7 +172,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     }
   };
 
-  // Clear the loaded source so the user can pick a different file.
   // Locked while extraction/fetch is in flight: a second triggerAIExtraction
   // racing the first would clobber fields with whichever response lands last.
   const handleResetSource = () => {
@@ -199,7 +194,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     setDirectDocUrl('');
   };
 
-  // Perform LLM extraction to generate YAML frontmatter + tentative tags
   const triggerAIExtraction = async (
     contentToExtract: string,
     filename: string,
@@ -208,8 +202,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     if (!contentToExtract.trim()) return;
     setIsExtractingWithAI(true);
     try {
-      // Review: slow extraction model (observed 113–135s) left the spinner
-      // spinning forever. Cap at 120s so the UI always recovers.
+      // Extraction can take ~113–135s; cap at 120s so the UI always recovers.
       const res = await extractArtifactFromFile(
         {
           content: contentToExtract,
@@ -262,13 +255,11 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     e.target.value = '';
   };
 
-  // Basic file drag-and-drop onto the upload tab (folder-drop = Phase 5).
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     if (e.dataTransfer?.files?.length) session.addFiles(e.dataTransfer.files);
   };
 
-  // Select and convert a Google Doc or Drive file
   const handleSelectDriveFile = async (file: DriveFileItem) => {
     setSelectedDriveFile(file);
     if (!accessToken) return;
@@ -340,7 +331,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     }
   };
 
-  // Direct fetch by Google Doc URL or ID
   const handleFetchDirectDoc = async () => {
     if (!directDocUrl.trim() || !accessToken) return;
     const docId = extractGoogleDocIdFromUrl(directDocUrl);
@@ -370,7 +360,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     }
   };
 
-  // Add / Remove Tags
   const handleAddTag = () => {
     const trimmed = newTagInput.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     if (trimmed && !artifactTags.includes(trimmed)) {
@@ -383,7 +372,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     setArtifactTags(artifactTags.filter((t) => t !== tagToRemove));
   };
 
-  // Save Artifact
   const handleConfirmImport = () => {
     logger.action('ImportModal', `Confirm import: ${artifactTitle || artifactCode}`);
     if (!uploadContent.trim()) return;
@@ -431,7 +419,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
     onClose();
   };
 
-  // Compute live YAML preview
   const liveYamlDocPreview = React.useMemo(() => {
     if (!uploadContent) return '';
     const now = Date.now();
@@ -483,7 +470,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-surface-0/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
       <div className="bg-surface-2 rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col shadow-pop text-ink overflow-hidden">
-        {/* Header */}
         <div className="p-4 flex items-center justify-between shrink-0 bg-surface-3">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-wash-danger flex items-center justify-center text-[#f28894]">
@@ -510,7 +496,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           </button>
         </div>
 
-        {/* Tab Switcher */}
         <div className="flex bg-surface-1 text-xs font-mono shrink-0">
           <button
             onClick={() => setActiveTab('drive')}
@@ -537,7 +522,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           </button>
         </div>
 
-        {/* Tab Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {activeTab === 'drive' && (
             <div className="space-y-4">
@@ -566,7 +550,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {/* Auth Header */}
                   <div className="flex items-center justify-between text-xs text-ink-mute p-2.5 bg-surface-1 rounded-xl">
                     <div className="flex items-center gap-2 truncate">
                       <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -582,7 +565,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     </button>
                   </div>
 
-                  {/* Scope verification — offer Reconnect instead of raw 403s */}
                   {scopeStatus === 'checking' && (
                     <div className="p-2.5 bg-surface-1 rounded-xl text-xs font-mono text-ink-dim flex items-center gap-2">
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -645,7 +627,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     </div>
                   ) : (
                     <>
-                      {/* Google Picker — Google's own hosted file browser */}
                       <div className="space-y-1.5">
                         <button
                           onClick={handleOpenPicker}
@@ -667,7 +648,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                         </p>
                       </div>
 
-                      {/* Paste a link instead (Google Doc / Drive URL) */}
                       <div className="space-y-1.5 pt-3">
                         <label className="block text-[10px] font-mono text-[#788fa8]">
                           …or paste a Google Docs / Drive link
@@ -693,7 +673,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       </div>
                     </>
                   )}
-                  {/* Busy: a picked/pasted file is being exported & converted */}
                   {isDriveLoading && selectedDriveFile && (
                     <div className="p-6 text-center text-xs font-mono text-[#8ab1e0]">
                       <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-[#e05a66]" />
@@ -719,8 +698,8 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
           {activeTab === 'upload' && (
             <div className="space-y-4">
-              {/* Phase-4 batch rules — set BEFORE adding files; applied at each row-land.
-                  Precedence: row override > frontmatter parent > this batch default. */}
+              {/* Set BEFORE adding files; applied at each row-land.
+                  Precedence: row override > frontmatter parent > batch default. */}
               <div className="bg-surface-1 rounded-xl p-2.5 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-mono text-[#e05a66] uppercase font-bold">
@@ -829,7 +808,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             </div>
           )}
 
-          {/* AI Extraction State Indicator — Drive tab only (session has its own lane UI) */}
           {activeTab === 'drive' && isExtractingWithAI && (
             <div className="p-3 bg-surface-3 rounded-xl flex items-center gap-2 text-xs font-mono text-ink-dim">
               <Loader2 className="w-4 h-4 animate-spin text-[#e05a66]" />
@@ -839,10 +817,8 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             </div>
           )}
 
-          {/* Result Editor & Review — Drive tab only (upload tab lands-as-you-go) */}
           {activeTab === 'drive' && uploadContent && (
             <div className="space-y-3 bg-surface-1 p-3.5 rounded-xl">
-              {/* Review Bar */}
               <div className="flex items-center justify-between pb-2.5">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-mono text-[#e05a66] uppercase font-bold flex items-center gap-1">
@@ -905,7 +881,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {/* Title & Code */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-mono text-[#788fa8] mb-1">
@@ -932,7 +907,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Tags Editor */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-[10px] font-mono text-[#788fa8] flex items-center gap-1">
@@ -987,7 +961,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Short Description */}
                   <div>
                     <label className="block text-[10px] font-mono text-[#788fa8] mb-1">
                       Short Description (Few phrases)
@@ -1000,7 +973,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     />
                   </div>
 
-                  {/* Summary */}
                   <div>
                     <label className="block text-[10px] font-mono text-[#788fa8] mb-1">
                       Summary of Contents (Executive abstract)
@@ -1013,7 +985,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     />
                   </div>
 
-                  {/* Parent & High Concept */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-mono text-[#788fa8] mb-1">
@@ -1047,7 +1018,6 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-3 bg-surface-2 flex items-center justify-between shrink-0">
           <button
             onClick={onClose}

@@ -1,15 +1,8 @@
 /**
- * The colour law + the rail math (design-docs/12_PLAN_OF_RECORD.md §1, §3).
- *
- * Locks what David corrected on 2026-10-20 after the attachment timeline:
- *
- *  · dark plate, bright ink — ALWAYS (no bright row fills, ever again);
- *  · one punchy circle when the artifact is in the chat, dead dark grey when
- *    it is not;
- *  · the four hues step evenly — the shipped palette had a 92° HSL chasm on
- *    the yellow-green side, which is exactly what he saw;
- *  · the 5px rail grows on a cube root of 1M tokens, not to 100% by default;
- *  · one provenance counter (`msg N`), and legacy attachments say 'in chat'.
+ * Executable form of the colour law and the rail maths (design-docs/
+ * 12_PLAN_OF_RECORD.md §1). This file is why the palette block in
+ * domains/granularity.ts does not need to argue its own case in prose: a wrong
+ * hue step, a bright row fill or a linear rail height fails here with a number.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -105,7 +98,7 @@ const STATES = [
   'full',
 ] as const;
 
-describe('colour law (12 §1) — dark plate, bright ink, one lit circle', () => {
+describe('colour law — dark plate, bright ink, one lit circle', () => {
   it('has exactly six states, each with a canonical hex and a glow channel', () => {
     for (const state of STATES) {
       const p = ATTACHMENT_STATE_PALETTE[state];
@@ -121,7 +114,7 @@ describe('colour law (12 §1) — dark plate, bright ink, one lit circle', () =>
   });
 
   it('every row plate is a TINT of its own hue, laid over the host plane', () => {
-    // The de-border sweep's second pass (index.css §veil/recess): a row lives
+    // The veil/recess instruments (index.css): a row lives
     // INSIDE a host plane, so its plate is alpha, never an opaque hex. That is
     // what stops the purple-chip-in-a-green-card clash the first pass shipped.
     for (const state of ['staged', 'title', 'description', 'summary', 'full'] as const) {
@@ -199,9 +192,9 @@ describe('colour law (12 §1) — dark plate, bright ink, one lit circle', () =>
   });
 
   it('an idle chip is NEUTRAL; the active chip carries its hue as light', () => {
-    // David, 2026-10-20: opaque idle chips clashed with the hue of the row they
-    // sat in, AND out-shouted the selection. So: idle is colourless and sinks;
-    // active is the only coloured chip on the row, and it glows.
+    // An opaque idle chip clashes with the hue of the row it sits in AND
+    // out-shouts the selection. So idle is colourless and sinks; active is the
+    // only coloured chip on the row, and it glows.
     const idle = getGranularityChipClass('full', false);
     expect(hexesIn(idle), 'an idle chip must not carry a colour').toEqual([]);
     expect(idle, 'an idle chip steps DOWN into its host').toContain('bg-recess-1');
@@ -264,14 +257,14 @@ describe('colour law (12 §1) — dark plate, bright ink, one lit circle', () =>
   });
 });
 
-describe('rail height (12 §3) — cbrt of 1M tokens, capped at 100%', () => {
+describe('rail height — cbrt of 1M tokens, capped at 100%', () => {
   it('is zero for an empty payload', () => {
     expect(computeRailHeightPct(0)).toBe(0);
     expect(computeRailHeightPct(-5)).toBe(0);
     expect(computeRailHeightPct(NaN)).toBe(0);
   });
 
-  it('lands David’s example: 100k → cbrt(0.1) ≈ 46.4%', () => {
+  it('lands the worked example: 100k → cbrt(0.1) ≈ 46.4%', () => {
     expect(computeRailHeightPct(100_000)).toBeCloseTo(Math.cbrt(0.1) * 100, 4);
     expect(computeRailHeightPct(100_000)).toBeCloseTo(46.4159, 3);
   });
@@ -290,7 +283,7 @@ describe('rail height (12 §3) — cbrt of 1M tokens, capped at 100%', () => {
   });
 });
 
-describe('provenance (12 §2.2) — one counter, honest about legacy', () => {
+describe('provenance — one counter, honest about legacy', () => {
   it('counts messages 1-based, like the chapter headers', () => {
     expect(formatAttachmentProvenance(0)?.badge).toBe('msg 1');
     expect(formatAttachmentProvenance(3)?.badge).toBe('msg 4');
@@ -303,7 +296,7 @@ describe('provenance (12 §2.2) — one counter, honest about legacy', () => {
   });
 });
 
-describe('retry anchor (12 §5.1) — staged attachments weld to the user turn', () => {
+describe('retry anchor — staged attachments weld to the user turn', () => {
   const thread = [
     { id: 'u1', role: 'user' },
     { id: 'a1', role: 'assistant' },

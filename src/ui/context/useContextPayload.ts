@@ -21,13 +21,7 @@ export interface ContextPayloadParams {
   tick: number;
 }
 
-/**
- * Compiles the payload for the active chat and derives the ambient numbers.
- *
- * Inputs are exactly: this chat's attachments (each at its granularity) and
- * its chapters (each at its granularity, live domains). Nothing is guessed
- * from the library — see design-docs/09_CHAT_ARTIFACTS_PAYLOAD.md §1c.
- */
+/** Compiles the payload for the active chat and derives the ambient numbers. */
 export function useContextPayload(params: ContextPayloadParams) {
   const { compiler, currentContainer, attachments, tick } = params;
 
@@ -47,10 +41,6 @@ export function useContextPayload(params: ContextPayloadParams) {
     [compiler, attachmentKey, currentContainer?.tokenCeiling, tick]
   );
 
-  // Telemetry for the SaturationOrb + the 5px rail. The rail is the payload,
-  // read top to bottom — the exact order of `compiledPrompt` and the Mirror:
-  // system → attachments (substrate order) → chapters (chronological).
-  // No invented categories: the old 70/30 `historyTokens` split is gone.
   const ambientTelemetry: AmbientTelemetryData = useMemo(() => {
     const tb = compiledContext.telemetry.tokenBreakdown;
     const ceiling = currentContainer?.tokenCeiling || 32000;

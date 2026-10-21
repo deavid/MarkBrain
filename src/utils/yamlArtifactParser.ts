@@ -9,17 +9,7 @@ export interface ParsedYamlArtifact {
   hasFrontmatter: boolean;
 }
 
-/**
- * Serializes an Artifact into a single YAML-frontmatter + Markdown file
- * Formats:
- * ---
- * title: ...
- * description: ...
- * summary: ...
- * graph: ...
- * ---
- * # Markdown contents
- */
+/** Serializes an Artifact into YAML frontmatter (`title`, `description`, `summary`, `graph`) plus Markdown body. */
 export function serializeArtifactToYamlDoc(art: Artifact): string {
   const frontmatterData: Record<string, unknown> = {
     id: art.id,
@@ -50,9 +40,7 @@ export function serializeArtifactToYamlDoc(art: Artifact): string {
   return `---\n${yamlString}\n---\n\n${markdownBody}\n`;
 }
 
-/**
- * Parses a combined YAML + Markdown document
- */
+/** Parses YAML frontmatter plus Markdown body into artifact fields. */
 export function parseYamlArtifactDoc(
   rawText: string,
   fallbackProjectId: string = 'proj-default'

@@ -22,24 +22,13 @@ export type ThreadTitleState = 'placeholder' | 'auto' | 'manual';
 /**
  * An artifact used in a chat. The ATTACHMENT carries the granularity — the
  * same artifact can be `title` in one chat and `full` in another.
- *
- * An attachment is a TIMELINE event (design-docs/10_ATTACHMENT_TIMELINE.md):
- * staged for the next turn (`turnIndex` null, freely removable) → committed
- * to a turn (`turnIndex` set, no detach — history has no delete key).
- * Granularity stays steerable at every point; floor = title (a mention).
  */
 export interface ChatAttachment {
   artifactId: string;
   granularity: Granularity;
   addedAt: number;
-  /**
-   * Timeline position of this attachment:
-   * - `null`: staged for the next turn (can still be unstaged before Send).
-   * - `number` (0-based turn index in this thread): committed to that turn in
-   *   the chat history (cannot be detached; granularity remains adjustable).
-   */
+  /** `null` = staged (removable); `>= 0` = committed to that 0-based turn index; `-1` = committed (legacy, turn unknown). */
   turnIndex?: number | null;
-  /** ID of the turn this attachment was welded to when committed. */
   turnId?: string | null;
 }
 
@@ -49,7 +38,7 @@ export function isAttachmentStaged(att: ChatAttachment): boolean {
 
 export interface ChatThread {
   id: string;
-  folderId: string | null; // null = Inbox
+  folderId: string | null;
   title: string;
   titleState: ThreadTitleState;
   /** 0 = placeholder (no LLM yet), 1 = first auto-gen, 2 = re-gen after ~3 turns. */
@@ -58,9 +47,7 @@ export interface ChatThread {
   updatedAt: number;
   lastActivityAt: number;
   lifecycle: ThreadLifecycle;
-  /** Post-mortem of the last generation attempt (persists across reloads). */
   lastOutcome: 'ok' | 'error' | 'interrupted';
-  /** First ~100 chars of the latest user message (row subtitle). */
   preview: string;
   /**
    * Artifacts used in THIS chat, in attach order. Empty = nothing but the
@@ -75,7 +62,6 @@ export interface ThreadFolder {
   order: number;
 }
 
-/** Derived UI state — see deriveThreadRuntime(). */
 export type ThreadRuntime = 'idle' | 'queued' | 'working' | 'error' | 'interrupted';
 
 const rand = () => Math.random().toString(36).slice(2, 6);
@@ -84,9 +70,6 @@ export function makeThreadId(): string {
   return `thread-${Date.now().toString(36)}-${rand()}`;
 }
 
-/**
- * Fresh thread. titleVersion 0 = the staged titling pipeline hasn't run yet.
- */
 export function makeNewThread(partial: Partial<ChatThread> = {}): ChatThread {
   const now = Date.now();
   return {
@@ -106,10 +89,6 @@ export function makeNewThread(partial: Partial<ChatThread> = {}): ChatThread {
   };
 }
 
-/**
- * Migration/default thread: synthetic title, pipeline exhausted (titleVersion 2)
- * so legacy conversations never get re-titled by the stage-1/stage-2 triggers.
- */
 export function makeDefaultThread(): ChatThread {
   return makeNewThread({
     title: 'Main',
@@ -118,7 +97,6 @@ export function makeDefaultThread(): ChatThread {
   });
 }
 
-/** Every thread owns at least one chapter (startIndex 0 covers its turns). */
 export function makeGenesisChapter(projectId: string, threadId: string) {
   return {
     id: `chap-genesis-${threadId}`,
@@ -134,7 +112,6 @@ export function makeGenesisChapter(projectId: string, threadId: string) {
   };
 }
 
-/** Truncated first-message title (Stage 0) — no LLM involved. */
 export function placeholderTitle(text: string): string {
   const clean = (text || '').replace(/\s+/g, ' ').trim();
   if (!clean) return 'New thread';
@@ -144,12 +121,6 @@ export function placeholderTitle(text: string): string {
   return (spaceIdx > 12 ? cut.slice(0, spaceIdx) : cut).trim() + '…';
 }
 
-/**
- * Staged titling pipeline decision — called after a SUCCESSFUL assistant reply.
- *   stage1: first reply completes while title is still a placeholder.
- *   stage2: exactly once more after ~3 substantive replies.
- * Manual rename and migrated threads (titleVersion 2) opt out permanently.
- */
 export function titlePipelineStep(
   thread: ChatThread,
   assistantCount: number
@@ -160,7 +131,6 @@ export function titlePipelineStep(
   return null;
 }
 
-/** Compact transcript sample for the title meta-call: first 2 + last 4 turns. */
 export function sampleTurnsForTitle(
   turns: Array<{ role: string; content: string }>
 ): Array<{ role: string; content: string }> {
@@ -175,10 +145,6 @@ export function sampleTurnsForTitle(
   }));
 }
 
-/**
- * Runtime for a thread row — precedence: actively streaming > queued > flags.
- * Pure so the queue UI and its tests share one source of truth.
- */
 export function deriveThreadRuntime(
   thread: ChatThread,
   activeJobThreadId: string | null,
@@ -191,7 +157,6 @@ export function deriveThreadRuntime(
   return 'idle';
 }
 
-/** 1-based position in the pending queue, 0 when not queued. */
 export function queuePositionOf(threadId: string, queue: Array<{ threadId: string }>): number {
   const idx = queue.findIndex((j) => j.threadId === threadId);
   return idx >= 0 ? idx + 1 : 0;

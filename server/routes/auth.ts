@@ -1,7 +1,6 @@
 import type { Express, Request, Response } from 'express';
 
 export function registerAuthRoutes(app: Express): void {
-// API: Firebase / OAuth client configuration from runtime environment
 app.get('/api/auth/config', (_req: Request, res: Response) => {
   res.json({
     projectId: process.env.FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || '',

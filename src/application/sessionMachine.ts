@@ -1,17 +1,13 @@
 /**
- * Session machine — auth observer, gate branches (Google / Local), backend
- * switch on continueLocal/signOut, and the boot-gate state App waits on
- * (`authInitialized`, `cloudProjectsCount`).
+ * Session machine — the auth observer, the two gate branches (Google / Local),
+ * the backend switch on continueLocal/signOut, and the boot-gate state App waits
+ * on (`authInitialized`, `cloudProjectsCount`).
  *
- * Extracted verbatim from DomainRegistry.tsx (mechanical split — ZERO
- * behavior change, ZERO change to the registry's public API). Dependencies
- * (firebase + persistence entry points, workspace) arrive via parameters so
- * the machine is unit-testable; DomainRegistry injects the real ones.
- *
- * Session shape: TWO branches at the gate (Google / Local), but everything
- * downstream just sees `currentUser` — the Local branch presents a
- * display-only pseudo-user so App/Sidebar/Genesis stay backend-agnostic.
- * Storage branch lives entirely in persistenceService (getBackend/setBackend).
+ * Two branches at the gate, but everything downstream sees only
+ * `currentUser`: the Local branch presents a display-only pseudo-user so App,
+ * Sidebar and Genesis stay backend-agnostic. Which backend a session actually
+ * writes to lives entirely in persistenceService (getBackend/setBackend) — do
+ * not make that decision here.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
@@ -28,9 +24,7 @@ export interface SessionDeps {
   subscribeToAuth: (callback: (user: User | null) => void) => () => void;
   getBackend: () => StorageBackend;
   setBackend: (backend: StorageBackend) => void;
-  /** Backend-agnostic project list (firestore tree / local store). */
   listUserProjects: () => Promise<ProjectSnapshot[]>;
-  /** Registry write-through — [] clears registry → Genesis. */
   workspace: IWorkspaceDomain;
 }
 
@@ -39,7 +33,6 @@ export interface SessionMachine {
   authInitialized: boolean;
   /** null = "cloud project list not resolved yet" (App holds its boot loader on this) */
   cloudProjectsCount: number | null;
-  /** For callers that resolve the count themselves (create/delete workspace). */
   setCloudProjectsCount: Dispatch<SetStateAction<number | null>>;
   signIn: () => Promise<User>;
   continueLocal: () => Promise<void>;
@@ -74,10 +67,7 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
   const [authInitialized, setAuthInitialized] = useState<boolean>(false);
   const [cloudProjectsCount, setCloudProjectsCount] = useState<number | null>(null);
 
-  // Project LIST — the single boot path for the workspace registry.
-  // listUserProjects never throws (it catches → []), but every path must set
-  // the count: the App boot gate waits on `cloudProjectsCount !== null`.
-  // Backend-agnostic: it resolves its own scope (firestore tree / local store).
+  // Every path must set the count: the App boot gate waits on `cloudProjectsCount !== null`.
   const loadUserCloudData = useCallback(async () => {
     try {
       const userProjects = await listUserProjects();
@@ -116,7 +106,6 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
     return await signInWithGoogle();
   }, [signInWithGoogle]);
 
-  // Gate branch 2: enter the Local space — no account, IndexedDB only.
   const continueLocal = useCallback(async () => {
     setBackend('local');
     setCurrentUser(LOCAL_USER);
@@ -124,7 +113,6 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
     await loadUserCloudData();
   }, [loadUserCloudData, LOCAL_USER, setBackend]);
 
-  // Sign out from EITHER branch: reset backend to firestore + clear session.
   const signOut = useCallback(async () => {
     setBackend('firestore');
     try {

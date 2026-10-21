@@ -56,28 +56,22 @@ export interface DomainContextValue {
     description: string;
     color: string;
   }) => Promise<void>;
-  /** Permanently delete a project from the ACTIVE backend + registry. */
   deleteWorkspace: (projectId: string) => Promise<void>;
-  /** Thread metadata + inactive-thread content (see 06-chat-threads). */
   threadRegistry: ThreadRegistry;
-  /** Switch the active thread (flush live → cache, load incoming). */
   selectThread: (threadId: string) => void;
-  /** Create a thread in the active project and switch to it. Returns its id. */
   createThread: () => string;
-  /** Delete a thread; falls back to another thread when the active one dies. */
   deleteThread: (threadId: string) => void;
 }
 
 const DomainContext = createContext<DomainContextValue | null>(null);
 
 export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // ── Domain instantiation (composition root) ───────────────────────────
   const workspace = useMemo(() => new WorkspaceDomain(), []);
   const activeProjectId = workspace.getActiveProjectId();
 
-  // Domains start EMPTY — data arrives from Firestore via the snapshot
-  // effect below. (The old localStorage-mirror + static-seed chain is gone:
-  // Storage IS Firebase, and demo seeds are not a storage layer.)
+  // Domains start EMPTY; data arrives through the snapshot effect below. Nothing
+  // may seed a domain with demo content — a seed is not a storage layer, and it
+  // would be indistinguishable from real data on the next save.
   const timeline = useMemo(() => new DialogueTimelineDomain(activeProjectId, []), [activeProjectId]);
   const artifacts = useMemo(() => new ArtifactDocumentDomain(activeProjectId, []), [activeProjectId]);
   const versioning = useMemo(() => new ArtifactVersioningDomain(), []);
@@ -89,8 +83,6 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     () => new ChapterRecalibrationDomain(segmentation, timeline),
     [segmentation, timeline]
   );
-  // Chat threads: metadata + inactive-thread content. Single instance —
-  // re-hydrated on every project switch (snapshot load effect below).
   const threadRegistry = useMemo(() => new ThreadRegistry(), []);
   // The compiler reads ONLY the chat's attachments + chapters. The graph is a
   // library lens now, not a context mechanism — it is never passed here.
@@ -99,9 +91,6 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [artifacts, segmentation, timeline]
   );
 
-  // ── Project snapshot hydration (application/snapshotLoader) ───────────
-  // Single load path for project CONTENT: boot and project switching both
-  // come through here — see snapshotLoader.ts for the full rationale.
   const hydratedRef = useRef(false);
   useEffect(() => {
     if (!activeProjectId) return;
@@ -118,10 +107,6 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   }, [activeProjectId, timeline, segmentation, artifacts, graph, threadRegistry]);
 
-  // ── Authentication & cloud session (application/sessionMachine) ───────
-  // Local branch presents the LOCAL_USER pseudo-user inside the machine —
-  // App/Sidebar/Genesis stay backend-agnostic. Storage branch lives entirely
-  // in persistenceService (getBackend/setBackend).
   const {
     currentUser,
     authInitialized,
@@ -141,8 +126,6 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     workspace,
   });
 
-  // ── Persistence worker (application/persistWorker) ────────────────────
-  // Debounced Firestore save on domain mutations + pagehide/visibility flush.
   const persistState = useCallback(
     () =>
       persistProjectSnapshot({
@@ -206,8 +189,6 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     },
     [workspace, setCloudProjectsCount]
   );
-
-  // ── Chat-thread operations (need the live domains to flush/load) ──────
 
   const selectThread = useCallback(
     (threadId: string) => {

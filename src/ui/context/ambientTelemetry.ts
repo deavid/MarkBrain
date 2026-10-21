@@ -2,19 +2,14 @@ import type { AttachmentVisualState } from '../../domains/granularity';
 import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
 
 /**
- * Ambient telemetry for the two peripheral readouts (SaturationOrb + the 5px
- * Edge Rail). design-docs/12_PLAN_OF_RECORD.md §3.
- *
- * The rail is the payload, read top to bottom — same order as
- * `compiledPrompt` and the Mirror: system → attachments (substrate order) →
- * chapters (chronological). Each segment wears the hue of what it is, from the
- * one palette in domains/granularity.ts. No invented categories, no 70/30
- * splits of `historyTokens`.
+ * Numbers behind the orb and the 5px rail. The rail is the payload itself, in
+ * `compiledPrompt` order; every segment's hue comes from the palette in
+ * domains/granularity.ts. If a token is not in the payload, it is not in the rail.
  */
 
 export const RAIL_TOKEN_YARDSTICK = 1_000_000;
 
-/** Neutral slate for the system block — deliberately outside the 4-hue language. */
+/** Slate, deliberately outside the four-hue state language. */
 export const SYSTEM_RAIL_HEX = '#475872';
 
 export interface EdgeRailSegment {
@@ -31,38 +26,29 @@ export interface AmbientTelemetryData {
   totalTokens: number;
   ceiling: number;
   saturationRatio: number;
-  /**
-   * Filled height of the 5px rail, as a percentage of the viewport edge:
-   * `min(100, cbrt(totalTokens / 1_000_000) * 100)`.
-   * 100k tokens → 46.4% ; 8k → 20% ; 1M → 100% (and stays there).
-   */
+  /** `min(100, cbrt(totalTokens / 1M) * 100)`, as a percentage of the viewport edge. */
+
   railHeightPct: number;
   /** Ordered payload segments: system → attachments → chapters. */
   segments: EdgeRailSegment[];
 }
 
-/**
- * David's cube-root law (R1.5): the rail must not sit at 100% all the time.
- * `cbrt(factor over 1M)` turns a linear yardstick into one you can actually
- * read at a glance — 100k is a little under half, 8k is a fifth.
- */
 export function computeRailHeightPct(totalTokens: number): number {
   if (!Number.isFinite(totalTokens) || totalTokens <= 0) return 0;
   const factor = Math.min(1, totalTokens / RAIL_TOKEN_YARDSTICK);
   return Math.min(100, Math.cbrt(factor) * 100);
 }
 
-/** Rail colour for a state — one palette, one truth (12 §3.2). */
+/** Rail colour for a state. */
+
 export function railHexFor(state: AttachmentVisualState | 'system'): string {
   return state === 'system' ? SYSTEM_RAIL_HEX : ATTACHMENT_STATE_PALETTE[state].hex;
 }
 
 /**
- * Saturation ring colour. Kept as three steps of the SAME language as the rail:
- * green (comfortable) → yellow (warm) → red (hot). Thresholds are against the
- * container ceiling, which is a different yardstick from the rail's 1M — that
- * is on purpose: the orb answers "how full is MY budget", the rail answers
- * "how big is this payload against the model's window".
+ * Green → yellow → red, measured against the container CEILING (not the rail's
+ * 1M yardstick): the orb answers "how full is my budget", the rail answers "how
+ * big is this payload against the model's window".
  */
 export function computeAmbientColor(ratio: number): { hex: string; glow: string; textClass: string } {
   if (ratio > 0.85) {

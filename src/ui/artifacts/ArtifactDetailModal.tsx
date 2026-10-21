@@ -85,7 +85,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
             : 'w-full max-w-6xl h-[94vh] max-h-[94vh] rounded-2xl'
         }`}
       >
-        {/* Header */}
         <div className="p-3 sm:p-4 bg-surface-3 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <span
@@ -109,7 +108,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Fullscreen Toggle */}
             <button
               onClick={() => setIsFullscreen(!isFullscreen)}
               className="p-1.5 rounded-xl bg-surface-2 hover:bg-surface-4 text-[#869ab8] hover:text-ink transition-colors cursor-pointer"
@@ -118,7 +116,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
               {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
             </button>
 
-            {/* Close Button */}
             <button
               onClick={onClose}
               className="p-1.5 rounded-xl bg-surface-2 hover:bg-surface-4 text-[#869ab8] hover:text-ink transition-colors cursor-pointer"
@@ -196,7 +193,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           )}
         </div>
 
-        {/* Navigation Tabs */}
         <div className="flex bg-surface-1 px-3 gap-2">
           <button
             onClick={() => setActiveTab('content')}
@@ -232,11 +228,9 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           )}
         </div>
 
-        {/* Tab Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-[#cad8eb] leading-relaxed">
           {activeTab === 'content' && (
             <div className="space-y-4">
-              {/* Description layer */}
               {description && (
                 <div className="p-3 rounded-lg bg-surface-2 space-y-1">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#8ab1e0] font-semibold block">
@@ -246,7 +240,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Summary */}
               {summary && (
                 <div className="p-3 rounded-lg bg-surface-2 space-y-1">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#e0b96c] font-semibold block">
@@ -258,7 +251,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Full Markdown Body */}
               <div className="p-3.5 rounded-lg bg-surface-1 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#5ad49b] font-semibold">
@@ -379,7 +371,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-3 bg-surface-2 flex items-center justify-between">
           <span className="text-[10px] font-mono text-[#556985]">
             Title · Description · Summary · Full

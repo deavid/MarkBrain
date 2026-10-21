@@ -201,7 +201,11 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
             }
           : undefined
       }
-      className={`group w-full text-left rounded-xl px-2 py-1.5 space-y-1 ${
+      // basis/grow only matter inside a wrapping flex parent (the chat strips
+      // and the staged tray): there the row is a card that sits beside its
+      // neighbours. In a block parent (library, mirror) they are inert and the
+      // row fills the line exactly as before.
+      className={`group basis-[320px] grow min-w-0 text-left rounded-xl px-2 py-1.5 space-y-1 ${
         onToggle ? 'cursor-pointer select-none' : ''
       } ${palette.rowClass} ${archived ? 'opacity-70' : ''}`}
     >
@@ -370,21 +374,24 @@ export const StagedTray: React.FC<StagedTrayProps> = ({
         </div>
       )}
 
-      {expanded &&
-        items.map((item) => (
-          <AttachmentRow
-            key={item.artifactId}
-            artifactId={item.artifactId}
-            state="staged"
-            title={item.title}
-            subtitle={item.subtitle}
-            tokens={item.tokens}
-            granularity={item.granularity}
-            onSetGranularity={(g) => onSetGranularity(item.artifactId, g)}
-            onUnstage={() => onUnstage(item.artifactId)}
-            onOpenDetail={onOpenDetail ? () => onOpenDetail(item.artifactId) : undefined}
-          />
-        ))}
+      {expanded && (
+        <div className="flex flex-wrap gap-1.5 w-full">
+          {items.map((item) => (
+            <AttachmentRow
+              key={item.artifactId}
+              artifactId={item.artifactId}
+              state="staged"
+              title={item.title}
+              subtitle={item.subtitle}
+              tokens={item.tokens}
+              granularity={item.granularity}
+              onSetGranularity={(g) => onSetGranularity(item.artifactId, g)}
+              onUnstage={() => onUnstage(item.artifactId)}
+              onOpenDetail={onOpenDetail ? () => onOpenDetail(item.artifactId) : undefined}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

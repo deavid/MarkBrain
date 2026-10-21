@@ -801,8 +801,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 const turnsHidden = isCollapsed || granularity !== 'full';
                 if (!turnsHidden || chapterAtts.length === 0) return null;
                 return (
-                  <div className="px-3 sm:px-4 py-2 bg-veil-1 space-y-1.5">
-                    <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985]">
+                  <div className="px-3 sm:px-4 py-2 bg-veil-1 flex flex-wrap gap-1.5">
+                    <div className="w-full shrink-0 text-[9px] font-mono uppercase tracking-wider text-[#556985]">
                       Attached in this chapter (independent of the cut)
                     </div>
                     {chapterAtts.map((att) => (
@@ -1157,8 +1157,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             entered the conversation. No ×: the turn already
                             happened; only the cut stays steerable. */}
                         {attachmentsOfTurn(message, globalTurnIndex).length > 0 && (
-                          <div className="max-w-[92%] sm:max-w-[85%] w-full mt-1.5 space-y-1">
-                            <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985] px-0.5">
+                          <div className="max-w-[92%] sm:max-w-[85%] w-full mt-1.5 flex flex-wrap gap-1.5">
+                            <div className="w-full shrink-0 text-[9px] font-mono uppercase tracking-wider text-[#556985] px-0.5">
                               Attached on this turn
                             </div>
                             {attachmentsOfTurn(message, globalTurnIndex).map((att) => (

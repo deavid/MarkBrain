@@ -3,6 +3,7 @@ import { ModelOption, Artifact } from '../../types';
 import type { ProjectMetadata } from '../../domains/00-workspace/types';
 import { logger } from '../../utils/logger';
 import { UserAvatar } from './UserAvatar';
+import { ReadAloudControls } from './ReadAloudControls';
 import {
   Brain,
   Cpu,
@@ -1103,6 +1104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </div>
             </div>
+            <ReadAloudControls />
             <div className="px-1.5 pb-1.5 flex items-center gap-1 flex-wrap">
               {TTS_VOICES.map((v) => {
                 const isSelected = v === chosenVoice;

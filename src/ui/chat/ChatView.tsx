@@ -32,6 +32,7 @@ import {
 import { logger } from '../../utils/logger';
 import { copyText } from '../../utils/clipboard';
 import { isChapterInProgress } from '../../domains/02-chapter-segmentation';
+import { getTtsSnapshot, ttsTransport } from '../context/ttsTransport';
 import { MessageBody } from './MessageBody';
 import { renderMarkdown } from '../../utils/markdown';
 import { flipMessageView, messageIsRaw } from './chatRenderMode';
@@ -335,6 +336,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stagedCount]);
 
+  // A thread/view switch unmounts the feed while audio may still be playing:
+  // pause it and idle the transport, or the sidebar card shows a track that
+  // no longer exists.
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      ttsTransport.end();
+    };
+  }, []);
+
   // Auto-scroll ONLY when a new message is appended (NOT on summary toggles or loading state)
   const isFirstMount = useRef(true);
   useEffect(() => {
@@ -377,6 +392,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
+      ttsTransport.end();
       setPlayingMessageId(null);
       return;
     }
@@ -388,8 +404,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
+    ttsTransport.end();
 
     setTtsLoadingId(message.id);
+    ttsTransport.begin(message.id);
 
     try {
       const res = await tts({
@@ -403,21 +421,40 @@ export const ChatView: React.FC<ChatViewProps> = ({
         const audioUrl = `data:${data.mimeType || 'audio/wav'};base64,${data.audioData}`;
         const audio = new Audio(audioUrl);
         audioRef.current = audio;
+        // The transport owns the timeline (volume application + seek), ChatView
+        // owns which message and what happens next.
+        ttsTransport.setAudio(audio);
         audio.onended = () => {
           setPlayingMessageId(null);
           audioRef.current = null;
+          ttsTransport.end();
         };
         audio.onerror = () => {
           logger.warn('ChatView', 'TTS audio playback failed, falling back to browser speech synthesis');
+          audioRef.current = null;
+          ttsTransport.end();
           fallbackSpeech(data.cleanSpokenText || message.content, message.id);
         };
-        await audio.play();
-        setPlayingMessageId(message.id);
+        try {
+          await audio.play();
+          ttsTransport.playing({
+            duration: Number.isFinite(audio.duration) ? audio.duration : 0,
+            seekable: true,
+          });
+          setPlayingMessageId(message.id);
+        } catch (playErr) {
+          // Autoplay refusal must not leave a claimed element behind.
+          logger.warn('ChatView', 'TTS audio play() refused, falling back to web speech', playErr);
+          audioRef.current = null;
+          ttsTransport.end();
+          fallbackSpeech(data.cleanSpokenText || message.content, message.id);
+        }
       } else {
         fallbackSpeech(data.cleanSpokenText || message.content, message.id);
       }
     } catch (err) {
       logger.warn('ChatView', 'TTS API request failed, falling back to web speech', err);
+      ttsTransport.end();
       fallbackSpeech(message.content, message.id);
     } finally {
       setTtsLoadingId(null);
@@ -430,12 +467,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1.05;
       utterance.pitch = 1.0;
-      utterance.onend = () => setPlayingMessageId(null);
-      utterance.onerror = () => setPlayingMessageId(null);
+      // Volume from the shared control; a live utterance cannot be re-gained,
+      // so a drag mid-sentence applies to the next one.
+      utterance.volume = getTtsSnapshot().volume;
+      const stop = () => {
+        setPlayingMessageId(null);
+        ttsTransport.end();
+      };
+      utterance.onend = stop;
+      utterance.onerror = stop;
+      ttsTransport.setAudio(null);
       window.speechSynthesis.speak(utterance);
       setPlayingMessageId(msgId);
+      ttsTransport.playing({ seekable: false, duration: 0 });
     } else {
       setPlayingMessageId(null);
+      ttsTransport.end();
     }
   };
 

@@ -1,9 +1,11 @@
 import { initializeApp } from 'firebase/app';
+import type { FirebaseApp } from 'firebase/app';
 import {
   getFirestore,
   doc,
   getDocFromServer,
 } from 'firebase/firestore';
+import type { Firestore } from 'firebase/firestore';
 import {
   getAuth,
   signInWithPopup,
@@ -12,6 +14,7 @@ import {
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
+import type { Auth } from 'firebase/auth';
 import { logger } from '../utils/logger';
 // The web API key comes from .env only (gitignored — the real boundary: keeping
 // it out of git history). It still reaches the client bundle by design; that's
@@ -28,17 +31,33 @@ export const firebaseConfig = {
   messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string) || '',
 };
 
-export const app = initializeApp(firebaseConfig);
+/**
+ * Empty key ⇒ no cloud at all. `getAuth()` asserts a non-empty apiKey, so
+ * without a key this module used to throw at import time (main → DomainRegistry
+ * → here) and white-screen the app instead of falling back to Local mode.
+ */
+export const isFirebaseConfigured = Boolean(firebaseConfig.apiKey);
+if (!isFirebaseConfigured) {
+  logger.warn(
+    'Firebase',
+    'FIREBASE_API_KEY is empty — Google sign-in and cloud sync are DISABLED (the gate hides the Google button). This session runs on the Local backend: IndexedDB, this browser only. Set FIREBASE_API_KEY in .env and restart the dev server to enable cloud.'
+  );
+}
 
-export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
+export const app: FirebaseApp | null = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
+
+export const auth: Auth | null = app ? getAuth(app) : null;
+
+export const googleProvider: GoogleAuthProvider | null = app ? new GoogleAuthProvider() : null;
 // Always show the account chooser — sign-out must actually reset the journey
 // (otherwise Google silently re-grants the cached session in the popup).
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+googleProvider?.setCustomParameters({ prompt: 'select_account' });
 
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+export const db: Firestore | null = !app
+  ? null
+  : firebaseConfig.firestoreDatabaseId
+    ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+    : getFirestore(app);
 
 export enum OperationType {
   CREATE = 'create',
@@ -74,13 +93,13 @@ export function handleFirestoreError(
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
       providerInfo:
-        auth.currentUser?.providerData?.map((provider) => ({
+        auth?.currentUser?.providerData?.map((provider) => ({
           providerId: provider.providerId,
           email: provider.email,
         })) || [],
@@ -93,6 +112,7 @@ export function handleFirestoreError(
 }
 
 export async function testConnection(): Promise<void> {
+  if (!db) return; // no project to probe — and no offline warning on every boot
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
@@ -104,7 +124,19 @@ export async function testConnection(): Promise<void> {
 
 testConnection();
 
+function withCode(code: string, message: string): Error & { code: string } {
+  const e = new Error(message) as Error & { code: string };
+  e.code = code;
+  return e;
+}
+
 export async function signInWithGoogle(): Promise<User> {
+  if (!auth || !googleProvider) {
+    throw withCode(
+      'auth/invalid-api-key',
+      'Google sign-in is unavailable: FIREBASE_API_KEY is empty. Use Local mode, or set the key in .env and restart the dev server.'
+    );
+  }
   try {
     logger.info('Auth', 'Initiating Google Sign-In with popup...');
     const result = await signInWithPopup(auth, googleProvider);
@@ -115,11 +147,6 @@ export async function signInWithGoogle(): Promise<User> {
     // Preserve the error CODE on every path: AuthGate classifies on codes, never
     // on message strings. This function throwing bare Errors is what used to
     // break that, so every throw here goes through withCode().
-    const withCode = (code: string, message: string): Error & { code: string } => {
-      const e = new Error(message) as Error & { code: string };
-      e.code = code;
-      return e;
-    };
     if (error?.code === 'auth/popup-blocked') {
       throw withCode('auth/popup-blocked', 'Sign-in popup was blocked by your browser. Allow popups for this site and try again.');
     }
@@ -140,11 +167,17 @@ export async function signInWithGoogle(): Promise<User> {
 }
 
 export async function logOut(): Promise<void> {
+  if (!auth) return; // Local mode has no Firebase session to end
   logger.info('Auth', 'Signing out user...');
   await signOut(auth);
   logger.info('Auth', 'User successfully signed out');
 }
 
 export function subscribeToAuth(callback: (user: User | null) => void): () => void {
+  if (!auth) {
+    // No observer to wait on, but boot still has to resolve to the gate.
+    callback(null);
+    return () => {};
+  }
   return onAuthStateChanged(auth, callback);
 }

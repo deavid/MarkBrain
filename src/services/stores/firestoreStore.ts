@@ -21,6 +21,9 @@ import type { ProjectStore, ProjectSnapshot } from './projectStore';
 
 export const firestoreStore: ProjectStore = {
   async load(projectId: string): Promise<ProjectSnapshot | null> {
+    if (!auth || !db) {
+      throw new Error('Cloud backend unavailable: FIREBASE_API_KEY is empty — this build is Local-mode only.');
+    }
     const currentUser = auth.currentUser;
     // No session ≠ project absent: without identity we can't confirm the doc
     // is gone, so throw instead of returning null (null = absent ONLY).
@@ -46,8 +49,8 @@ export const firestoreStore: ProjectStore = {
   },
 
   async list(): Promise<ProjectSnapshot[]> {
-    const currentUser = auth.currentUser;
-    if (!currentUser) return [];
+    const currentUser = auth?.currentUser;
+    if (!currentUser || !db) return [];
     try {
       const projectsCol = collection(db, 'users', currentUser.uid, 'projects');
       const snap = await getDocs(projectsCol);
@@ -64,8 +67,8 @@ export const firestoreStore: ProjectStore = {
   },
 
   async save(snapshot: ProjectSnapshot): Promise<void> {
-    const currentUser = auth.currentUser;
-    if (!currentUser) return;
+    const currentUser = auth?.currentUser;
+    if (!currentUser || !db) return;
 
     const docPath = `users/${currentUser.uid}/projects/${snapshot.projectId}`;
     try {
@@ -92,6 +95,9 @@ export const firestoreStore: ProjectStore = {
   },
 
   async create(snapshot: ProjectSnapshot): Promise<void> {
+    if (!auth || !db) {
+      throw new Error('Cloud backend unavailable: FIREBASE_API_KEY is empty — this build is Local-mode only.');
+    }
     const currentUser = auth.currentUser;
     if (!currentUser) {
       throw new Error('Cannot create a project without an active Google session.');
@@ -109,6 +115,9 @@ export const firestoreStore: ProjectStore = {
   },
 
   async delete(projectId: string): Promise<void> {
+    if (!auth || !db) {
+      throw new Error('Cloud backend unavailable: FIREBASE_API_KEY is empty — this build is Local-mode only.');
+    }
     const currentUser = auth.currentUser;
     if (!currentUser) {
       throw new Error('Sign in with Google before deleting cloud projects.');
@@ -127,6 +136,9 @@ export const firestoreStore: ProjectStore = {
   },
 
   async replaceAll(projects: ProjectSnapshot[]): Promise<void> {
+    if (!auth || !db) {
+      throw new Error('Cloud backend unavailable: FIREBASE_API_KEY is empty — this build is Local-mode only.');
+    }
     const currentUser = auth.currentUser;
     if (!currentUser) {
       throw new Error('Sign in with Google before importing into Firestore.');

@@ -18,7 +18,7 @@ import type { StorageBackend } from '../services/persistenceService';
 import { logger } from '../utils/logger';
 
 export interface SessionDeps {
-  auth: { currentUser: User | null };
+  auth: { currentUser: User | null } | null;
   signInWithGoogle: () => Promise<User>;
   logOut: () => Promise<void>;
   subscribeToAuth: (callback: (user: User | null) => void) => () => void;
@@ -62,7 +62,7 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
     []
   );
   const [currentUser, setCurrentUser] = useState<User | null>(() =>
-    getBackend() === 'local' ? LOCAL_USER : auth.currentUser
+    getBackend() === 'local' ? LOCAL_USER : auth?.currentUser ?? null
   );
   const [authInitialized, setAuthInitialized] = useState<boolean>(false);
   const [cloudProjectsCount, setCloudProjectsCount] = useState<number | null>(null);

@@ -140,8 +140,8 @@
 /* Rendered markdown (artifact detail modal + chapter prose) */
 .md-body {
   color: #c3cde4;
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: 13.5px;
+  line-height: 1.65;
   overflow-wrap: break-word;
 }
 .md-body > *:first-child { margin-top: 0; }
@@ -205,13 +205,13 @@
   background: transparent;
   padding: 0;
   color: #bccbe6;
-  font-size: 11px;
+  font-size: 12.5px;
 }
 .md-body table {
   border-collapse: collapse;
   width: 100%;
   margin: 0.7em 0;
-  font-size: 11px;
+  font-size: 12.5px;
   display: block;
   overflow-x: auto;
 }

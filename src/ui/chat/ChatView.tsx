@@ -324,6 +324,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
     triggerChapterSummarize(chapter.chapter.id);
   };
 
+  // The tray moved into the feed, so a stage/unstage has to bring it into view.
+  const stagedCount = stagedAttachments.length;
+  useEffect(() => {
+    if (stagedCount === 0) return;
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stagedCount]);
+
   // Auto-scroll ONLY when a new message is appended (NOT on summary toggles or loading state)
   const isFirstMount = useRef(true);
   useEffect(() => {
@@ -475,7 +483,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           now the first thing in the feed (in flow, scrolls away, editable). */}
 
       {totalMessagesCount === 0 ? (
-        <div className="flex-1 min-h-[400px] flex flex-col items-center justify-center p-4 sm:p-8 overflow-y-auto">
+        <div className="flex-1 min-h-[400px] flex flex-col items-center p-4 sm:p-8 overflow-y-auto">
           <div className="w-full max-w-2xl space-y-6 my-auto transition-opacity duration-300">
             <div className="text-center space-y-3">
               <div
@@ -1224,6 +1232,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
 
+        {/* The staged files are the NEXT turn's addendum, so they live in the
+            flow — never in the fixed footer, where a long list crushes the
+            chat to 0px and nothing scrolls. */}
+        {stagedAttachments.length > 0 && (
+          <div className="px-3 sm:px-6 pb-2">
+            <StagedTray
+              items={stagedAttachments.map((a) => ({
+                artifactId: a.artifactId,
+                title: titleFor(a.artifactId),
+                subtitle: subtitleFor(a.artifactId),
+                tokens: tokensFor(a.artifactId),
+                granularity: a.granularity,
+              }))}
+              onSetGranularity={(id, g) => onSetAttachmentGranularity?.(id, g)}
+              onUnstage={(id) => onUnstageAttachment?.(id)}
+              onOpenDetail={onOpenArtifact}
+            />
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
       )}
@@ -1248,20 +1276,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {totalMessagesCount > 0 && (
         <div className="p-2.5 sm:p-3 bg-surface-0 shrink-0 space-y-2">
-          <div className="max-w-4xl mx-auto">
-            <StagedTray
-              items={stagedAttachments.map((a) => ({
-                artifactId: a.artifactId,
-                title: titleFor(a.artifactId),
-                subtitle: subtitleFor(a.artifactId),
-                tokens: tokensFor(a.artifactId),
-                granularity: a.granularity,
-              }))}
-              onSetGranularity={(id, g) => onSetAttachmentGranularity?.(id, g)}
-              onUnstage={(id) => onUnstageAttachment?.(id)}
-              onOpenDetail={onOpenArtifact}
-            />
-          </div>
           <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
             {/* [+] → the Artifacts folder IS the picker. The voice
                 selector moved to the sidebar, where settings belong. */}

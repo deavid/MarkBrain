@@ -7,7 +7,11 @@ import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
  * domains/granularity.ts. If a token is not in the payload, it is not in the rail.
  */
 
-export const RAIL_TOKEN_YARDSTICK = 1_000_000;
+export { MAX_CONTEXT_TOKENS } from '../../utils/contextWindow';
+import { MAX_CONTEXT_TOKENS } from '../../utils/contextWindow';
+
+/** The rail measures the payload against the same window everything else does. */
+export const RAIL_TOKEN_YARDSTICK = MAX_CONTEXT_TOKENS;
 
 /** Slate, deliberately outside the four-hue state language. */
 export const SYSTEM_RAIL_HEX = '#475872';

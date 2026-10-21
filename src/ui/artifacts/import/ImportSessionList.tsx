@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { serializeArtifactToYamlDoc } from '../../../utils/yamlArtifactParser';
+import { renderMarkdown } from '../../../utils/markdown';
 import { estimateTokens } from '../../../utils/tokenCalculator';
 import { ImportRow } from './useImportSession';
 import {
@@ -289,10 +290,29 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                           <div className="text-xs font-mono text-ink font-semibold">
                             {row.artifact.title}
                           </div>
+                          {row.artifact.current?.subtitle && (
+                            <div
+                              className="md-body italic"
+                              dangerouslySetInnerHTML={{
+                                __html: renderMarkdown(row.artifact.current.subtitle),
+                              }}
+                            />
+                          )}
                           {row.artifact.current?.description && (
-                            <div className="text-[11px] text-[#8297b5]">
-                              {row.artifact.current.description}
-                            </div>
+                            <div
+                              className="md-body"
+                              dangerouslySetInnerHTML={{
+                                __html: renderMarkdown(row.artifact.current.description),
+                              }}
+                            />
+                          )}
+                          {row.artifact.current?.summary && (
+                            <div
+                              className="md-body"
+                              dangerouslySetInnerHTML={{
+                                __html: renderMarkdown(row.artifact.current.summary),
+                              }}
+                            />
                           )}
                           <div className="flex flex-wrap gap-1.5">
                             {(row.artifact.tags || []).map((tag) => (
@@ -304,10 +324,19 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                               </span>
                             ))}
                           </div>
-                          <pre className="bg-surface-0 p-2.5 rounded-lg text-[11px] font-mono text-[#9bb0d1] max-h-56 overflow-y-auto whitespace-pre-wrap">
-                            {(row.artifact.current?.body || '').slice(0, 4000)}
-                            {(row.artifact.current?.body || '').length > 4000 ? '\n…' : ''}
-                          </pre>
+                          {(() => {
+                            const bodyText = row.artifact.current?.body || '';
+                            const preview = bodyText.slice(0, 4000);
+                            if (!preview) return null;
+                            return (
+                              <div
+                                className="md-body bg-surface-0 p-3 rounded-lg max-h-56 overflow-y-auto"
+                                dangerouslySetInnerHTML={{
+                                  __html: renderMarkdown(preview),
+                                }}
+                              />
+                            );
+                          })()}
                         </div>
                       )}
                     </>

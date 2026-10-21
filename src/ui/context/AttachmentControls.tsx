@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowUpRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowUpRight, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Granularity } from '../../domains/granularity';
 import {
   GRANULARITY_LABEL,
@@ -321,8 +321,10 @@ interface StagedTrayProps {
 }
 
 /**
- * What will ride the next message. It sits in the composer's flow so it reserves
- * real space, and it can be cleared before Send.
+ * What will ride the next message, rendered IN the scrollable feed tail (never
+ * in the fixed composer footer: a tall tray there crushes the chat to 0px and
+ * nothing scrolls). Foldable past three items, with a bulk cut so twenty files
+ * are one click away from Title.
  */
 export const StagedTray: React.FC<StagedTrayProps> = ({
   items,
@@ -330,34 +332,59 @@ export const StagedTray: React.FC<StagedTrayProps> = ({
   onUnstage,
   onOpenDetail,
 }) => {
+  const [expanded, setExpanded] = useState(items.length <= 3);
   if (items.length === 0) return null;
+  const totalTokens = items.reduce((sum, item) => sum + item.tokens, 0);
+
   return (
-    <div
-      data-testid="staged-tray"
-      className="rounded-xl bg-surface-1 p-2 space-y-1.5"
-    >
-      <div className="flex items-center justify-between px-0.5">
-        <span className="text-[9px] font-mono uppercase tracking-wider text-[#38bdf8]">
-          Staged for this message ({items.length})
-        </span>
+    <div data-testid="staged-tray" className="rounded-xl bg-surface-1 p-2 space-y-1.5">
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          title={expanded ? 'Fold the staged list' : 'Show the staged list'}
+          className="flex items-center gap-1 min-h-[24px] text-[9px] font-mono uppercase tracking-wider text-[#38bdf8] cursor-pointer hover:text-[#7dd3fc]"
+        >
+          {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          Staged for this message ({items.length}) · {formatTokens(totalTokens)} tok
+        </button>
         <span className="text-[9px] font-mono text-[#7dd3fc]/70">
           rides the next send · removable until then
         </span>
       </div>
-      {items.map((item) => (
-        <AttachmentRow
-          key={item.artifactId}
-          artifactId={item.artifactId}
-          state="staged"
-          title={item.title}
-          subtitle={item.subtitle}
-          tokens={item.tokens}
-          granularity={item.granularity}
-          onSetGranularity={(g) => onSetGranularity(item.artifactId, g)}
-          onUnstage={() => onUnstage(item.artifactId)}
-          onOpenDetail={onOpenDetail ? () => onOpenDetail(item.artifactId) : undefined}
-        />
-      ))}
+
+      {expanded && items.length > 1 && (
+        <div className="flex items-center gap-1 flex-wrap px-0.5">
+          <span className="text-[9px] font-mono text-[#556985]">Set all to:</span>
+          {GRANULARITY_ORDER.map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => items.forEach((item) => onSetGranularity(item.artifactId, g))}
+              title={`Set every staged file to ${GRANULARITY_LABEL[g]}`}
+              className="min-h-[24px] px-2 rounded bg-recess-1 shadow-well hover:bg-recess-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer"
+            >
+              {GRANULARITY_LABEL[g]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {expanded &&
+        items.map((item) => (
+          <AttachmentRow
+            key={item.artifactId}
+            artifactId={item.artifactId}
+            state="staged"
+            title={item.title}
+            subtitle={item.subtitle}
+            tokens={item.tokens}
+            granularity={item.granularity}
+            onSetGranularity={(g) => onSetGranularity(item.artifactId, g)}
+            onUnstage={() => onUnstage(item.artifactId)}
+            onOpenDetail={onOpenDetail ? () => onOpenDetail(item.artifactId) : undefined}
+          />
+        ))}
     </div>
   );
 };

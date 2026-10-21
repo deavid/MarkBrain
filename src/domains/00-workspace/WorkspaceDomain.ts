@@ -1,5 +1,6 @@
 import { IWorkspaceDomain } from './interface';
 import { ProjectMetadata, WorkspaceContainer, WorkspaceEvent } from './types';
+import { MAX_CONTEXT_TOKENS } from '../../utils/contextWindow';
 
 /** In-memory workspace registry. Populated exclusively from `loadUserProjects()`; empty is valid (triggers Project Genesis). */
 export class WorkspaceDomain implements IWorkspaceDomain {
@@ -49,7 +50,7 @@ export class WorkspaceDomain implements IWorkspaceDomain {
     const container: WorkspaceContainer = {
       metadata: meta,
       activeChapterId: `chap-${Date.now()}-1`,
-      tokenCeiling: 32000,
+      tokenCeiling: MAX_CONTEXT_TOKENS,
     };
     this.projects.set(id, container);
     this.emit({ type: 'projectCreated', project: meta });
@@ -112,7 +113,7 @@ export class WorkspaceDomain implements IWorkspaceDomain {
       const container: WorkspaceContainer = {
         metadata: meta,
         activeChapterId: snap.chapters?.[0]?.id || `chap-${id}-1`,
-        tokenCeiling: 32000,
+        tokenCeiling: MAX_CONTEXT_TOKENS,
       };
       this.projects.set(id, container);
     });

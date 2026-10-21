@@ -22,6 +22,7 @@ import { SaturationOrb } from './ui/context/SaturationOrb';
 import { EdgeHeatStrip } from './ui/context/EdgeHeatStrip';
 import { MirrorPanel } from './ui/context/MirrorPanel';
 import { logger } from './utils/logger';
+import { MAX_CONTEXT_TOKENS } from './utils/contextWindow';
 import { useDomains } from './domains/DomainRegistry';
 import { estimateArtifactCutTokens } from './domains/03-optical-compiler';
 import { isAttachmentStaged } from './domains/06-chat-threads';
@@ -151,6 +152,7 @@ export default function App() {
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
   const [isCleanupOpen, setIsCleanupOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
+  const [libraryTagFilter, setLibraryTagFilter] = useState({ tag: '', seq: 0 });
   const [triageFocusId, setTriageFocusId] = useState<string | null>(null);
 
   const { importDbFileRef, handleExportDatabase, dbImportInput } = useDatabaseTransfer();
@@ -351,7 +353,7 @@ export default function App() {
       model: selectedModel,
       projectId: activeProjectId,
       projectTitle: projectMeta.name,
-      tokenCeiling: currentContainer?.tokenCeiling || 32000,
+      tokenCeiling: currentContainer?.tokenCeiling || MAX_CONTEXT_TOKENS,
     }),
   };
 
@@ -495,6 +497,7 @@ export default function App() {
               onUnstage={handleUnstageAttachment}
               onSetAttachmentGranularity={handleSetAttachmentGranularity}
               onReturnToChat={() => setActiveView('chat')}
+              externalTagFilter={libraryTagFilter}
             />
           ) : (
             <div className="w-full h-full min-h-0 flex-1 flex flex-col">
@@ -722,6 +725,10 @@ export default function App() {
               attachmentTurnIndex={
                 activeAttachments.find((a) => a.artifactId === art.id)?.turnIndex ?? null
               }
+              onFilterByTag={(tag) => {
+                setLibraryTagFilter((f) => ({ tag, seq: f.seq + 1 }));
+                setSelectedArtifactId(null);
+              }}
               onAttach={handleAttachArtifact}
               onUnstage={handleUnstageAttachment}
               onSetAttachmentGranularity={handleSetAttachmentGranularity}

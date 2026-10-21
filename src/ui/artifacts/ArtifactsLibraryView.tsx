@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Artifact } from '../../types';
 import type { SemanticEdge, RelationKind } from '../../types';
 import type { ChatAttachment } from '../../domains/06-chat-threads';
 import { isAttachmentStaged } from '../../domains/06-chat-threads';
 import type { Granularity, AttachmentVisualState } from '../../domains/granularity';
 import { SpatialGraph } from '../graph/SpatialGraph';
-import { Search, FolderTree, Network, Menu, Upload, MessageSquare } from 'lucide-react';
+import { Search, FolderTree, Network, Menu, Upload, MessageSquare, X } from 'lucide-react';
 import { isFlaggedArtifact } from '../../utils/importDetect';
 import { logger } from '../../utils/logger';
 import { AttachmentRow, formatAttachmentProvenance } from '../context/AttachmentControls';
@@ -30,6 +30,8 @@ interface ArtifactsLibraryViewProps {
   onUnstage: (artifactId: string) => void;
   onSetAttachmentGranularity: (artifactId: string, granularity: Granularity) => void;
   onReturnToChat: () => void;
+  /** Bumped by App when a tag is clicked outside this view (graph is here, detail modal is not). */
+  externalTagFilter?: { tag: string; seq: number };
 }
 
 /**
@@ -62,9 +64,22 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
   onUnstage,
   onSetAttachmentGranularity,
   onReturnToChat,
+  externalTagFilter,
 }) => {
   const [lens, setLens] = useState<LibraryLens>('folders');
   const [query, setQuery] = useState('');
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+
+  const filterToTag = (tag: string) => {
+    setLens('folders');
+    setQuery('');
+    setTagFilter(tag);
+  };
+
+  useEffect(() => {
+    if (externalTagFilter?.tag) filterToTag(externalTagFilter.tag);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalTagFilter?.seq]);
 
   const attachmentByArtifact = useMemo(() => {
     const map = new Map<string, ChatAttachment>();
@@ -80,6 +95,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matches = artifacts.filter((a) => {
+      if (tagFilter && !(a.tags || []).includes(tagFilter)) return false;
       if (!q) return true;
       return (
         (a.title || '').toLowerCase().includes(q) ||
@@ -95,7 +111,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
       byCategory.set(key, list);
     }
     return Array.from(byCategory.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [artifacts, query]);
+  }, [artifacts, query, tagFilter]);
 
   return (
     <div className="relative w-full h-full min-h-0 flex-1 flex flex-col overflow-hidden">
@@ -108,6 +124,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
           onAddEdge={onAddEdge}
           onUpdateNodePosition={onUpdateNodePosition}
           onBatchUpdateNodePositions={onBatchUpdateNodePositions}
+          onFilterByTag={filterToTag}
         />
       ) : (
         <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-4 pb-28">
@@ -129,6 +146,16 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
                 className="w-full min-h-[34px] pl-8 pr-2 rounded-xl bg-recess-1 text-xs font-mono text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 shadow-well"
               />
             </div>
+            {tagFilter && (
+              <button
+                onClick={() => setTagFilter(null)}
+                data-testid="tag-filter-clear"
+                className="flex items-center gap-1 min-h-[34px] px-2 rounded-xl bg-veil-2 shadow-lift text-[10px] font-mono text-[#8ab1e0] hover:text-ink transition-colors cursor-pointer shrink-0"
+                title="Clear the tag filter"
+              >
+                #{tagFilter} <X className="w-3 h-3" />
+              </button>
+            )}
             <button
               onClick={onOpenImport}
               className="flex items-center gap-1.5 min-h-[34px] px-2.5 rounded-xl bg-veil-1 shadow-lift hover:bg-veil-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer shrink-0"

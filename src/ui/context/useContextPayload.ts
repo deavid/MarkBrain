@@ -6,6 +6,7 @@ import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
 import {
   AmbientTelemetryData,
   EdgeRailSegment,
+  MAX_CONTEXT_TOKENS,
   SYSTEM_RAIL_HEX,
   computeRailHeightPct,
 } from './ambientTelemetry';
@@ -35,7 +36,7 @@ export function useContextPayload(params: ContextPayloadParams) {
     () =>
       compiler.compile({
         attachments,
-        tokenCeiling: currentContainer?.tokenCeiling || 32000,
+        tokenCeiling: currentContainer?.tokenCeiling || MAX_CONTEXT_TOKENS,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [compiler, attachmentKey, currentContainer?.tokenCeiling, tick]
@@ -43,7 +44,7 @@ export function useContextPayload(params: ContextPayloadParams) {
 
   const ambientTelemetry: AmbientTelemetryData = useMemo(() => {
     const tb = compiledContext.telemetry.tokenBreakdown;
-    const ceiling = currentContainer?.tokenCeiling || 32000;
+    const ceiling = currentContainer?.tokenCeiling || MAX_CONTEXT_TOKENS;
     const totalTokens = tb.totalTokens;
 
     const segments: EdgeRailSegment[] = [];

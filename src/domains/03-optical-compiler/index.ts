@@ -12,6 +12,7 @@ import type { ChatAttachment } from '../06-chat-threads';
 import { Granularity, cutIncludes } from '../granularity';
 import { logger } from '../../utils/logger';
 import { estimateTokens } from '../../utils/estimateTokens';
+import { MAX_CONTEXT_TOKENS } from '../../utils/contextWindow';
 
 /**
  * Context compiler: assembles `<knowledge_substrate>` (attached artifacts at their cut)
@@ -162,7 +163,7 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
   ) {}
 
   compile(options: OpticalCompilerOptions): CompiledContextPayload {
-    const ceiling = options.tokenCeiling || 32000;
+    const ceiling = options.tokenCeiling || MAX_CONTEXT_TOKENS;
     const chapters = options.historyChapters ?? this.segmentation.listChapters();
 
     const substrateParts: string[] = [];

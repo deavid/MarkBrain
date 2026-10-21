@@ -53,6 +53,8 @@ interface SpatialGraphProps {
   onAddEdge: (sourceId: string, targetId: string, kind: RelationKind, weight?: number) => void;
   onUpdateNodePosition: (artifactId: string, x: number, y: number) => void;
   onBatchUpdateNodePositions: (positions: Array<{ artifactId: string; x: number; y: number }>) => void;
+  /** Clicking a #tag leaves the graph for the folder tree, filtered to it. */
+  onFilterByTag?: (tag: string) => void;
 }
 
 export const SpatialGraph: React.FC<SpatialGraphProps> = ({
@@ -63,6 +65,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
   onAddEdge,
   onUpdateNodePosition,
   onBatchUpdateNodePositions,
+  onFilterByTag,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -611,12 +614,18 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
               {tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
                   {tags.slice(0, 3).map((t) => (
-                    <span
+                    <button
                       key={t}
-                      className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-surface-2 text-[#7da0cf] "
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onFilterByTag?.(t);
+                      }}
+                      title={`Filter the folder tree by #${t}`}
+                      className="inline-flex items-center min-h-[30px] px-2 text-[9px] font-mono rounded bg-surface-2 hover:bg-surface-4 hover:text-ink text-[#7da0cf] cursor-pointer transition-colors"
                     >
                       #{t}
-                    </span>
+                    </button>
                   ))}
                 </div>
               )}
@@ -675,12 +684,15 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
             return (
               <div className="flex flex-wrap gap-1 mb-2.5">
                 {tags.map((t) => (
-                  <span
+                  <button
                     key={t}
-                    className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-2 text-[#8ab1e0] "
+                    type="button"
+                    onClick={() => onFilterByTag?.(t)}
+                    title={`Filter the folder tree by #${t}`}
+                    className="inline-flex items-center min-h-[30px] px-2 text-[9px] font-mono rounded bg-surface-2 hover:bg-surface-4 hover:text-ink text-[#8ab1e0] cursor-pointer transition-colors"
                   >
                     #{t}
-                  </span>
+                  </button>
                 ))}
               </div>
             );

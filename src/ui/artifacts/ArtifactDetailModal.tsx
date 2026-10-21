@@ -41,6 +41,8 @@ interface ArtifactDetailModalProps {
   onSetAttachmentGranularity: (artifactId: string, granularity: Granularity) => void;
   /** Version history from the versioning domain (source of truth — artifacts no longer embed history) */
   history?: Array<{ version: number; timestamp: number; changeSummary: string }>;
+  /** Closes the modal and filters the library folder tree to this tag. */
+  onFilterByTag?: (tag: string) => void;
 }
 
 export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
@@ -53,6 +55,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   onUnstage,
   onSetAttachmentGranularity,
   history = [],
+  onFilterByTag,
 }) => {
   const [activeTab, setActiveTab] = useState<'content' | 'metadata' | 'history'>('content');
   const [bodyView, setBodyView] = useState<'rendered' | 'raw'>('rendered');
@@ -237,7 +240,10 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#79ca4b] font-semibold block">
                     Subtitle (ships with the title)
                   </span>
-                  <p className="text-[#b5cae6] text-[11px] italic leading-relaxed">{subtitle}</p>
+                  <div
+                    className="md-body italic"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(subtitle) }}
+                  />
                 </div>
               )}
 
@@ -246,7 +252,10 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#8ab1e0] font-semibold block">
                     Description
                   </span>
-                  <p className="text-[#b5cae6] text-[11px] leading-relaxed">{description}</p>
+                  <div
+                    className="md-body"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(description) }}
+                  />
                 </div>
               )}
 
@@ -255,9 +264,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#e0b96c] font-semibold block">
                     Summary
                   </span>
-                  <div className="text-[#cad8eb] text-[11px] whitespace-pre-wrap leading-relaxed">
-                    {summary}
-                  </div>
+                  <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(summary) }} />
                 </div>
               )}
 
@@ -339,12 +346,16 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                   <span className="text-[10px] text-[#556985] block">Graph Tags:</span>
                   <div className="flex flex-wrap gap-1">
                     {artifact.tags.map((t) => (
-                      <span
+                      <button
                         key={t}
-                        className="px-1.5 py-0.5 rounded bg-surface-3 text-ink-dim text-[10px]"
+                        type="button"
+                        onClick={() => onFilterByTag?.(t)}
+                        disabled={!onFilterByTag}
+                        title={`Filter the library by #${t}`}
+                        className="inline-flex items-center min-h-[24px] px-2 rounded bg-surface-3 hover:bg-veil-2 hover:text-ink text-ink-dim text-[10px] cursor-pointer disabled:cursor-default transition-colors"
                       >
                         #{t}
-                      </span>
+                      </button>
                     ))}
                   </div>
                 </div>

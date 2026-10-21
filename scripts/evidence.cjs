@@ -653,6 +653,26 @@ async function main() {
     } else {
       step('ok', `new chapter carries ${newCount} msg(s) — split honored the clicked message`);
     }
+
+    // Two more splits so the chat has history. The in-progress law forces the
+    // LAST two chapters to Full with no cut controls, so the cut journeys need
+    // four chapters: two cuttable (older) and two forced live.
+    for (const [nth, title] of [
+      [1, 'Stream Feedback'],
+      [2, 'Genesis Architecture'],
+    ]) {
+      const affordances = page.locator('[title="Split into new chapter starting at this message"]');
+      await affordances.nth(nth).evaluate((el) => el.click());
+      const form2 = page.getByPlaceholder(/New Chapter Title/);
+      await form2.waitFor({ state: 'visible', timeout: 8000 });
+      await form2.fill(title);
+      await page.getByRole('button', { name: 'Split Chapter' }).click();
+      await page.waitForTimeout(1200);
+    }
+    const cuttable = await page.locator('[data-testid="chapter-cut"]').count();
+    const live = await page.locator('[data-testid="chapter-in-progress"]').count();
+    check(cuttable === 2, `older chapters keep their cut controls (${cuttable} of 4)`);
+    check(live === 2, `the last two chapters are in progress (${live})`);
     await shot(page, 'after-split');
   });
 
@@ -870,11 +890,27 @@ async function main() {
       fxSection.locator(`[data-testid="chapter-cut"] [data-granularity="${g}"]`).first();
     const SUMMARY_SENTENCE = 'Synthetic chapter for headless capture.';
 
+    // In-progress law: the last two chapters always send Full and carry no cut
+    // control — a chapter you are still talking inside is not one to cut.
+    const inProgress = await page.locator('[data-testid="chapter-in-progress"]').count();
+    const cutTables = await page.locator('[data-testid="chapter-cut"]').count();
+    check(inProgress === 2, `the last two chapters carry the in-progress badge (${inProgress})`);
+    check(cutTables >= 1, `older chapters keep their cut controls (${cutTables})`);
+    check(
+      (await page.locator('[data-testid="chapter-in-progress"] [data-granularity]').count()) === 0,
+      'an in-progress chapter exposes no granularity chips'
+    );
+
+    // A sealed older chapter only shows turns at Full — put the last CUTTABLE
+    // chapter there before measuring, so the title leg has turns to hide.
+    await chip('full').click();
+    await page.waitForTimeout(500);
+
     const nFull = await turnsVisible();
     check(nFull > 0, `turns visible at Full (${nFull})`);
 
     await chip('title').click();
-    step('click', 'last chapter → Title');
+    step('click', 'older chapter → Title');
     await page.waitForTimeout(500);
     const nTitle = await turnsVisible();
     check(nTitle < nFull, `Title hides the turns (${nTitle} < nFull=${nFull})`);

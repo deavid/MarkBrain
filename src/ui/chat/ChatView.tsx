@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { logger } from '../../utils/logger';
 import { copyText } from '../../utils/clipboard';
+import { isChapterInProgress } from '../../domains/02-chapter-segmentation';
 import { MessageBody } from './MessageBody';
 import { renderMarkdown } from '../../utils/markdown';
 import { flipMessageView, messageIsRaw } from './chatRenderMode';
@@ -288,6 +289,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const tokensFor = (artifactId: string) => tokensByArtifact[artifactId] ?? 0;
   const titleFor = (artifactId: string) => artifactTitles[artifactId] || artifactId;
+  const chapterList = chapters.map((entry) => entry.chapter);
   const subtitleFor = (artifactId: string) => artifactSubtitles[artifactId] || '';
 
   /**
@@ -775,21 +777,33 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 </div>
 
-                {onSetChapterGranularity && (
-                  <div data-testid="chapter-cut" data-chapter-id={chapter.id} className="max-w-full">
-                    <GranularityChips
-                      value={(chapter.granularity ?? granularity) as Granularity}
-                      label={`Send chapter ${chapterIndex + 1}`}
-                      compact
-                      onChange={(g) =>
-                        handleSetChapterCut(
-                          { chapter, index: chapterIndex, ongoing: isOngoing, granularity, turns },
-                          g
-                        )
-                      }
-                    />
-                  </div>
-                )}
+                {onSetChapterGranularity &&
+                  (isChapterInProgress(chapterList, chapterIndex) ? (
+                    // The last chapters are still live: they always send Full,
+                    // so a cut would only promise layers nobody wrote.
+                    <div
+                      data-testid="chapter-in-progress"
+                      data-chapter-id={chapter.id}
+                      className="inline-flex items-center min-h-[24px] px-2 rounded-lg bg-recess-1 shadow-well text-[10px] font-mono text-ink-mute select-none"
+                      title="Still in progress — always sends Full, nothing to cut yet"
+                    >
+                      In progress · Full
+                    </div>
+                  ) : (
+                    <div data-testid="chapter-cut" data-chapter-id={chapter.id} className="max-w-full">
+                      <GranularityChips
+                        value={(chapter.granularity ?? granularity) as Granularity}
+                        label={`Send chapter ${chapterIndex + 1}`}
+                        compact
+                        onChange={(g) =>
+                          handleSetChapterCut(
+                            { chapter, index: chapterIndex, ongoing: isOngoing, granularity, turns },
+                            g
+                          )
+                        }
+                      />
+                    </div>
+                  ))}
               </div>
 
               {/* What you see is what you send: the body renders exactly the

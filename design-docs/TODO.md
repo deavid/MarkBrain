@@ -130,6 +130,18 @@ today). Those show the honest "No summary yet" chrome.
 per chapter boundary — a money decision), or lower the sealed default to
 `description` when no summary exists. Not decided.
 
+**Law added 2026-10-21 (David): the last TWO chapters are in progress.** They
+are forced to Full, their cut controls are replaced with an "In progress ·
+Full" badge (chat header and mirror), and `handleSummarizeChapter` refuses them:
+a chapter you are still talking inside is not one to cut or recap. The
+background summarize on a manual split now targets the chapter that just
+LEFT the window (it is the one whose sealed cut starts promising layers), so
+nothing summarizes inside the window. `isChapterInProgress` /
+`resolveChapterSendGranularity` in `02-chapter-segmentation/selectors.ts` own
+this; `isChapterOngoing` stays purely geometric (turn ownership never moves).
+Evidence: J04 now makes four chapters, J16 asserts the badge and the hidden
+chips; `src/tests/chapter-in-progress.test.ts`.
+
 ### 2. Import/extraction prompts don't state the cut contract — CLOSED 2026-10-21
 **Measured, then rebuilt.** The prompts asked for "a few phrases" and "a few
 paragraphs"; the export showed 31-token descriptions, 151-token summaries, 33 of

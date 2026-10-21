@@ -1,5 +1,5 @@
 import type { DomainContextValue } from '../../domains/DomainRegistry';
-import { isChapterOngoing } from '../../domains/02-chapter-segmentation';
+import { IN_PROGRESS_CHAPTERS, isChapterInProgress, isChapterOngoing } from '../../domains/02-chapter-segmentation';
 import type { Granularity } from '../../domains/granularity';
 import { summarizeChapter } from '../../gateway/api';
 import { logger } from '../../utils/logger';
@@ -52,15 +52,17 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
 
     segmentation.splitChapter(target.id, splitIndex, title);
 
-    // Sealing a chapter steps it full → summary, so the cut now promises a
-    // layer that may not exist yet. Fill it in the background — never block the
-    // split on a model call, and never leave the promise unbacked: the chapter
-    // shows "Writing summary…" chrome until it lands.
-    const sealed = segmentation.getChapter(target.id);
-    if (sealed && sealed.status === 'completed' && (!sealed.summary || !sealed.description)) {
+    // The sealed chapter joins the in-progress window (it is now one of the
+    // last chapters), so it still sends Full and must NOT be summarized. The
+    // chapter that just LEFT the window is the one whose cut now promises a
+    // sealed layer nobody wrote — fill that one in the background. Never block
+    // the split on a model call; the chapter shows the chrome until it lands.
+    const all = segmentation.listChapters();
+    const leftWindow = all[all.length - IN_PROGRESS_CHAPTERS - 1];
+    if (leftWindow && leftWindow.status === 'completed' && (!leftWindow.summary || !leftWindow.description)) {
       // Fire-and-forget: the chapter carries the "Writing summary…" chrome and,
       // on failure, the Retry button — never an unhandled rejection.
-      void handleSummarizeChapter(sealed.id).catch(() => {});
+      void handleSummarizeChapter(leftWindow.id).catch(() => {});
     }
   };
 
@@ -70,6 +72,15 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
     const target = segmentation.getChapter(chapterId);
     if (!target) {
       logger.warn('App', `Summarize requested for unknown chapter ${chapterId}`);
+      return;
+    }
+
+    // The last chapters are still live: they send Full, so a recap would have
+    // nothing to back and would be replaced by the next turn anyway.
+    const list = segmentation.listChapters();
+    const idx = list.findIndex((c) => c.id === chapterId);
+    if (idx !== -1 && isChapterInProgress(list, idx)) {
+      logger.warn('App', `Summarize refused for in-progress chapter ${chapterId} — the last ${IN_PROGRESS_CHAPTERS} chapters always send Full`);
       return;
     }
 

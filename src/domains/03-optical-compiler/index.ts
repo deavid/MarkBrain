@@ -4,7 +4,7 @@ import {
   IChapterSegmentationDomain,
   ChapterPartition,
   isChapterOngoing,
-  resolveChapterGranularity,
+  resolveChapterSendGranularity,
   sliceChapterTurns,
 } from '../02-chapter-segmentation';
 import { IDialogueTimelineDomain, Turn } from '../01-dialogue-timeline';
@@ -203,7 +203,7 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
 
     chapters.forEach((chap, cIdx) => {
       const ongoing = isChapterOngoing(chapters, cIdx);
-      const granularity = resolveChapterGranularity(chap, ongoing);
+      const granularity = resolveChapterSendGranularity(chapters, cIdx);
       const turns = cutIncludes(granularity, 'body')
         ? options.historyTurns
           ? sliceChapterTurns(options.historyTurns, chap, ongoing)

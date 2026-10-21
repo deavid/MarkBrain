@@ -34,6 +34,40 @@ export function isChapterOngoing(chapters: readonly ChapterPartition[], index: n
 }
 
 /**
+ * How many trailing chapters count as still-live. Their cut is forced to Full
+ * and their cut controls are hidden: a chapter you are still talking inside is
+ * not something to summarize, and a cut would promise layers nobody wrote.
+ */
+export const IN_PROGRESS_CHAPTERS = 2;
+
+/**
+ * In-progress = the last `IN_PROGRESS_CHAPTERS` chapters of the list, or the
+ * active one. Unlike `isChapterOngoing` (geometry: which turns a chapter
+ * OWNS), this is a send law: it forces Full and hides the controls. It must
+ * never change turn slicing — a sealed chapter still stops at its endIndex.
+ */
+export function isChapterInProgress(
+  chapters: readonly ChapterPartition[],
+  index: number
+): boolean {
+  const chapter = chapters[index];
+  if (!chapter) return false;
+  if (chapter.status === 'active') return true;
+  return index >= chapters.length - IN_PROGRESS_CHAPTERS;
+}
+
+/** The cut the payload carries: an in-progress chapter is always Full. */
+export function resolveChapterSendGranularity(
+  chapters: readonly ChapterPartition[],
+  index: number
+): Granularity {
+  const chapter = chapters[index];
+  if (!chapter) return 'full';
+  if (isChapterInProgress(chapters, index)) return 'full';
+  return resolveChapterGranularity(chapter, isChapterOngoing(chapters, index));
+}
+
+/**
  * THE chapter granularity rule — explicit choice wins; otherwise the default
  * follows the window (open → full, closed → summary).
  */
@@ -66,7 +100,7 @@ export function chapterCutIncludes(
   index: number
 ): { description: boolean; summary: boolean; turns: boolean } {
   const chapter = chapters[index];
-  const granularity = resolveChapterGranularity(chapter, isChapterOngoing(chapters, index));
+  const granularity = resolveChapterSendGranularity(chapters, index);
   return {
     description: cutIncludes(granularity, 'description'),
     summary: cutIncludes(granularity, 'summary'),
@@ -93,7 +127,7 @@ export function groupTurnsByChapter(
         chapter,
         index,
         ongoing,
-        granularity: resolveChapterGranularity(chapter, ongoing),
+        granularity: resolveChapterSendGranularity(chapters, index),
         turns: timeline.getTurnSlice(chapter.startIndex, ongoing ? undefined : chapter.endIndex),
       };
     });

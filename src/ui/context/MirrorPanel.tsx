@@ -9,6 +9,7 @@ import { estimateTokens } from '../../utils/estimateTokens';
 import { saturationFillFraction } from '../../utils/contextWindow';
 import { renderMarkdown } from '../../utils/markdown';
 import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
+import { isChapterInProgress } from '../../domains/02-chapter-segmentation';
 import { computeAmbientColor } from './ambientTelemetry';
 import {
   AttachmentRow,
@@ -149,9 +150,16 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   // Chapters: the compiler's per-chapter entries, keyed back to the selector
   // rows so the row can say what the cut actually contains.
   const chapterById = new Map((compiled.telemetry.chapterBreakdown ?? []).map((e) => [e.chapterId, e]));
-  const chapterRows = chapters.map(({ chapter, turns }) => {
+  const chapterRows = chapters.map(({ chapter, turns, index, granularity: resolved }) => {
     const entry = chapterById.get(chapter.id);
-    const granularity: Granularity = chapter.granularity ?? (entry?.granularity ?? 'full');
+    // The compiler's row is the literal payload; the selector's resolve is the
+    // next truth. The partition's stored field can be a stale manual choice on
+    // an in-progress chapter, which is forced to Full — never show that.
+    const granularity: Granularity = entry?.granularity ?? resolved;
+    const inProgress = isChapterInProgress(
+      chapters.map((c) => c.chapter),
+      index
+    );
     // Fallback only for payloads compiled before chapterBreakdown existed.
     const tokens = entry
       ? entry.tokens
@@ -167,7 +175,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
             .filter(Boolean)
             .join('\n\n')
         );
-    return { chapter, granularity, tokens, turnCount: turns.length };
+    return { chapter, granularity, tokens, turnCount: turns.length, inProgress };
   });
 
   const cutSummary = (g: Granularity, turnCount: number): string => {
@@ -337,11 +345,21 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
                     </div>
                     <span className="text-[10px] text-[#8297b5] shrink-0 mt-0.5">{c.tokens} tok</span>
                   </div>
-                  <GranularityChips
-                    value={c.granularity}
-                    label={`Granularity for chapter ${c.chapter.title}`}
-                    onChange={(g) => onSetChapterGranularity(c.chapter.id, g)}
-                  />
+                  {c.inProgress ? (
+                    <div
+                      data-testid="chapter-in-progress"
+                      className="inline-flex items-center min-h-[24px] px-2 rounded-lg bg-recess-1 shadow-well text-[10px] font-mono text-ink-mute"
+                      title="Still in progress — always sends Full, nothing to cut yet"
+                    >
+                      In progress · Full
+                    </div>
+                  ) : (
+                    <GranularityChips
+                      value={c.granularity}
+                      label={`Granularity for chapter ${c.chapter.title}`}
+                      onChange={(g) => onSetChapterGranularity(c.chapter.id, g)}
+                    />
+                  )}
                 </div>
               ))}
             </section>

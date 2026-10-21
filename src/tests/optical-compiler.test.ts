@@ -133,28 +133,32 @@ describe('context compiler — attachments', () => {
 });
 
 describe('context compiler — chapters', () => {
-  it('closed chapters default to summary; the open one defaults to full', () => {
+  it('a closed chapter defaults to summary once it leaves the in-progress window; the last two are forced full', () => {
     const { compiler } = build({
       chapters: [
-        { id: 'c1', title: 'Old', summary: 'Recap one', endIndex: 1 },
+        { id: 'c0', title: 'Old', summary: 'Recap zero', endIndex: 1 },
+        { id: 'c1', title: 'Recent', summary: 'Recap one', endIndex: 2 },
         { id: 'c2', title: 'Open' },
       ],
-      turns: ['old turn', 'hello open'],
+      turns: ['zero turn', 'one turn', 'hello open'],
     });
     const out = compiler.compile({ attachments: [] });
+    // c1 is sealed but still one of the last two — live chapters always send Full.
     expect(out.telemetry.chapterBreakdown.map((c) => [c.chapterId, c.granularity])).toEqual([
-      ['c1', 'summary'],
+      ['c0', 'summary'],
+      ['c1', 'full'],
       ['c2', 'full'],
     ]);
-    expect(out.compiledPrompt).toContain('Recap one');
+    expect(out.compiledPrompt).toContain('Recap zero');
     expect(out.compiledPrompt).toContain('hello open');
   });
 
-  it('honors an explicit chapter granularity — including title-only and full+summary', () => {
+  it('honors an explicit chapter granularity outside the in-progress window', () => {
     const { compiler } = build({
       chapters: [
-        { id: 'c1', title: 'Whisper', granularity: 'title', summary: 'SHOULD NOT APPEAR' },
-        { id: 'c2', title: 'Loud', granularity: 'summary', summary: 'SHOULD APPEAR', endIndex: 1 },
+        { id: 'c1', title: 'Whisper', granularity: 'title', summary: 'SHOULD NOT APPEAR', endIndex: 1 },
+        { id: 'c2', title: 'Loud', granularity: 'summary', summary: 'SHOULD APPEAR', endIndex: 2 },
+        { id: 'c3', title: 'Open' },
       ],
     });
     const out = compiler.compile({ attachments: [] });
@@ -218,8 +222,8 @@ describe('context compiler — isolation and telemetry', () => {
     expect(substrate).toBe(out.telemetry.tokenBreakdown.substrateTokens);
     expect(history).toBe(out.telemetry.tokenBreakdown.historyTokens);
     expect(out.telemetry.granularityDistribution).toMatchObject({
-      summary: 2, // artifact a at summary + chapter c1 (closed) at summary
-      full: 2, // artifact b + the open chapter c2
+      summary: 1, // artifact a at summary; both chapters are the last two → full
+      full: 3, // artifact b + chapters c1 and c2
     });
   });
 

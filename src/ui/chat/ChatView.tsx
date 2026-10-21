@@ -32,6 +32,7 @@ import {
 import { logger } from '../../utils/logger';
 import { copyText } from '../../utils/clipboard';
 import { MessageBody } from './MessageBody';
+import { renderMarkdown } from '../../utils/markdown';
 import { flipMessageView, messageIsRaw } from './chatRenderMode';
 import type { ChatRenderMode } from './chatRenderMode';
 import { ThreadRuntime, ChatAttachment, isAttachmentStaged } from '../../domains/06-chat-threads';
@@ -850,7 +851,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       <div className="font-semibold text-[10px] text-[#e2c328] mb-1 font-mono uppercase tracking-wider">
                         Description
                       </div>
-                      <p className="text-[#dbe7f6]">{chapter.description}</p>
+                      <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.description) }} />
                     </div>
                   )}
                   {cutIncludes(granularity, 'summary') && chapter.summary && (
@@ -861,7 +862,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       <div className="font-semibold text-[10px] text-[#f99014] mb-1 font-mono uppercase tracking-wider">
                         Summary
                       </div>
-                      <p className="whitespace-pre-wrap">{chapter.summary}</p>
+                      <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.summary) }} />
                     </div>
                   )}
                   {/* Missing layer under a chosen cut = chrome, not content: a

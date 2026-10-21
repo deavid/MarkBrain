@@ -15,6 +15,8 @@ import { ImportModal } from './ui/artifacts/ImportModal';
 import { ExportModal } from './ui/artifacts/ExportModal';
 import { RevisionTriageModal } from './ui/artifacts/RevisionTriageModal';
 import { ThreadSwitcher } from './ui/chat/ThreadSwitcher';
+import { loadChatRenderMode, saveChatRenderMode } from './ui/chat/chatRenderMode';
+import type { ChatRenderMode } from './ui/chat/chatRenderMode';
 import { SaturationOrb } from './ui/context/SaturationOrb';
 import { EdgeHeatStrip } from './ui/context/EdgeHeatStrip';
 import { MirrorPanel } from './ui/context/MirrorPanel';
@@ -127,6 +129,15 @@ export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>('chat');
 
   const [chosenVoice, setChosenVoice] = useState('Kore');
+
+  // Reading preference for chat bubbles, restored from this browser and saved
+  // on every flip (see chatRenderMode.ts for why it is not workspace data).
+  const [chatRender, setChatRender] = useState<ChatRenderMode>(() => loadChatRenderMode());
+  const handleSelectChatRender = (mode: ChatRenderMode) => {
+    logger.action('App', `Chat text mode set to ${mode}`);
+    setChatRender(mode);
+    saveChatRenderMode(mode);
+  };
 
   // Default-open on desktop, default-closed on phones so the drawer+backdrop
   // doesn't bury the composer on first load.
@@ -386,6 +397,8 @@ export default function App() {
         onSelectModel={setSelectedModel}
         chosenVoice={chosenVoice}
         onSelectVoice={setChosenVoice}
+        chatRender={chatRender}
+        onSelectChatRender={handleSelectChatRender}
         activeView={activeView}
         onChangeView={(v) => setActiveView(v)}
         onOpenExport={() => setIsExportOpen(true)}
@@ -499,6 +512,7 @@ export default function App() {
                   onSetAttachmentGranularity={handleSetAttachmentGranularity}
                   onOpenArtifacts={() => setActiveView('artifacts')}
                   chosenVoice={chosenVoice}
+                  chatRender={chatRender}
                   onOpenArtifact={(id) => {
                     logger.action('App', `Open artifact ${id} from an attachment row`);
                     setSelectedArtifactId(id);

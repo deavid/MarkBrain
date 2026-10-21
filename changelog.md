@@ -2,6 +2,45 @@
 
 All notable changes to MarkBrain. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-10-21 — the chat finally reads as markdown
+
+David: *"When the chatbot replies, they reply in markdown. That should render."*
+It did not — every bubble printed its source, so `**bold**` and `###` arrived as
+literal asterisks and hashes. Both roles now render.
+
+**Added — rendering, per message and globally**
+- Bubbles go through the same `renderMarkdown()` the artifact body uses
+  (`src/ui/chat/MessageBody.tsx`), so a reply's fences, lists, tables and
+  headings look the same wherever they land. Escaping stays in that one file;
+  nothing from the model reaches the DOM unescaped.
+- **Raw** chip on every message (both roles) flips that one bubble back to the
+  untouched source. Always visible — hover does not exist on a phone, and these
+  two controls were the request.
+- **Copy** on every message puts the *markdown source* on the clipboard, with a
+  fallback for plain-http LAN addresses where `navigator.clipboard` is absent
+  (`src/utils/clipboard.ts`).
+- Sidebar **Chat text → Markdown / Raw** is the global default (persisted per
+  browser in `markbrain:chatRender`, never workspace data). Flipping it retires
+  per-message overrides so the switch always speaks for the whole feed.
+- `md-chat` type scale: a rendered reply inherits the bubble's size and ink, and
+  code steps the *opposite* way from its host (raised bubble darkens, sunken
+  bubble lightens) so a fence is never the same colour as the bubble it sits in.
+
+**Tested**
+- `src/tests/chat-render-mode.test.ts` — the override rules: the global switch
+  is total, a flipped bubble disagrees with it in either direction, flipping
+  back lands on the original view, and no other bubble moves.
+- `src/tests/message-body.test.tsx` — the real component through
+  `react-dom/server`: markdown becomes elements, raw stays the exact bytes,
+  `<script>` and a `javascript:` link degrade to text, and an unterminated fence
+  (a mid-stream message) does not throw.
+- `src/tests/clipboard.test.ts` — async API, legacy fallback, permission
+  denial, and the both-routes-gone case returning false rather than lying.
+- `scripts/chat-markdown-test.cjs` — the browser journey the units cannot
+  reach: two roles in one feed, per-bubble Raw, Copy landing the *source* on the
+  real clipboard, the sidebar switch flipping every bubble, the choice surviving
+  a reload, and a 390px viewport. 15/15 checks on fresh code.
+
 ## 2026-10-20 (evening) — the colour law, one widget, the honest rail
 
 David's second pass on the attachment timeline ("the colours are over the top")

@@ -21,6 +21,7 @@ import {
   Cloud,
   Check,
   Volume2,
+  Type,
 
   LogOut,
 
@@ -32,9 +33,24 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
+import type { ChatRenderMode } from '../chat/chatRenderMode';
 
 /** Read-aloud voices supported by the Gemini TTS endpoint (/api/tts). */
 export const TTS_VOICES = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'] as const;
+
+/** The global bubble-view switch, with the sentence that explains it on hover. */
+const CHAT_RENDER_CHOICES: { mode: ChatRenderMode; label: string; hint: string }[] = [
+  {
+    mode: 'markdown',
+    label: 'Markdown',
+    hint: 'Render replies as formatted markdown (each message can still flip to Raw)',
+  },
+  {
+    mode: 'raw',
+    label: 'Raw',
+    hint: 'Show the untouched markdown source of every message',
+  },
+];
 
 export type ActiveView = 'chat' | 'artifacts';
 
@@ -51,6 +67,9 @@ interface SidebarProps {
   /** Read-aloud voice for TTS playback (selector lives here, not in the composer). */
   chosenVoice?: string;
   onSelectVoice?: (voice: string) => void;
+  /** Default bubble view in the chat: rendered markdown, or the raw source. */
+  chatRender?: ChatRenderMode;
+  onSelectChatRender?: (mode: ChatRenderMode) => void;
   activeView: ActiveView;
   onChangeView: (view: ActiveView) => void;
   onOpenExport: () => void;
@@ -93,6 +112,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectModel,
   chosenVoice = 'Kore',
   onSelectVoice,
+  chatRender = 'markdown',
+  onSelectChatRender,
   activeView,
   onChangeView,
   onOpenExport,
@@ -1026,6 +1047,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 })}
               </div>
             )}
+          </div>
+
+          {/* Reading preference, not project data: it sits next to the model
+              picker because it is how you read what that model says. Every
+              bubble still carries its own Raw toggle — this is just the
+              default they start from. */}
+          <div className="rounded-xl bg-surface-2 p-1.5">
+            <div className="flex items-center gap-2.5 p-2.5 pb-1.5">
+              <div className="w-7 h-7 rounded-lg bg-recess-1 shadow-well flex items-center justify-center shrink-0">
+                <Type className="w-4 h-4 text-[#38bdf8]" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
+                  Chat text
+                </span>
+                <span className="text-xs font-semibold text-ink truncate block">
+                  {chatRender === 'raw' ? 'Raw markdown' : 'Rendered markdown'}
+                </span>
+              </div>
+            </div>
+            <div className="px-1.5 pb-1.5 flex items-center gap-1">
+              {CHAT_RENDER_CHOICES.map((choice) => {
+                const isSelected = choice.mode === chatRender;
+                return (
+                  <button
+                    key={choice.mode}
+                    type="button"
+                    aria-pressed={isSelected}
+                    aria-label={`Chat text: ${choice.label}`}
+                    onClick={() => {
+                      logger.action('Sidebar', `Chat text mode: ${choice.mode}`);
+                      onSelectChatRender?.(choice.mode);
+                    }}
+                    title={choice.hint}
+                    className={`flex-1 min-h-[26px] px-2.5 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-veil-3 shadow-lift text-ink font-semibold'
+                        : 'text-ink-faint hover:bg-veil-1 hover:text-ink-dim'
+                    }`}
+                  >
+                    {choice.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Block 3.5: Read-aloud voice (moved out of the chat composer —

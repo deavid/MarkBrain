@@ -223,6 +223,33 @@
 .md-body th { background: var(--color-veil-2); color: #93afe0; font-weight: 600; }
 .md-body tr:nth-child(even) td { background: var(--color-veil-1); }
 
+/* Chat bubbles: a reply must read at the bubble's own type scale and ink, not
+   at the modal's. Without this a rendered message is smaller and greyer than
+   the same message shown raw — the toggle would change more than the syntax. */
+.md-body.md-chat {
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.md-body.md-chat h1 { font-size: 1.35em; }
+.md-body.md-chat h2 { font-size: 1.2em; }
+.md-body.md-chat h3 { font-size: 1.08em; }
+
+/* Code inside a bubble must move in the direction its host does not — a raised
+   (user) bubble darkens its code, a sunken (assistant) bubble lightens it.
+   One shared tone made code the same colour as the bubble it sat in. */
+.md-body.md-chat-raised code,
+.md-body.md-chat-raised pre {
+  background: var(--color-recess-2);
+}
+.md-body.md-chat-sunken code,
+.md-body.md-chat-sunken pre {
+  background: var(--color-veil-2);
+}
+.md-body.md-chat pre {
+  box-shadow: var(--shadow-well);
+}
+
 /* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 4px;

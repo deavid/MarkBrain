@@ -26,8 +26,14 @@ import {
   Brain,
   Plus,
   Pencil,
+  Code,
+  Copy,
 } from 'lucide-react';
 import { logger } from '../../utils/logger';
+import { copyText } from '../../utils/clipboard';
+import { MessageBody } from './MessageBody';
+import { flipMessageView, messageIsRaw } from './chatRenderMode';
+import type { ChatRenderMode } from './chatRenderMode';
 import { ThreadRuntime, ChatAttachment, isAttachmentStaged } from '../../domains/06-chat-threads';
 import type { Granularity, AttachmentVisualState } from '../../domains/granularity';
 import { GRANULARITY_LABEL, cutIncludes, getAttachmentStatePalette } from '../../domains/granularity';
@@ -65,6 +71,8 @@ interface ChatViewProps {
   onSetAttachmentGranularity?: (artifactId: string, granularity: Granularity) => void;
   onOpenArtifacts?: () => void;
   chosenVoice?: string;
+  /** Default bubble view for the whole feed; each message can still flip. */
+  chatRender?: ChatRenderMode;
   onOpenArtifact?: (artifactId: string) => void;
   threadTitle?: string;
   threadTitleState?: 'placeholder' | 'auto' | 'manual';
@@ -109,6 +117,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onSetAttachmentGranularity,
   onOpenArtifacts,
   chosenVoice = 'Kore',
+  chatRender = 'markdown',
   onOpenArtifact,
   threadTitle = 'New thread',
   threadTitleState = 'placeholder',
@@ -127,6 +136,50 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [titleBusy, setTitleBusy] = useState(false);
   const [titleFlash, setTitleFlash] = useState<'ok' | 'fail' | null>(null);
   const [feedScrolled, setFeedScrolled] = useState(false);
+
+  // Per-message view overrides. Absent key = follow the sidebar's default, so
+  // changing the global switch still speaks for every bubble that was never
+  // individually flipped.
+  const [rawOverrides, setRawOverrides] = useState<Record<string, boolean>>({});
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const chatRenderRef = useRef<ChatRenderMode>(chatRender);
+
+  useEffect(() => {
+    if (chatRenderRef.current === chatRender) return;
+    chatRenderRef.current = chatRender;
+    setRawOverrides({});
+  }, [chatRender]);
+
+  const isMessageRaw = (messageId: string) => messageIsRaw(rawOverrides, messageId, chatRender);
+
+  const toggleMessageRaw = (message: Turn) => {
+    const next = !isMessageRaw(message.id);
+    logger.action('ChatView', `Message view: ${next ? 'raw source' : 'rendered markdown'}`, {
+      messageId: message.id,
+      role: message.role,
+    });
+    setRawOverrides((prev) => flipMessageView(prev, message.id, chatRender));
+  };
+
+  const handleCopyMessage = async (message: Turn) => {
+    const ok = await copyText(message.content);
+    if (!ok) {
+      logger.warn('ChatView', 'Clipboard write failed for message markdown', {
+        messageId: message.id,
+        role: message.role,
+      });
+      return;
+    }
+    logger.action('ChatView', 'Copied message markdown to clipboard', {
+      messageId: message.id,
+      role: message.role,
+      chars: message.content.length,
+    });
+    setCopiedMessageId(message.id);
+    window.setTimeout(() => {
+      setCopiedMessageId((current) => (current === message.id ? null : current));
+    }, 1600);
+  };
 
   const startTitleRename = () => {
     setTitleDraft(threadTitleState === 'placeholder' ? '' : threadTitle);
@@ -837,6 +890,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     const isUser = message.role === 'user';
                     const isPlaying = playingMessageId === message.id;
                     const isTtsLoading = ttsLoadingId === message.id;
+                    const isRaw = isMessageRaw(message.id);
+                    const isCopied = copiedMessageId === message.id;
 
                     return (
                       <div
@@ -879,6 +934,39 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           >
                             <BookmarkPlus className="w-3 h-3" />
                           </button>
+
+                          {/* View + copy sit on BOTH roles and are always visible:
+                              hover does not exist on a phone, and these two are
+                              the whole point of the toggle. Nothing to read yet
+                              (a reply still thinking) → no controls. */}
+                          {message.content && (
+                            <>
+                              <button
+                                onClick={() => toggleMessageRaw(message)}
+                                aria-pressed={isRaw}
+                                className={`ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-[10px] font-mono transition-colors cursor-pointer ${
+                                  isRaw
+                                    ? 'bg-veil-2 text-ink shadow-lift font-semibold'
+                                    : 'text-[#50637f] hover:bg-surface-2 hover:text-[#9bb0d1]'
+                                }`}
+                                title={isRaw ? 'Show rendered markdown' : 'Show the raw markdown source'}
+                              >
+                                <Code className="w-3 h-3" />
+                                <span>Raw</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleCopyMessage(message)}
+                                className={`p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer ${
+                                  isCopied ? 'text-[#5ad49b]' : 'text-[#50637f] hover:text-[#9bb0d1]'
+                                }`}
+                                title={isCopied ? 'Copied markdown' : 'Copy markdown'}
+                                aria-label={`Copy ${isUser ? 'your message' : 'this reply'} as markdown`}
+                              >
+                                {isCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                            </>
+                          )}
                         </div>
 
                         {declaringMessageId === message.id && (
@@ -918,16 +1006,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               : 'bg-recess-1 shadow-well text-ink'
                           }`}
                         >
-                          <div className="whitespace-pre-wrap font-sans space-y-2">
-                            {message.content ? (
-                              message.content
-                            ) : (
-                              <div className="flex items-center gap-2 text-xs font-mono text-[#38bdf8] py-1 animate-pulse">
-                                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#38bdf8]" />
-                                <span>Thinking...</span>
-                              </div>
-                            )}
-                          </div>
+                          {message.content ? (
+                            <MessageBody content={message.content} raw={isRaw} tone={isUser ? 'raised' : 'sunken'} />
+                          ) : (
+                            <div className="flex items-center gap-2 text-xs font-mono text-[#38bdf8] py-1 animate-pulse">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#38bdf8]" />
+                              <span>Thinking...</span>
+                            </div>
+                          )}
 
                           {message.extractedArtifacts && message.extractedArtifacts.length > 0 && (
                             <div className="mt-3 pt-2.5 space-y-2">

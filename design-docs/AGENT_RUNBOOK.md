@@ -27,7 +27,7 @@ headlessly, the selector map lives in §7.
 - **Command:** `bun run dev` (= `tsx server.ts`). There is no separate Vite
   process — `server.ts` mounts Vite as Express middleware in dev mode and
   serves `dist/` when `NODE_ENV=production`.
-- **Port:** from `.env` (`PORT`, currently `3030`). Before starting anything,
+- **Port:** from `.env` (`PORT`). Before starting anything,
   check whether it's already up (`curl http://localhost:3030/api/health`) —
   long-lived dev servers are normal here.
 - **Env:** `.env` is gitignored and must exist (copy `.env.example`). The
@@ -35,7 +35,11 @@ headlessly, the selector map lives in §7.
   `process.env` — so the server process must see them (it does: `dotenv.config()`
   runs before Vite's config resolves).
 - **HMR:** enabled by default; `DISABLE_HMR=true` disables watching (AI Studio
-  artifact — don't set it unless you want a frozen bundle).
+  artifact — don't set it unless you want a frozen bundle). **No watching means
+  no cache invalidation:** a running server keeps serving the transform it read
+  first, so a probe can pass or fail against code you already changed. Restart
+  the server (or bust the URL) after editing UI files, and never trust a probe
+  result taken against a server older than your last edit.
 
 ## 2. Why agents get stuck: the auth gate
 
@@ -45,7 +49,7 @@ headlessly, the selector map lives in §7.
 2. `!currentUser` → `AuthGate` — **two branches**:
    - **"Continue with Google"** → `signInWithPopup` (a human + a real Google
      account + a popup) — Firebase/Firestore backend
-   - **"Continue locally"** → no account, no network auth; IndexedDB backend
+   - **"Use local storage instead"** → no account, no network auth; IndexedDB backend
      (the Local branch, §5). Headless this one is a single click.
 3. signed in but project list unresolved (`cloudProjectsCount === null`) →
    boot loader "Loading cloud projects…" (never flash Genesis to a returning user)
@@ -198,7 +202,7 @@ node scripts/headless-capture.cjs --real     # or MARKBRAIN_CAPTURE_MODE=real
 
 ## 5. Local branch + database backup/restore
 
-Two gate branches: **Continue with Google** (Firestore) / **Continue locally**
+Two gate branches: **Continue with Google** (Firestore) / **Use local storage instead**
 (IndexedDB, no account). Only `persistenceService.ts` knows both exist —
 `getBackend()` reads meta-key `markbrain:backend`, dispatches the four CRUD
 functions; `localBackend.ts` is its private adapter. Everything else (App,
@@ -214,8 +218,8 @@ Sidebar, Genesis) sees a `currentUser` and stays agnostic.
 
 ```bash
 node scripts/roundtrip-test.cjs
-# A: Continue locally → create → Backup DB (schema-validated JSON)
-# B: fresh context → Continue locally → Restore → same UI
+# A: Use local storage instead → create → Backup DB (schema-validated JSON)
+# B: fresh context → Use local storage instead → Restore → same UI
 ```
 
 Also `node scripts/delete-test.cjs` — project deletion acceptance (create →
@@ -240,7 +244,7 @@ The acceptance scripts (`scripts/roundtrip-test.cjs`, `scripts/delete-test.cjs`)
 encode this, but the map matters when you write new interactions:
 
 **Screens & paths**
-- Gate: `getByRole('button', { name: 'Continue locally' })` — **role selector,
+- Gate: `getByRole('button', { name: 'Use local storage instead' })` — **role selector,
   not `getByText`**: the explanatory copy contains the same words and Playwright
   strict mode will refuse the click (learned the hard way).
 - Gate (cloud): `getByText('Continue with Google')` — needs a real popup; the

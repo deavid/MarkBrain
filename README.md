@@ -93,7 +93,7 @@ server/routes/            # one file per endpoint group (chat, summarize, title,
 server/providers/         # gemini.ts — provider adapter (OpenRouter lands beside it)
 server/lib/               # env, log, tokens, prompt, models
 src/App.tsx               # composition root (~650L): loader → AuthGate → Genesis → studio
-src/ui/                   # feature slices: chat, artifacts, graph, workspace, context
+src/ui/                   # feature slices: chat, artifacts, graph, workspace, context, cleanup
                           # (Sidebar, ChatView, SpatialGraph, modals, gate… live here)
 src/application/          # orchestration: sendQueue, persistWorker, sessionMachine, snapshotLoader
 src/gateway/api.ts        # the only module in src/ allowed to call fetch('/api/…')
@@ -120,6 +120,7 @@ node scripts/headless-capture.cjs         # → chat/graph/mobile PNGs (fixture 
 node scripts/headless-capture.cjs --real  # real-data mode: live auth + live Firestore reads, writes no-op
 node scripts/roundtrip-test.cjs           # acceptance: export → fresh browser → import → same UI
 node scripts/delete-test.cjs              # acceptance: project deletion + confirmation flow
+node scripts/cleanup-tool-test.cjs        # acceptance: archive → permanent delete (the deletion law, design-docs/14)
 ```
 
 Mechanics, gotchas, selector map, and caveats: **[`design-docs/AGENT_RUNBOOK.md`](design-docs/AGENT_RUNBOOK.md)**.

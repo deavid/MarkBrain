@@ -1,5 +1,10 @@
 import { IArtifactDocumentDomain } from './interface';
-import { UniversalArtifactDocument, ArtifactLayers, ArtifactDocumentEvent } from './types';
+import {
+  UniversalArtifactDocument,
+  ArtifactLayers,
+  ArtifactDocumentEvent,
+  ArtifactLifecycle,
+} from './types';
 import { Granularity, cutIncludes } from '../granularity';
 
 /** Cumulative plain-text cut (`title ⊂ description ⊂ summary ⊂ body`). Missing layers are omitted, never synthesized. */
@@ -81,6 +86,13 @@ export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
       tags: doc.tags || existing?.tags || ['note'],
       createdAt: existing?.createdAt || now,
       updatedAt: now,
+      // Same omit-when-absent rule as graph/yamlDocument: an upsert must never
+      // wipe the parked flag (every content or graph edit re-enters here).
+      ...(doc.lifecycle !== undefined
+        ? { lifecycle: doc.lifecycle }
+        : existing?.lifecycle !== undefined
+          ? { lifecycle: existing.lifecycle }
+          : {}),
       // Preserve optional fields: prefer the update, else the existing value —
       // but OMIT the key entirely when neither exists. Materializing
       // `graph: undefined` poisons Firestore saves (the SDK rejects undefined
@@ -111,6 +123,14 @@ export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
     art.current = { ...art.current, ...layers };
     art.updatedAt = Date.now();
     this.emit({ type: 'artifactUpdated', artifact: art });
+  }
+
+  setArtifactLifecycle(id: string, lifecycle: ArtifactLifecycle): void {
+    const art = this.artifacts.get(id);
+    if (!art || (art.lifecycle ?? 'active') === lifecycle) return;
+    const next: UniversalArtifactDocument = { ...art, lifecycle, updatedAt: Date.now() };
+    this.artifacts.set(id, next);
+    this.emit({ type: 'artifactUpdated', artifact: next });
   }
 
   deleteArtifact(id: string): void {

@@ -37,6 +37,10 @@ export class ArtifactVersioningDomain implements IArtifactVersioningDomain {
     return revision;
   }
 
+  purgeArtifact(artifactId: string): void {
+    this.history.delete(artifactId);
+  }
+
   rollback(artifactId: string, targetVersion: number): ArtifactRevision {
     const list = this.history.get(artifactId) || [];
     const target = list.find((r) => r.version === targetVersion);

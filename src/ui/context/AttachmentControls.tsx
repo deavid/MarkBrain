@@ -162,6 +162,8 @@ interface AttachmentRowProps {
   /** Provenance / state badge ('next send', 'msg 4', 'review'…). */
   badge?: string;
   flagged?: boolean;
+  /** Parked for cleanup: dimmed here, and the only state the cleanup tool will delete. */
+  archived?: boolean;
 }
 
 /**
@@ -182,6 +184,7 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
   tags,
   badge,
   flagged,
+  archived = false,
 }) => {
   const palette = getAttachmentStatePalette(state);
   return (
@@ -199,7 +202,7 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
       }
       className={`group w-full text-left rounded-xl px-2 py-1.5 space-y-1 ${
         onToggle ? 'cursor-pointer select-none' : ''
-      } ${palette.rowClass}`}
+      } ${palette.rowClass} ${archived ? 'opacity-70' : ''}`}
     >
       <div className="flex items-center gap-2 min-w-0">
         <AttachmentDot
@@ -216,6 +219,14 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
             {flagged && (
               <span className={`text-[9px] font-mono px-1 py-0.2 rounded ${palette.tagClass}`}>
                 review
+              </span>
+            )}
+            {archived && (
+              <span
+                className="text-[9px] font-mono px-1 py-0.2 rounded bg-recess-2 text-[#c8a05a]"
+                title="Parked — nothing hides it, but only archived artifacts can be deleted for good"
+              >
+                archived
               </span>
             )}
             {badge && (

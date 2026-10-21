@@ -31,6 +31,7 @@ import {
   Save,
   RotateCcw,
   MoreHorizontal,
+  Trash2,
 } from 'lucide-react';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 import type { ChatRenderMode } from '../chat/chatRenderMode';
@@ -98,6 +99,7 @@ interface SidebarProps {
   onSuggestTitle?: (threadId: string) => void;
   /** "New since you left" brightness bump — cleared on open. */
   unreadThreadIds?: string[];
+  onOpenCleanup?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -141,6 +143,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onReorderFolders,
   onSuggestTitle,
   unreadThreadIds = [],
+  onOpenCleanup,
 }) => {
   // Accordion toggles expand inline in document flow, which guarantees the panels can never be clipped.
   const [projectAccordionOpen, setProjectAccordionOpen] = useState(false);
@@ -1206,6 +1209,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             )}
           </div>
+
+          {onOpenCleanup && (
+            <button
+              onClick={() => {
+                logger.action('Sidebar', 'Open Cleanup tool');
+                onOpenCleanup();
+              }}
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-2 shadow-lift hover:bg-veil-1 text-left transition-colors cursor-pointer group"
+              title="Archive chats and artifacts in bulk, then delete the archived ones for good"
+            >
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-3.5 h-3.5 text-[#b08a5a]" />
+                <span className="text-xs font-semibold font-mono text-[#c9a978] group-hover:text-ink">
+                  Cleanup
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-[#6b82a3] px-1.5 py-0.5 rounded bg-surface-0">
+                archive → delete
+              </span>
+            </button>
+          )}
 
           {onOpenServerLogs && (
             <button

@@ -9,6 +9,7 @@ import { Search, FolderTree, Network, Menu, Upload, MessageSquare } from 'lucide
 import { isFlaggedArtifact } from '../../utils/importDetect';
 import { logger } from '../../utils/logger';
 import { AttachmentRow, formatAttachmentProvenance } from '../context/AttachmentControls';
+import { isArtifactArchived } from '../../domains/01-artifact-document';
 
 export type LibraryLens = 'folders' | 'graph';
 
@@ -180,6 +181,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
                       }
                       tags={art.tags || []}
                       flagged={flagged}
+                      archived={isArtifactArchived(art)}
                       badge={
                         isStaged ? 'next send' : att ? formatAttachmentProvenance(att.turnIndex)?.badge : undefined
                       }

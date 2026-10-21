@@ -36,6 +36,11 @@ export function isAttachmentStaged(att: ChatAttachment): boolean {
   return att.turnIndex === null;
 }
 
+/** Chats holding this artifact as an attachment — the referential check that gates deletion. */
+export function threadsReferencingArtifact(threads: ChatThread[], artifactId: string): ChatThread[] {
+  return threads.filter((t) => (t.attachments || []).some((a) => a.artifactId === artifactId));
+}
+
 export interface ChatThread {
   id: string;
   folderId: string | null;

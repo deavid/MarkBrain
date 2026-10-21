@@ -1,4 +1,6 @@
 /** Cumulative document layers (`title` is on the parent document; `description → summary → body` are read together). */
+export type ArtifactLifecycle = 'active' | 'archived';
+
 export interface ArtifactLayers {
   description: string;
   summary: string;
@@ -28,6 +30,17 @@ export interface UniversalArtifactDocument {
     [key: string]: any;
   };
   yamlDocument?: string;
+  /**
+   * Parking state; `undefined` = active (legacy snapshots). Archived is the ONLY
+   * state from which permanent deletion is allowed — and it changes nothing the
+   * LLM sees, only what the cleanup tool will let you destroy.
+   */
+  lifecycle?: ArtifactLifecycle;
+}
+
+/** Legacy snapshots carry no lifecycle — active is the default, never a missing state. */
+export function isArtifactArchived(art: Pick<UniversalArtifactDocument, 'lifecycle'>): boolean {
+  return art.lifecycle === 'archived';
 }
 
 export type ArtifactDocumentEvent =

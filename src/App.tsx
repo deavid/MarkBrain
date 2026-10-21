@@ -14,6 +14,7 @@ import { ArtifactsLibraryView } from './ui/artifacts/ArtifactsLibraryView';
 import { ImportModal } from './ui/artifacts/ImportModal';
 import { ExportModal } from './ui/artifacts/ExportModal';
 import { RevisionTriageModal } from './ui/artifacts/RevisionTriageModal';
+import { CleanupModal } from './ui/cleanup/CleanupModal';
 import { ThreadSwitcher } from './ui/chat/ThreadSwitcher';
 import { loadChatRenderMode, saveChatRenderMode } from './ui/chat/chatRenderMode';
 import type { ChatRenderMode } from './ui/chat/chatRenderMode';
@@ -39,6 +40,7 @@ import { useDatabaseTransfer } from './ui/workspace/useDatabaseTransfer';
 import { createArtifactHandlers } from './ui/artifacts/createArtifactHandlers';
 import { createGraphHandlers } from './ui/graph/createGraphHandlers';
 import { createChapterHandlers } from './ui/chat/createChapterHandlers';
+import { createCleanupHandlers } from './ui/cleanup/createCleanupHandlers';
 import { useThreadUi } from './ui/chat/useThreadUi';
 import { useThreadSwitcher } from './ui/chat/useThreadSwitcher';
 import { createSuggestTitle } from './ui/chat/createSuggestTitle';
@@ -147,6 +149,7 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isMirrorOpen, setIsMirrorOpen] = useState(false);
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
+  const [isCleanupOpen, setIsCleanupOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [triageFocusId, setTriageFocusId] = useState<string | null>(null);
 
@@ -270,6 +273,7 @@ export default function App() {
   } = createArtifactHandlers({
     artifactsDomain,
     versioning,
+    graph,
     workspace,
     threadRegistry,
     activeThreadId,
@@ -290,6 +294,19 @@ export default function App() {
 
   const { handleDeclareChapter, handleSummarizeChapter, handleSetChapterGranularity } =
     createChapterHandlers({ timeline, segmentation });
+
+  const { setThreadsLifecycle, setArtifactsLifecycle, applyPlan } = createCleanupHandlers({
+    artifactsDomain,
+    versioning,
+    graph,
+    threadRegistry,
+    deleteThread,
+    triggerReRender,
+    onArtifactPurged: (id) => {
+      setSelectedArtifactId((cur) => (cur === id ? null : cur));
+      setTriageFocusId((cur) => (cur === id ? null : cur));
+    },
+  });
 
   // Re-published each render; sendQueue snapshots deps + getContext() when a chain starts.
   const requestAutoTitle = (
@@ -407,6 +424,7 @@ export default function App() {
         onImportDatabase={() => importDbFileRef.current?.click()}
         onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
         onOpenServerLogs={() => setIsServerLogsOpen(true)}
+        onOpenCleanup={() => setIsCleanupOpen(true)}
         currentUser={currentUser}
         onSignOut={signOut}
         threads={threadRegistry.getThreads()}
@@ -581,6 +599,19 @@ export default function App() {
         {/* Presentation Telemetry: 5px Edge Heat Bar */}
         <EdgeHeatStrip telemetry={ambientTelemetry} />
       </main>
+
+      {/* Cleanup: bulk archive/unarchive, permanent delete of the archived */}
+      {isCleanupOpen && (
+        <CleanupModal
+          isOpen={isCleanupOpen}
+          onClose={() => setIsCleanupOpen(false)}
+          threads={threadRegistry.getThreads()}
+          artifacts={domainArtifacts}
+          onSetThreadLifecycle={setThreadsLifecycle}
+          onSetArtifactLifecycle={setArtifactsLifecycle}
+          onApplyPlan={applyPlan}
+        />
+      )}
 
       {/* Live Server Telemetry & Logs Modal */}
       <ServerLogsModal

@@ -3,6 +3,7 @@ import type { Artifact } from '../../types';
 import type { Granularity } from '../../domains/granularity';
 import { serializeArtifactToYamlDoc } from '../../utils/yamlArtifactParser';
 import { detectImportFlag, flagRelationship, ImportFlag } from '../../utils/importDetect';
+import { purgeArtifact } from './purgeArtifact';
 import { logger } from '../../utils/logger';
 
 type WorkspaceContainer = NonNullable<ReturnType<DomainContextValue['workspace']['getProject']>>;
@@ -10,6 +11,7 @@ type WorkspaceContainer = NonNullable<ReturnType<DomainContextValue['workspace']
 export interface ArtifactHandlerParams {
   artifactsDomain: DomainContextValue['artifacts'];
   versioning: DomainContextValue['versioning'];
+  graph: DomainContextValue['graph'];
   workspace: DomainContextValue['workspace'];
   threadRegistry: DomainContextValue['threadRegistry'];
   activeThreadId: string;
@@ -27,6 +29,7 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
   const {
     artifactsDomain,
     versioning,
+    graph,
     workspace,
     threadRegistry,
     activeThreadId,
@@ -210,19 +213,10 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     });
   };
 
-  // Dangling-edge + focus scrub for any artifact id leaving the workspace.
+  // Focus scrub on top of the shared cascade — every deletion path leaves the
+  // workspace the same way (edges, attachments, history, the artifact itself).
   const scrubReferencesTo = (deletedId: string) => {
-    artifactsDomain.listArtifacts().forEach((a) => {
-      const rels = a.graph?.relationships;
-      if (!rels || !rels.some((r) => r.target === deletedId)) return;
-      upsertGraphOf(a, {
-        ...(a.graph || {}),
-        relationships: rels.filter((r) => r.target !== deletedId),
-      });
-    });
-    // Dangling attachments die with the artifact (no user-facing detach exists;
-    // this is garbage collection on deletion only).
-    threadRegistry.purgeArtifact(deletedId);
+    purgeArtifact({ artifactsDomain, versioning, graph, threadRegistry }, deletedId);
     if (selectedArtifactId === deletedId) setSelectedArtifactId(null);
     if (triageFocusId === deletedId) setTriageFocusId(null);
   };

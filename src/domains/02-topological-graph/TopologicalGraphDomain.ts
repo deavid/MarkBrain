@@ -39,6 +39,12 @@ export class TopologicalGraphDomain implements ITopologicalGraphDomain {
     }
   }
 
+  removeNode(nodeId: string): void {
+    Array.from(this.edges.values())
+      .filter((e) => e.sourceId === nodeId || e.targetId === nodeId)
+      .forEach((e) => this.removeEdge(e.id));
+  }
+
   loadEdges(edges: SemanticEdge[]): void {
     this.edges.clear();
     edges.forEach((e) => this.edges.set(e.id, e));

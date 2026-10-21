@@ -1,4 +1,9 @@
-import { UniversalArtifactDocument, ArtifactLayers, ArtifactDocumentEvent } from './types';
+import {
+  UniversalArtifactDocument,
+  ArtifactLayers,
+  ArtifactDocumentEvent,
+  ArtifactLifecycle,
+} from './types';
 import type { Granularity } from '../granularity';
 
 export interface IArtifactDocumentDomain {
@@ -8,6 +13,7 @@ export interface IArtifactDocumentDomain {
 
   upsertArtifact(doc: Partial<UniversalArtifactDocument> & { id: string; title: string }): UniversalArtifactDocument;
   updateLayers(id: string, layers: Partial<ArtifactLayers>): void;
+  setArtifactLifecycle(id: string, lifecycle: ArtifactLifecycle): void;
   deleteArtifact(id: string): void;
   loadArtifacts(docs: UniversalArtifactDocument[]): void;
 

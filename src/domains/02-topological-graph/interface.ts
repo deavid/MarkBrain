@@ -8,6 +8,8 @@ export interface ITopologicalGraphDomain {
 
   addEdge(sourceId: string, targetId: string, kind: RelationKind, weight?: number): SemanticEdge;
   removeEdge(edgeId: string): void;
+  /** Every edge incident to the node — a deleted artifact must not leave half-edges behind. */
+  removeNode(nodeId: string): void;
   loadEdges(edges: SemanticEdge[]): void;
 
   subscribe(callback: (event: GraphEvent) => void): () => void;

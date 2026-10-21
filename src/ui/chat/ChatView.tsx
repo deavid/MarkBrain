@@ -792,44 +792,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 )}
               </div>
 
-              {/* Compacted attachment strip — whenever this chapter's turns are
-                  not on screen (folded, or sent below Full), its committed
-                  attachments stay visible and steerable here. An attachment's
-                  cut is independent of the chapter's. */}
-              {(() => {
-                const chapterAtts = attachmentsOfChapter(chapter);
-                const turnsHidden = isCollapsed || granularity !== 'full';
-                if (!turnsHidden || chapterAtts.length === 0) return null;
-                return (
-                  <div className="px-3 sm:px-4 py-2 bg-veil-1 flex flex-wrap gap-1.5">
-                    <div className="w-full shrink-0 text-[9px] font-mono uppercase tracking-wider text-[#556985]">
-                      Attached in this chapter (independent of the cut)
-                    </div>
-                    {chapterAtts.map((att) => (
-                      <AttachmentRow
-                        key={att.artifactId}
-                        artifactId={att.artifactId}
-                        state={att.granularity}
-                        title={titleFor(att.artifactId)}
-                        subtitle={subtitleFor(att.artifactId)}
-                        tokens={tokensFor(att.artifactId)}
-                        granularity={att.granularity}
-                        badge={formatAttachmentProvenance(att.turnIndex)?.badge}
-                        onToggle={
-                          onToggleAttachment ? () => onToggleAttachment(att.artifactId) : undefined
-                        }
-                        onSetGranularity={
-                          onSetAttachmentGranularity
-                            ? (g) => onSetAttachmentGranularity(att.artifactId, g)
-                            : undefined
-                        }
-                        onOpenDetail={onOpenArtifact ? () => onOpenArtifact(att.artifactId) : undefined}
-                      />
-                    ))}
-                  </div>
-                );
-              })()}
-
               {/* What you see is what you send: the body renders exactly the
                   layers the current cut includes, in order — description,
                   summary, then the verbatim turns at Full. Title renders none of
@@ -897,6 +859,45 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     )}
                 </div>
               )}
+
+              {/* Compacted attachment strip — whenever this chapter's turns are
+                  not on screen (folded, or sent below Full), its committed
+                  attachments stay visible and steerable here. An attachment's
+                  cut is independent of the chapter's. It is the chapter's FOOTER
+                  on purpose: description and summary lead, attachments close. */}
+              {(() => {
+                const chapterAtts = attachmentsOfChapter(chapter);
+                const turnsHidden = isCollapsed || granularity !== 'full';
+                if (!turnsHidden || chapterAtts.length === 0) return null;
+                return (
+                  <div className="px-3 sm:px-4 py-2 bg-veil-1 flex flex-wrap gap-1.5">
+                    <div className="w-full shrink-0 text-[9px] font-mono uppercase tracking-wider text-[#556985]">
+                      Attached in this chapter (independent of the cut)
+                    </div>
+                    {chapterAtts.map((att) => (
+                      <AttachmentRow
+                        key={att.artifactId}
+                        artifactId={att.artifactId}
+                        state={att.granularity}
+                        title={titleFor(att.artifactId)}
+                        subtitle={subtitleFor(att.artifactId)}
+                        tokens={tokensFor(att.artifactId)}
+                        granularity={att.granularity}
+                        badge={formatAttachmentProvenance(att.turnIndex)?.badge}
+                        onToggle={
+                          onToggleAttachment ? () => onToggleAttachment(att.artifactId) : undefined
+                        }
+                        onSetGranularity={
+                          onSetAttachmentGranularity
+                            ? (g) => onSetAttachmentGranularity(att.artifactId, g)
+                            : undefined
+                        }
+                        onOpenDetail={onOpenArtifact ? () => onOpenArtifact(att.artifactId) : undefined}
+                      />
+                    ))}
+                  </div>
+                );
+              })()}
 
               {/* Messages Container — only when the cut actually includes the
                   turns. At Title/Description/Summary the body above IS the

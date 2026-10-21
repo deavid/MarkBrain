@@ -154,7 +154,7 @@ async function main() {
     const r = await fetch(`${APP}/api/health`, { signal: AbortSignal.timeout(3000) });
     if (!r.ok) throw new Error(`health ${r.status}`);
   } catch {
-    console.error(`App not reachable at ${APP} — start it first:  bun run dev`);
+    console.error(`App not reachable at ${APP} — start it first:  npm run dev  (or bun run dev)`);
     process.exit(1);
   }
 

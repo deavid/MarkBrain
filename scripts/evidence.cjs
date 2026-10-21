@@ -9,7 +9,7 @@
  * audit JSON + culprit clip shots, aria snapshots. No image comparison anywhere.
  *
  * Pack contract: design-docs/EVIDENCE_PACK.md
- * Usage:  bun run dev  →  node scripts/evidence.cjs
+ * Usage:  npm run dev  →  node scripts/evidence.cjs   (bun run dev works too)
  * Env:    MARKBRAIN_URL, MARKBRAIN_EVIDENCE_DIR, CHROME_BIN
  * Exit:   0 = green (warns allowed), 1 = at least one fail, 2 = harness error.
  *
@@ -470,7 +470,7 @@ async function main() {
   try {
     const r = await fetch(`${APP}/api/health`, { signal: AbortSignal.timeout(3000) });
     if (!r.ok) throw new Error(String(r.status));
-  } catch { log(`App not reachable at ${APP} — start it first:  bun run dev`); process.exit(2); }
+  } catch { log(`App not reachable at ${APP} — start it first:  npm run dev  (or bun run dev)`); process.exit(2); }
 
   // ── auth mock (fixture) ───────────────────────────────────────────────────
   const nowSec = Math.floor(Date.now() / 1000);

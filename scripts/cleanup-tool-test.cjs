@@ -6,7 +6,7 @@
  *   (default: the archived chat survives and loses the attachment)
  *   → then delete that chat from the chats tab and watch the fallback take over.
  *
- * Run:  bun run dev   (PORT from .env)  then  node scripts/cleanup-tool-test.cjs
+ * Run:  npm run dev   (PORT from .env; bun run dev works too)  then this script
  */
 const fs = require('fs');
 const path = require('path');

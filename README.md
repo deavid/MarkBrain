@@ -40,6 +40,11 @@ grows up — and honest about that.
 > snapshot; when it disagrees with `design-docs/scratch/pending.md`, the
 > scratch wins. This README is just the front door; details live in the docs.
 
+> **Everything here is written by AI agents and reviewed by AI agents.** The
+> human in the loop sets direction and judges the running app; he does not write
+> the code and does not read the diffs. What that means for you — and what it
+> does not — is [`VIBECODED.md`](VIBECODED.md).
+
 ## Stack
 
 | Layer | What |
@@ -52,11 +57,19 @@ grows up — and honest about that.
 
 ## Run it
 
+Node 22.12+ and npm are all you need — Bun is only a convenience here
+(`bun run dev` is exactly `tsx server.ts`). Full walkthrough, bun→npm command
+map and troubleshooting: **[`INSTALL.md`](INSTALL.md)**.
+
 ```bash
-npm install
-cp .env.example .env        # fill in placeholders (a populated .env may already exist locally)
-bun run dev                 # → http://localhost:$PORT  (PORT from .env; code default 3000)
+npm install --legacy-peer-deps   # the flag matters: vite@8's esbuild peer vs ours
+cp .env.example .env             # optional — fill in whatever you have
+npm run dev                      # → http://localhost:$PORT  (PORT from .env; code default 3000)
 ```
+
+Prefer Bun? `bun install` · `cp .env.example .env` · `bun run dev` — same app,
+same port, same env files. Throughout the docs `npm run x` ≡ `bun run x` and
+`npx x` ≡ `bunx x`.
 
 Env is layered and loads in order — real OS/runtime env → `.env` →
 `.env.shared` → the canonical shared file in the parent worktree (earlier
@@ -64,17 +77,18 @@ wins); `.env.example` documents the stack and lists every key.
 
 | Script | Does |
 |---|---|
-| `bun run dev` / `bun run start` | `tsx server.ts` — API + Vite middleware on one port |
+| `npm run dev` / `npm start` | `tsx server.ts` — API + Vite middleware on one port |
 | `npm run build` | `vite build` → `dist/` |
 | `npm run preview` | `vite preview` — serve `dist/` |
 | `npm run lint` | `tsc --noEmit` |
-| `npm run test` | `vitest run` (13 files in `src/tests/`) |
+| `npm test` | `vitest run` (18 files in `src/tests/`) |
 
 Notes:
 
-- `.env` needs at least `GEMINI_API_KEY` (server-side chat/stream/tts/extract
-  endpoints) and the `FIREBASE_*` vars (injected into the client by
-  `vite.config.ts`). `.env.example` lists everything.
+- `.env` is optional. With no `GEMINI_API_KEY` the AI endpoints answer from a
+  canned demo / heuristic fallback; with no `FIREBASE_API_KEY` the app boots
+  into Local mode (IndexedDB, this browser only) and the gate hides the Google
+  button. `.env.example` lists every key.
 - First screen is an auth gate with two branches: `Continue with Google`
   (cloud) and `Continue locally` (no account, this browser only). On a fresh
   account you land on Project Genesis, then the main studio. Projects are
@@ -131,8 +145,8 @@ Chromium at a time (parallel runs OOM-killed the agent; see runbook).
 
 Three layers, cheapest gate first:
 
-1. **`bunx tsc --noEmit`** — type gate.
-2. **`bunx vitest run`** (`src/tests/`) — unit/journey logic: domain behavior,
+1. **`npm run lint`** (`tsc --noEmit`) — type gate.
+2. **`npm test`** (`vitest run`, `src/tests/`) — unit/journey logic: domain behavior,
    selectors, persistence codecs, stream telemetry contracts.
 3. **`node scripts/evidence.cjs`** — *browser evidence pack* for anything the
    first two can't see: a deterministic 13-journey Playwright suite (send/

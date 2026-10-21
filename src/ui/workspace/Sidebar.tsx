@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { ModelOption, Artifact } from '../../types';
 import type { ProjectMetadata } from '../../domains/00-workspace/types';
 import { logger } from '../../utils/logger';
+import { UserAvatar } from './UserAvatar';
 import {
   Brain,
   Cpu,
@@ -25,7 +26,6 @@ import {
 
   LogOut,
 
-  User as UserIcon,
   Plus,
   FolderKanban,
   Save,
@@ -401,17 +401,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               title={currentUser?.email || 'Local workspace'}
               className="p-0.5 rounded-full hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
             >
-              {currentUser?.photoURL ? (
-                <img
-                  src={currentUser.photoURL}
-                  alt=""
-                  className="w-6 h-6 rounded-full"
-                />
-              ) : (
-                <span className="w-6 h-6 rounded-full bg-surface-3 flex items-center justify-center text-[#8ab1e0]">
-                  <UserIcon className="w-3.5 h-3.5" />
-                </span>
-              )}
+              <UserAvatar src={currentUser?.photoURL} />
             </button>
 
             <button

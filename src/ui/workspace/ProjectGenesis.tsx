@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Brain, Plus, Sparkles, LogOut, RefreshCw, FolderPlus, RotateCcw } from 'lucide-react';
 import { logger } from '../../utils/logger';
+import { UserAvatar } from './UserAvatar';
 
 interface ProjectGenesisProps {
   user: {
@@ -79,17 +80,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
       <div className="relative z-10 w-full max-w-lg p-6 sm:p-8 bg-surface-0 rounded-2xl shadow-2xl space-y-6">
         <div className="flex items-center justify-between pb-4 ">
           <div className="flex items-center gap-3 min-w-0">
-            {user.photoURL ? (
-              <img
-                src={user.photoURL}
-                alt={user.displayName || 'User'}
-                className="w-10 h-10 rounded-full "
-              />
-            ) : (
-              <div className="w-10 h-10 rounded-full bg-surface-3 flex items-center justify-center text-[#38bdf8] font-bold">
-                {(user.displayName || user.email || 'A').charAt(0).toUpperCase()}
-              </div>
-            )}
+            <UserAvatar src={user.photoURL} size="md" />
             <div className="min-w-0">
               <span className="text-xs text-[#526a8a] font-mono block">Signed in as</span>
               <span className="text-sm font-semibold text-ink block truncate">

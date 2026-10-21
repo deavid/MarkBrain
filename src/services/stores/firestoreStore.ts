@@ -72,11 +72,9 @@ export const firestoreStore: ProjectStore = {
       // This no-op used to be invisible: the session looks fine, every save
       // drops on the floor, and the next refresh shows a project from whenever
       // the last good save happened.
-      logger.warn(
-        'Persistence',
-        `Save skipped for ${snapshot.projectId}: ${!db ? 'Firestore not initialized' : 'no active Google session — this session will NOT be persisted'}`
-      );
-      return;
+      const reason = !db ? 'Firestore not initialized' : 'no active Google session — this session will NOT be persisted';
+      logger.warn('Persistence', `Save skipped for ${snapshot.projectId}: ${reason}`);
+      throw new Error(`Firestore save skipped: ${reason}`);
     }
 
     // Firestore rejects documents over 1,048,576 bytes with
@@ -112,6 +110,10 @@ export const firestoreStore: ProjectStore = {
       if (err?.code === 'permission-denied') {
         handleFirestoreError(err, OperationType.WRITE, docPath);
       }
+      // Propagate: persistWorker logs it and the fingerprint stays unset, so
+      // the same content retries instead of being marked saved while the
+      // document on the server never received it (the quota case).
+      throw err;
     }
   },
 

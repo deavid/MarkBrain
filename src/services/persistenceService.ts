@@ -71,6 +71,14 @@ const devParam = (name: string): boolean =>
 export const isFixtureMode = (): boolean => devParam('fixture');
 export const isCaptureMode = (): boolean => devParam('fixture') || devParam('capture');
 
+/**
+ * Last successfully persisted JSON per project. Firestore meters writes against
+ * document size (100KB chunks) out of a small daily free quota, so a save of
+ * unchanged content is the most expensive no-op there is — every duplicate
+ * flush, re-select or debounced echo used to cost several write units.
+ */
+const lastSavedJson = new Map<string, string>();
+
 export async function saveProjectSnapshot(
   projectId: string,
   snapshot: Omit<ProjectSnapshot, 'projectId' | 'updatedAt'>
@@ -99,7 +107,16 @@ export async function saveProjectSnapshot(
     color: snapshot.color,
   });
 
+  // Fingerprint CONTENT only: updatedAt moves on every call by design and must
+  // not count as a change (it would defeat the whole comparison).
+  const { updatedAt: _ignored, ...content } = fullSnapshot;
+  const json = JSON.stringify(content);
+  if (lastSavedJson.get(projectId) === json) return; // nothing changed: no write
+
+  // The store must reject on failure (quota, permission) — otherwise the
+  // fingerprint would mark unsaved content as saved and it would never retry.
   await getStore().save(fullSnapshot);
+  lastSavedJson.set(projectId, json);
 }
 
 /**

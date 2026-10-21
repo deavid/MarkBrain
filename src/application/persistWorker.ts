@@ -96,6 +96,10 @@ export function attachPersistWorker(deps: PersistWorkerDeps): () => void {
   const triggerDebouncedSave = () => {
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
+      // Null it: a fired timer is not a pending save. Without this,
+      // flushPendingSave saw a stale id on every alt-tab and re-wrote the
+      // whole document with nothing changed — pure quota burn.
+      saveTimeout = null;
       persistState();
     }, 500);
   };

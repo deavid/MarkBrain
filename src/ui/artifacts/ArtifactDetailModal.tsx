@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Artifact } from '../../types';
 import type { Granularity } from '../../domains/granularity';
@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { renderMarkdown } from '../../utils/markdown';
 import { formatAttachmentProvenance } from '../context/AttachmentControls';
+import type { ArtifactSearchIndexRecord, GeneratedQaPair } from '../../services/searchIndexStore';
 
 interface ArtifactDetailModalProps {
   artifact: Artifact;
@@ -43,6 +44,15 @@ interface ArtifactDetailModalProps {
   history?: Array<{ version: number; timestamp: number; changeSummary: string }>;
   /** Closes the modal and filters the library folder tree to this tag. */
   onFilterByTag?: (tag: string) => void;
+  // ── Q&A Index tab (design-docs/15, step 9) ───────────────────────────────
+  /** This artifact's record in IndexedDB `markbrain-search-index` (LAW 2). */
+  indexRecord?: ArtifactSearchIndexRecord | null;
+  /** 'missing' | 'stale' | 'ready' — same derivation the scorer uses. */
+  indexStatus?: 'missing' | 'stale' | 'ready';
+  /** Rebuild THIS artifact's Q&A + embeddings (the single-doc index button). */
+  onIndexArtifact?: () => void;
+  /** Live stage text while onIndexArtifact runs; null when idle. */
+  indexArtifactProgress?: string | null;
 }
 
 export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
@@ -56,8 +66,24 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   onSetAttachmentGranularity,
   history = [],
   onFilterByTag,
+  indexRecord = null,
+  indexStatus = 'missing',
+  onIndexArtifact,
+  indexArtifactProgress = null,
 }) => {
-  const [activeTab, setActiveTab] = useState<'content' | 'metadata' | 'history'>('content');
+  const [activeTab, setActiveTab] = useState<'content' | 'qa' | 'metadata' | 'history'>('content');
+
+  // Q&A pairs grouped by the section they were generated from — reading order
+  // mirrors the document, so the tab is browsable, not a raw dump.
+  const qaGroups = useMemo(() => {
+    const map = new Map<string, GeneratedQaPair[]>();
+    for (const qa of indexRecord?.qaPairs ?? []) {
+      const list = map.get(qa.sectionHeading) ?? [];
+      list.push(qa);
+      map.set(qa.sectionHeading, list);
+    }
+    return Array.from(map.entries());
+  }, [indexRecord]);
   const [bodyView, setBodyView] = useState<'rendered' | 'raw'>('rendered');
   const [isFullscreen, setIsFullscreen] = useState(true);
 
@@ -209,6 +235,17 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
             Content
           </button>
           <button
+            onClick={() => setActiveTab('qa')}
+            data-testid="tab-qa-index"
+            className={`py-2 px-3 text-xs font-mono border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'qa'
+                ? 'border-accent text-ink font-semibold'
+                : 'border-transparent text-ink-mute hover:text-ink-dim'
+            }`}
+          >
+            Q&A Index ({indexRecord?.qaPairs.length ?? 0})
+          </button>
+          <button
             onClick={() => setActiveTab('metadata')}
             className={`py-2 px-3 text-xs font-mono border-b-2 transition-colors cursor-pointer ${
               activeTab === 'metadata'
@@ -315,6 +352,74 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {activeTab === 'qa' && (
+            <div className="space-y-3" data-testid="qa-index-body">
+              <div className="p-3 rounded-lg bg-surface-2 space-y-2 font-mono text-[11px]">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span data-testid="qa-index-status" className="text-ink-dim">
+                    {indexStatus === 'ready'
+                      ? `Indexed · ${indexRecord?.qaPairs.length ?? 0} Q&A pairs · ${indexRecord?.sectionVectors.length ?? 0} section vectors`
+                      : indexStatus === 'stale'
+                        ? 'Stale (document edited…)'
+                        : 'Not indexed yet'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onIndexArtifact}
+                    disabled={!onIndexArtifact || Boolean(indexArtifactProgress)}
+                    data-testid="index-artifact"
+                    className="min-h-[26px] px-2.5 rounded-full bg-veil-1 shadow-lift hover:bg-veil-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                    title={
+                      indexRecord
+                        ? 'Rebuild this note’s Q&A and embeddings in the search index'
+                        : 'Generate Q&A and embeddings for this note in the search index'
+                    }
+                  >
+                    {indexArtifactProgress
+                      ? indexArtifactProgress
+                      : indexRecord
+                        ? 'Regenerate Q&A & Embeddings'
+                        : 'Index'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-[#556985]">
+                  Lives in IndexedDB (markbrain-search-index), never in the project
+                  snapshot — rebuildable at any time.
+                </p>
+              </div>
+
+              {qaGroups.length === 0 ? (
+                <div className="p-4 rounded-lg bg-surface-1 text-center space-y-1">
+                  <p className="text-[11px] font-mono text-ink-dim">No Q&A pairs yet.</p>
+                  <p className="text-[10px] font-mono text-[#556985]">
+                    Press Index to generate them from this document’s sections.
+                  </p>
+                </div>
+              ) : (
+                qaGroups.map(([heading, list]) => (
+                  <section key={heading} className="space-y-1.5">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985] block px-1">
+                      {heading}
+                    </span>
+                    <div className="rounded-lg bg-surface-1 p-1 space-y-1">
+                      {list.map((qa) => (
+                        <div key={qa.id} className="p-2.5 rounded-md bg-surface-2 space-y-1">
+                          <div className="text-[11px] text-ink font-semibold">{qa.question}</div>
+                          <div className="text-[11px] text-[#a4bddf]">{qa.answer}</div>
+                          {qa.keywords.length > 0 && (
+                            <div className="text-[10px] text-[#556985] font-mono">
+                              {qa.keywords.join(' · ')}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ))
+              )}
             </div>
           )}
 

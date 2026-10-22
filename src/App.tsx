@@ -40,11 +40,12 @@ import {
   countMissingMatches,
   splitDraftIntoClauses,
   l2Normalize,
+  indexStatusFor,
 } from './domains/search/draftSearchEngine';
 import type { ArtifactMatchResult } from './domains/search/draftSearchEngine';
 import { loadProjectSearchIndex } from './services/searchIndexStore';
 import type { ArtifactSearchIndexRecord } from './services/searchIndexStore';
-import { indexProjectArtifacts } from './application/artifactIndexer';
+import { indexProjectArtifacts, indexSingleArtifact } from './application/artifactIndexer';
 import type { IndexAbortSignal } from './application/artifactIndexer';
 
 // Feature-slice modules — handlers/projections extracted from this file
@@ -430,6 +431,23 @@ export default function App() {
 
   const handleStopIndexing = () => {
     if (indexAbortRef.current) indexAbortRef.current.aborted = true;
+  };
+
+  // Single-document runner behind the detail modal's Q&A Index tab.
+  const [indexArtifactProgress, setIndexArtifactProgress] = useState<string | null>(null);
+  const handleIndexArtifact = (artifactId: string) => {
+    if (indexArtifactProgress || indexAbortRef.current) return;
+    const art = artifactsDomain.getArtifact(artifactId);
+    if (!art) return;
+    setIndexArtifactProgress('Starting…');
+    const mapCopy = new Map(searchIndexMap);
+    indexSingleArtifact(projectMeta.id, art, (stage) => setIndexArtifactProgress(stage))
+      .then((record) => {
+        mapCopy.set(art.id, record);
+        setSearchIndexMap(new Map(mapCopy));
+      })
+      .catch((e) => logger.warn('App', 'indexSingleArtifact failed', e))
+      .finally(() => setIndexArtifactProgress(null));
   };
 
   // The [+ Attach] match badge routes straight into the Proximity lens.
@@ -931,6 +949,10 @@ export default function App() {
               onAttach={handleAttachArtifact}
               onUnstage={handleUnstageAttachment}
               onSetAttachmentGranularity={handleSetAttachmentGranularity}
+              indexRecord={searchIndexMap.get(art.id) ?? null}
+              indexStatus={indexStatusFor(art, searchIndexMap)}
+              onIndexArtifact={() => handleIndexArtifact(art.id)}
+              indexArtifactProgress={indexArtifactProgress}
             />
           );
         })()

@@ -31,7 +31,18 @@ import type { Granularity } from './domains/granularity';
 import { useImportSession } from './ui/artifacts/import/useImportSession';
 import { SendQueue } from './application/sendQueue';
 import type { SendQueueDeps } from './application/sendQueue';
-import { chatCancel, titleThread, models as fetchModels } from './gateway/api';
+import { chatCancel, titleThread, models as fetchModels, embedTexts } from './gateway/api';
+import { loadSearchConfig, saveSearchConfig } from './domains/search/searchConfig';
+import type { SearchTestbedConfig } from './domains/search/searchConfig';
+import {
+  scoreArtifactsAgainstDraft,
+  countMissingMatches,
+  splitDraftIntoClauses,
+  l2Normalize,
+} from './domains/search/draftSearchEngine';
+import type { ArtifactMatchResult } from './domains/search/draftSearchEngine';
+import { loadProjectSearchIndex } from './services/searchIndexStore';
+import type { ArtifactSearchIndexRecord } from './services/searchIndexStore';
 
 // Feature-slice modules — handlers/projections extracted from this file
 import { useContextPayload } from './ui/context/useContextPayload';
@@ -263,6 +274,126 @@ export default function App() {
     createdAt: 0,
     updatedAt: 0,
   };
+  // ── Draft-proximity testbed (design-docs/15) ─────────────────────────────
+  // LAW 4: the unsent draft lives HERE, keyed by thread. ChatView unmounts
+  // when [+ Attach] opens the library; the query must survive that trip.
+  const [draftByThread, setDraftByThread] = useState<Record<string, string>>({});
+  const draftText = draftByThread[activeThreadId] ?? '';
+  const handleDraftTextChange = (text: string) => {
+    setDraftByThread((prev) => ({ ...prev, [activeThreadId]: text }));
+  };
+
+  const [searchConfig, setSearchConfigState] = useState<SearchTestbedConfig>(() =>
+    loadSearchConfig()
+  );
+  const handleSearchConfigChange = (patch: Partial<SearchTestbedConfig>) => {
+    setSearchConfigState((prev) => {
+      const next = { ...prev, ...patch };
+      saveSearchConfig(next);
+      return next;
+    });
+  };
+
+  // LAW 2: records live in IndexedDB (markbrain-search-index), never in the
+  // project snapshot — this map is a read-only view of that database.
+  const [searchIndexMap, setSearchIndexMap] = useState<Map<string, ArtifactSearchIndexRecord>>(
+    () => new Map()
+  );
+  useEffect(() => {
+    let alive = true;
+    loadProjectSearchIndex(projectMeta.id)
+      .then((map) => {
+        if (alive) setSearchIndexMap(map);
+      })
+      .catch((e) => logger.warn('App', 'loadProjectSearchIndex failed', e));
+    return () => {
+      alive = false;
+    };
+  }, [projectMeta.id]);
+
+  const attachedArtifactIds = useMemo(
+    () => new Set(activeAttachments.map((a) => a.artifactId)),
+    [activeAttachments]
+  );
+
+  const [draftResults, setDraftResults] = useState<ArtifactMatchResult[]>([]);
+  // Query vectors keyed by the clause text they were embedded from: editing
+  // the draft invalidates them without an API call; typing back into cached
+  // text is a cache hit. The cache itself survives thread switches.
+  const [queryVectors, setQueryVectors] = useState<{
+    key: string;
+    vectors: Float32Array[];
+  } | null>(null);
+  const queryVecCacheRef = useRef(new Map<string, Float32Array[]>());
+
+  const clauseKey = useMemo(
+    () => splitDraftIntoClauses(draftText, searchConfig.splitClauses).join('\n '),
+    [draftText, searchConfig.splitClauses]
+  );
+  const clauseVectors =
+    queryVectors && queryVectors.key === clauseKey ? queryVectors.vectors : null;
+  const needsQueryVec = searchConfig.vecSections || searchConfig.vecQa;
+
+  // Tier 1 — local re-score 350ms after the draft / flags / threshold / index /
+  // attachment set last moved. No API calls on this path, ever.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (!draftText.trim()) {
+        setDraftResults([]);
+        return;
+      }
+      setDraftResults(
+        scoreArtifactsAgainstDraft({
+          draftText,
+          clauseVectors,
+          artifacts: artifactsDomain.listArtifacts(),
+          indexMap: searchIndexMap,
+          attachedArtifactIds,
+          config: searchConfig,
+        })
+      );
+    }, 350);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftText, searchConfig, searchIndexMap, attachedArtifactIds, clauseVectors, tick]);
+
+  // Tier 2 — one embed per 5s typing pause, only when a vec flag is on, the
+  // draft is long enough to be a real query, and its clause text is uncached.
+  useEffect(() => {
+    if (!needsQueryVec) return;
+    if (draftText.trim().length < 12) return;
+    const clauses = splitDraftIntoClauses(draftText, searchConfig.splitClauses);
+    if (clauses.length === 0) return;
+    const key = clauses.join('\n ');
+    const cached = queryVecCacheRef.current.get(key);
+    if (cached) {
+      setQueryVectors((prev) => (prev && prev.key === key ? prev : { key, vectors: cached }));
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      embedTexts({ texts: clauses, taskType: 'RETRIEVAL_QUERY' })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = (await res.json()) as { embeddings?: number[][] };
+          const vectors = (data.embeddings ?? []).map((v) => new Float32Array(l2Normalize(v)));
+          if (cancelled || vectors.length === 0) return;
+          queryVecCacheRef.current.set(key, vectors);
+          setQueryVectors({ key, vectors });
+        })
+        .catch((e) => {
+          if (!cancelled) logger.warn('App', 'Draft query embed failed', e);
+        });
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftText, needsQueryVec, searchConfig.splitClauses]);
+
+  const missingMatchCount = countMissingMatches(draftResults);
+
   const chapterGroups = groupTurnsByChapter(timeline, segmentation, projectMeta.id);
   const domainArtifacts = artifactsDomain.listArtifacts();
   const domainEdges = graph.listEdges();
@@ -547,6 +678,15 @@ export default function App() {
                   onUnstageAttachment={handleUnstageAttachment}
                   onSetAttachmentGranularity={handleSetAttachmentGranularity}
                   onOpenArtifacts={() => setActiveView('artifacts')}
+                  draftText={draftText}
+                  onDraftTextChange={handleDraftTextChange}
+                  missingMatchCount={missingMatchCount}
+                  onOpenArtifactsWithProximity={() => {
+                    logger.action('App', 'Attach badge → open library (proximity)', {
+                      matches: missingMatchCount,
+                    });
+                    setActiveView('artifacts');
+                  }}
                   chosenVoice={chosenVoice}
                   chatRender={chatRender}
                   onOpenArtifact={(id) => {

@@ -88,6 +88,17 @@ interface ChatViewProps {
   onUnarchive?: () => void;
   onRetry?: () => void;
   onCancelQueued?: () => void;
+  /**
+   * Lifted chat draft (LAW 4): this component unmounts when [+ Attach] opens
+   * the library, so the unsent text must live in App, keyed by thread.
+   * Absent → local state, so bare unit-test mounts keep working.
+   */
+  draftText?: string;
+  onDraftTextChange?: (text: string) => void;
+  /** Unattached artifacts scoring above threshold against the current draft. */
+  missingMatchCount?: number;
+  /** Open the library straight into the Proximity lens (badge-aware attach). */
+  onOpenArtifactsWithProximity?: () => void;
 }
 
 const CHAPTER_PASTEL_COLORS = [
@@ -134,8 +145,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onUnarchive,
   onRetry,
   onCancelQueued,
+  draftText,
+  onDraftTextChange,
+  missingMatchCount = 0,
+  onOpenArtifactsWithProximity,
 }) => {
-  const [inputText, setInputText] = useState('');
+  // Controlled when App lifts the draft; local fallback for uncontrolled mounts.
+  const [localDraft, setLocalDraft] = useState('');
+  const draftIsControlled = draftText !== undefined;
+  const inputText = draftIsControlled ? draftText : localDraft;
+  const setInputText = (value: string) => {
+    if (draftIsControlled) onDraftTextChange?.(value);
+    else setLocalDraft(value);
+  };
   const [renamingTitle, setRenamingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [titleBusy, setTitleBusy] = useState(false);
@@ -606,8 +628,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      logger.action('ChatView', 'Open artifacts folder to attach (hero)');
-                      onOpenArtifacts?.();
+                      logger.action('ChatView', 'Open artifacts folder to attach (hero)', {
+                        matches: missingMatchCount,
+                      });
+                      if (missingMatchCount > 0 && onOpenArtifactsWithProximity) {
+                        onOpenArtifactsWithProximity();
+                      } else {
+                        onOpenArtifacts?.();
+                      }
                     }}
                     data-testid="open-artifacts"
                     className="relative min-h-[30px] px-2.5 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-[11px] shrink-0"
@@ -616,9 +644,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   >
                     <Plus className="w-3.5 h-3.5 shrink-0" />
                     <span>Attach</span>
-                    {stagedAttachments.length > 0 && (
-                      <span className="min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-[9px] font-mono font-bold flex items-center justify-center">
-                        {stagedAttachments.length}
+                    {missingMatchCount > 0 && (
+                      <span
+                        data-testid="attach-match-badge"
+                        className="min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-[9px] font-mono font-bold flex items-center justify-center"
+                        title={`${missingMatchCount} unattached artifact${missingMatchCount === 1 ? '' : 's'} match this draft`}
+                      >
+                        {missingMatchCount}
                       </span>
                     )}
                   </button>
@@ -1363,8 +1395,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <button
               type="button"
               onClick={() => {
-                logger.action('ChatView', 'Open artifacts folder to attach');
-                onOpenArtifacts?.();
+                logger.action('ChatView', 'Open artifacts folder to attach', {
+                  matches: missingMatchCount,
+                });
+                if (missingMatchCount > 0 && onOpenArtifactsWithProximity) {
+                  onOpenArtifactsWithProximity();
+                } else {
+                  onOpenArtifacts?.();
+                }
               }}
               data-testid="open-artifacts"
               className="relative h-full px-2.5 py-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-[10px] sm:text-xs shrink-0"
@@ -1372,9 +1410,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
               aria-label="Attach artifacts"
             >
               <Plus className="w-3.5 h-3.5 shrink-0" />
-              {stagedAttachments.length > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-[9px] font-mono font-bold flex items-center justify-center">
-                  {stagedAttachments.length}
+              {missingMatchCount > 0 && (
+                <span
+                  data-testid="attach-match-badge"
+                  className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-[9px] font-mono font-bold flex items-center justify-center"
+                  title={`${missingMatchCount} unattached artifact${missingMatchCount === 1 ? '' : 's'} match this draft`}
+                >
+                  {missingMatchCount}
                 </span>
               )}
             </button>

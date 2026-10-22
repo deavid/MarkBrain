@@ -325,16 +325,30 @@ Implementation rules:
 2. **`tokenizeForFts`** — lowercase, split on `/[^a-z0-9.]+/` so `v0.3` survives,
    drop a standard conversational stopword list, light suffix stemmer for words
    ≥ 5 chars (`ing`, `ed`, `es`, `s`, `ly`, `tion`).
-3. **BM25** — `k1 = 1.2`, `b = 0.75`. Raw score is unbounded, so normalize to
-   `[0, 1]` or the `0.55` threshold means nothing:
+3. **BM25** — `k1 = 1.2`, `b = 0.75`, saturation divisor `3`. Raw score is
+   unbounded, so normalize to `[0, 1]` or the `0.55` threshold means nothing:
    ```
-   coverage   = sum(IDF of matched unique query terms) / sum(IDF of all query terms)
-   rawSat     = raw / (raw + 4)
-   normalized = 0.55 * coverage + 0.45 * rawSat
+   coverage   = matchedUniqueQueryTerms / uniqueQueryTerms   // PLAIN, not IDF-weighted
+   rawSat     = raw / (raw + 3)
+   normalized = rawSat * (0.6 + 0.4 * coverage)
    ```
    plus `+0.12` (capped at `1.0`) when a query token hits `title` or `tags`.
-   Expected calibration: 1 weak common word ≈ `0.25`; two rare query words in
-   the same section ≈ `0.65–0.88`.
+
+   Two mistakes to avoid here — both were in the first draft of this plan and
+   both are now fixed in `draftSearchEngine.ts`. Do not "restore" them:
+
+   - **Do not weight `coverage` by IDF.** Inside one artifact's passages a
+     query term that is ABSENT gets the highest possible idf (df = 0), so an
+     IDF-weighted denominator lets the MISSING words dominate and crushes
+     coverage for every partial match.
+   - **Do not add the two terms.** With `0.55*coverage + 0.45*sat`, coverage
+     becomes a floor: a one-term query hitting a single weak word reaches
+     coverage 1.0 and clears the threshold on saturation alone. Multiplying is
+     what keeps a lone common word near `0.10`.
+
+   Expected calibration (asserted behaviourally, not as exact floats): 1 lone
+   common word ≈ `0.10` (below the `0.55` default); two rare query words in the
+   same passage ≈ `0.57–0.84` (above it).
 4. **Cosine** — vectors are L2-normalized, so `Math.max(0, dot(a, b))`.
 5. **Aggregation** — per artifact, per method, take the max across all clauses.
    `bestScore = max(enabled method scores)`, plus an agreement bonus of `+0.05`

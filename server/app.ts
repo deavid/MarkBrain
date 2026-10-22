@@ -14,6 +14,7 @@ import { registerSummarizeRoutes } from './routes/summarize';
 import { registerTitleRoutes } from './routes/title';
 import { registerTtsRoutes } from './routes/tts';
 import { registerExtractRoutes } from './routes/extract';
+import { registerSearchIndexRoutes } from './routes/searchIndex';
 
 // Project root, not server/. This file lives one level down, so __dirname is
 // re-derived here; path.join(__dirname, 'dist') below depends on that.
@@ -51,6 +52,7 @@ registerSummarizeRoutes(app);
 registerTitleRoutes(app);
 registerTtsRoutes(app);
 registerExtractRoutes(app);
+registerSearchIndexRoutes(app);
 
 const isProd = process.env.NODE_ENV === 'production';
 

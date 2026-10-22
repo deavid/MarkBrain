@@ -118,6 +118,45 @@ export function chatCancel(reason: string): Promise<Response> {
   });
 }
 
+/* ---------------------------------------------------------------- search index
+ * Draft-proximity testbed. Raw Response on purpose — the module contract is
+ * that call sites own non-ok and shape handling (see the header).
+ */
+
+export interface GenerateArtifactQaSection {
+  id: string;
+  heading: string;
+  text: string;
+}
+
+export interface GenerateArtifactQaRequest {
+  title: string;
+  subtitle?: string;
+  sections: GenerateArtifactQaSection[];
+}
+
+export function generateArtifactQa(params: GenerateArtifactQaRequest): Promise<Response> {
+  return fetch('/api/search-index/generate-qa', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+}
+
+export interface EmbedTextsRequest {
+  texts: string[];
+  taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY';
+  title?: string;
+}
+
+export function embedTexts(params: EmbedTextsRequest): Promise<Response> {
+  return fetch('/api/search-index/embed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+}
+
 export interface SummarizeChapterRequest {
   title: string;
   messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;

@@ -126,11 +126,15 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       const attrs = upsertMatch[1];
       const inner = upsertMatch[2];
       const titleAttr = /title=["']([^"']+)["']/i.exec(attrs);
-      const idAttr = /id=["']([^"']+)["']/i.exec(attrs);
+      // `file` is the contract we now teach (a filename, e.g. "the-hook.md");
+      // `id` is accepted for back-compat with anything already emitting it.
+      const fileAttr = /file=["']([^"']+)["']/i.exec(attrs) || /id=["']([^"']+)["']/i.exec(attrs);
       const typeAttr = /type=["']([^"']+)["']/i.exec(attrs);
 
-      const title = titleAttr ? titleAttr[1] : (idAttr ? idAttr[1] : 'Extracted note');
-      const id = idAttr ? idAttr[1] : `art-${Date.now()}-${artifactUpserts.length}`;
+      // A filename names the note: the extension never belongs in the id.
+      const named = fileAttr ? fileAttr[1].replace(/\.md$/i, '') : '';
+      const title = titleAttr ? titleAttr[1] : (named || 'Extracted note');
+      const id = named || `art-${Date.now()}-${artifactUpserts.length}`;
       const type = (typeAttr ? typeAttr[1] : 'document') as any;
 
       const descMatch =

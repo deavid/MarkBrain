@@ -82,7 +82,55 @@ export interface IOpticalCompilerDomain {
   compile(options: OpticalCompilerOptions): CompiledContextPayload;
 }
 
-export function artifactXml(art: UniversalArtifactDocument, granularity: Granularity): string {
+/**
+ * How a note is NAMED when it is sent: a filename, not an identifier.
+ *
+ * The old payload carried the internal id (`art-1792614286498-4845`). Nothing
+ * told the model what that was, so it read it as the note's name and wrote
+ * replies like "…the sprawling procedural dream (art-1792614286498-4845,
+ * art-1792614209332-9472)". A machine id is a database key; a reader — human or
+ * model — needs a handle. The title, slugified, IS that handle: it is what the
+ * model would call the note anyway, and it is stable in what the user sees.
+ *
+ * Falls back to the note's `code` (the kebab handle the import sentinel already
+ * produces) when a title slugifies to nothing — a title of pure punctuation or
+ * of script outside a-z. `-2`, `-3` disambiguation is applied per payload by
+ * `uniqueFileName`, because two notes may legitimately share a title.
+ */
+export function artifactFileName(art: Pick<UniversalArtifactDocument, 'code' | 'title'>): string {
+  const slug = (candidate: string) =>
+    candidate
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60)
+      .replace(/-+$/g, '');
+  return `${slug(art.title || '') || slug(art.code || '') || 'note'}.md`;
+}
+
+/** Give a payload's filenames a unique suffix so one name means one note. */
+export function uniqueFileName(base: string, used: Set<string>): string {
+  if (!used.has(base)) {
+    used.add(base);
+    return base;
+  }
+  const stem = base.replace(/\.md$/i, '');
+  for (let n = 2; ; n++) {
+    const candidate = `${stem}-${n}.md`;
+    if (!used.has(candidate)) {
+      used.add(candidate);
+      return candidate;
+    }
+  }
+}
+
+export function artifactXml(
+  art: UniversalArtifactDocument,
+  granularity: Granularity,
+  /** The name this note carries in this payload; defaults to the title slug. */
+  fileName?: string
+): string {
   const lines: string[] = [];
   const withDescription = cutIncludes(granularity, 'description') && Boolean(art.current?.description);
   const withSummary = cutIncludes(granularity, 'summary') && Boolean(art.current?.summary);
@@ -91,7 +139,10 @@ export function artifactXml(art: UniversalArtifactDocument, granularity: Granula
   // The title cut carries title + subtitle: a bare name tells a reader nothing,
   // and the hook is what lets the model recognise the note it needs to expand.
   const subtitle = (art.current?.subtitle || '').trim();
-  lines.push(`  <artifact id="${art.id}" granularity="${granularity}">`);
+  const file = fileName ?? artifactFileName(art);
+  // `file`, never the internal id: the model has no schema for a database key
+  // and reads one as a name. See artifactFileName above.
+  lines.push(`  <artifact file="${file}" granularity="${granularity}">`);
   lines.push(`    <title>${subtitle ? `${art.title} — ${subtitle}` : art.title}</title>`);
   if (withDescription) lines.push(`    <description>${art.current.description}</description>`);
   if (withSummary) {
@@ -169,6 +220,8 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const substrateParts: string[] = [];
     let substrateTokens = 0;
     const attachmentBreakdown: AttachmentBreakdownEntry[] = [];
+    // Two notes may share a title; a filename must still name exactly one.
+    const usedFileNames = new Set<string>();
     const distribution: Record<Granularity, number> = {
       title: 0,
       description: 0,
@@ -180,7 +233,7 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
       const art = this.artifacts.getArtifact(attachment.artifactId);
       if (!art) continue; // dangling attachment (artifact deleted) — silently skipped
       const granularity = attachment.granularity;
-      const xml = artifactXml(art, granularity);
+      const xml = artifactXml(art, granularity, uniqueFileName(artifactFileName(art), usedFileNames));
       substrateParts.push(xml);
       const tokens = estimateTokens(xml);
       substrateTokens += tokens;
@@ -229,13 +282,14 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const systemInstruction = `You are MarkBrain, a thinking partner for a brain that overflows with ideas. Collect thoughts before they evaporate, keep them organized, and keep the forest in view. Talk WITH the user, direct, plain-spoken, no corporate filler.
 Ground your thinking in the notes and chapters provided.
 Notes arrive at the compaction level the user chose (title, description, summary, full). A layer that is missing was compacted on purpose: do not ask for it unless you genuinely cannot answer without it.
+Each note is named by its \`file\`, a kebab-case filename like \`early-sprawling-dream.md\`. That name, and the \`<title>\`, are how you refer to a note — write them as a reader would say them. There are no other identifiers in what you are sent: never invent one, and never quote something that looks like a database key.
 Emit these functional blocks in your reply when appropriate. Never emit JSON.
 
 1. When the conversation shifts to a substantially new topic:
 <topic_shift title="New Chapter Title" subtitle="One or two sentences stating what this chapter is about and its main takeaway, directly" />
 
-2. When an idea crystallizes into a durable note, emit an artifact_upsert carrying all four layers. They are read together in this order, so each one continues where the previous stopped and never re-introduces the note:
-<artifact_upsert id="kebab-case-slug" title="Short Note Title" type="document">
+2. When an idea crystallizes into a durable note, emit an artifact_upsert carrying all four layers. They are read together in this order, so each one continues where the previous stopped and never re-introduces the note. Its \`file\` is the note's name: the same kebab-case filename you would see on an attached note, and the same note updates in place if the name is one you were sent:
+<artifact_upsert file="kebab-case-slug.md" title="Short Note Title" type="document">
 <subtitle>
 One or two sentences (~40 tokens): what this note is and its single main takeaway. This is what a human reads next to the title in a list of fifty notes.
 </subtitle>
@@ -251,7 +305,7 @@ The complete Markdown note body.
 </artifact_upsert>
 
 3. To link two notes in the graph:
-<link source="id1" target="id2" kind="relates_to|refines|parent_of|child_of|born_from" />
+<link source="file1.md" target="file2.md" kind="relates_to|refines|parent_of|child_of|born_from" />
 
 Never open a layer with "This document outlines", "This note describes", "The user and AI discuss" or any other book report: name the thing and state what is in it.`;
 

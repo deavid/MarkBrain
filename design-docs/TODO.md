@@ -11,6 +11,26 @@
 
 ---
 
+## Done — 2026-10-22: notes are sent as filenames, not as ids (`dev-vega`)
+
+David: *"we are sending the IDs to the LLM in chat which incorrectly is taking
+it as the filename… we need to present clear filename-like to the AI."*
+
+- **Cause:** `<artifact id="art-1792614286498-4845">` in the compiled payload —
+  the model read the database key as the note's name and wrote it into prose.
+- **Fix:** `<artifact file="<title-slug>.md">`; the id is gone from the payload.
+  `artifactFileName()` + `uniqueFileName()` in `03-optical-compiler`;
+  `artifactXml` takes an optional name.
+- **Protocol speaks filenames end to end:** upsert/link examples are
+  `file="….md"`; the stream parser accepts `file` (extension stripped) *and*
+  legacy `id=`. Server `DEFAULT_SYSTEM_INSTRUCTION` in step.
+- Law: `10_ATTACHMENT_TIMELINE.md` §21. Tests: `artifact-filename.test.ts` (15).
+  Evidence: J16 asserts the raw payload from the Mirror.
+- **Open, pre-existing:** a model re-emitting an attached note's filename creates
+  a duplicate instead of updating it — there is no code→id resolver yet.
+
+---
+
 ## Done — 2026-10-22: the composer's keyboard contract (`dev-vega`)
 
 David: *"Shift+Enter never sends, Ctrl+Enter always send, and Enter may or may

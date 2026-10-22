@@ -987,6 +987,17 @@ async function main() {
       'payload at Description does not carry the summary'
     );
     check(/granularity="description"/.test(rawPayload), 'payload declares the description cut');
+    // A note is sent as a FILE, not as a database row: the internal id made the
+    // model read `art-1792614286498-4845` as the note's name and write it into
+    // prose. The id must never reach the payload; the title does, as a filename.
+    check(
+      !/art-fx-/.test(rawPayload),
+      'no internal artifact id leaks into the payload the model reads'
+    );
+    check(
+      /<artifact file="fixture-artifact-alpha\.md"/.test(rawPayload),
+      'the attached note is named to the model as a file'
+    );
 
     await fxCut('summary').click();
     step('click', 'fixture chapter → Summary');

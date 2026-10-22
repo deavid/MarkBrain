@@ -368,3 +368,53 @@ the sidebar — where it lives — carries it on a phone too, through the drawer
 that is why it is not in the composer. Evidence: **J20** flips the switch and
 presses all three keys in the real composer, then reloads at 390px and opens the
 drawer to prove the option is reachable there and the choice survived.
+
+## 21. Law added 2026-10-22 (`dev-vega`) — a note is sent as a FILE, not as a row
+
+David, verbatim: *"it seems that we are sending the IDs to the LLM in chat which
+incorrectly is taking it as the filename, so it says things like '…the early,
+sprawling sci-fi/4D procedural dream (art-1792614286498-4845,
+art-1792614209332-9472)…' — we need to present clear filename-like to the AI."*
+
+**Root cause.** `artifactXml` opened every attached note with
+`<artifact id="art-1792614286498-4845">` — the internal database key. Nothing
+told the model what that was, so it read it as the note's name and wrote it into
+prose. The payload was correct in content and wrong in *addressing*.
+
+**The fix: the note's name is its title, slugified, as a filename.** A machine id
+is a key; a reader — human or model — needs a handle, and the title is the handle
+the model would reach for anyway. So:
+
+```
+<artifact file="early-sprawling-sci-fi-4d-procedural-dream.md" granularity="summary">
+  <title>Early, sprawling sci-fi/4D procedural dream — Non-Euclidean mazes, gradient descent AI, heavy logistics.</title>
+```
+
+- `artifactFileName()` slugifies the **title** (falling back to the note's `code`,
+  then to `note.md`, when a title is punctuation or non-latin script); it clamps
+  at 60 characters without leaving a trailing dash.
+- `uniqueFileName()` disambiguates per payload — two notes may legitimately share
+  a title, and a name that means two notes is worse than none (`-2`, `-3`).
+- **`id` is gone from the payload entirely.** Telemetry still carries
+  `artifactId` — that is app-side, and the mirror's breakdown rows still key on
+  it; what the *model* reads has no keys in it.
+
+**The whole protocol now speaks filenames.** The system instruction says notes are
+named by their `file` and never to invent an identifier; the upsert example is
+`<artifact_upsert file="kebab-case-slug.md" …>` and links are
+`<link source="file1.md" target="file2.md">`. The stream parser accepts `file`
+(stripping the extension so the note id stays a clean slug) **and** the legacy
+`id` — anything already emitting `id="…"` keeps working. Server-side
+`DEFAULT_SYSTEM_INSTRUCTION` is kept in step.
+
+**One honest gap, unchanged by this.** A note the *app* created has a
+timestamped id (`art-…`), and there is no code→id resolver, so a model that
+re-emits an attached note's filename creates a second note instead of updating
+the first. That was already true when the model had to invent a slug; this change
+does not fix it and does not make it worse. Fixing it means resolving an incoming
+`file` against attached/known notes before upsert — a deliberate next step, not a
+side effect.
+
+Tests: `src/tests/artifact-filename.test.ts` (15). Evidence: **J16** reads the
+literal raw payload out of the Mirror and asserts it names the fixture note as
+`<artifact file="fixture-artifact-alpha.md"` and contains **no** `art-fx-` id.

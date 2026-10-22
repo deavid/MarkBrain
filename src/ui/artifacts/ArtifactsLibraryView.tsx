@@ -5,13 +5,24 @@ import type { ChatAttachment } from '../../domains/06-chat-threads';
 import { isAttachmentStaged } from '../../domains/06-chat-threads';
 import type { Granularity, AttachmentVisualState } from '../../domains/granularity';
 import { SpatialGraph } from '../graph/SpatialGraph';
-import { Search, FolderTree, Network, Menu, Upload, MessageSquare, X } from 'lucide-react';
+import { Search, FolderTree, Network, Menu, Upload, MessageSquare, X, Crosshair } from 'lucide-react';
 import { isFlaggedArtifact } from '../../utils/importDetect';
 import { logger } from '../../utils/logger';
 import { AttachmentRow, formatAttachmentProvenance } from '../context/AttachmentControls';
 import { isArtifactArchived } from '../../domains/01-artifact-document';
+import type { SearchTestbedConfig, SearchMethodFlag } from '../../domains/search/searchConfig';
+import { SEARCH_METHOD_FLAGS, THRESHOLD_MIN, THRESHOLD_MAX } from '../../domains/search/searchConfig';
+import type { ArtifactMatchResult, MatchMethod } from '../../domains/search/draftSearchEngine';
+import type { ArtifactSearchIndexRecord } from '../../services/searchIndexStore';
+import { isIndexStale } from '../../application/artifactIndexer';
 
-export type LibraryLens = 'folders' | 'graph';
+export type LibraryLens = 'folders' | 'graph' | 'proximity';
+
+interface IndexProgress {
+  done: number;
+  total: number;
+  stage: string;
+}
 
 interface ArtifactsLibraryViewProps {
   projectId: string;
@@ -32,7 +43,37 @@ interface ArtifactsLibraryViewProps {
   onReturnToChat: () => void;
   /** Bumped by App when a tag is clicked outside this view (graph is here, detail modal is not). */
   externalTagFilter?: { tag: string; seq: number };
+  // ── Draft-proximity testbed (design-docs/15) ─────────────────────────────
+  /** The unsent chat draft (LAW 4) — this lens's query, not a second search box. */
+  draftText: string;
+  onDraftTextChange: (text: string) => void;
+  searchConfig: SearchTestbedConfig;
+  onSearchConfigChange: (patch: Partial<SearchTestbedConfig>) => void;
+  /** View of IndexedDB `markbrain-search-index` (LAW 2) — never the snapshot. */
+  searchIndexMap: Map<string, ArtifactSearchIndexRecord>;
+  /** Live scores from App's 350ms tier; sorted best-first, archived excluded. */
+  draftResults: ArtifactMatchResult[];
+  indexProgress: IndexProgress | null;
+  onIndexAll: (force: boolean) => void;
+  onStopIndexing: () => void;
+  /** Bumped by App when the [+ Attach] match badge routes here — force the lens. */
+  externalLens?: { lens: LibraryLens; seq: number };
 }
+
+const METHOD_LABELS: Record<SearchMethodFlag, string> = {
+  ftsSections: 'FTS: Sections',
+  ftsQa: 'FTS: Q&A',
+  vecSections: 'Vec: Sections',
+  vecQa: 'Vec: Q&A',
+  splitClauses: 'Split Clauses',
+};
+
+const METHOD_ABBR: Record<MatchMethod, string> = {
+  ftsSections: 'fts-sec',
+  ftsQa: 'fts-qa',
+  vecSections: 'vec-sec',
+  vecQa: 'vec-qa',
+};
 
 /**
  * The library — everything that exists — and the picker: the same view is where
@@ -40,9 +81,11 @@ interface ArtifactsLibraryViewProps {
  * the cut), the four words sit on the row, and the arrow-out opens the detail
  * popup.
  *
- * Two lenses over one set: `folders` (find things, steer them) and `graph` (the
- * forest view). Neither lens decides what is sent: that is an attachment inside
- * a chat, and nothing else.
+ * Three lenses over one set: `folders` (find things, steer them), `graph` (the
+ * forest view), and `proximity` (rank everything against the unsent chat draft
+ * and compare retrieval methods — a testbed, never an auto-injector; LAW 1).
+ * None of the lenses decides what is sent: that is an attachment inside a
+ * chat, and nothing else.
  *
  * No top bar and no sticky header. The clearance spacer scrolls away; controls
  * float. Adding a fixed bar here has been tried and rejected twice.
@@ -65,6 +108,16 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
   onSetAttachmentGranularity,
   onReturnToChat,
   externalTagFilter,
+  draftText,
+  onDraftTextChange,
+  searchConfig,
+  onSearchConfigChange,
+  searchIndexMap,
+  draftResults,
+  indexProgress,
+  onIndexAll,
+  onStopIndexing,
+  externalLens,
 }) => {
   const [lens, setLens] = useState<LibraryLens>('folders');
   const [query, setQuery] = useState('');
@@ -81,6 +134,12 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalTagFilter?.seq]);
 
+  // The attach badge on [+ Attach] routes straight into this lens (LAW 1:
+  // it only ever *shows* matches — nothing is staged by opening the view).
+  useEffect(() => {
+    if (externalLens && externalLens.seq > 0) setLens(externalLens.lens);
+  }, [externalLens?.seq, externalLens?.lens]);
+
   const attachmentByArtifact = useMemo(() => {
     const map = new Map<string, ChatAttachment>();
     for (const att of attachments) map.set(att.artifactId, att);
@@ -91,6 +150,12 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
     () => attachments.filter(isAttachmentStaged).length,
     [attachments]
   );
+
+  const matchById = useMemo(() => {
+    const map = new Map<string, ArtifactMatchResult>();
+    for (const r of draftResults) map.set(r.artifactId, r);
+    return map;
+  }, [draftResults]);
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -113,6 +178,278 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
     return Array.from(byCategory.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [artifacts, query, tagFilter]);
 
+  // ── Proximity lens data ──────────────────────────────────────────────────
+  const suggested = useMemo(
+    () => draftResults.filter((r) => r.aboveThreshold && !r.isAlreadyAttached),
+    [draftResults]
+  );
+  const others = useMemo(
+    () => draftResults.filter((r) => !(r.aboveThreshold && !r.isAlreadyAttached)),
+    [draftResults]
+  );
+  const indexedCount = useMemo(
+    () => artifacts.filter((a) => !isIndexStale(searchIndexMap, projectId, a)).length,
+    [artifacts, searchIndexMap, projectId]
+  );
+
+  const toggleMethod = (flag: SearchMethodFlag) => {
+    onSearchConfigChange({ [flag]: !searchConfig[flag] } as Partial<SearchTestbedConfig>);
+  };
+
+  const rowBadge = (
+    att: ChatAttachment | undefined,
+    match: ArtifactMatchResult | undefined,
+    isStaged: boolean
+  ): string | undefined => {
+    if (isStaged) return 'next send';
+    if (att) return formatAttachmentProvenance(att.turnIndex)?.badge;
+    // Unattached and above threshold: the folders lens surfaces the match
+    // without leaving the tree. Staged/committed rows keep their own badges.
+    if (match?.aboveThreshold) return `match ${Math.round(match.bestScore * 100)}%`;
+    return undefined;
+  };
+
+  const renderRow = (art: Artifact, match?: ArtifactMatchResult) => {
+    const flagged = isFlaggedArtifact(art);
+    const att = attachmentByArtifact.get(art.id);
+    const state: AttachmentVisualState = !att
+      ? 'unstaged'
+      : isAttachmentStaged(att)
+        ? 'staged'
+        : att.granularity;
+    const tokens = tokensByArtifact[art.id] ?? 0;
+    const isStaged = state === 'staged';
+    return (
+      <AttachmentRow
+        key={art.id}
+        artifactId={art.id}
+        state={state}
+        title={art.title}
+        tokens={tokens}
+        granularity={att?.granularity ?? 'full'}
+        subtitle={art.current?.subtitle || art.current?.description || ''}
+        tags={art.tags || []}
+        flagged={flagged}
+        archived={isArtifactArchived(art)}
+        badge={rowBadge(att, match, isStaged)}
+        onToggle={() => onToggleAttachment(art.id)}
+        onSetGranularity={att ? (g) => onSetAttachmentGranularity(art.id, g) : undefined}
+        onUnstage={isStaged ? () => onUnstage(art.id) : undefined}
+        onOpenDetail={() => (flagged ? onTriageArtifact(art.id) : onSelectArtifact(art))}
+      />
+    );
+  };
+
+  /** One result: the row, then the X-Ray line that says WHY it scored. */
+  const renderProximityRow = (r: ArtifactMatchResult) => {
+    const art = artifacts.find((a) => a.id === r.artifactId);
+    if (!art) return null;
+    const methodBits = (Object.keys(METHOD_ABBR) as MatchMethod[])
+      .filter((m) => r.methodScores[m] !== undefined)
+      .map((m) => `${METHOD_ABBR[m]}: ${(r.methodScores[m] as number).toFixed(2)}`)
+      .join(' · ');
+    return (
+      <div key={r.artifactId} data-artifact-match={r.artifactId} className="space-y-1">
+        {renderRow(art, r)}
+        <div
+          data-testid="xray"
+          className="bg-recess-1 rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-ink-dim space-y-0.5"
+        >
+          <div>
+            Score: {r.bestScore.toFixed(2)} [{methodBits}] · idx: {r.indexStatus}
+            {r.winningMethod ? ` · win: ${METHOD_ABBR[r.winningMethod]}` : ''}
+          </div>
+          {r.matchedQa ? (
+            <div>
+              Matched Q ({r.matchedQa.sectionHeading}): "{r.matchedQa.question}" → "
+              {r.matchedQa.answer}"
+            </div>
+          ) : r.matchedSectionHeading ? (
+            <div>
+              Matched Section ({r.matchedSectionHeading}): "{r.matchedSnippet}"
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const proximityBody = (
+    <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-4 pb-28">
+      <div
+        data-testid="scroll-top-clearance"
+        aria-hidden="true"
+        className="h-10 shrink-0 -mt-3 mb-1"
+      />
+
+      {/* 1. The query: the chat draft itself, or an inline test box when empty. */}
+      {draftText.trim() ? (
+        <div className="bg-surface-2 rounded-xl p-3 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985]">
+              Draft
+            </span>
+            <button
+              onClick={() => onDraftTextChange('')}
+              className="text-[10px] font-mono text-[#5d7394] hover:text-ink transition-colors cursor-pointer"
+              title="Clear the draft (also clears the chat composer)"
+            >
+              Clear
+            </button>
+          </div>
+          <p className="text-xs text-ink whitespace-pre-wrap break-words">{draftText}</p>
+        </div>
+      ) : (
+        <div className="bg-surface-2 rounded-xl p-3 space-y-1.5">
+          <label
+            htmlFor="proximity-test-query"
+            className="block text-[10px] font-mono uppercase tracking-wider text-[#556985]"
+          >
+            No chat draft — type a test query
+          </label>
+          <input
+            id="proximity-test-query"
+            data-testid="proximity-test-query"
+            value={draftText}
+            onChange={(e) => onDraftTextChange(e.target.value)}
+            placeholder="e.g. how do fluids tile?"
+            className="w-full min-h-[34px] px-2.5 rounded-lg bg-recess-1 text-xs font-mono text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 shadow-well"
+          />
+        </div>
+      )}
+
+      {/* 2. Method toggles — the whole point of the testbed: flip one, watch
+          the ranking move. Threshold and flag flips re-score with ZERO API
+          calls (App's cache is keyed by clause text). */}
+      <div className="flex flex-wrap gap-1.5" data-testid="method-toggles">
+        {SEARCH_METHOD_FLAGS.map((flag) => (
+          <button
+            key={flag}
+            type="button"
+            aria-pressed={searchConfig[flag]}
+            data-testid={`method-${flag}`}
+            onClick={() => toggleMethod(flag)}
+            className={`min-h-[28px] px-2.5 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+              searchConfig[flag]
+                ? 'bg-veil-2 shadow-lift text-[#8ab1e0]'
+                : 'bg-surface-2 text-[#5d7394] hover:text-ink-dim'
+            }`}
+          >
+            {METHOD_LABELS[flag]}
+          </button>
+        ))}
+      </div>
+
+      {/* 3. Threshold — live, and the count under it is the badge's twin. */}
+      <div className="bg-surface-2 rounded-xl p-3 space-y-2">
+        <div className="flex items-center justify-between text-[11px] font-mono text-ink-dim">
+          <span>Threshold</span>
+          <span data-testid="threshold-readout">{searchConfig.threshold.toFixed(2)}</span>
+        </div>
+        <input
+          type="range"
+          min={THRESHOLD_MIN}
+          max={THRESHOLD_MAX}
+          step={0.05}
+          value={searchConfig.threshold}
+          onChange={(e) => onSearchConfigChange({ threshold: Number(e.target.value) })}
+          className="w-full accent-[#2563eb] cursor-pointer"
+          aria-label="Score threshold"
+        />
+        <p className="text-[10px] font-mono text-[#556985]" data-testid="suggested-count">
+          {suggested.length} unattached note{suggested.length === 1 ? '' : 's'} above threshold
+        </p>
+      </div>
+
+      {/* 4. Index status + runner. Q&A and vectors live only in IndexedDB
+          (LAW 2); this button is the only thing that writes them. */}
+      <div className="bg-surface-2 rounded-xl p-3 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-mono text-ink-dim" data-testid="index-status">
+            Indexed: {indexedCount} / {artifacts.length} notes
+          </span>
+          <span className="flex-1" />
+          <button
+            type="button"
+            disabled={Boolean(indexProgress)}
+            onClick={() => onIndexAll(false)}
+            data-testid="index-all-unindexed"
+            className="min-h-[28px] px-2.5 rounded-full bg-veil-1 shadow-lift hover:bg-veil-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+            title="Generate Q&A + embeddings for notes that have none or whose text changed"
+          >
+            Index All Unindexed
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(indexProgress)}
+            onClick={() => onIndexAll(true)}
+            data-testid="index-reindex-all"
+            className="min-h-[28px] px-2.5 rounded-full bg-veil-1 shadow-lift hover:bg-veil-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+            title="Rebuild every note's Q&A and embeddings from scratch"
+          >
+            Re-index All
+          </button>
+          {indexProgress && (
+            <button
+              type="button"
+              onClick={onStopIndexing}
+              data-testid="index-stop"
+              className="min-h-[28px] px-2.5 rounded-full bg-surface-4 text-[#e0b96c] text-[10px] font-mono transition-colors cursor-pointer"
+            >
+              Stop
+            </button>
+          )}
+        </div>
+        {indexProgress && (
+          <p className="text-[10px] font-mono text-[#8ab1e0]" data-testid="index-progress">
+            {indexProgress.total > 0
+              ? `Indexing ${Math.min(indexProgress.done + 1, indexProgress.total)}/${indexProgress.total}: ${indexProgress.stage}`
+              : indexProgress.stage}
+          </p>
+        )}
+      </div>
+
+      {/* 5. The flat ranking — suggested first, everything else underneath. */}
+      {draftResults.length === 0 && (
+        <div className="rounded-xl bg-surface-2 p-6 text-center space-y-2">
+          <Crosshair className="w-6 h-6 text-[#4f5f78] mx-auto" />
+          <p className="text-xs font-mono text-[#8297b5]">Nothing scored yet.</p>
+          <p className="text-[10px] font-mono text-[#4f5f78]">
+            Type a draft in chat (or a test query above) to rank the library against it.
+          </p>
+        </div>
+      )}
+
+      {suggested.length > 0 && (
+        <section className="space-y-1.5" data-testid="proximity-suggested">
+          <div className="flex items-center gap-2 px-1">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985]">
+              Suggested to Attach (Above Threshold)
+            </span>
+            <span className="text-[10px] font-mono text-[#3f4d61]">{suggested.length}</span>
+          </div>
+          <div className="rounded-xl bg-surface-2 p-1 space-y-1">
+            {suggested.map(renderProximityRow)}
+          </div>
+        </section>
+      )}
+
+      {others.length > 0 && (
+        <section className="space-y-1.5" data-testid="proximity-others">
+          <div className="flex items-center gap-2 px-1">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985]">
+              Below Threshold / Already Attached
+            </span>
+            <span className="text-[10px] font-mono text-[#3f4d61]">{others.length}</span>
+          </div>
+          <div className="rounded-xl bg-surface-2 p-1 space-y-1">
+            {others.map(renderProximityRow)}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+
   return (
     <div className="relative w-full h-full min-h-0 flex-1 flex flex-col overflow-hidden">
       {lens === 'graph' ? (
@@ -126,6 +463,8 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
           onBatchUpdateNodePositions={onBatchUpdateNodePositions}
           onFilterByTag={filterToTag}
         />
+      ) : lens === 'proximity' ? (
+        proximityBody
       ) : (
         <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-4 pb-28">
           {/* In-flow clearance for the floating pills — scrolls away with the
@@ -185,40 +524,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
                 <span className="text-[10px] font-mono text-[#3f4d61]">{list.length}</span>
               </div>
               <div className="rounded-xl bg-surface-2 p-1 space-y-1">
-                {list.map((art) => {
-                  const flagged = isFlaggedArtifact(art);
-                  const att = attachmentByArtifact.get(art.id);
-                  const state: AttachmentVisualState = !att
-                    ? 'unstaged'
-                    : isAttachmentStaged(att)
-                      ? 'staged'
-                      : att.granularity;
-                  const tokens = tokensByArtifact[art.id] ?? 0;
-                  const isStaged = state === 'staged';
-                  return (
-                    <AttachmentRow
-                      key={art.id}
-                      artifactId={art.id}
-                      state={state}
-                      title={art.title}
-                      tokens={tokens}
-                      granularity={att?.granularity ?? 'full'}
-                      subtitle={art.current?.subtitle || art.current?.description || ''}
-                      tags={art.tags || []}
-                      flagged={flagged}
-                      archived={isArtifactArchived(art)}
-                      badge={
-                        isStaged ? 'next send' : att ? formatAttachmentProvenance(att.turnIndex)?.badge : undefined
-                      }
-                      onToggle={() => onToggleAttachment(art.id)}
-                      onSetGranularity={
-                        att ? (g) => onSetAttachmentGranularity(art.id, g) : undefined
-                      }
-                      onUnstage={isStaged ? () => onUnstage(art.id) : undefined}
-                      onOpenDetail={() => (flagged ? onTriageArtifact(art.id) : onSelectArtifact(art))}
-                    />
-                  );
-                })}
+                {list.map((art) => renderRow(art, matchById.get(art.id)))}
               </div>
             </section>
           ))}
@@ -258,6 +564,19 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             }`}
           >
             <Network className="w-3 h-3" /> Graph
+          </button>
+          <button
+            onClick={() => {
+              logger.action('Artifacts', 'Library lens: proximity');
+              setLens('proximity');
+            }}
+            data-testid="lens-proximity"
+            aria-pressed={lens === 'proximity'}
+            className={`flex items-center gap-1.5 min-h-[30px] px-3 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+              lens === 'proximity' ? 'bg-veil-2 shadow-lift text-[#8ab1e0]' : 'text-[#5d7394] hover:text-ink-dim'
+            }`}
+          >
+            <Crosshair className="w-3 h-3" /> Proximity
           </button>
         </div>
 

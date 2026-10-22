@@ -12,6 +12,7 @@ import { ServerLogsModal } from './ui/workspace/ServerLogsModal';
 import { CriticalNotifications } from './ui/system/CriticalNotifications';
 import { ArtifactDetailModal } from './ui/artifacts/ArtifactDetailModal';
 import { ArtifactsLibraryView } from './ui/artifacts/ArtifactsLibraryView';
+import type { LibraryLens } from './ui/artifacts/ArtifactsLibraryView';
 import { ImportModal } from './ui/artifacts/ImportModal';
 import { ExportModal } from './ui/artifacts/ExportModal';
 import { RevisionTriageModal } from './ui/artifacts/RevisionTriageModal';
@@ -43,6 +44,8 @@ import {
 import type { ArtifactMatchResult } from './domains/search/draftSearchEngine';
 import { loadProjectSearchIndex } from './services/searchIndexStore';
 import type { ArtifactSearchIndexRecord } from './services/searchIndexStore';
+import { indexProjectArtifacts } from './application/artifactIndexer';
+import type { IndexAbortSignal } from './application/artifactIndexer';
 
 // Feature-slice modules — handlers/projections extracted from this file
 import { useContextPayload } from './ui/context/useContextPayload';
@@ -394,6 +397,54 @@ export default function App() {
 
   const missingMatchCount = countMissingMatches(draftResults);
 
+  // The indexing runner: one document at a time, abortable, and the finished
+  // map is swapped in as a NEW Map so the 350ms tier re-scores on completion.
+  const [indexProgress, setIndexProgress] = useState<{
+    done: number;
+    total: number;
+    stage: string;
+  } | null>(null);
+  const indexAbortRef = useRef<IndexAbortSignal | null>(null);
+
+  const handleIndexAll = (force: boolean) => {
+    if (indexAbortRef.current) return;
+    const signal: IndexAbortSignal = { aborted: false };
+    indexAbortRef.current = signal;
+    const arts = artifactsDomain.listArtifacts();
+    const mapCopy = new Map(searchIndexMap);
+    setIndexProgress({ done: 0, total: arts.length, stage: force ? 'Re-index requested' : 'Index requested' });
+    indexProjectArtifacts(projectMeta.id, arts, mapCopy, {
+      force,
+      signal,
+      onProgress: (done, total, stage) => setIndexProgress({ done, total, stage }),
+    })
+      .then((updated) => {
+        setSearchIndexMap(new Map(updated));
+      })
+      .catch((e) => logger.warn('App', 'indexProjectArtifacts failed', e))
+      .finally(() => {
+        indexAbortRef.current = null;
+        setIndexProgress(null);
+      });
+  };
+
+  const handleStopIndexing = () => {
+    if (indexAbortRef.current) indexAbortRef.current.aborted = true;
+  };
+
+  // The [+ Attach] match badge routes straight into the Proximity lens.
+  const [externalLens, setExternalLens] = useState<{ lens: LibraryLens; seq: number }>({
+    lens: 'folders',
+    seq: 0,
+  });
+  const handleOpenArtifactsWithProximity = () => {
+    logger.action('App', 'Attach badge → open library (proximity)', {
+      matches: missingMatchCount,
+    });
+    setExternalLens((prev) => ({ lens: 'proximity', seq: prev.seq + 1 }));
+    setActiveView('artifacts');
+  };
+
   const chapterGroups = groupTurnsByChapter(timeline, segmentation, projectMeta.id);
   const domainArtifacts = artifactsDomain.listArtifacts();
   const domainEdges = graph.listEdges();
@@ -632,6 +683,16 @@ export default function App() {
               onSetAttachmentGranularity={handleSetAttachmentGranularity}
               onReturnToChat={() => setActiveView('chat')}
               externalTagFilter={libraryTagFilter}
+              draftText={draftText}
+              onDraftTextChange={handleDraftTextChange}
+              searchConfig={searchConfig}
+              onSearchConfigChange={handleSearchConfigChange}
+              searchIndexMap={searchIndexMap}
+              draftResults={draftResults}
+              indexProgress={indexProgress}
+              onIndexAll={handleIndexAll}
+              onStopIndexing={handleStopIndexing}
+              externalLens={externalLens}
             />
           ) : (
             <div className="w-full h-full min-h-0 flex-1 flex flex-col">
@@ -681,12 +742,7 @@ export default function App() {
                   draftText={draftText}
                   onDraftTextChange={handleDraftTextChange}
                   missingMatchCount={missingMatchCount}
-                  onOpenArtifactsWithProximity={() => {
-                    logger.action('App', 'Attach badge → open library (proximity)', {
-                      matches: missingMatchCount,
-                    });
-                    setActiveView('artifacts');
-                  }}
+                  onOpenArtifactsWithProximity={handleOpenArtifactsWithProximity}
                   chosenVoice={chosenVoice}
                   chatRender={chatRender}
                   onOpenArtifact={(id) => {

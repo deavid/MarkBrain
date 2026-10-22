@@ -37,6 +37,8 @@ import { MessageBody } from './MessageBody';
 import { renderMarkdown } from '../../utils/markdown';
 import { flipMessageView, messageIsRaw } from './chatRenderMode';
 import type { ChatRenderMode } from './chatRenderMode';
+import { composerKeyAction, enterSendHint } from './sendOnEnter';
+import type { EnterSendMode } from './sendOnEnter';
 import { ThreadRuntime, ChatAttachment, isAttachmentStaged } from '../../domains/06-chat-threads';
 import type { Granularity, AttachmentVisualState } from '../../domains/granularity';
 import { GRANULARITY_LABEL, cutIncludes, getAttachmentStatePalette } from '../../domains/granularity';
@@ -77,6 +79,8 @@ interface ChatViewProps {
   chosenVoice?: string;
   /** Default bubble view for the whole feed; each message can still flip. */
   chatRender?: ChatRenderMode;
+  /** What a bare Enter does: send, or insert a new line. Shift/Ctrl are fixed. */
+  enterSend?: EnterSendMode;
   onOpenArtifact?: (artifactId: string) => void;
   threadTitle?: string;
   threadTitleState?: 'placeholder' | 'auto' | 'manual';
@@ -134,6 +138,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onOpenArtifacts,
   chosenVoice = 'Kore',
   chatRender = 'markdown',
+  enterSend = 'send',
   onOpenArtifact,
   threadTitle = 'New thread',
   threadTitleState = 'placeholder',
@@ -404,6 +409,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
     onSendMessage(msg);
   };
 
+  /**
+   * One keyboard contract for both composers. Shift+Enter and Ctrl/Cmd+Enter
+   * are fixed; only the bare Enter key answers to the `enterSend` preference.
+   * A 'newline' verdict deliberately does NOT preventDefault — the textarea
+   * inserts the break itself, which is the whole point.
+   */
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const action = composerKeyAction(
+      { key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing },
+      enterSend
+    );
+    if (action !== 'send') return;
+    e.preventDefault();
+    if (inputText.trim() && !isLoading) {
+      handleSubmit(e);
+    }
+  };
+
   const handlePlayTTS = async (message: Turn) => {
     logger.action('ChatView', 'Toggle TTS Audio playback', { messageId: message.id });
     if (playingMessageId === message.id) {
@@ -608,14 +631,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 ref={heroInputRef}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (inputText.trim() && !isLoading) {
-                      handleSubmit(e);
-                    }
-                  }
-                }}
+                onKeyDown={handleComposerKeyDown}
                 placeholder="Pour it out before it evaporates — we'll organize later."
                 rows={3}
                 disabled={isLoading}
@@ -655,7 +671,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     )}
                   </button>
                   <span className="text-[11px] font-mono text-[#5b7394] hidden sm:inline">
-                    Enter to send
+                    {enterSend === 'send' ? 'Enter sends' : 'Ctrl+Enter sends'}
                   </span>
                 </div>
 
@@ -1423,16 +1439,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (inputText.trim() && !isLoading) {
-                    handleSubmit(e);
-                  }
-                }
-              }}
+              onKeyDown={handleComposerKeyDown}
               placeholder="Keep typing…"
-              title="Enter to send · Shift+Enter for a new line"
+              title={enterSendHint(enterSend)}
               disabled={isLoading}
               rows={1}
               className="flex-1 bg-recess-1 shadow-well rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 transition-colors resize-none leading-relaxed max-h-32"

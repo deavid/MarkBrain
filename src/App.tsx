@@ -20,6 +20,8 @@ import { CleanupModal } from './ui/cleanup/CleanupModal';
 import { ThreadSwitcher } from './ui/chat/ThreadSwitcher';
 import { loadChatRenderMode, saveChatRenderMode } from './ui/chat/chatRenderMode';
 import type { ChatRenderMode } from './ui/chat/chatRenderMode';
+import { loadEnterSendMode, saveEnterSendMode } from './ui/chat/sendOnEnter';
+import type { EnterSendMode } from './ui/chat/sendOnEnter';
 import { SaturationOrb } from './ui/context/SaturationOrb';
 import { EdgeHeatStrip } from './ui/context/EdgeHeatStrip';
 import { MirrorPanel } from './ui/context/MirrorPanel';
@@ -156,6 +158,16 @@ export default function App() {
     logger.action('App', `Chat text mode set to ${mode}`);
     setChatRender(mode);
     saveChatRenderMode(mode);
+  };
+
+  // Whether a bare Enter sends or makes a new line. A typing preference in this
+  // browser, restored on load and saved on every flip (see sendOnEnter.ts).
+  // Shift+Enter and Ctrl/Cmd+Enter are not governed by it — they are fixed.
+  const [enterSend, setEnterSend] = useState<EnterSendMode>(() => loadEnterSendMode());
+  const handleSelectEnterSend = (mode: EnterSendMode) => {
+    logger.action('App', `Enter key mode set to ${mode}`);
+    setEnterSend(mode);
+    saveEnterSendMode(mode);
   };
 
   // Default-open on desktop, default-closed on phones so the drawer+backdrop
@@ -632,6 +644,8 @@ export default function App() {
         onSelectVoice={setChosenVoice}
         chatRender={chatRender}
         onSelectChatRender={handleSelectChatRender}
+        enterSend={enterSend}
+        onSelectEnterSend={handleSelectEnterSend}
         activeView={activeView}
         onChangeView={(v) => setActiveView(v)}
         onOpenExport={() => setIsExportOpen(true)}
@@ -763,6 +777,7 @@ export default function App() {
                   onOpenArtifactsWithProximity={handleOpenArtifactsWithProximity}
                   chosenVoice={chosenVoice}
                   chatRender={chatRender}
+                  enterSend={enterSend}
                   onOpenArtifact={(id) => {
                     logger.action('App', `Open artifact ${id} from an attachment row`);
                     setSelectedArtifactId(id);

@@ -11,6 +11,24 @@
 
 ---
 
+## Done — 2026-10-22: the composer's keyboard contract (`dev-vega`)
+
+David: *"Shift+Enter never sends, Ctrl+Enter always send, and Enter may or may
+not send depending on a configuration. We need an option in the sidebar for
+Enter (even on phone) sending or not sending by default."*
+
+- **Three keys, two fixed, one preference.** `Shift+Enter` never sends,
+  `Ctrl/Cmd+Enter` always sends, bare `Enter` obeys a switch. Mid-IME Enter is
+  never a send. Law + evidence in `10_ATTACHMENT_TIMELINE.md` §20.
+- `src/ui/chat/sendOnEnter.ts` — `composerKeyAction()` is the one rule; both
+  composers route through a shared `handleComposerKeyDown` (the old
+  `e.key === 'Enter' && !e.shiftKey` inline rule is deleted).
+- **Switch** "Send on Enter" in the sidebar (`Sends` / `New line`), persisted in
+  localStorage like `chatRender`, reachable on a phone through the drawer.
+  Tests: `src/tests/send-on-enter.test.ts`; journey **J20**.
+
+---
+
 ## Done — 2026-10-21 night: the four noise/data-loss items (`dev-vega`)
 
 David, verbatim: *"shouldn't we have some ephemeral red notification for critical

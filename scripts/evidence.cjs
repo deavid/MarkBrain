@@ -1273,6 +1273,97 @@ async function main() {
     }
   });
 
+  // ── J20 enter to send — one keyboard contract, one switch ──────────────────
+  // The three fixed truths (Shift+Enter never sends, Ctrl+Enter always sends)
+  // and the one preference (bare Enter) must hold in the real composer, and the
+  // switch that sets the preference must be reachable on a phone — that is the
+  // whole reason it lives in the sidebar instead of the composer.
+  await journey(page, '20-enter-send-config', 'Enter/Shift+Enter/Ctrl+Enter obey the sidebar switch, on desktop and on a phone', async (page) => {
+    const pillSend = page.locator('[data-testid="enter-send-send"]');
+    const pillNew = page.locator('[data-testid="enter-send-newline"]');
+    await pillSend.waitFor({ state: 'visible', timeout: 10_000 });
+    step('wait', 'Send-on-Enter panel visible in the open sidebar');
+    check(
+      (await pillSend.getAttribute('aria-pressed')) === 'true',
+      'bare Enter defaults to sending'
+    );
+    await shot(page, 'sidebar-send-on-enter');
+    const value = () => composer.inputValue();
+
+    // Default mode: Shift+Enter must NOT send — it must leave a new line behind.
+    await composer.fill('ALPHA-SHIFT');
+    await composer.press('Shift+Enter');
+    await page.waitForTimeout(300);
+    check((await value()).includes('\n'), 'Shift+Enter inserts a new line');
+    check(!(await bodyText()).includes('ALPHA-SHIFT'), 'Shift+Enter never sends');
+    await composer.fill('');
+
+    // …while Ctrl+Enter always sends, without touching the switch.
+    await composer.fill('Reply with exactly: ALPHA-CTRL');
+    await composer.press('Control+Enter');
+    step('press', 'Ctrl+Enter');
+    await stopBtn.waitFor({ state: 'visible', timeout: 15_000 });
+    await waitIdle(page);
+    check((await bodyText()).includes('ALPHA-CTRL'), 'Ctrl+Enter sends');
+    check((await value()) === '', 'the composer is cleared by a real send');
+
+    // Flip the switch: now a bare Enter must make a new line, not send.
+    await pillNew.click({ timeout: 5000 });
+    step('click', 'Send on Enter → New line');
+    await page.waitForTimeout(300);
+    check((await pillNew.getAttribute('aria-pressed')) === 'true', 'the switch flipped');
+    await composer.fill('BETA-ENTER');
+    await composer.press('Enter');
+    await page.waitForTimeout(400);
+    check((await value()).includes('\n'), 'bare Enter makes a new line when the switch says so');
+    check(!(await bodyText()).includes('BETA-ENTER'), 'bare Enter did not send');
+    await shot(page, 'enter-makes-newline');
+
+    // Ctrl+Enter is not a preference — it still sends in this mode.
+    await composer.press('Control+Enter');
+    step('press', 'Ctrl+Enter (in New-line mode)');
+    await stopBtn.waitFor({ state: 'visible', timeout: 15_000 });
+    await waitIdle(page);
+    check((await bodyText()).includes('BETA-ENTER'), 'Ctrl+Enter still sends in New-line mode');
+
+    // The option must be reachable on a phone, through the drawer, and the
+    // choice must survive a reload — otherwise "even on phone" is a lie.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('textarea').first().waitFor({ state: 'visible', timeout: 30_000 });
+    await page.waitForTimeout(2000);
+    const drawer = page.locator('button[aria-label="Open sidebar drawer"]');
+    if (await drawer.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await drawer.click();
+      await page.waitForTimeout(800);
+      step('click', 'open the sidebar drawer at 390px');
+      await page.locator('[data-testid="enter-send-newline"]').first().scrollIntoViewIfNeeded();
+      const onPhone = await page.locator('[data-testid="enter-send-newline"]').first().isVisible();
+      check(onPhone, 'Send-on-Enter is reachable on a 390px phone');
+      check(
+        (await page.locator('[data-testid="enter-send-newline"]').first().getAttribute('aria-pressed')) === 'true',
+        'the phone still shows the choice made on the desktop (it is per-browser)'
+      );
+      await shot(page, 'phone-send-on-enter');
+      await page.locator('div[class*="bg-black/60"]').first().click({ force: true }).catch(() => {});
+      await page.waitForTimeout(400);
+    } else {
+      warn('drawer trigger not visible at 390px — the "on phone" claim is untested this run');
+    }
+
+    // Leave the workspace as we found it: back to desktop, back to the default.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('textarea').first().waitFor({ state: 'visible', timeout: 30_000 });
+    await page.waitForTimeout(2000);
+    await page.locator('[data-testid="enter-send-send"]').first().click({ timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    check(
+      (await page.locator('[data-testid="enter-send-send"]').first().getAttribute('aria-pressed')) === 'true',
+      'the default is put back for the next run'
+    );
+  });
+
   // ── geometry audit: viewport × surface matrix ─────────────────────────────
   log('── audit: viewport × surface geometry');
   for (const vp of VIEWPORTS) {

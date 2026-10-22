@@ -340,3 +340,31 @@ snapshot written before the law carries no `granularityLaw` marker, so hydrate
 resets those auto-sealed `summary` values to Full **exactly once** — the marker
 (`GRANULARITY_LAW`, written on every save) makes it idempotent, so a Summary
 picked by hand afterwards survives every reload.
+
+## 20. Law added 2026-10-22 (`dev-vega`) — the composer's keyboard contract
+
+David: *"Shift+Enter never sends, Ctrl+Enter always send, and Enter may or may
+not send depending on a configuration. We need an option in the sidebar for
+Enter (even on phone) sending or not sending by default."*
+
+**Three keys, three fixed truths, one preference — and the truths are not
+negotiable.** `Shift+Enter` never sends (it always makes a new line);
+`Ctrl/Cmd+Enter` always sends, in every mode and on every keyboard; only a
+**bare Enter** answers to the preference. Nothing else is a send, and a keypress
+arriving mid-IME (`isComposing`) is never a send either — treating a candidate
+commit as "send" would fire a half-typed message.
+
+**One pure function owns it.** `composerKeyAction(event, mode)` in
+`src/ui/chat/sendOnEnter.ts` returns `send | newline | ignore`; both composers
+(hero and in-thread) route through a single `handleComposerKeyDown`. The old
+inline rule (`e.key === 'Enter' && !e.shiftKey`) is gone — it was unconfigurable
+and sent on Ctrl+Enter's behalf by accident. A `newline` verdict deliberately
+does **not** `preventDefault`: the textarea inserts the break itself.
+
+**The preference is a browser preference, not project data.** `enterSend` is
+`'send' | 'newline'`, defaults to `'send'` (the behaviour we always had, stored
+as *absence* of the key), and persists in localStorage next to `chatRender`. So
+the sidebar — where it lives — carries it on a phone too, through the drawer;
+that is why it is not in the composer. Evidence: **J20** flips the switch and
+presses all three keys in the real composer, then reloads at 390px and opens the
+drawer to prove the option is reachable there and the choice survived.

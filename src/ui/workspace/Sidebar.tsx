@@ -24,6 +24,7 @@ import {
   Check,
   Volume2,
   Type,
+  CornerDownLeft,
 
   LogOut,
 
@@ -36,6 +37,7 @@ import {
 } from 'lucide-react';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 import type { ChatRenderMode } from '../chat/chatRenderMode';
+import type { EnterSendMode } from '../chat/sendOnEnter';
 
 /** Read-aloud voices supported by the Gemini TTS endpoint (/api/tts). */
 export const TTS_VOICES = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'] as const;
@@ -51,6 +53,25 @@ const CHAT_RENDER_CHOICES: { mode: ChatRenderMode; label: string; hint: string }
     mode: 'raw',
     label: 'Raw',
     hint: 'Show the untouched markdown source of every message',
+  },
+];
+
+/**
+ * What a bare Enter does in the composer. Only Enter is configurable here —
+ * Shift+Enter always makes a new line and Ctrl/Cmd+Enter always sends, on every
+ * keyboard and every viewport (including phones, where this panel is reachable
+ * through the drawer).
+ */
+const ENTER_SEND_CHOICES: { mode: EnterSendMode; label: string; hint: string }[] = [
+  {
+    mode: 'send',
+    label: 'Sends',
+    hint: 'Enter sends the message · Shift+Enter makes a new line · Ctrl+Enter always sends',
+  },
+  {
+    mode: 'newline',
+    label: 'New line',
+    hint: 'Enter makes a new line · Ctrl+Enter sends',
   },
 ];
 
@@ -72,6 +93,9 @@ interface SidebarProps {
   /** Default bubble view in the chat: rendered markdown, or the raw source. */
   chatRender?: ChatRenderMode;
   onSelectChatRender?: (mode: ChatRenderMode) => void;
+  /** What a bare Enter does in the composer: send, or insert a new line. */
+  enterSend?: EnterSendMode;
+  onSelectEnterSend?: (mode: EnterSendMode) => void;
   activeView: ActiveView;
   onChangeView: (view: ActiveView) => void;
   onOpenExport: () => void;
@@ -117,6 +141,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectVoice,
   chatRender = 'markdown',
   onSelectChatRender,
+  enterSend = 'send',
+  onSelectEnterSend,
   activeView,
   onChangeView,
   onOpenExport,
@@ -1073,6 +1099,53 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onClick={() => {
                       logger.action('Sidebar', `Chat text mode: ${choice.mode}`);
                       onSelectChatRender?.(choice.mode);
+                    }}
+                    title={choice.hint}
+                    className={`flex-1 min-h-[26px] px-2.5 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-veil-3 shadow-lift text-ink font-semibold'
+                        : 'text-ink-faint hover:bg-veil-1 hover:text-ink-dim'
+                    }`}
+                  >
+                    {choice.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Send-on-Enter preference. Another typing preference, so it sits
+              with the others and is reachable on a phone through the drawer —
+              which is the point of putting it here rather than in the composer.
+              Shift+Enter and Ctrl/Cmd+Enter are NOT offered as choices: they are
+              not preferences, they are the floor. */}
+          <div className="rounded-xl bg-surface-2 p-1.5">
+            <div className="flex items-center gap-2.5 p-2.5 pb-1.5">
+              <div className="w-7 h-7 rounded-lg bg-recess-1 shadow-well flex items-center justify-center shrink-0">
+                <CornerDownLeft className="w-4 h-4 text-[#e0b96c]" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
+                  Send on Enter
+                </span>
+                <span className="text-xs font-semibold text-ink truncate block">
+                  {enterSend === 'send' ? 'Enter sends' : 'Enter makes a new line'}
+                </span>
+              </div>
+            </div>
+            <div className="px-1.5 pb-1.5 flex items-center gap-1">
+              {ENTER_SEND_CHOICES.map((choice) => {
+                const isSelected = choice.mode === enterSend;
+                return (
+                  <button
+                    key={choice.mode}
+                    type="button"
+                    aria-pressed={isSelected}
+                    aria-label={`Send on Enter: ${choice.label}`}
+                    data-testid={`enter-send-${choice.mode}`}
+                    onClick={() => {
+                      logger.action('Sidebar', `Send on Enter: ${choice.mode}`);
+                      onSelectEnterSend?.(choice.mode);
                     }}
                     title={choice.hint}
                     className={`flex-1 min-h-[26px] px-2.5 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${

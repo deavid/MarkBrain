@@ -64,6 +64,12 @@ interface ArtifactsLibraryViewProps {
   indexProgress: IndexProgress | null;
   /** Notes that could not be indexed. Stays until the next run — see the panel. */
   indexFailures?: { title: string; message: string }[];
+  /** Last query-embed decision: fresh, or reused from a previous query. */
+  queryEmbedNote?: {
+    match: 'exact' | 'near' | 'fresh';
+    similarity?: number;
+    sourceText?: string;
+  } | null;
   onIndexAll: (force: boolean) => void;
   onStopIndexing: () => void;
   /** Bumped by App when the [+ Attach] match badge routes here — force the lens. */
@@ -128,6 +134,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
   draftResults,
   indexProgress,
   indexFailures = [],
+  queryEmbedNote = null,
   onIndexAll,
   onStopIndexing,
   externalLens,
@@ -347,6 +354,26 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
               Use chat draft
             </button>
           </div>
+        )}
+        {/* Show the embed decision. On a 1,000-request/day budget the question
+            "did that cost me one?" should never require the network tab. */}
+        {queryEmbedNote && (
+          <p
+            className="text-[10px] font-mono text-[#556985] truncate"
+            data-testid="query-embed-note"
+            title={
+              queryEmbedNote.match === 'near' && queryEmbedNote.sourceText
+                ? `Reused the vectors for: ${queryEmbedNote.sourceText}`
+                : undefined
+            }
+          >
+            {queryEmbedNote.match === 'fresh' && 'query embed: 1 request sent'}
+            {queryEmbedNote.match === 'exact' && 'query embed: none — exact repeat'}
+            {queryEmbedNote.match === 'near' &&
+              `query embed: none — reused a ${Math.round(
+                (queryEmbedNote.similarity ?? 0) * 100
+              )}% match`}
+          </p>
         )}
       </div>
 

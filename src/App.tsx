@@ -44,6 +44,8 @@ import {
   l2Normalize,
   indexStatusFor,
 } from './domains/search/draftSearchEngine';
+import { QueryVectorCache } from './domains/search/queryVectorCache';
+import type { QueryCacheHit } from './domains/search/queryVectorCache';
 import type { ArtifactMatchResult } from './domains/search/draftSearchEngine';
 import { loadProjectSearchIndex } from './services/searchIndexStore';
 import type { ArtifactSearchIndexRecord } from './services/searchIndexStore';
@@ -348,10 +350,19 @@ export default function App() {
     key: string;
     vectors: Float32Array[];
   } | null>(null);
-  const queryVecCacheRef = useRef(new Map<string, Float32Array[]>());
+  // Near-duplicate rejection: the last few queries and their vectors. Two
+  // spellings of the same question must not cost two embed calls on a
+  // 1,000-request/day budget.
+  const queryVecCacheRef = useRef(new QueryVectorCache());
+  /** What the last query-embed decision was, so the panel can show its work. */
+  const [queryEmbedNote, setQueryEmbedNote] = useState<{
+    match: 'exact' | 'near' | 'fresh';
+    similarity?: number;
+    sourceText?: string;
+  } | null>(null);
 
   const clauseKey = useMemo(
-    () => splitDraftIntoClauses(searchQuery, searchConfig.splitClauses).join('\n '),
+    () => splitDraftIntoClauses(searchQuery, searchConfig.splitClauses).join('\n'),
     [searchQuery, searchConfig.splitClauses]
   );
   const clauseVectors =
@@ -388,14 +399,25 @@ export default function App() {
     if (searchQuery.trim().length < 12) return;
     const clauses = splitDraftIntoClauses(searchQuery, searchConfig.splitClauses);
     if (clauses.length === 0) return;
-    const key = clauses.join('\n ');
-    const cached = queryVecCacheRef.current.get(key);
+    const key = clauses.join('\n');
+    // 1. Exact, or 2. close enough to reuse on purpose. Only 3. costs a request.
+    const cached: QueryCacheHit | null = queryVecCacheRef.current.get(key);
     if (cached) {
-      setQueryVectors((prev) => (prev && prev.key === key ? prev : { key, vectors: cached }));
+      setQueryEmbedNote({
+        match: cached.match,
+        similarity: cached.similarity,
+        sourceText: cached.sourceText,
+      });
+      setQueryVectors((prev) => (prev && prev.key === key ? prev : { key, vectors: cached.vectors }));
       return;
     }
+    setQueryEmbedNote(null);
     let cancelled = false;
     const timer = window.setTimeout(() => {
+      // Say it the moment it is SENT, not when it succeeds. A request that
+      // 429s still cost the budget — reporting only success would make a spent
+      // request look like no request at all.
+      if (!cancelled) setQueryEmbedNote({ match: 'fresh' });
       embedTexts({ texts: clauses, taskType: 'RETRIEVAL_QUERY' })
         .then(async (res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -777,6 +799,7 @@ export default function App() {
               draftResults={draftResults}
               indexProgress={indexProgress}
               indexFailures={indexFailures}
+              queryEmbedNote={queryEmbedNote}
               onIndexAll={handleIndexAll}
               onStopIndexing={handleStopIndexing}
               externalLens={externalLens}

@@ -19,6 +19,8 @@
 | D5 | **Publish target = anonymous public**, with a zero-cost-to-David constraint. Sharing a personal key with a friend is an explicit per-friend risk decision, not an app feature. | *"the tool is for me… if someone wants to use... I'm fine as long as it does not cost me money or trouble."* |
 | D6 | **Ordinary user content may transit VPS RAM unencrypted** (secrets-in-content is the user's problem). Anything secret-like (pairing, vault material) must be E2E so the operator cannot read it. | *"I'm fine with user data moving through RAM unencrypted… For secrets like the QR idea, they need to be encrypted in such a way that I can't decode even if I wanted to."* |
 | D7 | **Mixed providers, mixed purposes.** TTS + embeddings default to the Gemini AI Studio free quota; OpenRouter options exist for both too. Extract/summarize get per-slot model choice. **Chat is the most important slot and gets its own prominent control** — that is where reasoning power vs money is spent. | *"The idea will be mixed… the actual chat — this one is the most important and most separate — because here is where you want to have control on when you need actual reasoning power, or put actual money in there to get big brain."* |
+| D8 | **Two Gemini AI Studio key slots: Free and Paid**, swappable in a few clicks. Same provider, two credentials — a per-key "tier" label, and any capability slot can point at either. "Put money on it" becomes a one-click key flip on the chat row, not a settings expedition. | *"might be interesting to have 2 Gemini AIStuido API keys, one free, one paid, so the user could swap easily from free to paid if they wanted in some clicks."* |
+| D9 | **Every API key is optional.** The user fills whichever keys they have; nothing is required to boot. The app works per-capability with whatever credentials exist and degrades cleanly where none do. | *"all these API keys have to be optional. They fill whatever they want."* |
 
 ---
 
@@ -92,27 +94,45 @@ slots by how much they matter:
 ┌─ Model & Key Settings ────────────────────────────────┐
 │                                                        │
 │  CHAT  (the one you care about)                        │
-│    [ provider ▾ ] [ model ▾ ]   ← prominent, own row  │
+│    [ key ▾ Free/Paid/OpenRouter/… ] [ model ▾ ]        │
+│    ← prominent, own row; key flip = "put money on it"  │
 │                                                        │
 │  WORKHORSE (per-slot choice)                           │
-│    Extract     [ provider ▾ ] [ model ▾ ]              │
-│    Summarize   [ provider ▾ ] [ model ▾ ]              │
-│    Q&A gen     [ provider ▾ ] [ model ▾ ]              │
-│    Titles      [ provider ▾ ] [ model ▾ ]              │
+│    Extract     [ key ▾ ] [ model ▾ ]                   │
+│    Summarize   [ key ▾ ] [ model ▾ ]                   │
+│    Q&A gen     [ key ▾ ] [ model ▾ ]                   │
+│    Titles      [ key ▾ ] [ model ▾ ]                   │
 │                                                        │
-│  INFRASTRUCTURE (defaults: Gemini free quota)          │
-│    Embeddings  [ provider ▾ ] [ model ▾ ]              │
-│    TTS         [ provider ▾ ] [ model ▾ ]              │
+│  INFRASTRUCTURE (defaults: Gemini Free)                │
+│    Embeddings  [ key ▾ ] [ model ▾ ]                   │
+│    TTS         [ key ▾ ] [ model ▾ ]                   │
 │                                                        │
-│  KEYS                                                   │
-│    Gemini:     [••••••••]  (never leaves this device)  │
-│    OpenRouter: [••••••••]  (never leaves this device)  │
+│  KEYS  (all optional — fill only what you have)        │
+│    Gemini Free:  [••••••••] or empty  (never leaves    │
+│    Gemini Paid:  [••••••••] or empty   this device)    │
+│    OpenRouter:   [••••••••] or empty                   │
 └────────────────────────────────────────────────────────┘
 ```
 
 Slot names align 1:1 with today's endpoints: `chat`, `extract`, `summarize`,
-`qaGen`, `title`, `embed`, `tts`. A slot's provider determines which key is
-used and which request shape goes out.
+`qaGen`, `title`, `embed`, `tts`. A slot selects a **key** (credential + its
+provider + tier label) and a **model** from that key's provider catalog.
+
+**Key slots, not providers (D8):** "Gemini" is not one credential — there are
+two slots, `gemini-free` and `gemini-paid`, same provider, same request shape,
+different credentials and different labels in the picker. The UI surfaces tier
+character per key (free-tier quota limits from `06_…` live on the free slot's
+tooltip), so swapping chat from Free → Paid is one click on the chat row. Adding
+a third slot later (a second OpenRouter key, a work key) is the same shape —
+the key list is config, not code.
+
+**Everything optional (D9):** no key = that capability is unavailable, with an
+honest empty state ("Add a key to use Chat") — never a fake canned response,
+never a boot error. Valid combinations are whatever the user filled in:
+Gemini-Free-only (today's behaviour, zero cost), OpenRouter-only, Free+Paid,
+all three, or none (the app shell + local data still open fine). Slot pickers
+only offer keys that exist; defaults (infrastructure → Gemini Free) fall to the
+first available key if the preferred one is empty.
 
 **Model catalogs are fetched live** with the user's key — Gemini `ListModels`,
 OpenRouter `GET /api/v1/models` — not hardcoded (so "3.8-flash exists now"
@@ -189,9 +209,10 @@ public exposure.
 
 **Tier 1 — personal use now (accepted risk, documented):**
 1. Keys in `localStorage` under a dedicated meta namespace (pattern:
-   `markbrain:keys:<provider>`), **never** inside `ProjectSnapshot`, exports,
-   or the search index. Exports must be scrubbed before any `exportProject`
-   path runs.
+   `markbrain:keys:<keySlotId>` — e.g. `gemini-free`, `gemini-paid`,
+   `openrouter`; empty slots store nothing at all, D9), **never** inside
+   `ProjectSnapshot`, exports, or the search index. Exports must be scrubbed
+   before any `exportProject` path runs.
 2. **Provider-side restrictions are mandatory**, not optional hardening — they
    are the real wall while storage is plaintext-adjacent:
    - Gemini: restrict key by **HTTP referrer** to the deployment origin(s);
@@ -309,15 +330,19 @@ Each phase is independently shippable and leaves the app working.
    visibility, catalog fetch with fallback.
 
 ### Phase 1 — BYOK + provider adapters (D1 lands)
-1. Key fields in the popup (Tier 1 storage, §4.2), Gemini + OpenRouter keys.
+1. Key slot model (D8/D9): `gemini-free`, `gemini-paid`, `openrouter` — all
+   optional. Tier 1 storage (§4.2) + the key-swap UI on the chat row.
 2. `src/gateway/providers/{gemini,openrouter,types}.ts`; flip `gateway/api.ts`
-   call paths browser→provider. Stream protocol keeps owning SSE parsing.
-3. Live model catalogs (Gemini `ListModels`, OpenRouter `/models`).
+   call paths browser→provider. Stream protocol keeps owning SSE parsing. Both
+   Gemini slots share the adapter, differ only in the credential used.
+3. Live model catalogs (Gemini `ListModels`, OpenRouter `/models`), fetched per
+   key where the provider scopes catalogs per credential.
 4. Search index: stamp records with the embed model id; mismatch = stale (§3.4).
 5. Server routes shrink toward static-hosting + health (keep unused routes
    until Phase 2 if faster).
 6. Tests: adapter request shapes (mocked fetch), embed-model staleness,
-   "no key configured" empty states.
+   key-swap on the chat slot, empty/partial key configs (D9) degrade without
+   boot errors, "no key configured" empty states.
 
 ### Phase 2 — static shell (server stops touching content)
 1. Deploy as static files + health + (later) mailbox. Delete/stop mounting the

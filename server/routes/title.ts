@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
+import { resolveModelId } from '../lib/models';
 
 export function registerTitleRoutes(app: Express): void {
 // API: Thread title generation (best-effort meta call for the staged titling
@@ -9,12 +10,16 @@ export function registerTitleRoutes(app: Express): void {
 // title (titles never block the chat UX). English-only by product decision.
 app.post('/api/title-thread', async (req: Request, res: Response) => {
   try {
-    const { messages = [], version = 1 } = req.body;
+    const { messages = [], version = 1, model } = req.body;
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.json({ title: null });
     }
     if (!ai) {
       return res.json({ title: null });
+    }
+    const { id: titleModel, fellBackFrom } = resolveModelId(model, 'title');
+    if (fellBackFrom) {
+      logServer('warn', 'API:TITLE', `Requested model "${fellBackFrom}" rejected for lane=title — using ${titleModel}`);
     }
 
     const transcript = messages
@@ -43,7 +48,7 @@ ${transcript}
 Title:`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash-lite',
+      model: titleModel,
       contents: prompt,
       config: { temperature: 0.4 },
     });

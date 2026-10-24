@@ -6,6 +6,7 @@ import { logger } from '../../../utils/logger';
 import { ImportFlag, flagRelationship } from '../../../utils/importDetect';
 import { BatchRules, EMPTY_BATCH_RULES, applyImportRules } from '../../../utils/importRules';
 import { extractArtifactFromFile } from '../../../gateway/api';
+import { getModelForSlot } from '../../../data/modelConfig';
 
 // The session lives ABOVE ImportModal (owned by App) so closing the modal keeps
 // processing; rows land as artifacts one at a time.
@@ -68,6 +69,7 @@ async function extractFromGemini(
       // it can correct itself instead of deterministically re-failing.
       previousError: previous?.error,
       previousOutput: previous?.raw,
+      model: getModelForSlot('extract'),
     },
     { signal: AbortSignal.timeout(120_000) }
   );

@@ -11,9 +11,7 @@ import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import type { GeneratedQaPair } from '../../src/services/searchIndexStore';
-
-const EMBED_MODEL = 'gemini-embedding-001';
-const QA_MODEL = 'gemini-3.5-flash-lite';
+import { resolveModelId } from '../lib/models';
 
 /** gemini-embedding-001 accepts 2,048 input tokens; 6,000 chars ≈ 1,600. */
 const EMBED_TEXT_CHAR_CAP = 6000;
@@ -197,6 +195,12 @@ function fallbackEmbedding(text: string): number[] {
 
 export function registerSearchIndexRoutes(app: Express): void {
   app.post('/api/search-index/generate-qa', async (req: Request, res: Response) => {
+    // Outside the try on purpose: the quota error below names the model, and a
+    // binding declared inside try is invisible to catch.
+    const { id: qaModel, fellBackFrom: qaFellBack } = resolveModelId(req.body?.model, 'qaGen');
+    if (qaFellBack) {
+      logServer('warn', 'API:SEARCH_QA', `Requested model "${qaFellBack}" rejected for lane=qaGen — using ${qaModel}`);
+    }
     try {
       const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
       const subtitle =
@@ -235,7 +239,7 @@ export function registerSearchIndexRoutes(app: Express): void {
       }
 
       const response = await ai.models.generateContent({
-        model: QA_MODEL,
+        model: qaModel,
         contents: buildQaPrompt(title, subtitle, sections),
         config: { temperature: 0.2 },
       });
@@ -249,12 +253,17 @@ export function registerSearchIndexRoutes(app: Express): void {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Q&A extraction error';
       logServer('error', 'API:SEARCH_QA', `Error in /api/search-index/generate-qa: ${message}`, err);
-      const quota = quotaExplanation(err, 'llm', QA_MODEL);
+      const quota = quotaExplanation(err, 'llm', qaModel);
       res.status(quota ? 429 : 500).json({ error: message, quota });
     }
   });
 
   app.post('/api/search-index/embed', async (req: Request, res: Response) => {
+    // Outside the try on purpose: the quota error below names the model.
+    const { id: embedModel, fellBackFrom: embedFellBack } = resolveModelId(req.body?.model, 'embed');
+    if (embedFellBack) {
+      logServer('warn', 'API:SEARCH_EMBED', `Requested model "${embedFellBack}" rejected for lane=embed — using ${embedModel}`);
+    }
     try {
       // Annotate as string[]: the ternary collapses to `any` (`any | never[]`),
       // which leaves `.map((t) => …)` below with no contextual type — TS7006.
@@ -282,7 +291,7 @@ export function registerSearchIndexRoutes(app: Express): void {
       for (let i = 0; i < capped.length; i += EMBED_BATCH_SIZE) {
         const batch = capped.slice(i, i + EMBED_BATCH_SIZE);
         const response = await ai.models.embedContent({
-          model: EMBED_MODEL,
+          model: embedModel,
           contents: batch,
           config: {
             // EmbedContentConfig.taskType is a plain string in @google/genai —
@@ -310,7 +319,7 @@ export function registerSearchIndexRoutes(app: Express): void {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Embedding error';
       logServer('error', 'API:SEARCH_EMBED', `Error in /api/search-index/embed: ${message}`, err);
-      const quota = quotaExplanation(err, 'embeddings', EMBED_MODEL);
+      const quota = quotaExplanation(err, 'embeddings', embedModel);
       res.status(quota ? 429 : 500).json({ error: message, quota });
     }
   });

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ModelOption } from './types';
 import { FALLBACK_MODEL } from './data/models';
+import { loadModelConfig, saveModelConfig } from './data/modelConfig';
 import { Sidebar, ActiveView } from './ui/workspace/Sidebar';
 import { ChatView } from './ui/chat/ChatView';
 import { ChatErrorBoundary } from './ui/workspace/ChatErrorBoundary';
@@ -9,6 +10,7 @@ import { BootSplash } from './ui/workspace/BootSplash';
 import { ProjectGenesis } from './ui/workspace/ProjectGenesis';
 import { ProjectLauncher } from './ui/workspace/ProjectLauncher';
 import { ServerLogsModal } from './ui/workspace/ServerLogsModal';
+import { ModelSettingsModal } from './ui/workspace/ModelSettingsModal';
 import { CriticalNotifications } from './ui/system/CriticalNotifications';
 import { ArtifactDetailModal } from './ui/artifacts/ArtifactDetailModal';
 import { ArtifactsLibraryView } from './ui/artifacts/ArtifactsLibraryView';
@@ -126,7 +128,8 @@ export default function App() {
   const currentContainer = workspace.getProject(activeProjectId);
 
   // Server-owned catalog (GET /api/models). FALLBACK_MODEL keeps the picker populated
-  // while it is in flight or if it fails.
+  // while it is in flight or if it fails. The sidebar lists CHAT-capable models only
+  // (capability lanes live in the Model settings popup — design-docs/16 §3.1).
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([FALLBACK_MODEL]);
   const [selectedModel, setSelectedModel] = useState<ModelOption>(FALLBACK_MODEL);
 
@@ -136,11 +139,16 @@ export default function App() {
       .then((data) => {
         const list = data?.models;
         if (!alive || !Array.isArray(list) || list.length === 0) return; // keep fallback
-        setAvailableModels(list);
-        setSelectedModel((prev) =>
-          list.find((m) => m.id === prev.id) ?? // preserve any user choice
-            list.find((m) => m.id === data.default) ?? // catalog default
-            list[0]
+        const chatModels = list.filter((m) => !m.capabilities || m.capabilities.includes('chat'));
+        const usable = chatModels.length > 0 ? chatModels : list;
+        setAvailableModels(usable);
+        // Chat slot wins over the previous in-flight pick: the settings popup is
+        // the source of truth for which model each lane uses (modelConfig).
+        const slotChat = loadModelConfig().chat;
+        setSelectedModel(
+          usable.find((m) => m.id === slotChat) ?? // configured chat slot
+            usable.find((m) => m.id === data.default) ?? // catalog default
+            usable[0]
         );
       })
       .catch((e) => logger.warn('App', 'GET /api/models failed — keeping fallback model', e));
@@ -148,6 +156,13 @@ export default function App() {
       alive = false;
     };
   }, []);
+
+  const handleSelectModel = (m: ModelOption) => {
+    setSelectedModel(m);
+    // Persist to the chat slot so a reload and the settings popup agree.
+    saveModelConfig({ ...loadModelConfig(), chat: m.id });
+    logger.action('App', `Chat slot model set to ${m.name} (${m.id})`);
+  };
 
   const [activeView, setActiveView] = useState<ActiveView>('chat');
 
@@ -180,6 +195,7 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isMirrorOpen, setIsMirrorOpen] = useState(false);
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
+  const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
   const [isCleanupOpen, setIsCleanupOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [libraryTagFilter, setLibraryTagFilter] = useState({ tag: '', seq: 0 });
@@ -713,7 +729,8 @@ export default function App() {
         onSelectProject={(p) => workspace.setActiveProject(p.id)}
         selectedModel={selectedModel}
         availableModels={availableModels}
-        onSelectModel={setSelectedModel}
+        onSelectModel={handleSelectModel}
+        onOpenModelSettings={() => setIsModelSettingsOpen(true)}
         chosenVoice={chosenVoice}
         onSelectVoice={setChosenVoice}
         chatRender={chatRender}
@@ -942,6 +959,13 @@ export default function App() {
       <ServerLogsModal
         isOpen={isServerLogsOpen}
         onClose={() => setIsServerLogsOpen(false)}
+      />
+
+      {/* Capability-slot model picker (design-docs/16 §3.1) */}
+      <ModelSettingsModal
+        isOpen={isModelSettingsOpen}
+        onClose={() => setIsModelSettingsOpen(false)}
+        catalog={availableModels}
       />
 
       {/* Quick thread switcher (Cmd/Ctrl+K) — archived included, dimmed */}

@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import { EXTRACT_READ_CHAR_CAP, buildExtractPrompt, readSentinelArtifact } from '../lib/prompt';
+import { resolveModelId } from '../lib/models';
 
 export function registerExtractRoutes(app: Express): void {
 app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) => {
@@ -13,9 +14,15 @@ app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) 
       fileType = 'doc',
       previousError,
       previousOutput,
+      model,
     } = req.body;
     if (!content || !content.trim()) {
       return res.status(400).json({ error: 'Content is required' });
+    }
+
+    const { id: extractModel, fellBackFrom } = resolveModelId(model, 'extract');
+    if (fellBackFrom) {
+      logServer('warn', 'API:EXTRACT', `Requested model "${fellBackFrom}" rejected for lane=extract — using ${extractModel}`);
     }
 
     if (ai) {
@@ -32,7 +39,7 @@ app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) 
       });
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash-lite',
+        model: extractModel,
         contents: prompt,
         config: { temperature: 0.2 },
       });

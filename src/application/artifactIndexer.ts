@@ -32,6 +32,7 @@ import {
   type GeneratedQaPair,
 } from '../services/searchIndexStore';
 import { embedTexts, generateArtifactQa } from '../gateway/api';
+import { getModelForSlot } from '../data/modelConfig';
 
 /** The QA route's own ceiling — kept in sync with server/routes/searchIndex.ts. */
 const QA_WINDOW_MAX_SECTIONS = 12;
@@ -284,6 +285,7 @@ export async function indexSingleArtifact(
                 title: art.title,
                 subtitle: art.current?.subtitle,
                 sections: window.map((s) => ({ id: s.id, heading: s.heading, text: s.text })),
+                model: getModelForSlot('qaGen'),
               });
               const data = await parseJson<{ qaPairs?: GeneratedQaPair[] }>(res, 'generate-qa');
               return data.qaPairs || [];
@@ -376,6 +378,7 @@ async function embedAll(
         texts: batch,
         taskType: 'RETRIEVAL_DOCUMENT',
         title: artTitle,
+        model: getModelForSlot('embed'),
       });
       const data = await parseJson<{ embeddings?: number[][] }>(res, 'embed');
       const got = data.embeddings || [];

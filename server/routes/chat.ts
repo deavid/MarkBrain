@@ -50,8 +50,18 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     const compiledPrompt = buildCompiledPrompt(req.body);
 
     // Allowlist derives from the server-owned catalog so the two cannot diverge.
-    // Unknown model → catalog default.
-    let targetModel = resolveModelId(model);
+    // Unknown model → lane default, and the user is TOLD (never a quiet swap).
+    const resolution = resolveModelId(model, 'chat');
+    const targetModel = resolution.id;
+    if (resolution.fellBackFrom) {
+      sendSSE('status', {
+        state: 'connecting',
+        message: `Requested model "${resolution.fellBackFrom}" is not available — using ${targetModel} instead.`,
+        timestamp: Date.now(),
+        model: targetModel,
+        downgradedFrom: resolution.fellBackFrom,
+      });
+    }
 
     logServer('info', 'STREAM:INIT', `#${reqId} Initiating stream for project="${projectTitle}", model=${targetModel}, promptChars=${compiledPrompt.length}`);
 
@@ -72,8 +82,13 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
 
       let responseStream: any = null;
       let usedModel = targetModel;
+      let downgradedFrom: string | null = null;
 
-      // Smart watchdog: if non-lite model is requested, race with a 9-second watchdog
+      // Watchdog: a non-default model gets 9s to produce its first chunk. When
+      // it doesn't, the reply is written by the lane default — and the user is
+      // TOLD, in plain words and with `downgradedFrom` for the UI banner. The
+      // old message ("Optimizing latency: routed to…") dressed a downgrade up
+      // as a feature; that was a lie (design-docs/16 §2).
       if (targetModel !== DEFAULT_MODEL_ID) {
         try {
           const timeoutPromise = new Promise<never>((_, reject) =>
@@ -81,14 +96,16 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
           );
           responseStream = await Promise.race([streamFromModel(targetModel, compiledPrompt, systemInstruction, reqId), timeoutPromise]);
         } catch (streamErr: any) {
-          logServer('warn', 'STREAM:WATCHDOG', `#${reqId} Upstream model ${targetModel} delayed (${streamErr?.message || 'timeout'}). Failing over to ${DEFAULT_MODEL_ID}.`);
+          logServer('warn', 'STREAM:WATCHDOG', `#${reqId} Upstream model ${targetModel} delayed (${streamErr?.message || 'timeout'}). Downgrading to ${DEFAULT_MODEL_ID}.`);
           sendSSE('status', {
             state: 'thinking',
-            message: `Optimizing latency: routed to Google: Gemini 3.5 Flash Lite...`,
+            message: `Model ${targetModel} did not respond in 9s — this reply is from ${DEFAULT_MODEL_ID} instead.`,
             timestamp: Date.now(),
             model: DEFAULT_MODEL_ID,
+            downgradedFrom: targetModel,
           });
           usedModel = DEFAULT_MODEL_ID;
+          downgradedFrom = targetModel;
           responseStream = await streamFromModel(DEFAULT_MODEL_ID, compiledPrompt, systemInstruction, reqId);
         }
       } else {
@@ -186,6 +203,8 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
         latencyMs,
         timeToFirstChunkMs: timeToFirstChunkMs ?? latencyMs,
         isFallback: false,
+        // Honest downgrade trail: which model the user asked for and didn't get.
+        downgradedFrom: downgradedFrom ?? resolution.fellBackFrom ?? undefined,
       };
 
       sendSSE('complete', {

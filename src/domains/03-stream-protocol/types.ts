@@ -30,6 +30,8 @@ export interface StreamStatusPayload {
   message: string;
   timestamp: number;
   model?: string;
+  /** Set when the requested model was NOT used — honest downgrade trail (design-docs/16 §2). */
+  downgradedFrom?: string;
   chunks?: number;
   bytesReceived?: number;
   elapsedMs?: number;
@@ -46,6 +48,8 @@ export interface BackendTelemetry {
   timeToFirstChunkMs?: number;
   /** True when the numbers are estimates (no real usage telemetry came back). */
   isFallback?: boolean;
+  /** The model the user asked for and did not get (watchdog/allowlist downgrade). */
+  downgradedFrom?: string;
 }
 
 export interface StreamTurnResult {

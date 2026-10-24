@@ -1,6 +1,7 @@
 import { IChapterSegmentationDomain } from '../02-chapter-segmentation';
 import { IDialogueTimelineDomain } from '../01-dialogue-timeline';
 import { summarizeChapter } from '../../gateway/api';
+import { getModelForSlot } from '../../data/modelConfig';
 
 export interface IChapterRecalibrationDomain {
   recalibrateSummary(
@@ -30,6 +31,7 @@ export class ChapterRecalibrationDomain implements IChapterRecalibrationDomain {
         title: chapter.title,
         messages,
         steeringPrompt,
+        model: getModelForSlot('summarize'),
       });
       const data = await res.json();
       const subtitle = data.subtitle || '';

@@ -20,6 +20,7 @@ import { parseYamlArtifactDoc, serializeArtifactToYamlDoc } from '../../utils/ya
 import { estimateTokens } from '../../utils/tokenCalculator';
 import { ImportSessionApi } from './import/useImportSession';
 import { extractArtifactFromFile } from '../../gateway/api';
+import { getModelForSlot } from '../../data/modelConfig';
 import { ImportSessionList } from './import/ImportSessionList';
 import {
   Upload,
@@ -211,6 +212,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
           filename,
           projectTitle: project.name,
           fileType,
+          model: getModelForSlot('extract'),
         },
         { signal: AbortSignal.timeout(120_000) }
       );

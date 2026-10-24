@@ -2,6 +2,7 @@ import type { DomainContextValue } from '../../domains/DomainRegistry';
 import type { SendQueue } from '../../application/sendQueue';
 import { sampleTurnsForTitle } from '../../domains/06-chat-threads';
 import { titleThread } from '../../gateway/api';
+import { getModelForSlot } from '../../data/modelConfig';
 import { logger } from '../../utils/logger';
 
 export interface SuggestTitleDeps {
@@ -20,7 +21,7 @@ export function createSuggestTitle(deps: SuggestTitleDeps) {
     const turns = sendQueue.getTurnsOf(threadId);
     if (turns.filter((t) => (t.content || '').trim()).length === 0) return false;
     try {
-      const r = await titleThread({ messages: sampleTurnsForTitle(turns), version: 2 });
+      const r = await titleThread({ messages: sampleTurnsForTitle(turns), version: 2, model: getModelForSlot('title') });
       if (!r.ok) {
         logger.warn('App', 'suggest-title failed', { status: r.status });
         return false;

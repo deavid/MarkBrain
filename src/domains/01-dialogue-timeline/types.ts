@@ -11,6 +11,8 @@ export interface TurnMeta {
   streamState?: string;
   /** True when the numbers are estimates (no real usage telemetry came back). */
   isFallback?: boolean;
+  /** The model the user asked for and did not get (downgrade banner). */
+  downgradedFrom?: string;
 }
 
 /**

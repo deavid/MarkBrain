@@ -34,6 +34,7 @@ import {
   RotateCcw,
   MoreHorizontal,
   Trash2,
+  Settings2,
 } from 'lucide-react';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 import type { ChatRenderMode } from '../chat/chatRenderMode';
@@ -87,6 +88,8 @@ interface SidebarProps {
   selectedModel: ModelOption;
   availableModels: ModelOption[];
   onSelectModel: (m: ModelOption) => void;
+  /** Opens the capability-slot Model Settings popup (design-docs/16 §3.1). */
+  onOpenModelSettings?: () => void;
   /** Read-aloud voice for TTS playback (selector lives here, not in the composer). */
   chosenVoice?: string;
   onSelectVoice?: (voice: string) => void;
@@ -137,6 +140,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedModel,
   availableModels,
   onSelectModel,
+  onOpenModelSettings,
   chosenVoice = 'Kore',
   onSelectVoice,
   chatRender = 'markdown',
@@ -1009,6 +1013,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="flex items-center gap-1.5 text-[#556985]">
                 <span className="text-[10px] font-mono text-[#38bdf8]">{selectedModel.badge}</span>
+                {onOpenModelSettings && (
+                  <button
+                    onClick={onOpenModelSettings}
+                    data-testid="open-model-settings"
+                    title="Model settings — one model per lane"
+                    className="w-6 h-6 rounded-lg bg-surface-3 hover:bg-surface-4 flex items-center justify-center text-ink-mute hover:text-ink transition-colors cursor-pointer"
+                  >
+                    <Settings2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 {modelAccordionOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </div>
             </button>

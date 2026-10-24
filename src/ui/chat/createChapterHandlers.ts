@@ -2,6 +2,7 @@ import type { DomainContextValue } from '../../domains/DomainRegistry';
 import { IN_PROGRESS_CHAPTERS, isChapterInProgress, isChapterOngoing } from '../../domains/02-chapter-segmentation';
 import type { Granularity } from '../../domains/granularity';
 import { summarizeChapter } from '../../gateway/api';
+import { getModelForSlot } from '../../data/modelConfig';
 import { logger } from '../../utils/logger';
 
 export interface ChapterHandlerParams {
@@ -89,6 +90,7 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
       const res = await summarizeChapter({
         title: target.title,
         messages: turns.map((t) => ({ role: t.role, content: t.content })),
+        model: getModelForSlot('summarize'),
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);

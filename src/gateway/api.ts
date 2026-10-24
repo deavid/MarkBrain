@@ -10,13 +10,15 @@
 export interface TtsRequest {
   text: string;
   voice: string;
+  /** Lane model id (modelConfig slot 'tts'). Server falls back to the lane default. */
+  model?: string;
 }
 
 export function tts(params: TtsRequest): Promise<Response> {
   return fetch('/api/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: params.text, voice: params.voice }),
+    body: JSON.stringify({ text: params.text, voice: params.voice, model: params.model }),
   });
 }
 
@@ -29,6 +31,8 @@ export interface ExtractArtifactFromFileRequest {
   previousError?: string;
   /** Failure-aware retry: raw (invalid) model output from that attempt. */
   previousOutput?: string;
+  /** Lane model id (modelConfig slot 'extract'). */
+  model?: string;
 }
 
 export interface ExtractArtifactFromFileInit {
@@ -50,6 +54,7 @@ export function extractArtifactFromFile(
       fileType: params.fileType,
       previousError: params.previousError,
       previousOutput: params.previousOutput,
+      model: params.model,
     }),
   });
 }
@@ -100,13 +105,15 @@ export function chatStream(
 export interface TitleThreadRequest {
   messages: Array<{ role: string; content: string }>;
   version: number;
+  /** Lane model id (modelConfig slot 'title'). */
+  model?: string;
 }
 
 export function titleThread(params: TitleThreadRequest): Promise<Response> {
   return fetch('/api/title-thread', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: params.messages, version: params.version }),
+    body: JSON.stringify({ messages: params.messages, version: params.version, model: params.model }),
   });
 }
 
@@ -133,13 +140,15 @@ export interface GenerateArtifactQaRequest {
   title: string;
   subtitle?: string;
   sections: GenerateArtifactQaSection[];
+  /** Lane model id (modelConfig slot 'qaGen'). */
+  model?: string;
 }
 
 export function generateArtifactQa(params: GenerateArtifactQaRequest): Promise<Response> {
   return fetch('/api/search-index/generate-qa', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+    body: JSON.stringify({ title: params.title, subtitle: params.subtitle, sections: params.sections, model: params.model }),
   });
 }
 
@@ -147,13 +156,15 @@ export interface EmbedTextsRequest {
   texts: string[];
   taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY';
   title?: string;
+  /** Lane model id (modelConfig slot 'embed'). */
+  model?: string;
 }
 
 export function embedTexts(params: EmbedTextsRequest): Promise<Response> {
   return fetch('/api/search-index/embed', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+    body: JSON.stringify({ texts: params.texts, taskType: params.taskType, title: params.title, model: params.model }),
   });
 }
 
@@ -161,6 +172,8 @@ export interface SummarizeChapterRequest {
   title: string;
   messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
   steeringPrompt?: string;
+  /** Lane model id (modelConfig slot 'summarize'). */
+  model?: string;
 }
 
 /**
@@ -188,6 +201,7 @@ export async function summarizeChapter(
         title: params.title,
         messages: params.messages,
         steeringPrompt: params.steeringPrompt,
+        model: params.model,
       }),
       signal: controller.signal,
     });
@@ -207,6 +221,10 @@ export interface CatalogModel {
   contextWindow: string;
   description: string;
   costMultiplier: number;
+  /** Capability lanes this model may serve (design-docs/16 §3.1). Missing = legacy entry, all lanes. */
+  capabilities?: string[];
+  /** Quota/latency character shown in the picker. */
+  quotaNote?: string;
 }
 
 export interface ModelsResponse {

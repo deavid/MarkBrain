@@ -52,6 +52,7 @@ import {
   formatTokens,
 } from '../context/AttachmentControls';
 import { tts } from '../../gateway/api';
+import { getModelForSlot } from '../../data/modelConfig';
 
 /** How many lines the composer grows to fit before it starts scrolling. */
 const COMPOSER_MAX_LINES = 5;
@@ -487,6 +488,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const res = await tts({
         text: message.content,
         voice: chosenVoice,
+        model: getModelForSlot('tts'),
       });
 
       const data = await res.json();
@@ -1304,6 +1306,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             <div className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 text-[10px] font-mono">
                               <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                               <span className="font-semibold tracking-wider uppercase text-[10px]">Response Interrupted</span>
+                            </div>
+                          )}
+
+                          {message.meta?.downgradedFrom && (
+                            <div
+                              data-testid="model-downgrade-banner"
+                              className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 text-[10px] font-mono"
+                              title={`You asked for ${message.meta.downgradedFrom}; this reply was written by ${message.meta.model || 'the fallback model'}.`}
+                            >
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span className="font-semibold tracking-wider uppercase text-[10px]">
+                                Downgraded from {message.meta.downgradedFrom}
+                              </span>
                             </div>
                           )}
                         </div>

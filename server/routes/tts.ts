@@ -1,11 +1,16 @@
 import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
+import { resolveModelId } from '../lib/models';
 
 export function registerTtsRoutes(app: Express): void {
 app.post('/api/tts', async (req: Request, res: Response) => {
   try {
-    const { text, voice = 'Kore' } = req.body;
+    const { text, voice = 'Kore', model } = req.body;
+    const { id: ttsModel, fellBackFrom } = resolveModelId(model, 'tts');
+    if (fellBackFrom) {
+      logServer('warn', 'API:TTS', `Requested model "${fellBackFrom}" rejected for lane=tts — using ${ttsModel}`);
+    }
     if (!text || text.trim().length === 0) {
       return res.status(400).json({ error: 'Text is required for TTS' });
     }
@@ -22,7 +27,7 @@ app.post('/api/tts', async (req: Request, res: Response) => {
       const chosenVoice = allowedVoices.includes(voice) ? voice : 'Kore';
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash-lite-tts',
+        model: ttsModel,
         contents: [
           {
             role: 'user',

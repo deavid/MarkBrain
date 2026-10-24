@@ -23,6 +23,14 @@ const ROOT = path.resolve(__dirname, '..');
 const PACK = process.env.MARKBRAIN_EVIDENCE_DIR ||
   path.join(ROOT, 'evidence', new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19));
 
+// Targeted runs: MARKBRAIN_JOURNEYS=16,19,20 MARKBRAIN_SKIP_AUDIT=1.
+// A full pack is ~2 minutes, which is longer than some exec sandboxes allow in
+// a single call — and a backgrounded server loses its file access when the call
+// that spawned it ends, so "run it in the background and poll" is not an option.
+// Prefix match: `20` selects `20-enter-send-config`.
+const ONLY = (process.env.MARKBRAIN_JOURNEYS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const SKIP_AUDIT = !!process.env.MARKBRAIN_SKIP_AUDIT;
+
 const VIEWPORTS = [
   { w: 350, h: 700, name: '350x700' },   // docs minimum phone
   { w: 390, h: 844, name: '390x844' },   // iPhone 14
@@ -80,8 +88,14 @@ function findChrome() {
   try {
     const dirs = fs.readdirSync(base).filter((d) => /^chromium-\d+$/.test(d)).sort().reverse();
     for (const d of dirs) {
-      const p = path.join(base, d, 'chrome-linux', 'chrome');
-      if (fs.existsSync(p)) return p;
+      // Playwright renamed the bundle dir: `chrome-linux` before, `chrome-linux64`
+      // from the builds that ship the DEPENDENCIES_VALIDATED marker. Check both,
+      // newest build first, or the pack dies with "no Chromium found" on a fresh
+      // machine that has the browser sitting right there.
+      for (const sub of ['chrome-linux64', 'chrome-linux']) {
+        const p = path.join(base, d, sub, 'chrome');
+        if (fs.existsSync(p)) return p;
+      }
     }
   } catch { /* fall through */ }
   for (const p of ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser']) {
@@ -128,6 +142,10 @@ async function shot(page, name) {
   log('  📸', path.basename(file));
 }
 async function journey(page, id, caption, fn) {
+  if (ONLY.length && !ONLY.some((p) => id.startsWith(p))) {
+    log('──', id, '— skipped (MARKBRAIN_JOURNEYS filter)');
+    return;
+  }
   const t0 = Date.now();
   shotCounter = 0;
   J = { id, caption, ok: true, failures: [], warns: [], steps: [],
@@ -1377,7 +1395,7 @@ async function main() {
 
   // ── geometry audit: viewport × surface matrix ─────────────────────────────
   log('── audit: viewport × surface geometry');
-  for (const vp of VIEWPORTS) {
+  for (const vp of (SKIP_AUDIT ? [] : VIEWPORTS)) {
     await page.setViewportSize({ width: vp.w, height: vp.h });
     await boot();
     const base = page.locator('textarea').first();

@@ -426,6 +426,9 @@ export default function App() {
     stage: string;
   } | null>(null);
   const indexAbortRef = useRef<IndexAbortSignal | null>(null);
+  // Failures stay on screen until the next run. A count that refuses to move is
+  // indistinguishable from a save that never happens unless the app says which.
+  const [indexFailures, setIndexFailures] = useState<{ title: string; message: string }[]>([]);
 
   const handleIndexAll = (force: boolean) => {
     if (indexAbortRef.current) return;
@@ -433,17 +436,41 @@ export default function App() {
     indexAbortRef.current = signal;
     const arts = artifactsDomain.listArtifacts();
     const mapCopy = new Map(searchIndexMap);
+    // Straggler guard. An overlapping step can still report AFTER this run has
+    // settled (a fetch that was already in flight when a sibling failed), and
+    // an unguarded setIndexProgress then repaints the line with nothing left to
+    // ever clear it — that is what left the UI stuck on "Indexing 16/16" after
+    // it had already gone back to normal.
+    let live = true;
+    setIndexFailures([]);
     setIndexProgress({ done: 0, total: arts.length, stage: force ? 'Re-index requested' : 'Index requested' });
     indexProjectArtifacts(projectMeta.id, arts, mapCopy, {
       force,
       signal,
-      onProgress: (done, total, stage) => setIndexProgress({ done, total, stage }),
+      onProgress: (done, total, stage) => {
+        if (live) setIndexProgress({ done, total, stage });
+      },
+      // Publish per DOCUMENT, not per run. `indexedCount` and the 350ms
+      // re-score both key off the Map's identity, so a single swap at the end
+      // froze the counter and the ranking for the entire job.
+      onIndexed: (record) => {
+        if (!live) return;
+        setSearchIndexMap((prev) => {
+          const next = new Map(prev);
+          next.set(record.artifactId, record);
+          return next;
+        });
+      },
+      onFailure: (title, message) => {
+        if (live) setIndexFailures((prev) => [...prev, { title, message }]);
+      },
     })
       .then((updated) => {
-        setSearchIndexMap(new Map(updated));
+        if (live) setSearchIndexMap(new Map(updated));
       })
       .catch((e) => logger.warn('App', 'indexProjectArtifacts failed', e))
       .finally(() => {
+        live = false;
         indexAbortRef.current = null;
         setIndexProgress(null);
       });
@@ -459,15 +486,32 @@ export default function App() {
     if (indexArtifactProgress || indexAbortRef.current) return;
     const art = artifactsDomain.getArtifact(artifactId);
     if (!art) return;
+    // Take the SAME lock the bulk runner uses. Without it one document from the
+    // detail modal could index alongside "Index All" — two writers on the same
+    // progress line and two Map swaps fighting each other, which is how you get
+    // a line that jumps backwards and then sticks.
+    const signal: IndexAbortSignal = { aborted: false };
+    indexAbortRef.current = signal;
+    let live = true;
     setIndexArtifactProgress('Starting…');
-    const mapCopy = new Map(searchIndexMap);
-    indexSingleArtifact(projectMeta.id, art, (stage) => setIndexArtifactProgress(stage))
+    indexSingleArtifact(projectMeta.id, art, (stage) => {
+      if (live) setIndexArtifactProgress(stage);
+    }, signal)
       .then((record) => {
-        mapCopy.set(art.id, record);
-        setSearchIndexMap(new Map(mapCopy));
+        if (!live) return;
+        // Functional update: never clobber a concurrent bulk publish.
+        setSearchIndexMap((prev) => {
+          const next = new Map(prev);
+          next.set(record.artifactId, record);
+          return next;
+        });
       })
       .catch((e) => logger.warn('App', 'indexSingleArtifact failed', e))
-      .finally(() => setIndexArtifactProgress(null));
+      .finally(() => {
+        live = false;
+        indexAbortRef.current = null;
+        setIndexArtifactProgress(null);
+      });
   };
 
   // The [+ Attach] match badge routes straight into the Proximity lens.
@@ -732,6 +776,7 @@ export default function App() {
               searchIndexMap={searchIndexMap}
               draftResults={draftResults}
               indexProgress={indexProgress}
+              indexFailures={indexFailures}
               onIndexAll={handleIndexAll}
               onStopIndexing={handleStopIndexing}
               externalLens={externalLens}

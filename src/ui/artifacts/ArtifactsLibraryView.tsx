@@ -62,6 +62,8 @@ interface ArtifactsLibraryViewProps {
   /** Live scores from App's 350ms tier; sorted best-first, archived excluded. */
   draftResults: ArtifactMatchResult[];
   indexProgress: IndexProgress | null;
+  /** Notes that could not be indexed. Stays until the next run — see the panel. */
+  indexFailures?: { title: string; message: string }[];
   onIndexAll: (force: boolean) => void;
   onStopIndexing: () => void;
   /** Bumped by App when the [+ Attach] match badge routes here — force the lens. */
@@ -125,6 +127,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
   searchIndexMap,
   draftResults,
   indexProgress,
+  indexFailures = [],
   onIndexAll,
   onStopIndexing,
   externalLens,
@@ -430,11 +433,67 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
           )}
         </div>
         {indexProgress && (
-          <p className="text-[10px] font-mono text-[#8ab1e0]" data-testid="index-progress">
-            {indexProgress.total > 0
-              ? `Indexing ${Math.min(indexProgress.done + 1, indexProgress.total)}/${indexProgress.total}: ${indexProgress.stage}`
-              : indexProgress.stage}
-          </p>
+          <div className="space-y-1.5" data-testid="index-progress">
+            <div className="flex items-center gap-2 min-w-0">
+              {/* A breathing dot, not a spinning ring: the unit of work is a
+                  network round-trip we cannot measure, so rotation would be
+                  decoration. A pulse says "still alive" without inventing a
+                  progress we do not have. */}
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-[#67e8f9] opacity-75 animate-ping" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#67e8f9]" />
+              </span>
+              <p className="text-[10px] font-mono text-[#8ab1e0] flex-1 min-w-0 truncate">
+                {indexProgress.total > 0
+                  ? `Indexing ${Math.min(indexProgress.done + 1, indexProgress.total)}/${indexProgress.total}: ${indexProgress.stage}`
+                  : indexProgress.stage}
+              </p>
+            </div>
+            {indexProgress.total > 0 && (
+              <div
+                className="h-1 rounded-full bg-veil-2 overflow-hidden"
+                role="progressbar"
+                aria-valuenow={indexProgress.done}
+                aria-valuemin={0}
+                aria-valuemax={indexProgress.total}
+                aria-label="Indexing progress"
+              >
+                <div
+                  className="h-full rounded-full bg-[#67e8f9] transition-[width] duration-500 ease-out"
+                  style={{
+                    width: `${Math.round((indexProgress.done / indexProgress.total) * 100)}%`,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Failures are first-class. A count that will not move is
+            indistinguishable from a save that never happened unless the app
+            says which — this is what made "8 / 24" look like a storage bug. */}
+        {indexFailures.length > 0 && (
+          <div
+            className="rounded-lg bg-[#3a1616] ring-1 ring-[#f45a56]/40 p-2.5 space-y-1"
+            data-testid="index-failures"
+          >
+            <p className="text-[10px] font-mono uppercase tracking-wider text-[#f28894]">
+              {indexFailures.length} note{indexFailures.length === 1 ? '' : 's'} could not be
+              indexed — nothing was saved for them
+            </p>
+            <ul className="space-y-0.5">
+              {indexFailures.slice(0, 4).map((f) => (
+                <li key={f.title} className="text-[10px] font-mono text-[#c9a2a2] truncate">
+                  {f.title} — {f.message}
+                </li>
+              ))}
+              {indexFailures.length > 4 && (
+                <li className="text-[10px] font-mono text-[#c9a2a2]">
+                  …and {indexFailures.length - 4} more
+                </li>
+              )}
+            </ul>
+          </div>
         )}
       </div>
 

@@ -14,6 +14,8 @@ import {
   artifactXml,
   uniqueFileName,
 } from '../domains/03-optical-compiler';
+import { mapLimit, isIndexStale } from '../application/artifactIndexer';
+import { computeArtifactContentHash } from '../utils/sectionChunker';
 import { ArtifactDocumentDomain } from '../domains/01-artifact-document';
 import { ChapterSegmentationDomain } from '../domains/02-chapter-segmentation';
 import { DialogueTimelineDomain } from '../domains/01-dialogue-timeline';
@@ -226,5 +228,103 @@ describe('chapters follow the same naming law (§21 follow-up)', () => {
     const summaryIdx = lines.findIndex((l) => l.includes('<summary>'));
     expect(lines[summaryIdx + 1].startsWith('      ')).toBe(true);
     expect(lines[summaryIdx + 2].startsWith('      ')).toBe(true);
+  });
+});
+
+describe('mapLimit — the indexer\'s parallelism cap', () => {
+  it('preserves input order even when later items finish first', async () => {
+    const delays = [30, 20, 10, 0];
+    const out = await mapLimit(delays, 3, async (ms, i) => {
+      await new Promise((r) => setTimeout(r, ms));
+      return `r${i}`;
+    });
+    expect(out).toEqual(['r0', 'r1', 'r2', 'r3']);
+  });
+
+  it('never exceeds the cap on in-flight work', async () => {
+    let inflight = 0;
+    let peak = 0;
+    await mapLimit([1, 2, 3, 4, 5, 6, 7, 8], 3, async () => {
+      inflight += 1;
+      peak = Math.max(peak, inflight);
+      await new Promise((r) => setTimeout(r, 5));
+      inflight -= 1;
+    });
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1); // it really did overlap
+  });
+
+  it('stops starting new work once aborted', async () => {
+    const signal = { aborted: false };
+    const started: number[] = [];
+    await expect(
+      mapLimit(
+        [1, 2, 3, 4, 5, 6],
+        1,
+        async (_n, i) => {
+          started.push(i);
+          if (i === 1) signal.aborted = true;
+          return i;
+        },
+        signal
+      )
+    ).rejects.toThrow(/Indexing stopped/);
+    expect(started.length).toBeLessThan(6);
+  });
+});
+
+describe('regression: the indexing UI must never get stuck', () => {
+  it('a failed task stops its siblings from STARTING new work', async () => {
+    // mapLimit cannot cancel a call already in flight (no per-call abort in the
+    // fetch layer), so its contract is: stop launching. The in-flight straggler
+    // is handled separately — see indexer-stragglers.test.ts, which pins that a
+    // late callback can no longer repaint the progress line.
+    const started: number[] = [];
+    await expect(
+      mapLimit([1, 2, 3, 4, 5, 6], 1, async (n) => {
+        started.push(n);
+        if (n === 1) throw new Error('boom');
+        return n;
+      })
+    ).rejects.toThrow(/boom/);
+    expect(started).toEqual([1]);
+  });
+
+  it('a note with no Q&A pairs still counts as indexed', () => {
+    // The bug: isIndexStale treated `qaPairs.length === 0` as stale, so a note
+    // with no body (legitimately zero Q&A) could never count — "Indexed: 8/24"
+    // was permanently short no matter how often you re-ran it.
+    const art = {
+      id: 'a1',
+      workspaceId: 'p',
+      code: 'c',
+      title: 'T',
+      type: 'document',
+      category: 'note',
+      isHighConcept: false,
+      current: { subtitle: '', description: '', summary: '', body: '' },
+      tags: [],
+      createdAt: 0,
+      updatedAt: 0,
+    } as never;
+    const fresh = {
+      artifactId: 'a1',
+      contentHash: computeArtifactContentHash(art as never),
+      qaPairs: [],
+    } as never;
+    const map = new Map([['a1', fresh]]);
+    expect(isIndexStale(map, 'p', art as never)).toBe(false);
+  });
+
+  it('a note whose text moved IS stale again', () => {
+    const art = {
+      id: 'a1', workspaceId: 'p', code: 'c', title: 'T', type: 'document',
+      category: 'note', isHighConcept: false,
+      current: { subtitle: '', description: '', summary: '', body: 'body v1' },
+      tags: [], createdAt: 0, updatedAt: 0,
+    } as never;
+    const map = new Map([['a1', { artifactId: 'a1', contentHash: 'stale-hash', qaPairs: [] }]]) as never;
+    expect(isIndexStale(map, 'p', art as never)).toBe(true);
+    expect(isIndexStale(new Map(), 'p', art as never)).toBe(true);
   });
 });

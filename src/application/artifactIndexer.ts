@@ -238,6 +238,9 @@ export async function indexSingleArtifact(
       artifactId: art.id,
       contentHash,
       updatedAt: Date.now(),
+      // §3.4: vectors are only comparable within one embedding model — stamp
+      // what built them so a config flip reads as stale, not garbage scores.
+      embedModel: getModelForSlot('embed'),
       sectionIds: sections.map((s) => s.id),
       sectionHeadings: sections.map((s) => s.heading),
       sectionSnippets: sections.map((s) => s.text.replace(/\s+/g, ' ').trim().slice(0, 220)),

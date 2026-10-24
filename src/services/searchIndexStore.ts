@@ -42,6 +42,13 @@ export interface ArtifactSearchIndexRecord {
     qaGenerated: boolean;
     qaEmbedded: boolean;
   };
+  /**
+   * The embedding model these vectors were built with (design-docs/16 §3.4).
+   * Vectors from different embedding models are NOT comparable — a mismatch
+   * must read as stale, or the proximity scores silently become garbage.
+   * Absent on legacy records → treated as the current default model.
+   */
+  embedModel?: string;
 }
 
 const DB_NAME = 'markbrain-search-index';

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ModelOption } from './types';
 import { FALLBACK_MODEL } from './data/models';
-import { loadModelConfig, saveModelConfig } from './data/modelConfig';
+import { loadModelConfig, saveModelConfig, getModelForSlot } from './data/modelConfig';
 import { Sidebar, ActiveView } from './ui/workspace/Sidebar';
 import { ChatView } from './ui/chat/ChatView';
 import { ChatErrorBoundary } from './ui/workspace/ChatErrorBoundary';
@@ -1067,7 +1067,7 @@ export default function App() {
               onUnstage={handleUnstageAttachment}
               onSetAttachmentGranularity={handleSetAttachmentGranularity}
               indexRecord={searchIndexMap.get(art.id) ?? null}
-              indexStatus={indexStatusFor(art, searchIndexMap)}
+              indexStatus={indexStatusFor(art, searchIndexMap, getModelForSlot('embed'))}
               onIndexArtifact={() => handleIndexArtifact(art.id)}
               indexArtifactProgress={indexArtifactProgress}
             />

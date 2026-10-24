@@ -5,7 +5,24 @@
  * mirrors of the existing call sites — this module must never change what goes
  * out on the wire, nor how callers interpret responses (no throwing, no
  * response parsing here; call sites keep owning non-ok/shape handling).
+ *
+ * Phase 1 (design-docs/16): each function routes browser→provider when the
+ * lane's key slot is filled (direct.ts), else falls through to the server
+ * proxy below — keys are optional (D9), so the proxy path stays until the
+ * static shell (Phase 2) makes it unnecessary. Both paths answer the same
+ * Response vocabulary; call sites cannot tell which happened.
  */
+import { resolveLaneKey } from '../data/keySlots';
+import {
+  directChatStream,
+  directEmbed,
+  directExtractArtifact,
+  directGenerateQa,
+  directListModels,
+  directSummarizeChapter,
+  directTitleThread,
+  directTts,
+} from './direct';
 
 export interface TtsRequest {
   text: string;
@@ -15,6 +32,10 @@ export interface TtsRequest {
 }
 
 export function tts(params: TtsRequest): Promise<Response> {
+  const key = resolveLaneKey('tts', params.model || 'gemini-3.8-flash-lite-tts');
+  if (key && params.model) {
+    return directTts(key, { text: params.text, voice: params.voice, model: params.model });
+  }
   return fetch('/api/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -43,6 +64,10 @@ export function extractArtifactFromFile(
   params: ExtractArtifactFromFileRequest,
   init: ExtractArtifactFromFileInit = {}
 ): Promise<Response> {
+  const key = resolveLaneKey('extract', params.model || 'gemini-3.5-flash-lite');
+  if (key && params.model) {
+    return directExtractArtifact(key, { ...params, model: params.model });
+  }
   return fetch('/api/extract-artifact-from-file', {
     method: 'POST',
     signal: init.signal,
@@ -94,6 +119,14 @@ export function chatStream(
   payload: ChatStreamPayload,
   init: ChatStreamInit = {}
 ): Promise<Response> {
+  const key = resolveLaneKey('chat', payload.model || 'gemini-3.5-flash-lite');
+  if (key && payload.model) {
+    return directChatStream(key, {
+      model: payload.model,
+      compiledPrompt: payload.compiledPrompt || '',
+      systemInstruction: payload.systemInstruction,
+    });
+  }
   return fetch('/api/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -110,6 +143,14 @@ export interface TitleThreadRequest {
 }
 
 export function titleThread(params: TitleThreadRequest): Promise<Response> {
+  const key = resolveLaneKey('title', params.model || 'gemini-3.5-flash-lite');
+  if (key && params.model) {
+    return directTitleThread(key, {
+      messages: params.messages,
+      version: params.version,
+      model: params.model,
+    });
+  }
   return fetch('/api/title-thread', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -145,6 +186,15 @@ export interface GenerateArtifactQaRequest {
 }
 
 export function generateArtifactQa(params: GenerateArtifactQaRequest): Promise<Response> {
+  const key = resolveLaneKey('qaGen', params.model || 'gemini-3.5-flash-lite');
+  if (key && params.model) {
+    return directGenerateQa(key, {
+      title: params.title,
+      subtitle: params.subtitle,
+      sections: params.sections.map((s) => ({ id: s.id, heading: s.heading, text: s.text })),
+      model: params.model,
+    });
+  }
   return fetch('/api/search-index/generate-qa', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -161,6 +211,10 @@ export interface EmbedTextsRequest {
 }
 
 export function embedTexts(params: EmbedTextsRequest): Promise<Response> {
+  const key = resolveLaneKey('embed', params.model || 'gemini-embedding-001');
+  if (key && params.model) {
+    return directEmbed(key, { ...params, model: params.model });
+  }
   return fetch('/api/search-index/embed', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -188,6 +242,15 @@ export async function summarizeChapter(
   params: SummarizeChapterRequest,
   timeoutMs = 15_000
 ): Promise<Response> {
+  const key = resolveLaneKey('summarize', params.model || 'gemini-3.5-flash-lite');
+  if (key && params.model) {
+    return directSummarizeChapter(key, {
+      title: params.title,
+      messages: params.messages,
+      steeringPrompt: params.steeringPrompt,
+      model: params.model,
+    });
+  }
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(new Error('summarize-chapter timed out')),
@@ -235,4 +298,47 @@ export interface ModelsResponse {
 /** Rejects on network/parse failure; callers keep their own fallback and shape validation. */
 export function models(): Promise<ModelsResponse> {
   return fetch('/api/models').then((res) => res.json());
+}
+
+/**
+ * Live provider catalogs for every filled key slot (design-docs/16 Phase 1).
+ * Merges all of them; entries the server catalog already knows keep their rich
+ * display metadata (badge/quota), new ids ride through with minimal metadata.
+ * Never rejects — an empty list means "keep whatever catalog you had".
+ */
+export async function liveCatalogs(): Promise<CatalogModel[]> {
+  const { listFilledKeySlots, resolveLaneKey } = await import('../data/keySlots');
+  const { directListModels } = await import('./direct');
+  const out: CatalogModel[] = [];
+  const seen = new Set<string>();
+  for (const slot of listFilledKeySlots()) {
+    // Any lane model on that provider resolves the same credential.
+    const resolved = resolveLaneKey('chat', slot === 'openrouter' ? 'openrouter/auto' : 'gemini-3.5-flash-lite');
+    if (!resolved) continue;
+    try {
+      const res = await directListModels(resolved);
+      if (!res.ok) continue;
+      const body = await res.json();
+      for (const m of body?.models ?? []) {
+        const key = `${m.provider}/${m.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          id: m.id,
+          provider: m.provider,
+          available: true,
+          name: m.name || m.id,
+          badge: m.provider === 'openrouter' ? 'OR' : 'Gemini',
+          powerRating: 3,
+          latency: '—',
+          contextWindow: '—',
+          description: m.description || '',
+          costMultiplier: 1,
+        });
+      }
+    } catch {
+      /* one provider failing must not kill the catalog */
+    }
+  }
+  return out;
 }

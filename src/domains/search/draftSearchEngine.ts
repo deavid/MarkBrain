@@ -17,6 +17,10 @@ import type { UniversalArtifactDocument } from '../01-artifact-document';
 import { isArtifactArchived } from '../01-artifact-document';
 import type { ArtifactSearchIndexRecord, GeneratedQaPair } from '../../services/searchIndexStore';
 import type { SearchTestbedConfig } from './searchConfig';
+import { DEFAULT_MODEL_SLOTS, getModelForSlot } from '../../data/modelConfig';
+
+/** The embed model legacy (unstamped) records are assumed to have used. */
+const DEFAULT_EMBED_MODEL = DEFAULT_MODEL_SLOTS.embed;
 import {
   splitArtifactIntoSections,
   sectionSearchText,
@@ -244,11 +248,18 @@ function cachedSections(art: UniversalArtifactDocument) {
 
 export function indexStatusFor(
   art: UniversalArtifactDocument,
-  indexMap: Map<string, ArtifactSearchIndexRecord>
+  indexMap: Map<string, ArtifactSearchIndexRecord>,
+  currentEmbedModel?: string
 ): 'missing' | 'stale' | 'ready' {
   const record = indexMap.get(art.id);
   if (!record || !record.qaPairs.length) return 'missing';
-  return record.contentHash === computeArtifactContentHash(art) ? 'ready' : 'stale';
+  if (record.contentHash !== computeArtifactContentHash(art)) return 'stale';
+  // §3.4: vectors only compare within one embedding model. A record built by a
+  // different model is stale, not ready — no quiet cross-model scoring.
+  const want = currentEmbedModel ?? DEFAULT_EMBED_MODEL;
+  const have = record.embedModel ?? DEFAULT_EMBED_MODEL;
+  if (have !== want) return 'stale';
+  return 'ready';
 }
 
 interface Passage {
@@ -361,7 +372,7 @@ export function scoreArtifactsAgainstDraft(input: DraftSearchInput): ArtifactMat
 
     const sections = cachedSections(art);
     const record = indexMap.get(art.id);
-    const status = indexStatusFor(art, indexMap);
+    const status = indexStatusFor(art, indexMap, getModelForSlot('embed'));
     const isAlreadyAttached = attachedArtifactIds.has(art.id);
 
     const titleTokens = new Set(tokenizeForFts(`${art.title} ${(art.tags || []).join(' ')}`));

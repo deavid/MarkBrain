@@ -31,6 +31,17 @@ export interface ArtifactSearchIndexRecord {
   sectionSnippets: string[];
   sectionVectors: Float32Array[];
   qaVectors: Float32Array[];
+  /**
+   * Which stages have landed. Lets a half-built record RESUME instead of
+   * restarting — with a 1,000-request/day embed quota, re-paying for work that
+   * already succeeded is the difference between finishing a library and not.
+   * Absent on legacy records, which were only ever written on full success.
+   */
+  stages?: {
+    sectionsEmbedded: boolean;
+    qaGenerated: boolean;
+    qaEmbedded: boolean;
+  };
 }
 
 const DB_NAME = 'markbrain-search-index';

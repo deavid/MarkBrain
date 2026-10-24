@@ -11,6 +11,7 @@
  * settles. This file pins the one that is testable at the unit level.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 const qaMock = vi.fn();
 const embedMock = vi.fn();
@@ -20,6 +21,7 @@ vi.mock('../gateway/api', () => ({
 }));
 
 import { indexSingleArtifact } from '../application/artifactIndexer';
+import { computeArtifactContentHash } from '../utils/sectionChunker';
 import type { UniversalArtifactDocument } from '../domains/01-artifact-document/types';
 
 const art = {
@@ -111,5 +113,104 @@ describe('the counter must move as documents land, not at the end', () => {
     });
 
     expect(published).toEqual(['a1', 'a2']);
+  });
+});
+
+describe('resume: a half-built record does not re-buy what it has', () => {
+  beforeEach(() => {
+    qaMock.mockReset();
+    embedMock.mockReset();
+    qaMock.mockImplementation(() =>
+      Promise.resolve(json({ qaPairs: [{ question: 'q', answer: 'a', keywords: [], sectionHeading: 'h' }] }))
+    );
+    embedMock.mockImplementation(({ texts }: { texts: string[] }) =>
+      Promise.resolve(json({ embeddings: texts.map(() => [0.1, 0.2]) }))
+    );
+  });
+
+  it('skips section embedding when the vectors are already there', async () => {
+    const prior = {
+      key: 'k',
+      projectId: 'p',
+      artifactId: 'a1',
+      contentHash: computeArtifactContentHash(art),
+      updatedAt: 1,
+      qaPairs: [],
+      sectionIds: ['sec-meta'],
+      sectionHeadings: ['Overview'],
+      sectionSnippets: ['…'],
+      sectionVectors: [new Float32Array([1, 0])],
+      qaVectors: [],
+      stages: { sectionsEmbedded: true, qaGenerated: false, qaEmbedded: false },
+    } as never;
+
+    await indexSingleArtifact('p', art, () => {}, undefined, prior);
+
+    // Only the Q&A vectors were bought; the section vectors were reused.
+    expect(embedMock.mock.calls.length).toBe(1);
+  });
+
+  it('skips everything when the record is already complete', async () => {
+    const prior = {
+      key: 'k',
+      projectId: 'p',
+      artifactId: 'a1',
+      contentHash: computeArtifactContentHash(art),
+      updatedAt: 1,
+      qaPairs: [{ id: 'qa-0', question: 'q', answer: 'a', keywords: [], sectionHeading: 'h' }],
+      sectionIds: ['sec-meta'],
+      sectionHeadings: ['Overview'],
+      sectionSnippets: ['…'],
+      sectionVectors: [new Float32Array([1, 0])],
+      qaVectors: [new Float32Array([0, 1])],
+      stages: { sectionsEmbedded: true, qaGenerated: true, qaEmbedded: true },
+    } as never;
+
+    await indexSingleArtifact('p', art, () => {}, undefined, prior);
+    expect(qaMock.mock.calls.length).toBe(0);
+    expect(embedMock.mock.calls.length).toBe(0);
+  });
+
+  it('ignores a prior record built from different text', async () => {
+    const prior = {
+      key: 'k',
+      projectId: 'p',
+      artifactId: 'a1',
+      contentHash: 'from-a-different-body',
+      updatedAt: 1,
+      qaPairs: [],
+      sectionIds: [],
+      sectionHeadings: [],
+      sectionSnippets: [],
+      sectionVectors: [new Float32Array([1, 0])],
+      qaVectors: [],
+      stages: { sectionsEmbedded: true, qaGenerated: true, qaEmbedded: true },
+    } as never;
+
+    await indexSingleArtifact('p', art, () => {}, undefined, prior);
+    // A hash mismatch means the vectors are for another document: start over.
+    expect(embedMock.mock.calls.length).toBeGreaterThan(0);
+    expect(qaMock.mock.calls.length).toBeGreaterThan(0);
+  });
+});
+
+describe('the embed route must not multiply metered calls', () => {
+  it('chunks at the request cap, so one request is one embedContent call', () => {
+    // embedContent calls are what the 1,000/day quota counts. Accepting 80
+    // texts and then chunking them 50 + 30 makes TWO metered calls for content
+    // that fits in one — which is how "send more per request" turned into
+    // "spend more of the budget".
+    const route = readFileSync('server/routes/searchIndex.ts', 'utf8');
+    const max = /EMBED_MAX_PER_REQUEST\s*=\s*(\d+)/.exec(route);
+    const chunk = /EMBED_BATCH_SIZE\s*=\s*([A-Z_0-9]+)/.exec(route);
+    expect(max).not.toBeNull();
+    expect(chunk).not.toBeNull();
+    expect(chunk![1]).toBe('EMBED_MAX_PER_REQUEST');
+    expect(Number(max![1])).toBeGreaterThanOrEqual(80);
+  });
+
+  it('client batches at the same cap as the route', () => {
+    const client = readFileSync('src/application/artifactIndexer.ts', 'utf8');
+    expect(client).toMatch(/EMBED_BATCH\s*=\s*80/);
   });
 });

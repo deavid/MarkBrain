@@ -496,7 +496,7 @@ export default function App() {
     setIndexArtifactProgress('Starting…');
     indexSingleArtifact(projectMeta.id, art, (stage) => {
       if (live) setIndexArtifactProgress(stage);
-    }, signal)
+    }, signal, searchIndexMap.get(art.id))
       .then((record) => {
         if (!live) return;
         // Functional update: never clobber a concurrent bulk publish.

@@ -36,8 +36,12 @@ import { embedTexts, generateArtifactQa } from '../gateway/api';
 /** The QA route's own ceiling — kept in sync with server/routes/searchIndex.ts. */
 const QA_WINDOW_MAX_SECTIONS = 12;
 const QA_WINDOW_MAX_CHARS = 15000;
-/** The embed route accepts 80; 50 leaves headroom and keeps responses small. */
-const EMBED_BATCH = 50;
+/**
+ * The embed route accepts 80 strings per request. We were sending 50 "to leave
+ * headroom", which just meant 37.5% more requests — and requests are the ONLY
+ * thing the free tier meters (1,000/day). Pack to the cap.
+ */
+const EMBED_BATCH = 80;
 const INTER_ARTIFACT_MS = 250;
 
 export interface IndexAbortSignal {
@@ -129,9 +133,22 @@ async function parseJson<T>(res: Response, what: string): Promise<T> {
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as {
+        error?: string;
+        quota?: { message?: string; hint?: string };
+      };
+      // Prefer the server's human explanation over the raw SDK dump. A 429
+      // means one of TWO different budgets — say which, or the user just sees
+      // a counter that refuses to move.
+      if (body?.quota?.message) {
+        // Self-describing: no `embed:` prefix in front of a sentence that
+        // already says which budget ran out.
+        const full = `${body.quota.message}${body.quota.hint ? ` — ${body.quota.hint}` : ''}`;
+        throw new Error(full);
+      }
       if (body?.error) detail = body.error;
-    } catch {
+    } catch (e) {
+      if (e instanceof Error && /quota exhausted/i.test(e.message)) throw e;
       // non-JSON error body — keep the status
     }
     throw new Error(`${what}: ${detail}`);
@@ -171,7 +188,14 @@ export async function indexSingleArtifact(
   projectId: string,
   art: UniversalArtifactDocument,
   onProgress?: (stage: string) => void,
-  signal?: IndexAbortSignal
+  signal?: IndexAbortSignal,
+  /**
+   * The record this note already has, if any. When its contentHash still
+   * matches, the stages it completed are REUSED and only the missing ones are
+   * bought. With a 1,000-request/day embed quota, re-paying for vectors we
+   * already have is the difference between finishing a library and not.
+   */
+  prior?: ArtifactSearchIndexRecord
 ): Promise<ArtifactSearchIndexRecord> {
   // Once this document has returned (saved or thrown), any straggler callback
   // from an overlapping step is dropped. Without this a late embed response can
@@ -189,49 +213,121 @@ export async function indexSingleArtifact(
     const sections = splitArtifactIntoSections(art, DEFAULT_MAX_SECTION_CHARS);
     checkAbort();
 
-    // --- 1 + 2, overlapped ----------------------------------------------------
-    // A window's Q&A does not need the section vectors, and the section vectors
-    // do not need the Q&A — they are different endpoints with no shared input.
-    // Overlapping them is the main latency win on a many-window document; the two
-    // lists are each built by mapLimit at MAX_INFLIGHT_PER_DOC, so the document
-    // as a whole stays within the same cap.
+    // Only a record for THIS exact text is worth resuming from. Anything else
+    // is a fresh start, because the vectors are for a different document.
+    const resumable =
+      prior && prior.contentHash === contentHash ? prior : undefined;
+    const had = resumable ? recordStages(resumable) : null;
+    if (had) {
+      report(
+        `Resuming — already have ` +
+          [
+            had.sectionsEmbedded ? 'section vectors' : null,
+            had.qaGenerated ? 'Q&A' : null,
+            had.qaEmbedded ? 'Q&A vectors' : null,
+          ]
+            .filter(Boolean)
+            .join(', ')
+      );
+    }
+
+    const base = {
+      key: searchIndexKey(projectId, art.id),
+      projectId,
+      artifactId: art.id,
+      contentHash,
+      updatedAt: Date.now(),
+      sectionIds: sections.map((s) => s.id),
+      sectionHeadings: sections.map((s) => s.heading),
+      sectionSnippets: sections.map((s) => s.text.replace(/\s+/g, ' ').trim().slice(0, 220)),
+    };
+
+    // Persist after EVERY stage. A run that dies at 40% must leave 40% behind —
+    // throwing it away is what made a 24-note library cost 1,000 embed requests.
+    const save = (patch: Partial<ArtifactSearchIndexRecord>): Promise<ArtifactSearchIndexRecord> => {
+      const record: ArtifactSearchIndexRecord = {
+        qaPairs: [],
+        sectionVectors: [],
+        qaVectors: [],
+        stages: {
+          sectionsEmbedded: false,
+          qaGenerated: false,
+          qaEmbedded: false,
+          ...(resumable?.stages ?? {}),
+        },
+        ...base,
+        ...patch,
+      };
+      record.updatedAt = Date.now();
+      return saveArtifactSearchIndex(record).then(() => record);
+    };
+
+    // --- Q&A and section vectors, overlapped, each skipping what is done -----
+    // A window's Q&A does not need the section vectors and vice versa: different
+    // endpoints, no shared input. Overlapping is the latency win; skipping is
+    // the quota win.
     const windows = qaWindows(sections);
     const sectionTexts = sections.map((s) =>
       sectionEmbeddingText(art.title, s, s.id === 'sec-meta')
     );
+    const needQa = !had?.qaGenerated;
+    const needSections = !had?.sectionsEmbedded;
+
     const [windowQa, sectionVectors] = await Promise.all([
-      mapLimit(
-        windows,
-        MAX_INFLIGHT_PER_DOC,
-        async (window, i) => {
-          report(`Generating Q&A (window ${i + 1}/${windows.length})…`);
-          const res = await generateArtifactQa({
-            title: art.title,
-            subtitle: art.current?.subtitle,
-            sections: window.map((s) => ({ id: s.id, heading: s.heading, text: s.text })),
-          });
-          const data = await parseJson<{ qaPairs?: GeneratedQaPair[] }>(res, 'generate-qa');
-          return data.qaPairs || [];
-        },
-        signal
-      ),
-      (async () => {
-        report(`Embedding ${sections.length} sections…`);
-        return embedAll(sectionTexts, art.title, 'sections', report, signal);
-      })(),
+      needQa
+        ? mapLimit(
+            windows,
+            MAX_INFLIGHT_PER_DOC,
+            async (window, i) => {
+              report(`Generating Q&A (window ${i + 1}/${windows.length})…`);
+              const res = await generateArtifactQa({
+                title: art.title,
+                subtitle: art.current?.subtitle,
+                sections: window.map((s) => ({ id: s.id, heading: s.heading, text: s.text })),
+              });
+              const data = await parseJson<{ qaPairs?: GeneratedQaPair[] }>(res, 'generate-qa');
+              return data.qaPairs || [];
+            },
+            signal
+          )
+        : Promise.resolve([]),
+      needSections
+        ? (async () => {
+            report(`Embedding ${sections.length} sections…`);
+            return embedAll(sectionTexts, art.title, 'sections', report, signal);
+          })()
+        : Promise.resolve(resumable!.sectionVectors),
     ]);
 
     // Renumber AFTER the fan-out. The route numbers within one window only, and
     // ids must stay unique and in document order when windows are concatenated.
-    const qaPairs: GeneratedQaPair[] = [];
-    for (const list of windowQa) {
-      for (const qa of list) qaPairs.push({ ...qa, id: `qa-${qaPairs.length}` });
-    }
+    const qaPairs: GeneratedQaPair[] = needQa
+      ? (() => {
+          const out: GeneratedQaPair[] = [];
+          for (const list of windowQa as GeneratedQaPair[][]) {
+            for (const qa of list) out.push({ ...qa, id: `qa-${out.length}` });
+          }
+          return out;
+        })()
+      : resumable!.qaPairs;
+
+    const afterQa = await save({
+      qaPairs,
+      sectionVectors,
+      qaVectors: resumable?.qaVectors ?? [],
+      stages: {
+        sectionsEmbedded: !needSections || sectionVectors.length > 0,
+        qaGenerated: !needQa,
+        qaEmbedded: resumable?.stages?.qaEmbedded ?? false,
+      },
+    });
+    report(`Saved progress (Q&A ${afterQa.qaPairs.length}, sections ${afterQa.sectionVectors.length})`);
     checkAbort();
 
-    // --- 3. Q&A vectors --------------------------------------------------------
-    let qaVectors: Float32Array[] = [];
-    if (qaPairs.length > 0) {
+    // --- Q&A vectors ----------------------------------------------------------
+    const needQaVec = !had?.qaEmbedded && qaPairs.length > 0;
+    let qaVectors: Float32Array[] = resumable?.qaVectors ?? [];
+    if (needQaVec) {
       report(`Embedding ${qaPairs.length} Q&A pairs…`);
       const qaTexts = qaPairs.map(
         (qa) =>
@@ -242,27 +338,23 @@ export async function indexSingleArtifact(
     }
     checkAbort();
 
-    const record: ArtifactSearchIndexRecord = {
-      key: searchIndexKey(projectId, art.id),
-      projectId,
-      artifactId: art.id,
-      contentHash,
-      updatedAt: Date.now(),
+    const record = await save({
       qaPairs,
-      sectionIds: sections.map((s) => s.id),
-      sectionHeadings: sections.map((s) => s.heading),
-      sectionSnippets: sections.map((s) => s.text.replace(/\s+/g, ' ').trim().slice(0, 220)),
       sectionVectors,
       qaVectors,
-    };
-    await saveArtifactSearchIndex(record);
-      report('Saved');
-      return record;
-    } finally {
-      // Every exit counts: a thrown pipeline must still silence its stragglers.
-      closed = true;
-    }
+      stages: {
+        sectionsEmbedded: true,
+        qaGenerated: true,
+        qaEmbedded: qaPairs.length === 0 || qaVectors.length > 0,
+      },
+    });
+    report('Saved');
+    return record;
+  } finally {
+    // Every exit counts: a thrown pipeline must still silence its stragglers.
+    closed = true;
   }
+}
 
 async function embedAll(
   texts: string[],
@@ -317,7 +409,32 @@ export function isIndexStale(
   void projectId;
   const record = indexMap.get(art.id);
   if (!record) return true;
-  return record.contentHash !== computeArtifactContentHash(art);
+  if (record.contentHash !== computeArtifactContentHash(art)) return true;
+  // A record that only got halfway IS stale — but stale to RESUME, not to
+  // restart. Leaving it fresh-looking would strand the embedded vectors with no
+  // Q&A forever; leaving it absent made every attempt repay the whole embed
+  // budget, which is what burned 1,000 requests on 24 notes.
+  return !recordStages(record).complete;
+}
+
+/**
+ * Which stages of a record have actually landed.
+ *
+ * Absent = a legacy record written before stages existed, and those were always
+ * written only on full success — so treat them as complete.
+ */
+export function recordStages(rec: ArtifactSearchIndexRecord): {
+  sectionsEmbedded: boolean;
+  qaGenerated: boolean;
+  qaEmbedded: boolean;
+  complete: boolean;
+} {
+  const s = rec.stages ?? {
+    sectionsEmbedded: rec.sectionVectors.length > 0,
+    qaGenerated: rec.qaPairs.length > 0,
+    qaEmbedded: rec.qaVectors.length > 0,
+  };
+  return { ...s, complete: s.sectionsEmbedded && s.qaGenerated && s.qaEmbedded };
 }
 
 /**
@@ -353,7 +470,8 @@ export async function indexProjectArtifacts(
         projectId,
         art,
         (stage) => onProgress?.(done, total, `${art.title} — ${stage}`),
-        signal
+        signal,
+        indexMap.get(art.id)
       );
       indexMap.set(art.id, record);
       onIndexed?.(record);

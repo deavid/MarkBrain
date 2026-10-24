@@ -294,6 +294,9 @@ describe('regression: the indexing UI must never get stuck', () => {
     // The bug: isIndexStale treated `qaPairs.length === 0` as stale, so a note
     // with no body (legitimately zero Q&A) could never count — "Indexed: 8/24"
     // was permanently short no matter how often you re-ran it.
+    //
+    // The rule is now stage-based: a note is fresh when its stages are ALL
+    // complete, whether or not they produced any Q&A.
     const art = {
       id: 'a1',
       workspaceId: 'p',
@@ -311,9 +314,34 @@ describe('regression: the indexing UI must never get stuck', () => {
       artifactId: 'a1',
       contentHash: computeArtifactContentHash(art as never),
       qaPairs: [],
+      sectionVectors: [new Float32Array([1])],
+      qaVectors: [],
+      stages: { sectionsEmbedded: true, qaGenerated: true, qaEmbedded: true },
     } as never;
     const map = new Map([['a1', fresh]]);
     expect(isIndexStale(map, 'p', art as never)).toBe(false);
+  });
+
+  it('a HALF-built record is stale to resume — not to restart', () => {
+    // This is the quota bug. A note whose sections embedded but whose Q&A
+    // never did used to look either fresh (stranded forever) or absent (repaid
+    // the whole embed budget on every attempt). Now it is visibly incomplete,
+    // and indexSingleArtifact resumes from it.
+    const art = {
+      id: 'a1', workspaceId: 'p', code: 'c', title: 'T', type: 'document',
+      category: 'note', isHighConcept: false,
+      current: { subtitle: '', description: '', summary: '', body: 'body' },
+      tags: [], createdAt: 0, updatedAt: 0,
+    } as never;
+    const half = {
+      artifactId: 'a1',
+      contentHash: computeArtifactContentHash(art as never),
+      qaPairs: [],
+      sectionVectors: [new Float32Array([1])],
+      qaVectors: [],
+      stages: { sectionsEmbedded: true, qaGenerated: false, qaEmbedded: false },
+    } as never;
+    expect(isIndexStale(new Map([['a1', half]]), 'p', art as never)).toBe(true);
   });
 
   it('a note whose text moved IS stale again', () => {

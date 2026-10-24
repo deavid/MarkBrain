@@ -18,11 +18,56 @@ const QA_MODEL = 'gemini-3.5-flash-lite';
 /** gemini-embedding-001 accepts 2,048 input tokens; 6,000 chars ≈ 1,600. */
 const EMBED_TEXT_CHAR_CAP = 6000;
 const EMBED_MAX_PER_REQUEST = 80;
-const EMBED_BATCH_SIZE = 50;
+/**
+ * Must equal the cap above. The loop below makes ONE `embedContent` call per
+ * chunk, and `embedContent` calls are what the free tier meters (1,000/day).
+ * Chunking below the cap is not free: a request of 80 split 50 + 30 is TWO
+ * metered calls for content that fits in one.
+ */
+const EMBED_BATCH_SIZE = EMBED_MAX_PER_REQUEST;
 /** The caller windows long documents; the route enforces its own hard ceiling. */
 const QA_MAX_SECTIONS = 12;
 const QA_MAX_CHARS = 20000;
 const QA_MAX_CHARS_PER_SECTION = 2500;
+
+
+/**
+ * Two budgets, not one — and conflating them is exactly how "it ran out
+ * ALREADY?!" happens.
+ *
+ *   generate-qa  -> gemini-3.5-flash-lite     the LLM text quota (same one chat uses)
+ *   embed        -> gemini-embedding-001      the VECTOR quota, separate and far smaller
+ *
+ * A note costs one LLM window per ~12 sections and then one embed request per
+ * 50 strings, so indexing burns the embeddings budget far faster than it burns
+ * the LLM's. Say which one ran out, in words, or the only visible symptom is a
+ * counter that will not move.
+ */
+function quotaExplanation(
+  err: unknown,
+  kind: 'llm' | 'embeddings',
+  model: string
+): { kind: string; model: string; message: string; hint: string } | null {
+  const message = err instanceof Error ? err.message : String(err);
+  if (!/429|quota|resource.?exhausted/i.test(message)) return null;
+  return kind === 'embeddings'
+    ? {
+        kind,
+        model,
+        message: `Embeddings quota exhausted (${model})`,
+        hint:
+          'This is the VECTOR quota, separate from — and much smaller than — the LLM quota ' +
+          'that chat and Q&A use. Nothing is stored for this note until it resets.',
+      }
+    : {
+        kind,
+        model,
+        message: `LLM quota exhausted (${model})`,
+        hint:
+          'This is the text-generation quota that chat and Q&A share. ' +
+          'Nothing is stored for this note until it resets.',
+      };
+}
 
 interface SectionPayload {
   id: string;
@@ -204,7 +249,8 @@ export function registerSearchIndexRoutes(app: Express): void {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Q&A extraction error';
       logServer('error', 'API:SEARCH_QA', `Error in /api/search-index/generate-qa: ${message}`, err);
-      res.status(500).json({ error: message });
+      const quota = quotaExplanation(err, 'llm', QA_MODEL);
+      res.status(quota ? 429 : 500).json({ error: message, quota });
     }
   });
 
@@ -264,7 +310,8 @@ export function registerSearchIndexRoutes(app: Express): void {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Embedding error';
       logServer('error', 'API:SEARCH_EMBED', `Error in /api/search-index/embed: ${message}`, err);
-      res.status(500).json({ error: message });
+      const quota = quotaExplanation(err, 'embeddings', EMBED_MODEL);
+      res.status(quota ? 429 : 500).json({ error: message, quota });
     }
   });
 }

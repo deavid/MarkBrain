@@ -53,6 +53,9 @@ import {
 } from '../context/AttachmentControls';
 import { tts } from '../../gateway/api';
 
+/** How many lines the composer grows to fit before it starts scrolling. */
+const COMPOSER_MAX_LINES = 5;
+
 interface ChatViewProps {
   project: ProjectMetadata;
   chapters: ChapterTurns[];
@@ -248,6 +251,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const heroInputRef = useRef<HTMLTextAreaElement>(null);
+  const threadInputRef = useRef<HTMLTextAreaElement | null>(null);
   const prevMessagesCountRef = useRef<number>(0);
 
   const totalMessagesCount = (chapters || []).reduce(
@@ -415,6 +419,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * A 'newline' verdict deliberately does NOT preventDefault — the textarea
    * inserts the break itself, which is the whole point.
    */
+  /**
+   * Grow the composer to fit its text, up to COMPOSER_MAX_LINES.
+   *
+   * A textarea with rows={1} shows ONE row and scrolls the rest away, so a
+   * multi-line message was invisible while you typed it. This is deliberately
+   * capped: the composer belongs to typing, not to reading, so it opens small
+   * and never eats the thread.
+   */
+  const autoGrow = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    const cs = window.getComputedStyle(el);
+    const lineHeight = parseFloat(cs.lineHeight) || 22;
+    const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const max = lineHeight * COMPOSER_MAX_LINES + padY;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  };
+
+  // Re-measure on every text change: paste, and the clear-after-send both land
+  // without an onChange we control.
+  useEffect(() => {
+    autoGrow(heroInputRef.current);
+    autoGrow(threadInputRef.current);
+  }, [inputText]);
+
   const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const action = composerKeyAction(
       { key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing },
@@ -628,9 +657,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
               className="bg-veil-1 focus-within:bg-veil-2 rounded-2xl p-4 shadow-pop transition-colors space-y-3"
             >
               <textarea
-                ref={heroInputRef}
+                ref={(el) => { heroInputRef.current = el; autoGrow(el); }}
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={(e) => { setInputText(e.target.value); autoGrow(e.target); }}
                 onKeyDown={handleComposerKeyDown}
                 placeholder="Pour it out before it evaporates — we'll organize later."
                 rows={3}
@@ -1437,14 +1466,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
               )}
             </button>
             <textarea
+              ref={(el) => { threadInputRef.current = el; autoGrow(el); }}
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={(e) => { setInputText(e.target.value); autoGrow(e.target); }}
               onKeyDown={handleComposerKeyDown}
               placeholder="Keep typing…"
               title={enterSendHint(enterSend)}
               disabled={isLoading}
               rows={1}
-              className="flex-1 bg-recess-1 shadow-well rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 transition-colors resize-none leading-relaxed max-h-32"
+              className="flex-1 bg-recess-1 shadow-well rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 transition-colors resize-none leading-relaxed overflow-y-auto max-h-[140px]"
             />
 
             {/* Pending sends for THIS thread (serial queue) — cancel never touches the live stream */}

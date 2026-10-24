@@ -269,7 +269,9 @@ describe('context compiler — isolation and telemetry', () => {
     });
     expect(bg.compiledPrompt).toContain('BACKGROUND-THREAD-CONTENT');
     expect(bg.compiledPrompt).not.toContain('VISIBLE-THREAD-CONTENT');
-    expect(bg.compiledPrompt).toContain('bg-chapter');
+    // §21: a chapter is named from its title, never by its row key.
+    expect(bg.compiledPrompt).toContain('name="bg"');
+    expect(bg.compiledPrompt).not.toContain('bg-chapter');
     expect(bg.compiledPrompt).not.toContain('live');
   });
 });

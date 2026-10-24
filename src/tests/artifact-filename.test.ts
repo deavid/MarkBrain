@@ -170,3 +170,61 @@ describe('the model can name a note back', () => {
     expect(withDefaultTitle.artifactUpserts[0].title).toBe('untitled-note');
   });
 });
+describe('chapters follow the same naming law (§21 follow-up)', () => {
+  const compileOne = (title: string) => {
+    const documents = new ArtifactDocumentDomain('p', []);
+    const segmentation = new ChapterSegmentationDomain('p', [
+      {
+        id: 'chap-fx-1',
+        workspaceId: 'p',
+        title,
+        status: 'active' as const,
+        startIndex: 0,
+        createdAt: 0,
+        granularity: 'full' as const,
+      },
+    ]);
+    const timeline = new DialogueTimelineDomain('p', [
+      { id: 't0', role: 'user' as const, content: 'hello', timestamp: 0 },
+    ]);
+    return new OpticalCompilerDomain(documents, segmentation, timeline).compile({ attachments: [] });
+  };
+
+  it('names a chapter from its title and carries no row key', () => {
+    const out = compileOne('Chapter 1: Fixture Genesis');
+    expect(out.compiledPrompt).toContain('name="chapter-1-fixture-genesis"');
+    expect(out.compiledPrompt).not.toMatch(/chap-\w|id="/);
+    expect(out.compiledPrompt).not.toContain('chap-fx-1');
+  });
+
+  it('is what the model is told to call a chapter', () => {
+    const out = compileOne('Anything');
+    expect(out.systemInstruction).toContain('each chapter by its `name`');
+    expect(out.systemInstruction).toContain('never quote something that looks like a database key');
+  });
+
+  it('indents layer bodies under their own tag instead of column zero', () => {
+    const documents = new ArtifactDocumentDomain('p', []);
+    const segmentation = new ChapterSegmentationDomain('p', []);
+    const timeline = new DialogueTimelineDomain('p', []);
+    const art = {
+      id: 'a1',
+      workspaceId: 'p',
+      code: 'c',
+      title: 'T',
+      type: 'document' as const,
+      category: 'note',
+      isHighConcept: false,
+      current: { subtitle: '', description: 'd', summary: 'line one\nline two', body: 'b' },
+      tags: [],
+      createdAt: 0,
+      updatedAt: 0,
+    } as never;
+    void documents; void segmentation; void timeline;
+    const direct = artifactXml(art as never, 'summary');
+    const lines = direct.split('\n');
+    const summaryIdx = lines.findIndex((l) => l.includes('<summary>'));
+    expect(lines[summaryIdx + 1].startsWith('      ')).toBe(true);
+    expect(lines[summaryIdx + 2].startsWith('      ')).toBe(true);
+  });
+});

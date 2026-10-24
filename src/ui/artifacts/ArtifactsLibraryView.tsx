@@ -44,9 +44,17 @@ interface ArtifactsLibraryViewProps {
   /** Bumped by App when a tag is clicked outside this view (graph is here, detail modal is not). */
   externalTagFilter?: { tag: string; seq: number };
   // ── Draft-proximity testbed (design-docs/15) ─────────────────────────────
-  /** The unsent chat draft (LAW 4) — this lens's query, not a second search box. */
+  /** The unsent chat draft (LAW 4) — the DEFAULT query, not a second search box. */
   draftText: string;
   onDraftTextChange: (text: string) => void;
+  /**
+   * A test query typed here, which OVERRIDES the chat draft without touching it.
+   * Empty = "use the chat draft". This is what makes the box editable: it used to
+   * bind straight to the draft and flip to a read-only <p> the moment it held one
+   * character, so it could not be edited past the first keystroke.
+   */
+  searchQueryOverride: string;
+  onSearchQueryOverrideChange: (text: string) => void;
   searchConfig: SearchTestbedConfig;
   onSearchConfigChange: (patch: Partial<SearchTestbedConfig>) => void;
   /** View of IndexedDB `markbrain-search-index` (LAW 2) — never the snapshot. */
@@ -110,6 +118,8 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
   externalTagFilter,
   draftText,
   onDraftTextChange,
+  searchQueryOverride,
+  onSearchQueryOverrideChange,
   searchConfig,
   onSearchConfigChange,
   searchIndexMap,
@@ -282,12 +292,17 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
         className="h-10 shrink-0 -mt-3 mb-1"
       />
 
-      {/* 1. The query: the chat draft itself, or an inline test box when empty. */}
-      {draftText.trim() ? (
+      {/* 1. The query. The chat draft is the DEFAULT; the box below overrides it
+          without ever touching the composer. Both are visible at once so you can
+          write a probe AND see the contents you are probing against. The box is
+          ALWAYS editable — the old build bound it to the draft and swapped to a
+          read-only <p> the moment it held one character, so it died on the first
+          keystroke. */}
+      {draftText.trim() && (
         <div className="bg-surface-2 rounded-xl p-3 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985]">
-              Draft
+              Chat draft — {searchQueryOverride.trim() ? 'ignored' : 'in use'}
             </span>
             <button
               onClick={() => onDraftTextChange('')}
@@ -297,26 +312,40 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
               Clear
             </button>
           </div>
-          <p className="text-xs text-ink whitespace-pre-wrap break-words">{draftText}</p>
-        </div>
-      ) : (
-        <div className="bg-surface-2 rounded-xl p-3 space-y-1.5">
-          <label
-            htmlFor="proximity-test-query"
-            className="block text-[10px] font-mono uppercase tracking-wider text-[#556985]"
-          >
-            No chat draft — type a test query
-          </label>
-          <input
-            id="proximity-test-query"
-            data-testid="proximity-test-query"
-            value={draftText}
-            onChange={(e) => onDraftTextChange(e.target.value)}
-            placeholder="e.g. how do fluids tile?"
-            className="w-full min-h-[34px] px-2.5 rounded-lg bg-recess-1 text-xs font-mono text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 shadow-well"
-          />
+          <p className="text-xs text-ink-dim whitespace-pre-wrap break-words">{draftText}</p>
         </div>
       )}
+
+      <div className="bg-surface-2 rounded-xl p-3 space-y-1.5">
+        <label
+          htmlFor="proximity-test-query"
+          className="block text-[10px] font-mono uppercase tracking-wider text-[#556985]"
+        >
+          {searchQueryOverride.trim() ? 'Query override' : 'Query — blank uses the chat draft'}
+        </label>
+        <input
+          id="proximity-test-query"
+          data-testid="proximity-test-query"
+          value={searchQueryOverride}
+          onChange={(e) => onSearchQueryOverrideChange(e.target.value)}
+          placeholder={draftText.trim() ? 'type to override the chat draft' : 'e.g. how do fluids tile?'}
+          className="w-full min-h-[34px] px-2.5 rounded-lg bg-recess-1 text-xs font-mono text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 shadow-well"
+        />
+        {searchQueryOverride.trim() && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-mono text-[#556985]">
+              Overriding the chat draft
+            </span>
+            <button
+              onClick={() => onSearchQueryOverrideChange('')}
+              className="text-[10px] font-mono text-[#5d7394] hover:text-ink transition-colors cursor-pointer"
+              title="Drop the override and query from the chat draft again"
+            >
+              Use chat draft
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* 2. Method toggles — the whole point of the testbed: flip one, watch
           the ranking move. Threshold and flag flips re-score with ZERO API

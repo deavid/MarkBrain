@@ -298,6 +298,14 @@ export default function App() {
   const handleDraftTextChange = (text: string) => {
     setDraftByThread((prev) => ({ ...prev, [activeThreadId]: text }));
   };
+  // A test query that is NOT the chat draft. Empty = "use the chat draft"
+  // (the default); anything typed here overrides it WITHOUT touching what is
+  // in the composer, so you can probe the library while a message is half-written.
+  // This is the fix for the proximity box: it used to bind straight to the
+  // draft and swap to a read-only <p> the instant it held a single character,
+  // which made it uneditable after the first keystroke.
+  const [searchQueryOverride, setSearchQueryOverride] = useState('');
+  const searchQuery = searchQueryOverride.trim() || draftText;
 
   const [searchConfig, setSearchConfigState] = useState<SearchTestbedConfig>(() =>
     loadSearchConfig()
@@ -343,8 +351,8 @@ export default function App() {
   const queryVecCacheRef = useRef(new Map<string, Float32Array[]>());
 
   const clauseKey = useMemo(
-    () => splitDraftIntoClauses(draftText, searchConfig.splitClauses).join('\n '),
-    [draftText, searchConfig.splitClauses]
+    () => splitDraftIntoClauses(searchQuery, searchConfig.splitClauses).join('\n '),
+    [searchQuery, searchConfig.splitClauses]
   );
   const clauseVectors =
     queryVectors && queryVectors.key === clauseKey ? queryVectors.vectors : null;
@@ -354,13 +362,13 @@ export default function App() {
   // attachment set last moved. No API calls on this path, ever.
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (!draftText.trim()) {
+      if (!searchQuery.trim()) {
         setDraftResults([]);
         return;
       }
       setDraftResults(
         scoreArtifactsAgainstDraft({
-          draftText,
+          draftText: searchQuery,
           clauseVectors,
           artifacts: artifactsDomain.listArtifacts(),
           indexMap: searchIndexMap,
@@ -371,14 +379,14 @@ export default function App() {
     }, 350);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftText, searchConfig, searchIndexMap, attachedArtifactIds, clauseVectors, tick]);
+  }, [searchQuery, searchConfig, searchIndexMap, attachedArtifactIds, clauseVectors, tick]);
 
   // Tier 2 — one embed per 5s typing pause, only when a vec flag is on, the
   // draft is long enough to be a real query, and its clause text is uncached.
   useEffect(() => {
     if (!needsQueryVec) return;
-    if (draftText.trim().length < 12) return;
-    const clauses = splitDraftIntoClauses(draftText, searchConfig.splitClauses);
+    if (searchQuery.trim().length < 12) return;
+    const clauses = splitDraftIntoClauses(searchQuery, searchConfig.splitClauses);
     if (clauses.length === 0) return;
     const key = clauses.join('\n ');
     const cached = queryVecCacheRef.current.get(key);
@@ -406,7 +414,7 @@ export default function App() {
       window.clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftText, needsQueryVec, searchConfig.splitClauses]);
+  }, [searchQuery, needsQueryVec, searchConfig.splitClauses]);
 
   const missingMatchCount = countMissingMatches(draftResults);
 
@@ -717,6 +725,8 @@ export default function App() {
               externalTagFilter={libraryTagFilter}
               draftText={draftText}
               onDraftTextChange={handleDraftTextChange}
+              searchQueryOverride={searchQueryOverride}
+              onSearchQueryOverrideChange={setSearchQueryOverride}
               searchConfig={searchConfig}
               onSearchConfigChange={handleSearchConfigChange}
               searchIndexMap={searchIndexMap}

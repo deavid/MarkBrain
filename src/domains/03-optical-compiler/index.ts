@@ -109,6 +109,31 @@ export function artifactFileName(art: Pick<UniversalArtifactDocument, 'code' | '
   return `${slug(art.title || '') || slug(art.code || '') || 'note'}.md`;
 }
 
+
+/**
+ * A slug that reads as a handle, never a database key. Chapters use the same
+ * rule as notes so the payload has ONE way of naming things.
+ */
+export function slugHandle(text: string): string {
+  return (
+    (text || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60)
+      .replace(/-+$/g, '') || 'untitled'
+  );
+}
+
+/** Indent every non-blank line so nested text lines up with its own tag. */
+function indentBlock(text: string | undefined, pad: string): string {
+  return (text || '')
+    .split('\n')
+    .map((l) => (l.trim() ? pad + l : l))
+    .join('\n');
+}
+
 /** Give a payload's filenames a unique suffix so one name means one note. */
 export function uniqueFileName(base: string, used: Set<string>): string {
   if (!used.has(base)) {
@@ -147,12 +172,12 @@ export function artifactXml(
   if (withDescription) lines.push(`    <description>${art.current.description}</description>`);
   if (withSummary) {
     lines.push(`    <summary>`);
-    lines.push(`${art.current.summary}`);
+    lines.push(indentBlock(art.current.summary, '      '));
     lines.push(`    </summary>`);
   }
   if (withBody) {
     lines.push(`    <content>`);
-    lines.push(`${art.current.body}`);
+    lines.push(indentBlock(art.current.body, '      '));
     lines.push(`    </content>`);
   }
   lines.push(`  </artifact>`);
@@ -177,17 +202,22 @@ export function chapterXml(
   const withTurns = cutIncludes(granularity, 'body');
 
   const chapSubtitle = (chap.subtitle || '').trim();
-  lines.push(`  <chapter id="${chap.id}" granularity="${granularity}" status="${chap.status}">`);
+  // `name`, never the internal id — same law as artifacts (§21). `chap-fx-1`
+  // is a row key; a reader gets a handle made of the chapter's own title.
+  lines.push(`  <chapter name="${slugHandle(chap.title)}" granularity="${granularity}" status="${chap.status}">`);
   lines.push(`    <title>${chapSubtitle ? `${chap.title} — ${chapSubtitle}` : chap.title}</title>`);
   if (withDescription) lines.push(`    <description>${chap.description}</description>`);
   if (withSummary) {
     lines.push(`    <summary>`);
-    lines.push(`${chap.summary}`);
+    lines.push(indentBlock(chap.summary, '      '));
     lines.push(`    </summary>`);
   }
   if (withTurns) {
     const turnsXml = turns
-      .map((t) => `      <turn role="${t.role}">\n${t.content}\n      </turn>`)
+      .map(
+        (t) =>
+          `      <turn role="${t.role}">\n${indentBlock(t.content, '        ')}\n      </turn>`
+      )
       .join('\n');
     lines.push(`    <turns>`);
     lines.push(turnsXml);
@@ -282,7 +312,7 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const systemInstruction = `You are MarkBrain, a thinking partner for a brain that overflows with ideas. Collect thoughts before they evaporate, keep them organized, and keep the forest in view. Talk WITH the user, direct, plain-spoken, no corporate filler.
 Ground your thinking in the notes and chapters provided.
 Notes arrive at the compaction level the user chose (title, description, summary, full). A layer that is missing was compacted on purpose: do not ask for it unless you genuinely cannot answer without it.
-Each note is named by its \`file\`, a kebab-case filename like \`early-sprawling-dream.md\`. That name, and the \`<title>\`, are how you refer to a note — write them as a reader would say them. There are no other identifiers in what you are sent: never invent one, and never quote something that looks like a database key.
+Each note is named by its \`file\`, a kebab-case filename like \`early-sprawling-dream.md\`, and each chapter by its \`name\`, a kebab-case handle built from the chapter's own title. Those, and the \`<title>\`s, are how you refer to things — write them as a reader would say them. There are no other identifiers in what you are sent: never invent one, and never quote something that looks like a database key.
 Emit these functional blocks in your reply when appropriate. Never emit JSON.
 
 1. When the conversation shifts to a substantially new topic:

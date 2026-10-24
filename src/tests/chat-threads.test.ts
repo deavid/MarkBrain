@@ -377,7 +377,12 @@ describe('Compiler historyTurns override (background-thread context)', () => {
 
     expect(compiled.compiledPrompt).toContain('BACKGROUND-THREAD-CONTENT');
     expect(compiled.compiledPrompt).not.toContain('VISIBLE-THREAD-CONTENT');
-    expect(compiled.compiledPrompt).toContain('bg-chapter');
+    // §21: a chapter is named from its title, never by its row key. Isolation
+    // between the two chapters is proven by CONTENT above — with ids gone there
+    // is no other way to tell two same-titled chapters apart, and there should
+    // not be: the title is what a reader has.
+    expect(compiled.compiledPrompt).toContain('name="genesis-chapter"');
+    expect(compiled.compiledPrompt).not.toContain('bg-chapter');
     expect(compiled.compiledPrompt).not.toContain('live-chapter');
 
     // Without overrides the live domains still win (unchanged behavior)

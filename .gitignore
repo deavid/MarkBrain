@@ -9,6 +9,7 @@ coverage/
 firebase-applet-config.json
 !firebase-applet-config.json.example
 .aistudio/
+.goose/
 catall.sh
 test-domains.ts
 

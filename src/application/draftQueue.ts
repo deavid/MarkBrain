@@ -29,6 +29,14 @@ export interface DraftItem {
   threadId: string;
   /** The ask — exactly what the user sent. */
   text: string;
+  /**
+   * send = a new ask awaiting its reply. regenerate = a replacement reply for
+   * an existing pair (David 2026-10-25): also unpaired work — it lives in the
+   * draft area until it succeeds, and only then replaces the pair's reply.
+   */
+  kind?: 'send' | 'regenerate';
+  /** For kind='regenerate': the committed assistant turn to replace on success. */
+  targetTurnId?: string;
   state: DraftState;
   /** Failure reason (provider text). Queue-side only; never turn content. */
   reason?: string;
@@ -68,6 +76,15 @@ export function makeDraftId(): string {
  * whole device) but nothing later in the blocked thread is ever attempted.
  * Among sendable heads, FIFO order wins (first in the array = oldest ask).
  */
+/**
+ * A regenerate may only start when the queue is completely empty and nothing
+ * is in flight (David: "it cannot have any other LLM activity ongoing … or not
+ * allow retry if queue is not empty"). It never jumps FIFO and never preempts.
+ */
+export function regenerateAllowed(items: DraftItem[]): boolean {
+  return items.length === 0;
+}
+
 export function nextSendable(items: DraftItem[]): DraftItem | null {
   if (items.some((i) => i.state === 'sending')) return null;
   const headSeen = new Set<string>();
@@ -113,6 +130,8 @@ export class DraftQueue {
           ...(typeof i.reason === 'string' ? { reason: i.reason } : {}),
           ...(typeof i.partial === 'string' ? { partial: i.partial } : {}),
           createdAt: Number(i.createdAt) || Date.now(),
+          ...(i.kind === 'regenerate' ? { kind: 'regenerate' as const } : {}),
+          ...(typeof i.targetTurnId === 'string' ? { targetTurnId: i.targetTurnId } : {}),
         }));
     } catch {
       /* junk storage → empty queue */
@@ -150,13 +169,19 @@ export class DraftQueue {
     return this.items.find((i) => i.id === id);
   }
 
-  enqueue(threadId: string, text: string): DraftItem {
+  enqueue(
+    threadId: string,
+    text: string,
+    extra: { kind?: 'send' | 'regenerate'; targetTurnId?: string } = {}
+  ): DraftItem {
     const item: DraftItem = {
       id: makeDraftId(),
       threadId,
       text,
       state: 'queued',
       createdAt: Date.now(),
+      ...(extra.kind ? { kind: extra.kind } : {}),
+      ...(extra.targetTurnId ? { targetTurnId: extra.targetTurnId } : {}),
     };
     this.items.push(item);
     this.emit();

@@ -866,6 +866,7 @@ export default function App() {
                   onRetryDraft={(id) => sendQueue.retryDraft(id)}
                   onStoreAsIsDraft={(id) => sendQueue.storeAsIsDraft(id)}
                   onDiscardDraft={(id) => sendQueue.discardDraft(id)}
+                  onRegenerateLast={() => sendQueue.regenerateLastReply()}
                   onOpenServerLogs={() => setIsServerLogsOpen(true)}
                   onAddArtifactToProject={handleAddArtifact}
                   onSummarizeChapter={handleSummarizeChapter}

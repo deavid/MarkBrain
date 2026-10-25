@@ -29,7 +29,7 @@ import type { TurnMeta } from '../domains/01-dialogue-timeline/types';
 import { serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 import { logger } from '../utils/logger';
 import { placeholderTitle, sampleTurnsForTitle, titlePipelineStep } from '../domains/06-chat-threads';
-import { DraftQueue, type DraftItem } from './draftQueue';
+import { DraftQueue, type DraftItem, regenerateAllowed } from './draftQueue';
 import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../domains/03-stream-protocol';
 
 /** App render values, snapshotted once when an attempt starts (see the header). */
@@ -162,7 +162,7 @@ export class SendQueue {
     const shifts = (item.bufferedShifts ?? []) as ExtractedTopicShift[];
     const estPrompt = Math.max(1, estimateTokens(item.text));
     const estCand = Math.max(1, estimateTokens(item.partial));
-    this.commitPair(chain, item, item.partial, artifacts, shifts, {
+    const meta: TurnMeta = {
       model: ctx.model.name,
       inputTokens: estPrompt,
       outputTokens: estCand,
@@ -170,7 +170,12 @@ export class SendQueue {
       isFallback: true,
       isStreaming: false,
       streamState: 'completed',
-    });
+    };
+    if (item.kind === 'regenerate' && item.targetTurnId) {
+      this.commitRegenerate(chain, item, item.partial, artifacts, shifts, meta);
+    } else {
+      this.commitPair(chain, item, item.partial, artifacts, shifts, meta);
+    }
     this.drafts.resolve(item.id);
     this.maybeRetitle(chain, item.threadId);
     this.kick();
@@ -197,18 +202,32 @@ export class SendQueue {
   }
 
   /**
-   * Regenerate the reply of an existing committed pair. Not draft handling —
-   * the pair already exists. On failure the PREVIOUS reply is restored: a
-   * regeneration attempt must never write failure text into a turn.
+   * Regenerate the last pair's reply (David 2026-10-25): a special request
+   * that REPLACES the reply on success. Unpaired work like any other — it
+   * lives in the draft area until it succeeds and the old reply stays put
+   * until then. Never jumps the queue: refused unless the queue is empty and
+   * nothing is in flight (regenerateAllowed).
    */
-  handleRetryThread(): void {
+  regenerateLastReply(): void {
     const deps = this.getDeps();
     const threadId = deps.threadRegistry.getActiveThreadId();
+    if (!threadId) return;
     const turns = this.turnsOf(deps, threadId);
     const lastAssistant = [...turns].reverse().find((t) => t.role === 'assistant');
     if (!lastAssistant) return;
-    logger.action('App', 'Regenerate last assistant turn', { threadId, turnId: lastAssistant.id });
-    void this.runRegenerate(threadId, lastAssistant.id);
+    if (!regenerateAllowed(this.drafts.getItems())) {
+      logger.warn('App', 'Regenerate refused — the queue is not empty');
+      return;
+    }
+    const anchorIdx = resolveRetryAnchorIndex(turns, lastAssistant.id);
+    const askText = turns[anchorIdx]?.content || lastAssistant.content || 'Regenerate the last reply';
+    logger.action('App', 'Regenerate last reply', { threadId, turnId: lastAssistant.id });
+    this.drafts.enqueue(threadId, askText, {
+      kind: 'regenerate',
+      targetTurnId: lastAssistant.id,
+    });
+    deps.triggerReRender();
+    this.kick();
   }
 
   stopGeneration(): void {
@@ -324,7 +343,8 @@ export class SendQueue {
     const deps = this.getDeps();
     const chain: QueueChain = { deps, ctx: deps.getContext() };
     try {
-      await this.executeAttempt(chain, item);
+      if (item.kind === 'regenerate') await this.executeRegenerateAttempt(chain, item);
+      else await this.executeAttempt(chain, item);
     } catch (err) {
       logger.error('App', 'Draft attempt failed unexpectedly', err);
       this.drafts.fail(
@@ -502,6 +522,187 @@ export class SendQueue {
     const assistantTurn = this.appendTurnToThread(deps, threadId, 'assistant', replyText, extractedList, meta);
 
     // Artifacts land with the pair (discarding a draft drops them too).
+    this.applyBufferedArtifacts(chain, threadId, bufferedArtifacts, userTurnIndex + 1, assistantTurn.id);
+
+    // Topic shifts land after the pair: the new chapter starts after it.
+    this.applyBufferedShifts(chain, threadId, bufferedShifts);
+
+    deps.threadRegistry.patch(threadId, { lastOutcome: 'ok', lastActivityAt: Date.now() });
+    deps.triggerReRender();
+    logger.info('App', 'Pair committed', {
+      threadId,
+      model: meta.model,
+      totalTokens: meta.totalTokens,
+      artifacts: extractedList.length,
+      topicShifts: bufferedShifts.length,
+    });
+  }
+
+  /**
+   * Regenerate attempt: the OLD reply stays visible and untouched until the
+   * new one is complete. The model is shown the pair with an empty reply
+   * (virtual — storage is not written until commit).
+   */
+  private async executeRegenerateAttempt(chain: QueueChain, item: DraftItem): Promise<void> {
+    const deps = chain.deps;
+    const ctx = chain.ctx;
+    const threadId = item.threadId;
+    const targetTurnId = item.targetTurnId!;
+    deps.setStreamingStatus(`Connecting to ${ctx.model.name}...`);
+    deps.setStreamPhase('waiting');
+    const controller = new AbortController();
+    this.jobAbort = controller;
+
+    const bufferedArtifacts: ExtractedArtifactUpsert[] = [];
+    const bufferedShifts: ExtractedTopicShift[] = [];
+    let streamedContent = '';
+
+    try {
+      const historyTurns = this.turnsOf(deps, threadId).map((t) =>
+        t.id === targetTurnId ? { ...t, content: '' } : t
+      );
+      const compiled = deps.compiler.compile({
+        attachments: deps.threadRegistry.getAttachments(threadId),
+        tokenCeiling: ctx.tokenCeiling,
+        log: true,
+        historyTurns,
+        historyChapters: this.chaptersOf(deps, threadId),
+      });
+
+      const result = await deps.stream.executeStreamingTurn(
+        {
+          model: ctx.model.id,
+          projectTitle: ctx.projectTitle,
+          compiledPrompt: compiled.compiledPrompt,
+          systemInstruction: compiled.systemInstruction,
+        },
+        {
+          signal: controller.signal,
+          onStatus: (status) => {
+            deps.setStreamingStatus(status.message);
+            deps.setStreamPhase(status.state === 'writing' ? 'streaming' : 'waiting');
+            deps.triggerReRender();
+          },
+          onChunk: (_d, acc) => {
+            streamedContent = acc;
+            this.drafts.updatePartial(item.id, acc);
+            deps.setStreamPhase('streaming');
+            deps.triggerReRender();
+          },
+          onTopicShift: (shift) => {
+            bufferedShifts.push(shift);
+            this.drafts.setBuffers(item.id, bufferedArtifacts, bufferedShifts);
+          },
+          onArtifact: (u) => {
+            bufferedArtifacts.push(u);
+            this.drafts.setBuffers(item.id, bufferedArtifacts, bufferedShifts);
+          },
+        }
+      );
+
+      if (controller.signal.aborted) {
+        this.drafts.stop(item.id, streamedContent || result.cleanReply || undefined);
+        return;
+      }
+
+      const prose = result.cleanReply || streamedContent;
+      if (!prose) {
+        this.drafts.fail(item.id, 'The stream ended without a reply.', item.partial);
+        return;
+      }
+
+      const estPrompt =
+        result.telemetry?.inputTokens ?? Math.max(1, estimateTokens(compiled.compiledPrompt || ''));
+      const estCand =
+        result.telemetry?.outputTokens ?? Math.max(1, estimateTokens(prose));
+      this.commitRegenerate(chain, item, prose, bufferedArtifacts, bufferedShifts, {
+        model: result.telemetry?.model || ctx.model.name,
+        inputTokens: estPrompt,
+        outputTokens: estCand,
+        totalTokens: result.telemetry?.totalTokens ?? (estPrompt + estCand),
+        latencyMs: result.telemetry?.latencyMs,
+        timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
+        isFallback: result.telemetry?.isFallback ?? true,
+        downgradedFrom: result.telemetry?.downgradedFrom,
+        isStreaming: false,
+        streamState: 'completed',
+      });
+      this.drafts.resolve(item.id);
+    } catch (err: any) {
+      if (err.name === 'AbortError' || controller.signal.aborted) {
+        this.drafts.stop(item.id, streamedContent || undefined);
+        return;
+      }
+      const reason =
+        typeof err?.message === 'string' && err.message.trim()
+          ? err.message.trim().slice(0, 400)
+          : 'The request failed — no reply came back.';
+      this.drafts.fail(item.id, reason, streamedContent || undefined);
+    }
+  }
+
+  /**
+   * Success half of a regenerate: the pair's reply is replaced atomically
+   * with the completed new one (content + extracted artifacts + side effects).
+   * The turn id and the ask stay — it is still the same pair.
+   */
+  private commitRegenerate(
+    chain: QueueChain,
+    item: DraftItem,
+    replyText: string,
+    bufferedArtifacts: ExtractedArtifactUpsert[],
+    bufferedShifts: ExtractedTopicShift[],
+    meta: TurnMeta
+  ): void {
+    const deps = chain.deps;
+    const threadId = item.threadId;
+    const targetTurnId = item.targetTurnId!;
+    const turns = this.turnsOf(deps, threadId);
+    const targetIndex = turns.findIndex((t) => t.id === targetTurnId);
+
+    const extractedList: ExtractedArtifact[] = bufferedArtifacts.map((u) => ({
+      id: u.id,
+      title: u.title,
+      type: u.type,
+      code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
+      category: u.type === 'chapter' ? 'chapter' : 'note',
+      subtitle: u.content.subtitle,
+      description: u.content.description,
+      summary: u.content.summary,
+      content: u.content.body,
+      isHighConcept: false,
+    }));
+    this.updateTurnInThread(deps, threadId, targetTurnId, {
+      content: replyText,
+      extractedArtifacts: extractedList,
+      meta,
+    });
+    this.applyBufferedArtifacts(
+      chain,
+      threadId,
+      bufferedArtifacts,
+      targetIndex >= 0 ? targetIndex : turns.length - 1,
+      targetTurnId
+    );
+    this.applyBufferedShifts(chain, threadId, bufferedShifts);
+    deps.threadRegistry.patch(threadId, { lastOutcome: 'ok', lastActivityAt: Date.now() });
+    deps.triggerReRender();
+    logger.info('App', 'Pair reply replaced (regenerate)', {
+      threadId,
+      turnId: targetTurnId,
+      model: meta.model,
+    });
+  }
+
+  /** Artifacts extracted during an attempt land ONLY when the work commits. */
+  private applyBufferedArtifacts(
+    chain: QueueChain,
+    threadId: string,
+    bufferedArtifacts: ExtractedArtifactUpsert[],
+    assistantTurnIndex: number,
+    assistantTurnId: string
+  ): void {
+    const deps = chain.deps;
     for (const u of bufferedArtifacts) {
       const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
       const existing = deps.artifacts.getArtifact(code) || deps.artifacts.getArtifact(u.id);
@@ -541,11 +742,18 @@ export class SendQueue {
         artifactId = saved.id;
       }
       if (artifactId) {
-        deps.threadRegistry.attachArtifact(threadId, artifactId, 'full', userTurnIndex + 1, assistantTurn.id);
+        deps.threadRegistry.attachArtifact(threadId, artifactId, 'full', assistantTurnIndex, assistantTurnId);
       }
     }
+  }
 
-    // Topic shifts land after the pair: the new chapter starts after it.
+  /** Topic shifts land after the committed work — never mid-attempt. */
+  private applyBufferedShifts(
+    chain: QueueChain,
+    threadId: string,
+    bufferedShifts: ExtractedTopicShift[]
+  ): void {
+    const deps = chain.deps;
     for (const shift of bufferedShifts) {
       if (this.isActiveThread(deps, threadId)) {
         deps.segmentation.declareNewChapter(
@@ -565,149 +773,6 @@ export class SendQueue {
           shift.summary
         );
       }
-    }
-
-    deps.threadRegistry.patch(threadId, { lastOutcome: 'ok', lastActivityAt: Date.now() });
-    deps.triggerReRender();
-    logger.info('App', 'Pair committed', {
-      threadId,
-      model: meta.model,
-      totalTokens: meta.totalTokens,
-      artifacts: extractedList.length,
-      topicShifts: bufferedShifts.length,
-    });
-  }
-
-  /**
-   * Regenerate: rewrite the reply of an existing committed pair. On failure
-   * the previous reply is restored — the turn keeps saying what it said.
-   */
-  private async runRegenerate(threadId: string, assistantTurnId: string): Promise<void> {
-    const deps = this.getDeps();
-    const chain: QueueChain = { deps, ctx: deps.getContext() };
-    const ctx = chain.ctx;
-    const turnsForAnchor = this.turnsOf(deps, threadId);
-    const previous = turnsForAnchor.find((t) => t.id === assistantTurnId);
-    const previousSnapshot = previous
-      ? { content: previous.content, extractedArtifacts: previous.extractedArtifacts, meta: previous.meta }
-      : null;
-
-    const anchorIdx = resolveRetryAnchorIndex(turnsForAnchor, assistantTurnId);
-    const anchorTurn = turnsForAnchor[anchorIdx];
-    const committedOnRetry = deps.threadRegistry.commitStagedAttachments(
-      threadId,
-      anchorIdx,
-      anchorTurn?.id ?? null
-    );
-    if (committedOnRetry > 0) {
-      logger.info('App', `Committed ${committedOnRetry} staged attachment(s) on regenerate to turn ${anchorIdx}`, {
-        threadId,
-      });
-    }
-    this.updateTurnInThread(deps, threadId, assistantTurnId, {
-      content: '',
-      extractedArtifacts: [],
-      meta: { model: ctx.model.name, isStreaming: true, streamState: 'connecting' },
-    });
-    deps.triggerReRender();
-
-    const controller = new AbortController();
-    this.jobAbort = controller;
-    const bufferedArtifacts: ExtractedArtifactUpsert[] = [];
-    const bufferedShifts: ExtractedTopicShift[] = [];
-    let streamedContent = '';
-    try {
-      const compiled = deps.compiler.compile({
-        attachments: deps.threadRegistry.getAttachments(threadId),
-        tokenCeiling: ctx.tokenCeiling,
-        log: true,
-        historyTurns: this.turnsOf(deps, threadId),
-        historyChapters: this.chaptersOf(deps, threadId),
-      });
-      const result = await deps.stream.executeStreamingTurn(
-        {
-          model: ctx.model.id,
-          projectTitle: ctx.projectTitle,
-          compiledPrompt: compiled.compiledPrompt,
-          systemInstruction: compiled.systemInstruction,
-        },
-        {
-          signal: controller.signal,
-          onStatus: (status) => {
-            deps.setStreamingStatus(status.message);
-            deps.setStreamPhase(status.state === 'writing' ? 'streaming' : 'waiting');
-            deps.triggerReRender();
-          },
-          onChunk: (_d, acc) => {
-            streamedContent = acc;
-            this.updateTurnInThread(deps, threadId, assistantTurnId, {
-              content: acc,
-              meta: { model: ctx.model.name, isStreaming: true, streamState: 'writing' },
-            });
-            deps.setStreamPhase('streaming');
-            deps.triggerReRender();
-          },
-          onTopicShift: (shift) => bufferedShifts.push(shift),
-          onArtifact: (u) => bufferedArtifacts.push(u),
-        }
-      );
-      if (controller.signal.aborted) throw new DOMException('aborted', 'AbortError');
-
-      const prose = result.cleanReply || streamedContent;
-      if (!prose) throw new Error('The stream ended without a reply.');
-
-      const extractedList: ExtractedArtifact[] = bufferedArtifacts.map((u) => ({
-        id: u.id,
-        title: u.title,
-        type: u.type,
-        code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
-        category: u.type === 'chapter' ? 'chapter' : 'note',
-        subtitle: u.content.subtitle,
-        description: u.content.description,
-        summary: u.content.summary,
-        content: u.content.body,
-        isHighConcept: false,
-      }));
-      this.updateTurnInThread(deps, threadId, assistantTurnId, {
-        content: prose,
-        extractedArtifacts: extractedList,
-        meta: {
-          model: result.telemetry?.model || ctx.model.name,
-          inputTokens: result.telemetry?.inputTokens,
-          outputTokens: result.telemetry?.outputTokens,
-          totalTokens: result.telemetry?.totalTokens,
-          latencyMs: result.telemetry?.latencyMs,
-          timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
-          isFallback: result.telemetry?.isFallback ?? true,
-          downgradedFrom: result.telemetry?.downgradedFrom,
-          isStreaming: false,
-          streamState: 'completed',
-        },
-      });
-      for (const shift of bufferedShifts) {
-        if (this.isActiveThread(deps, threadId)) {
-          deps.segmentation.declareNewChapter(
-            shift.title,
-            deps.timeline.count(),
-            shift.subtitle,
-            shift.description,
-            shift.summary
-          );
-        }
-      }
-      deps.threadRegistry.patch(threadId, { lastOutcome: 'ok', lastActivityAt: Date.now() });
-      logger.info('App', 'Pair reply regenerated', { threadId, turnId: assistantTurnId });
-    } catch (err) {
-      // The pair keeps its previous reply — regeneration writes no failure.
-      logger.error('App', 'Regenerate failed — previous reply restored', err);
-      if (previousSnapshot) {
-        this.updateTurnInThread(deps, threadId, assistantTurnId, previousSnapshot);
-      }
-    } finally {
-      this.jobAbort = null;
-      deps.setStreamingStatus(null);
-      deps.setStreamPhase(null);
-      deps.triggerReRender();
     }
   }
 }

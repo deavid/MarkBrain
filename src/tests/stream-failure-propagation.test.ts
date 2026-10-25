@@ -17,7 +17,7 @@ const { chatStreamMock } = vi.hoisted(() => ({ chatStreamMock: vi.fn() }));
 vi.mock('../gateway/api', () => ({ chatStream: chatStreamMock }));
 
 import { StreamProtocolDomain } from '../domains/03-stream-protocol';
-import { DraftQueue, nextSendable, type DraftItem } from '../application/draftQueue';
+import { DraftQueue, nextSendable, regenerateAllowed, type DraftItem } from '../application/draftQueue';
 
 const frame = (event: string, data: unknown): string =>
   `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -233,5 +233,50 @@ describe('DraftQueue laws (design-docs/18)', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('regenerate is queue-gated unpaired work (David 2026-10-25)', () => {
+  it('is refused unless the queue is completely empty — never jumps FIFO, never preempts', () => {
+    expect(regenerateAllowed([])).toBe(true);
+    expect(regenerateAllowed([{
+      id: 'x', threadId: 'T', text: 'ask', state: 'failed', reason: 'boom', createdAt: 1,
+    }])).toBe(false);
+    expect(regenerateAllowed([{
+      id: 'x', threadId: 'T', text: 'ask', state: 'queued', createdAt: 1,
+    }])).toBe(false);
+    expect(regenerateAllowed([{
+      id: 'x', threadId: 'T', text: 'ask', state: 'sending', createdAt: 1,
+    }])).toBe(false);
+  });
+
+  it('a regenerate draft carries its target pair and survives reload', () => {
+    const store = new Map<string, string>();
+    const fakeStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    } as Storage;
+    vi.stubGlobal('window', { localStorage: fakeStorage });
+    try {
+      const q1 = new DraftQueue();
+      const d = q1.enqueue('T', 'the pair ask', { kind: 'regenerate', targetTurnId: 'turn-42' });
+      expect(d.kind).toBe('regenerate');
+      expect(d.targetTurnId).toBe('turn-42');
+      const q2 = new DraftQueue();
+      const it = q2.getItem(d.id)!;
+      expect(it.kind).toBe('regenerate');
+      expect(it.targetTurnId).toBe('turn-42');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sendQueue keeps no regenerate failure copy — the old reply stays', () => {
+    const src = readFileSync(join(process.cwd(), 'src/application/sendQueue.ts'), 'utf8');
+    expect(src).toContain('executeRegenerateAttempt');
+    expect(src).toContain('commitRegenerate');
+    // The old reply is only replaced by commitRegenerate — never by the attempt.
+    expect(src).not.toContain('handleRetryThread');
   });
 });

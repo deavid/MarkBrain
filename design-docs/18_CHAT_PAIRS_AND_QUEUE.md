@@ -114,6 +114,22 @@ Strict FIFO law unchanged.
 | `stream-failure-propagation.test.ts` behavior pins | rewritten to queue laws (keep the ghost-copy bans) |
 | SSE `status{state:'error'}` swallow / empty-success braces | kept as transport truth, but failure now lands on the queue item, never a turn |
 
+## 8b. Regenerate the last reply (David 2026-10-25, built b95d02a)
+
+A special request that on success **replaces** the last pair's reply. It obeys
+the same law — it is unpaired work, so it lives in the draft strip until it
+completes and the old reply stays put until then.
+
+- **Queue-gated:** refused unless the queue is empty and nothing is in flight
+  (`regenerateAllowed`) — it never jumps FIFO and never preempts. The button
+  is disabled otherwise, with the reason in its title.
+- Three exits like any draft: Retry / Store as-is (partial becomes the reply) /
+  Discard (the old reply is untouched either way).
+- Success = `commitRegenerate`: reply replaced atomically (content, extracted
+  artifacts, buffered shifts); ask + turn id unchanged — same pair.
+- The model sees the pair with a virtually emptied reply; storage is not
+  written until commit.
+
 ## 9. Open details (small, decide at build time)
 
 - Queue granularity: **per-thread** (Vega's default — pair order is per

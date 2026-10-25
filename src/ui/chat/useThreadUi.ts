@@ -30,10 +30,6 @@ export function useThreadUi(params: ThreadUiParams) {
     sendQueue.handleCancelQueued(threadId);
   };
 
-  const handleRetryThread = () => {
-    sendQueue.handleRetryThread();
-  };
-
   // Per-thread runtime for sidebar rows + chat header chip (derived, never persisted).
   const threadRuntimes = useMemo(() => {
     const map: Record<string, { state: ThreadRuntime; position: number }> = {};
@@ -65,7 +61,6 @@ export function useThreadUi(params: ThreadUiParams) {
     handleStopGeneration,
     handleSendMessage,
     handleCancelQueued,
-    handleRetryThread,
     threadRuntimes,
     unreadThreadIds,
     markThreadUnread,

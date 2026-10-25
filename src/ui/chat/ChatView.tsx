@@ -99,10 +99,16 @@ interface ChatViewProps {
     text: string;
     reason?: string;
     partial?: string;
+    kind?: 'send' | 'regenerate';
   }>;
   onRetryDraft?: (id: string) => void;
   onStoreAsIsDraft?: (id: string) => void;
   onDiscardDraft?: (id: string) => void;
+  /**
+   * Regenerate the last pair's reply (design-docs/18): replaces it only if
+   * the new reply completes. Refused while the queue has anything in it.
+   */
+  onRegenerateLast?: () => void;
   /**
    * Lifted chat draft (LAW 4): this component unmounts when [+ Attach] opens
    * the library, so the unsent text must live in App, keyed by thread.
@@ -161,6 +167,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onRetryDraft,
   onStoreAsIsDraft,
   onDiscardDraft,
+  onRegenerateLast,
   draftText,
   onDraftTextChange,
   missingMatchCount = 0,
@@ -578,6 +585,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   const lastGroup = chapters[chapters.length - 1];
+  const lastAssistantMessageId = (() => {
+    for (let i = chapters.length - 1; i >= 0; i--) {
+      const turns = chapters[i].turns;
+      for (let j = turns.length - 1; j >= 0; j--) {
+        if (turns[j].role === 'assistant') return turns[j].id as string;
+      }
+    }
+    return null;
+  })();
 
   return (
     <div className="relative flex-1 flex flex-col min-h-0 min-w-0 w-full h-full bg-surface-0 text-ink select-text overflow-hidden pt-0 mt-0">
@@ -1308,6 +1324,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                     {(message.meta.latencyMs / 1000).toFixed(2)}s
                                   </span>
                                 )}
+                                {onRegenerateLast && message.id === lastAssistantMessageId && (
+                                  <button
+                                    type="button"
+                                    data-testid="regenerate-last"
+                                    onClick={() => onRegenerateLast()}
+                                    disabled={isLoading || drafts.length > 0}
+                                    title={
+                                      drafts.length > 0
+                                        ? 'Available when the queue is empty'
+                                        : isLoading
+                                          ? 'Wait for the current reply'
+                                          : 'Ask for a new reply — replaces this one only if the new reply completes'
+                                    }
+                                    className="min-h-[22px] px-2 rounded-lg text-[10px] font-mono text-[#8ca3c7] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default shrink-0"
+                                  >
+                                    Regenerate
+                                  </button>
+                                )}
                               </div>
                             </div>
                           )}
@@ -1470,7 +1504,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             : 'text-ink-mute'
                       }`}
                     >
-                      {isBusy ? 'Writing reply' : d.state === 'queued' ? 'Queued' : d.state === 'stopped' ? 'Stopped' : 'Failed'}
+                      {isBusy
+                        ? d.kind === 'regenerate'
+                          ? 'Regenerating the reply'
+                          : 'Writing reply'
+                        : d.state === 'queued'
+                          ? d.kind === 'regenerate'
+                            ? 'Regenerate queued'
+                            : 'Queued'
+                          : d.state === 'stopped'
+                            ? d.kind === 'regenerate'
+                              ? 'Regenerate stopped'
+                              : 'Stopped'
+                            : d.kind === 'regenerate'
+                              ? 'Regenerate failed'
+                              : 'Failed'}
                     </span>
                     {isBlocked && d.reason && (
                       <span className="truncate text-red-200/90">{d.reason}</span>

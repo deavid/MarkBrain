@@ -1,9 +1,63 @@
+import React from 'react';
 import type { DomainContextValue } from '../../domains/DomainRegistry';
 import { IN_PROGRESS_CHAPTERS, isChapterInProgress, isChapterOngoing } from '../../domains/02-chapter-segmentation';
 import type { Granularity } from '../../domains/granularity';
 import { summarizeChapter } from '../../gateway/api';
 import { getModelForSlot } from '../../data/modelConfig';
 import { logger } from '../../utils/logger';
+
+/**
+ * The chapter whose cut now promises a sealed layer nobody wrote.
+ *
+ * When a chapter is created the previous one is sealed, and it joins the
+ * in-progress window (the last chapters always send Full) — so it is NOT the
+ * one to fill. The one to fill is the chapter that just LEFT the window: its
+ * cut has started promising description/summary to the model and we have
+ * written neither. One rule, used by every seal path.
+ */
+export function chapterThatLeftTheWindow(
+  segmentation: DomainContextValue['segmentation']
+): ReturnType<DomainContextValue['segmentation']['listChapters']>[number] | null {
+  const all = segmentation.listChapters();
+  const leftWindow = all[all.length - IN_PROGRESS_CHAPTERS - 1];
+  if (!leftWindow) return null;
+  if (leftWindow.status !== 'completed') return null;
+  if (leftWindow.summary && leftWindow.description) return null;
+  return leftWindow;
+}
+
+/**
+ * Fill that chapter on EVERY seal, not just the manual split.
+ *
+ * This used to be inline in `handleDeclareChapter` alone, which is why a
+ * chapter sealed by the model's own `<topic_shift>` sat at "No summary yet"
+ * forever — that seal happens inside the stream, on a different code path.
+ * Both domain events fire after the chapter list is already updated, so one
+ * subscription covers split, topic_shift and anything sealed later.
+ *
+ * Cost: at most one model call per chapter, and only when a layer is actually
+ * missing (the guard above). Never re-summarizes a chapter that has both.
+ */
+export function useAutoSummarizeSealedChapters(
+  segmentation: DomainContextValue['segmentation'],
+  summarize: (chapterId: string) => Promise<void>
+): void {
+  const summarizeRef = React.useRef(summarize);
+  summarizeRef.current = summarize;
+
+  React.useEffect(() => {
+    const fillIfDue = () => {
+      const due = chapterThatLeftTheWindow(segmentation);
+      if (!due) return;
+      // Fire-and-forget: the chapter carries the "Writing summary…" chrome and,
+      // on failure, the Retry button — never an unhandled rejection.
+      void summarizeRef.current(due.id).catch(() => {});
+    };
+    return segmentation.subscribe((event) => {
+      if (event.type === 'chapterDeclared' || event.type === 'chapterSplit') fillIfDue();
+    });
+  }, [segmentation]);
+}
 
 export interface ChapterHandlerParams {
   timeline: DomainContextValue['timeline'];
@@ -53,18 +107,9 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
 
     segmentation.splitChapter(target.id, splitIndex, title);
 
-    // The sealed chapter joins the in-progress window (it is now one of the
-    // last chapters), so it still sends Full and must NOT be summarized. The
-    // chapter that just LEFT the window is the one whose cut now promises a
-    // sealed layer nobody wrote — fill that one in the background. Never block
-    // the split on a model call; the chapter shows the chrome until it lands.
-    const all = segmentation.listChapters();
-    const leftWindow = all[all.length - IN_PROGRESS_CHAPTERS - 1];
-    if (leftWindow && leftWindow.status === 'completed' && (!leftWindow.summary || !leftWindow.description)) {
-      // Fire-and-forget: the chapter carries the "Writing summary…" chrome and,
-      // on failure, the Retry button — never an unhandled rejection.
-      void handleSummarizeChapter(leftWindow.id).catch(() => {});
-    }
+    // Sealing a chapter also triggers the fill — but via
+    // useAutoSummarizeSealedChapters, which sees EVERY seal path (this split
+    // and the model's own <topic_shift>), not just this one.
   };
 
   // Summarize Chapter — the server returns the chapter's description (level 2)

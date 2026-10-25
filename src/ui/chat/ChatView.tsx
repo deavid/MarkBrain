@@ -897,6 +897,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       )}
                     </span>
 
+                    {/* Regenerate. "Write it" only shows when a layer is MISSING;
+                        a stale summary had no affordance at all. Same call — the
+                        model's text overwrites what is there — so this is the
+                        button that was absent, not a second code path. Hidden for
+                        in-progress chapters: they send Full, so anything written
+                        now is stale before the next turn lands. */}
+                    {!isChapterInProgress(chapterList, chapterIndex) && (
+                      <button
+                        type="button"
+                        data-testid="chapter-regenerate"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          triggerChapterSummarize(chapter.id);
+                        }}
+                        disabled={summarizingIds[chapter.id]}
+                        title="Re-run the chapter summary — replaces the description and summary with fresh ones"
+                        className="min-h-[24px] px-2 rounded-lg text-[10px] font-mono text-[#8ca3c7] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default shrink-0"
+                      >
+                        {summarizingIds[chapter.id] ? 'Writing…' : 'Regenerate'}
+                      </button>
+                    )}
+
                     {granularity !== 'title' && (
                       <button
                         type="button"

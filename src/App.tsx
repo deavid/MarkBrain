@@ -63,7 +63,7 @@ import { useDatabaseTransfer } from './ui/workspace/useDatabaseTransfer';
 import { usePairingTransfer } from './ui/workspace/usePairingTransfer';
 import { createArtifactHandlers } from './ui/artifacts/createArtifactHandlers';
 import { createGraphHandlers } from './ui/graph/createGraphHandlers';
-import { createChapterHandlers } from './ui/chat/createChapterHandlers';
+import { createChapterHandlers, useAutoSummarizeSealedChapters } from './ui/chat/createChapterHandlers';
 import { createCleanupHandlers } from './ui/cleanup/createCleanupHandlers';
 import { useThreadUi } from './ui/chat/useThreadUi';
 import { useThreadSwitcher } from './ui/chat/useThreadSwitcher';
@@ -620,6 +620,9 @@ export default function App() {
 
   const { handleDeclareChapter, handleSummarizeChapter, handleSetChapterGranularity } =
     createChapterHandlers({ timeline, segmentation });
+  // One rule for EVERY seal path: the manual split AND the model's own
+  // <topic_shift>, which used to leave its sealed chapter at "No summary yet".
+  useAutoSummarizeSealedChapters(segmentation, handleSummarizeChapter);
 
   const { setThreadsLifecycle, setArtifactsLifecycle, applyPlan } = createCleanupHandlers({
     artifactsDomain,

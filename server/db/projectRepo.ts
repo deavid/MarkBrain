@@ -13,6 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 import { getDb } from './index';
+import { enqueueIndex, deleteIndexRows } from '../jobs/serverArtifactIndexer';
 import type { ProjectSnapshot } from '../../src/services/stores/projectStore';
 import type { Turn } from '../../src/domains/01-dialogue-timeline/types';
 import type { ChapterPartition } from '../../src/domains/02-chapter-segmentation/types';
@@ -351,6 +352,8 @@ function upsertArtifact(db: Db, userId: number, projectId: string, doc: Universa
      ON CONFLICT(user_id, project_id, artifact_id) DO UPDATE SET
        doc_json = excluded.doc_json, updated_at = excluded.updated_at, revision = excluded.revision`
   ).run(userId, projectId, doc.id, JSON.stringify(doc), Date.now(), rev);
+  // 21F: server-side semantic indexing (FIFO, content-hash deduped).
+  enqueueIndex(userId, projectId, doc.id);
 }
 
 function upsertEdge(db: Db, userId: number, projectId: string, edge: SemanticEdge, rev: number): void {
@@ -482,6 +485,7 @@ export function applyAtomicMutation(
           break;
         case 'deleteArtifact': {
           db.prepare('DELETE FROM artifacts WHERE user_id = ? AND project_id = ? AND artifact_id = ?').run(userId, projectId, m.artifactId);
+          deleteIndexRows(userId, projectId, m.artifactId);
           recordTombstone(db, userId, projectId, 'artifact', m.artifactId, newRev);
           break;
         }

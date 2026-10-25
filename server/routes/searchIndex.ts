@@ -9,6 +9,12 @@
  */
 import type { Express, Request, Response } from 'express';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
+import { getIndexStatus } from '../jobs/serverArtifactIndexer';
+import { QueryVectorCache } from '../../src/domains/search/queryVectorCache';
+import { tokenizeForFts, cosineSimilarity } from '../../src/domains/search/draftSearchEngine';
+import { GoogleGenAI } from '@google/genai';
+import { resolveServerLaneKey, isVaultUnlocked } from '../lib/accountVault';
+import { getDb } from '../db';
 import { logServer } from '../lib/log';
 import type { GeneratedQaPair } from '../../src/services/searchIndexStore';
 import { tryRequireModelId } from '../lib/models';
@@ -350,4 +356,114 @@ export function registerSearchIndexRoutes(app: Express): void {
       res.status(quota ? 429 : 500).json({ error: message, quota });
     }
   });
+
+  /* ── 21F Part A §3: server semantic search ─────────────────────────── */
+  const queryCaches = new Map<number, QueryVectorCache>();
+  const cacheFor = (userId: number): QueryVectorCache => {
+    let c = queryCaches.get(userId);
+    if (!c) { c = new QueryVectorCache(64); queryCaches.set(userId, c); }
+    return c;
+  };
+
+  app.post('/api/projects/:projectId/search', async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const projectId = req.params.projectId;
+      const query = String(req.body?.query ?? '').trim();
+      if (!query) return res.status(400).json({ error: 'query is required' });
+      const topK = Math.min(Number(req.body?.topK ?? 12) || 12, 50);
+      const status = getIndexStatus(userId, projectId);
+
+      const db = getDb();
+      const rows = db
+        .prepare(
+          `SELECT s.artifact_id, s.section_id, s.heading, s.text, s.qa_json, s.section_vec_json, s.qa_vecs_json, a.doc_json
+           FROM artifact_index_sections s
+           JOIN artifacts a ON a.user_id = s.user_id AND a.project_id = s.project_id AND a.artifact_id = s.artifact_id
+           WHERE s.user_id = ? AND s.project_id = ?`
+        )
+        .all(userId, projectId) as Array<{
+        artifact_id: string; section_id: string; heading: string; text: string;
+        qa_json: string; section_vec_json: string; qa_vecs_json: string; doc_json: string;
+      }>;
+
+      if (rows.length === 0 || !isVaultUnlocked(userId)) {
+        return res.json({ results: [], indexStatus: status });
+      }
+
+      // One query embed, reused across tabs via the per-user near-dupe cache.
+      const embedModel = 'gemini-embedding-001'; // server-owned constant — never request-supplied (errors-are-final)
+      const cache = cacheFor(userId);
+      let hit = cache.get(query);
+      let queryVec: Float32Array;
+      if (hit) {
+        queryVec = hit.vectors[0];
+      } else {
+        const apiKey = resolveServerLaneKey(userId, 'embed', embedModel);
+        const client = new GoogleGenAI({ apiKey });
+        const response = await client.models.embedContent({
+          model: embedModel,
+          contents: query,
+          config: { taskType: 'RETRIEVAL_QUERY', outputDimensionality: 768 },
+        });
+        const values = response.embeddings?.[0]?.values ?? [];
+        const normed = l2Normalize(values);
+        cache.set(query, [Float32Array.from(normed)]);
+        queryVec = Float32Array.from(normed);
+      }
+
+      const qTokens = new Set(tokenizeForFts(query));
+      const scored = rows.map((row) => {
+        const secVecs = JSON.parse(row.section_vec_json || '[]') as number[][];
+        const qaVecs = JSON.parse(row.qa_vecs_json || '[]') as number[][];
+        const qas = JSON.parse(row.qa_json || '[]') as Array<{ question: string; answer: string }>;
+        let semantic = 0;
+        let matchedVia: 'section' | 'qa' = 'section';
+        if (secVecs.length) {
+          semantic = Math.max(semantic, cosineSimilarity(queryVec, Float32Array.from(secVecs[0])));
+        }
+        for (const qv of qaVecs) {
+          const c = cosineSimilarity(queryVec, Float32Array.from(qv));
+          if (c > semantic) { semantic = c; matchedVia = 'qa'; }
+        }
+        // Lexical overlap over section text + QA questions (hybrid term).
+        const lexTokens = tokenizeForFts(`${row.text} ${qas.map((q) => q.question).join(' ')}`);
+        const lexSet = new Set(lexTokens);
+        let overlap = 0;
+        for (const t of qTokens) if (lexSet.has(t)) overlap += 1;
+        const lexical = qTokens.size ? overlap / qTokens.size : 0;
+        const score = Math.min(1, semantic + 0.25 * lexical);
+        const title = (() => { try { return (JSON.parse(row.doc_json) as { title?: string }).title ?? ''; } catch { return ''; } })();
+        return {
+          artifactId: row.artifact_id,
+          title,
+          sectionId: row.section_id,
+          heading: row.heading,
+          snippet: row.text.replace(/\s+/g, ' ').slice(0, 180),
+          score,
+          matchedVia: lexical >= semantic ? (matchedVia === 'qa' ? 'qa' : 'section') : matchedVia,
+          _semantic: semantic,
+          _lexical: lexical,
+        };
+      });
+
+      const results = scored
+        .filter((r) => r.score > 0.05 || r._semantic > 0.2 || r._lexical > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topK)
+        .map(({ _semantic, _lexical, ...rest }) => { void _semantic; void _lexical; return rest; });
+
+      res.json({ results, indexStatus: getIndexStatus(userId, projectId) });
+    } catch (err) {
+      if (err instanceof VaultLockedError || err instanceof NoKeyError) return sendVaultError(res, err);
+      const message = err instanceof Error ? err.message : 'Search failed';
+      logServer('error', 'API:SEARCH', `project search failed: ${message}`, err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get('/api/projects/:projectId/search/status', (req: Request, res: Response) => {
+    res.json(getIndexStatus(req.user!.id, req.params.projectId));
+  });
+
 }

@@ -51,7 +51,7 @@ import type { QueryCacheHit } from './domains/search/queryVectorCache';
 import type { ArtifactMatchResult } from './domains/search/draftSearchEngine';
 import { loadProjectSearchIndex } from './services/searchIndexStore';
 import type { ArtifactSearchIndexRecord } from './services/searchIndexStore';
-import { indexProjectArtifacts, indexSingleArtifact } from './application/artifactIndexer';
+import { indexProjectArtifacts, indexSingleArtifact, shouldIndexInBrowser } from './application/artifactIndexer';
 import type { IndexAbortSignal } from './application/artifactIndexer';
 
 // Feature-slice modules — handlers/projections extracted from this file
@@ -460,6 +460,7 @@ export default function App() {
   const [indexFailures, setIndexFailures] = useState<{ title: string; message: string }[]>([]);
 
   const handleIndexAll = (force: boolean) => {
+    if (!shouldIndexInBrowser()) return; // local mode: lexical only, 0 embed calls (21F §1)
     if (indexAbortRef.current) return;
     const signal: IndexAbortSignal = { aborted: false };
     indexAbortRef.current = signal;
@@ -512,6 +513,7 @@ export default function App() {
   // Single-document runner behind the detail modal's Q&A Index tab.
   const [indexArtifactProgress, setIndexArtifactProgress] = useState<string | null>(null);
   const handleIndexArtifact = (artifactId: string) => {
+    if (!shouldIndexInBrowser()) return; // local mode: lexical only (21F §1)
     if (indexArtifactProgress || indexAbortRef.current) return;
     const art = artifactsDomain.getArtifact(artifactId);
     if (!art) return;
@@ -810,7 +812,8 @@ export default function App() {
               onSearchConfigChange={handleSearchConfigChange}
               searchIndexMap={searchIndexMap}
               draftResults={draftResults}
-              indexProgress={indexProgress}
+              indexProgress={shouldIndexInBrowser() ? indexProgress : null}
+              semanticIndexingEnabled={shouldIndexInBrowser()}
               indexFailures={indexFailures}
               queryEmbedNote={queryEmbedNote}
               onIndexAll={handleIndexAll}

@@ -505,6 +505,45 @@ export const ChatView: React.FC<ChatViewProps> = ({
         model: getModelForSlot('tts'),
       });
 
+      // 21F: VPS serves compact audio/ogg straight from the disk cache
+      // (X-Tts-Cache: HIT|MISS). Local/direct still answers JSON PCM.
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.startsWith('audio/ogg')) {
+        const blob = await res.blob();
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+        audioRef.current = audio;
+        ttsTransport.setAudio(audio);
+        audio.onended = () => {
+          setPlayingMessageId(null);
+          audioRef.current = null;
+          URL.revokeObjectURL(audioUrl);
+          ttsTransport.end();
+        };
+        audio.onerror = () => {
+          logger.warn('ChatView', 'TTS ogg playback failed, falling back to browser speech');
+          audioRef.current = null;
+          URL.revokeObjectURL(audioUrl);
+          ttsTransport.end();
+          fallbackSpeech(message.content, message.id);
+        };
+        try {
+          await audio.play();
+          ttsTransport.playing({
+            duration: Number.isFinite(audio.duration) ? audio.duration : 0,
+            seekable: true,
+          });
+          setPlayingMessageId(message.id);
+        } catch (playErr) {
+          logger.warn('ChatView', 'TTS ogg play() refused, falling back to web speech', playErr);
+          audioRef.current = null;
+          URL.revokeObjectURL(audioUrl);
+          ttsTransport.end();
+          fallbackSpeech(message.content, message.id);
+        }
+        return;
+      }
+
       const data = await res.json();
 
       if (data.audioData) {

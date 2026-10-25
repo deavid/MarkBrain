@@ -32,6 +32,19 @@ import {
   type GeneratedQaPair,
 } from '../services/searchIndexStore';
 import { embedTexts, generateArtifactQa } from '../gateway/api';
+import { getWorkspaceMode } from '../services/workspaceSession';
+
+/**
+ * 21F §1: Local Workspace NEVER builds vector embeddings in the browser —
+ * its search is the zero-quota lexical scorer over in-memory artifacts.
+ * Connected mode owns indexing on the VPS (serverArtifactIndexer); the
+ * browser runner remains an explicit PC action only outside local mode.
+ */
+export function shouldIndexInBrowser(): boolean {
+  // Only Connected mode may touch the browser runner (explicit PC action).
+  // Absent mode (AuthGate) and local mode are lexical-only.
+  return getWorkspaceMode() === 'vps';
+}
 import { getModelForSlot } from '../data/modelConfig';
 
 /** The QA route's own ceiling — kept in sync with server/routes/searchIndex.ts. */

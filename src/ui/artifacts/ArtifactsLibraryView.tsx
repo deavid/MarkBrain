@@ -62,6 +62,8 @@ interface ArtifactsLibraryViewProps {
   /** Live scores from App's 350ms tier; sorted best-first, archived excluded. */
   draftResults: ArtifactMatchResult[];
   indexProgress: IndexProgress | null;
+  /** 21F §1: false in Local mode — hides the semantic index counter/controls/banner. */
+  semanticIndexingEnabled?: boolean;
   /** Notes that could not be indexed. Stays until the next run — see the panel. */
   indexFailures?: { title: string; message: string }[];
   /** Last query-embed decision: fresh, or reused from a previous query. */
@@ -134,6 +136,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
   draftResults,
   indexProgress,
   indexFailures = [],
+  semanticIndexingEnabled = true,
   queryEmbedNote = null,
   onIndexAll,
   onStopIndexing,
@@ -421,7 +424,9 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
       </div>
 
       {/* 4. Index status + runner. Q&A and vectors live only in IndexedDB
-          (LAW 2); this button is the only thing that writes them. */}
+          (LAW 2); this button is the only thing that writes them.
+          Hidden entirely in Local mode — no embeddings, lexical search only (21F §1). */}
+      {semanticIndexingEnabled && (
       <div className="bg-surface-2 rounded-xl p-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[11px] font-mono text-ink-dim" data-testid="index-status">
@@ -523,6 +528,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* 5. The flat ranking — suggested first, everything else underneath. */}
       {draftResults.length === 0 && (

@@ -174,6 +174,29 @@ describe('21B §8.5 — keys encrypt at rest, redact over the wire', () => {
     expect(r.body.vaultUnlocked).toBe(true);
     expect(JSON.stringify(r.body)).not.toContain(FAKE_GEMINI_KEY);
   });
+
+  it('redaction shape covers all FOUR slots (design 24 §1: OpenRouter split free/paid)', async () => {
+    const put = await api('/api/account/keys', {
+      method: 'PUT',
+      token: ownerToken,
+      body: { slot: 'openrouter-free', apiKey: 'sk-or-TESTKEY0000000000000000000000000' },
+    });
+    expect(put.status).toBe(200);
+    expect(Object.keys(put.body.keys).sort()).toEqual(
+      ['gemini-free', 'gemini-paid', 'openrouter-free', 'openrouter-paid'].sort()
+    );
+    expect(put.body.keys['openrouter-free'].configured).toBe(true);
+    expect(put.body.keys['openrouter-paid']).toEqual({ configured: false, hint: null });
+
+    // The rejected legacy slot id must not sneak back in.
+    const legacy = await api('/api/account/keys', {
+      method: 'PUT',
+      token: ownerToken,
+      body: { slot: 'openrouter', apiKey: 'sk-or-legacy' },
+    });
+    expect(legacy.status).toBe(400);
+    expect(legacy.body.error).toContain('openrouter-free');
+  });
 });
 
 describe('21B §8.6 — restart locks the vault; unlock restores the keys', () => {

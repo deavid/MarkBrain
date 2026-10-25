@@ -91,8 +91,14 @@ function optionsFor(slot: ModelSlot, catalog: ModalCatalogEntry[]): ModalCatalog
 }
 
 function keySlotPlaceholder(id: KeySlotId): string {
-  return id === 'openrouter' ? 'sk-or-…' : 'AIza…';
+  return id.startsWith('openrouter') ? 'sk-or-…' : 'AIza…';
 }
+
+/** Slot-shaped records are built from KEY_SLOTS so the 4-slot split (design-docs/24 §1) can't drift. */
+const emptyKeyRecord = (): Record<KeySlotId, string> =>
+  Object.fromEntries(KEY_SLOTS.map((id) => [id, ''])) as Record<KeySlotId, string>;
+const emptyShownRecord = (): Record<KeySlotId, boolean> =>
+  Object.fromEntries(KEY_SLOTS.map((id) => [id, false])) as Record<KeySlotId, boolean>;
 
 /** Honest tier copy (David 2026-10-25): tier is account-wide, not chat-only. */
 const TIER_HINT =
@@ -103,16 +109,8 @@ const HINT_LOCAL = TIER_HINT;
 export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, onClose, catalog }) => {
   const [slots, setSlots] = useState<ModelSlotConfig>(DEFAULT_MODEL_SLOTS);
   const [liveCatalog, setLiveCatalog] = useState<ModalCatalogEntry[]>(catalog);
-  const [keyValues, setKeyValues] = useState<Record<KeySlotId, string>>({
-    'gemini-free': '',
-    'gemini-paid': '',
-    openrouter: '',
-  });
-  const [shownKeys, setShownKeys] = useState<Record<KeySlotId, boolean>>({
-    'gemini-free': false,
-    'gemini-paid': false,
-    openrouter: false,
-  });
+  const [keyValues, setKeyValues] = useState<Record<KeySlotId, string>>(emptyKeyRecord);
+  const [shownKeys, setShownKeys] = useState<Record<KeySlotId, boolean>>(emptyShownRecord);
   const [laneKeys, setLaneKeys] = useState<Record<string, LaneKeyChoice>>({});
   const [tab, setTab] = useState<'models' | 'keys' | 'users'>('models');
   const [mode, setMode] = useState<'local' | 'vps'>('local');
@@ -127,11 +125,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
   const [vpsSettings, setVpsSettings] = useState<AccountSettingsResponse | null>(null);
   const [vpsUnlockPw, setVpsUnlockPw] = useState('');
   const [vpsKeysError, setVpsKeysError] = useState<string | null>(null);
-  const [vpsSlotDrafts, setVpsSlotDrafts] = useState<Record<KeySlotId, string>>({
-    'gemini-free': '',
-    'gemini-paid': '',
-    openrouter: '',
-  });
+  const [vpsSlotDrafts, setVpsSlotDrafts] = useState<Record<KeySlotId, string>>(emptyKeyRecord);
 
   // ── users (owner) state ──
   const [users, setUsers] = useState<AdminUserRow[] | null>(null);
@@ -150,7 +144,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
   };
 
   const refreshKeyValues = () => {
-    const filled: Record<KeySlotId, string> = { 'gemini-free': '', 'gemini-paid': '', openrouter: '' };
+    const filled = emptyKeyRecord();
     for (const id of KEY_SLOTS) filled[id] = getKeySlot(id) ?? '';
     setKeyValues(filled);
   };

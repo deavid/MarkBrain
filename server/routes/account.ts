@@ -21,6 +21,7 @@ import {
   readKeysPayload,
   writeKeysPayload,
   redactKeys,
+  KEY_SLOTS,
   VaultLockedError,
   type AccountKeysPayload,
   type KeySlotId,
@@ -145,7 +146,8 @@ function readSettings(userId: number): { modelSlots: Record<string, string>; cha
   return { modelSlots, chatTier: row?.chat_tier ?? 'free' };
 }
 
-const VALID_SLOTS: KeySlotId[] = ['gemini-free', 'gemini-paid', 'openrouter'];
+// Four slots (design-docs/24 §1) — mirrors KEY_SLOTS from the vault module.
+const VALID_SLOTS: KeySlotId[] = [...KEY_SLOTS];
 
 export function registerAccountRoutes(app: Express): void {
   // ── POST /api/auth/login (public) ────────────────────────────────────────

@@ -16,12 +16,29 @@ import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 import { GoogleGenAI } from '@google/genai';
 import { getDb } from '../db';
+import { OpenRouterClient, isOpenRouterModel } from '../providers/openrouter';
+import type { LaneAiSurface } from '../providers/lane';
 
-export type KeySlotId = 'gemini-free' | 'gemini-paid' | 'openrouter';
+// Four key slots (design-docs/24 §1): the OpenRouter slot split into free/paid,
+// mirroring the Gemini pair. `openrouter` survives as a LEGACY read alias only.
+export type KeySlotId = 'gemini-free' | 'gemini-paid' | 'openrouter-free' | 'openrouter-paid';
+
+export const KEY_SLOTS: readonly KeySlotId[] = [
+  'gemini-free',
+  'gemini-paid',
+  'openrouter-free',
+  'openrouter-paid',
+];
+
+/** The pre-split slot id — read-path only; writes always use the new ids. */
+export type LegacyKeySlotId = 'openrouter';
 
 export interface AccountKeysPayload {
   'gemini-free'?: string;
   'gemini-paid'?: string;
+  'openrouter-free'?: string;
+  'openrouter-paid'?: string;
+  /** Legacy pre-split OpenRouter key. Reads as openrouter-free; never written. */
   openrouter?: string;
 }
 
@@ -148,7 +165,14 @@ export function readKeysPayload(userId: number): AccountKeysPayload | null {
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, row.iv);
   decipher.setAuthTag(row.auth_tag);
   const plaintext = Buffer.concat([decipher.update(row.ciphertext), decipher.final()]);
-  return JSON.parse(plaintext.toString('utf8')) as AccountKeysPayload;
+  const payload = JSON.parse(plaintext.toString('utf8')) as AccountKeysPayload;
+  // Legacy read-path (design-docs/24 §1): a pre-split payload's `openrouter`
+  // slot reads as `openrouter-free`. The write path only ever stores new ids —
+  // the next PUT /api/account/keys save rewrites the payload in the new shape.
+  if (payload.openrouter && !payload['openrouter-free']) {
+    payload['openrouter-free'] = payload.openrouter;
+  }
+  return payload;
 }
 
 /** Fresh iv on every save (§3.3). Returns the payload for chaining. */
@@ -197,7 +221,7 @@ export function keyHint(key: string | undefined): string | null {
 }
 
 export function redactKeys(payload: AccountKeysPayload | null): Record<KeySlotId, { configured: boolean; hint: string | null }> {
-  const slots: KeySlotId[] = ['gemini-free', 'gemini-paid', 'openrouter'];
+  const slots: KeySlotId[] = [...KEY_SLOTS];
   const out = {} as Record<KeySlotId, { configured: boolean; hint: string | null }>;
   for (const slot of slots) {
     const key = payload?.[slot];
@@ -217,9 +241,23 @@ export function resolveServerLaneKey(userId: number, capability: LaneCapability,
     .get(userId) as { chat_tier: string } | undefined;
   const chatTier = tierRow?.chat_tier ?? 'free';
 
-  // OpenRouter models carry a provider prefix (`vendor/model`).
-  if (modelId.includes('/')) {
-    if (payload.openrouter) return payload.openrouter;
+  // OpenRouter models carry a provider prefix (`vendor/model`). The same tier
+  // law as Gemini (design-docs/24 §2): PAID tier prefers the paid key on every
+  // lane, FREE tier prefers the free key — each falling back to the other, then
+  // to the legacy pre-split `openrouter` slot.
+  if (isOpenRouterModel(modelId)) {
+    const orFree = payload['openrouter-free'];
+    const orPaid = payload['openrouter-paid'];
+    const legacy = payload.openrouter;
+    if (chatTier === 'paid') {
+      if (orPaid) return orPaid;
+      if (orFree) return orFree;
+      if (legacy) return legacy;
+    } else {
+      if (orFree) return orFree;
+      if (orPaid) return orPaid;
+      if (legacy) return legacy;
+    }
     throw new NoKeyError('openrouter');
   }
 
@@ -238,15 +276,51 @@ export function resolveServerLaneKey(userId: number, capability: LaneCapability,
 
 // ── Per-request AI client (§7.3) ────────────────────────────────────────────
 
+/** Either provider, behind the identical call surface (design-docs/24 §4). */
+export type LaneAiClient = GoogleGenAI | OpenRouterClient;
+
+function clientForApiKey(modelId: string, apiKey: string): LaneAiClient {
+  return isOpenRouterModel(modelId) ? new OpenRouterClient(apiKey) : new GoogleGenAI({ apiKey });
+}
+
 /**
  * Build the caller's AI client for this request: requires an authenticated
  * user (requireAuth), an unlocked vault (else 428), and a configured lane key
  * (else 400 NO_API_KEY). Never reads process.env.
+ *
+ * Facade (design-docs/24 §4): a `/`-shaped model id returns the OpenRouter
+ * client; everything else stays GoogleGenAI. Both expose
+ * models.generateContent / models.generateContentStream yielding `{text}`.
  */
-export function aiForRequest(req: Request, capability: LaneCapability, modelId: string): GoogleGenAI {
+export function aiForRequest(req: Request, capability: LaneCapability, modelId: string): LaneAiClient {
   const user = req.user;
   if (!user) throw new VaultLockedError(); // requireAuth should have caught this; fail closed
   if (!isVaultUnlocked(user.id)) throw new VaultLockedError();
   const apiKey = resolveServerLaneKey(user.id, capability, modelId);
+  return clientForApiKey(modelId, apiKey);
+}
+
+/** Same law, keyed by userId — the job runner has no Request (21E: decoupled). */
+export function aiClientForUser(userId: number, capability: LaneCapability, modelId: string): LaneAiClient {
+  if (!isVaultUnlocked(userId)) throw new VaultLockedError();
+  const apiKey = resolveServerLaneKey(userId, capability, modelId);
+  return clientForApiKey(modelId, apiKey);
+}
+
+/**
+ * Gemini-only lanes (embed, tts): the raw GoogleGenAI client. The catalog
+ * caps those lanes to Gemini model ids, so an OpenRouter id here is a hard
+ * error, never a silent swap (errors are final).
+ */
+export function geminiAiForRequest(req: Request, capability: LaneCapability, modelId: string): GoogleGenAI {
+  if (isOpenRouterModel(modelId)) {
+    throw new Error(`Model "${modelId}" is not available for ${capability} on this server.`);
+  }
+  const user = req.user;
+  if (!user) throw new VaultLockedError();
+  if (!isVaultUnlocked(user.id)) throw new VaultLockedError();
+  const apiKey = resolveServerLaneKey(user.id, capability, modelId);
   return new GoogleGenAI({ apiKey });
 }
+
+export type { LaneAiSurface };

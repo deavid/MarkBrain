@@ -3,15 +3,16 @@
 // routes to validate incoming model ids per CAPABILITY, so the allowlist and
 // the catalog cannot diverge.
 //
-// This is the seam OpenRouter will slot into later: entries carry a `provider`
-// field ('gemini' for now). Deliberately NO provider abstraction, routing
-// tables, or caching — keep it dead simple. (design-docs/16, Phase 0.)
+// OpenRouter slots in here (design-docs/24 §3): entries carry a `provider`
+// field, and vendor-prefixed ids (`vendor/model`) route to the OpenRouter
+// client behind the aiForRequest facade. Deliberately NO provider abstraction
+// beyond that, no routing tables, no caching — keep it dead simple.
 //
 // Every entry declares which capability lanes it may serve. An embeddings
 // model must never answer a chat request and vice versa — a typo in the client
 // surfaces as a hard error (see requireModelId) — errors are final, no swap.
 
-export type ModelProvider = 'gemini';
+export type ModelProvider = 'gemini' | 'openrouter';
 
 /**
  * The seven lanes of design-docs/16 §3.1. A model lists the lanes it can
@@ -86,6 +87,46 @@ const CATALOG_ENTRIES: ReadonlyArray<Omit<CatalogModel, 'available'>> = [
     costMultiplier: 2.0,
   },
   {
+    // The agent's burn-lane model (David 2026-10-25): super fast, 1M context,
+    // free tier on OpenRouter. Signs with the openrouter-free slot.
+    id: 'nvidia/nemotron-3.5-lightning:free',
+    provider: 'openrouter',
+    capabilities: [...GENERATE_LANES],
+    name: 'Nvidia: Nemotron 3.5 Lightning',
+    badge: 'Lightning',
+    powerRating: 3,
+    latency: 'Ultra-fast',
+    contextWindow: '1M',
+    description: 'Super-fast free-tier workhorse with a 1M-token window — the burn lane for high-volume agent work.',
+    costMultiplier: 0,
+  },
+  {
+    // David-curated cheap-paid pair (design-docs/24 §3). Paid tier routes
+    // these to the openrouter-paid slot; both are cheap flash-class models.
+    id: 'z-ai/glm-5.3-flash',
+    provider: 'openrouter',
+    capabilities: [...GENERATE_LANES],
+    name: 'Z.AI: GLM 5.3 Flash',
+    badge: 'Flash',
+    powerRating: 3,
+    latency: 'Fast',
+    contextWindow: '—',
+    description: 'Cheap paid-tier flash model — general reasoning at a low cost per call.',
+    costMultiplier: 0.3,
+  },
+  {
+    id: 'xiaomi/mimo-v2.6-flash',
+    provider: 'openrouter',
+    capabilities: [...GENERATE_LANES],
+    name: 'Xiaomi: MiMo v2.6 Flash',
+    badge: 'Flash',
+    powerRating: 3,
+    latency: 'Fast',
+    contextWindow: '—',
+    description: 'Cheap paid-tier flash model — quick replies and extraction at a low cost per call.',
+    costMultiplier: 0.3,
+  },
+  {
     id: 'gemini-embedding-001',
     provider: 'gemini',
     capabilities: ['embed'],
@@ -127,6 +168,7 @@ const CAPABILITY_DEFAULTS: Record<ModelCapability, string> = {
 function isProviderAvailable(provider: ModelProvider): boolean {
   switch (provider) {
     case 'gemini':
+    case 'openrouter':
       // Keys are per-user vault entries now (design-docs/21B), never env —
       // the catalog is always offered; whether a call succeeds depends on
       // the caller's own configured slots.

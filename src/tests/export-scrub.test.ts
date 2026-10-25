@@ -50,7 +50,7 @@ afterEach(() => {
 async function seedKeys() {
   setKeySlot('gemini-free', SECRET_FREE);
   setKeySlot('gemini-paid', SECRET_PAID);
-  setKeySlot('openrouter', SECRET_OR);
+  setKeySlot('openrouter-free', SECRET_OR);
   await sealLocalVault();
   expect(getKeySlot('gemini-free')).toBe(SECRET_FREE); // sanity: seeding worked
 }

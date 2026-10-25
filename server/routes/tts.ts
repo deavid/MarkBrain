@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import type { Express, Request, Response } from 'express';
 import { logServer } from '../lib/log';
 import { requireModelId } from '../lib/models';
-import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
+import { geminiAiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import {
   computeTtsCacheKey,
   getCachedTtsAudio,
@@ -48,7 +48,7 @@ export function registerTtsRoutes(app: Express): void {
       }
 
       // 2. Upstream generate (per-user vault key; 428 when locked).
-      const ai = aiForRequest(req, 'tts', ttsModel);
+      const ai = geminiAiForRequest(req, 'tts', ttsModel);
       const response = await ai.models.generateContent({
         model: ttsModel,
         contents: [

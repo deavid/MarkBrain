@@ -15,7 +15,9 @@ initDb(':memory:');
 
 const FREE_KEY = 'AIzaFREE000000000000000000000000000';
 const PAID_KEY = 'AIzaPAID111111111111111111111111111';
-const OR_KEY = 'sk-or-OPEN22222222222222222222222222';
+const OR_FREE_KEY = 'sk-or-FREE2222222222222222222222222';
+const OR_PAID_KEY = 'sk-or-PAID3333333333333333333333333';
+const OR_LEGACY_KEY = 'sk-or-LEGACY44444444444444444444444';
 
 const { createUser, findUserByEmail } = await import('../../server/lib/users');
 const { unlockVaultWithPassword, writeKeysPayload, readKeysPayload, resolveServerLaneKey, NoKeyError } = await import(
@@ -35,11 +37,20 @@ function setTier(tier: 'free' | 'paid'): void {
     .run(userId, tier, Date.now());
 }
 
-function seedKeys(free: string | null, paid: string | null, openrouter: string | null = null): void {
+function seedKeys(
+  free: string | null,
+  paid: string | null,
+  orFree: string | null = null,
+  orPaid: string | null = null,
+  legacyOpenrouter: string | null = null
+): void {
   const payload: Record<string, string | undefined> = {};
   if (free) payload['gemini-free'] = free;
   if (paid) payload['gemini-paid'] = paid;
-  if (openrouter) payload.openrouter = openrouter;
+  if (orFree) payload['openrouter-free'] = orFree;
+  if (orPaid) payload['openrouter-paid'] = orPaid;
+  // Legacy pre-split slot (design-docs/24 §1) — reads as openrouter-free.
+  if (legacyOpenrouter) payload.openrouter = legacyOpenrouter;
   // writeKeysPayload replaces wholesale — exactly the PUT /api/account/keys shape.
   writeKeysPayload(userId, payload as never);
 }
@@ -91,12 +102,44 @@ describe('server: tier is account-wide (every Gemini lane)', () => {
     }
   });
 
-  it('OpenRouter models always sign with the openrouter key, tier-independent', () => {
-    seedKeys(FREE_KEY, PAID_KEY, OR_KEY);
+  it('OpenRouter tier law (design 24 §2): PAID tier → openrouter-paid on every lane', () => {
+    seedKeys(null, null, OR_FREE_KEY, OR_PAID_KEY);
     setTier('paid');
-    expect(resolveServerLaneKey(userId, 'chat', 'openai/gpt-5')).toBe(OR_KEY);
+    for (const model of ['nvidia/nemotron-3.5-lightning:free', 'z-ai/glm-5.3-flash', 'xiaomi/mimo-v2.6-flash']) {
+      expect(resolveServerLaneKey(userId, 'chat', model), model).toBe(OR_PAID_KEY);
+    }
+  });
+
+  it('FREE tier → openrouter-free, falling back to paid when the free slot is empty', () => {
+    seedKeys(null, null, OR_FREE_KEY, OR_PAID_KEY);
     setTier('free');
-    expect(resolveServerLaneKey(userId, 'embed', 'openai/gpt-5')).toBe(OR_KEY);
+    expect(resolveServerLaneKey(userId, 'chat', 'nvidia/nemotron-3.5-lightning:free')).toBe(OR_FREE_KEY);
+
+    seedKeys(null, null, null, OR_PAID_KEY);
+    setTier('free');
+    expect(resolveServerLaneKey(userId, 'chat', 'nvidia/nemotron-3.5-lightning:free')).toBe(OR_PAID_KEY);
+  });
+
+  it('PAID tier falls back to openrouter-free when the paid slot is empty', () => {
+    seedKeys(null, null, OR_FREE_KEY, null);
+    setTier('paid');
+    expect(resolveServerLaneKey(userId, 'chat', 'z-ai/glm-5.3-flash')).toBe(OR_FREE_KEY);
+  });
+
+  it('legacy `openrouter` payload reads as openrouter-free (both tiers)', () => {
+    seedKeys(null, null, null, null, OR_LEGACY_KEY);
+    setTier('free');
+    expect(resolveServerLaneKey(userId, 'chat', 'nvidia/nemotron-3.5-lightning:free')).toBe(OR_LEGACY_KEY);
+    setTier('paid');
+    expect(resolveServerLaneKey(userId, 'chat', 'z-ai/glm-5.3-flash')).toBe(OR_LEGACY_KEY);
+    // The read normalizes the slot into the new shape (write path never sees the legacy id).
+    expect(readKeysPayload(userId)?.['openrouter-free']).toBe(OR_LEGACY_KEY);
+  });
+
+  it('no OpenRouter key of any shape → honest NoKeyError naming the provider', () => {
+    seedKeys(FREE_KEY, PAID_KEY);
+    setTier('paid');
+    expect(() => resolveServerLaneKey(userId, 'chat', 'nvidia/nemotron-3.5-lightning:free')).toThrow(NoKeyError);
   });
 
   it('no keys configured → honest NoKeyError naming the provider', () => {

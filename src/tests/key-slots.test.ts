@@ -30,6 +30,7 @@ import {
   sealLocalVault,
   hasSavedLocalVault,
   setPbkdf2IterationsForTests,
+  setVaultChatTier,
 } from '../data/localKeyVault';
 import { setWorkspaceMode, clearWorkspaceMode, saveVpsSession, clearVpsSession } from '../services/workspaceSession';
 
@@ -95,15 +96,15 @@ describe('key slots are optional (D9)', () => {
 
   it('trims pasted keys but stores them verbatim otherwise', async () => {
     await freshVault();
-    setKeySlot('openrouter', '  sk-or-abc123  ');
-    expect(getKeySlot('openrouter')).toBe('sk-or-abc123');
+    setKeySlot('openrouter-free', '  sk-or-abc123  ');
+    expect(getKeySlot('openrouter-free')).toBe('sk-or-abc123');
   });
 });
 
 describe('lane binding never crosses providers', () => {
   it('routes gemini models to gemini keys only', async () => {
     await freshVault();
-    setKeySlot('openrouter', 'sk-or-abc');
+    setKeySlot('openrouter-free', 'sk-or-abc');
     expect(providerOfModel('gemini-3.8-flash')).toBe('gemini');
     expect(resolveLaneKey('chat', 'gemini-3.8-flash')).toBeNull(); // OR key cannot sign it
   });
@@ -135,14 +136,14 @@ describe('lane binding never crosses providers', () => {
     expect(resolveLaneKey('chat', 'gemini-3.5-flash-lite')?.keySlot).toBe('gemini-free');
 
     // A binding for the wrong provider is ignored entirely.
-    setLaneKey('extract', 'openrouter');
+    setLaneKey('extract', 'openrouter-free');
     expect(resolveLaneKey('extract', 'gemini-3.5-flash-lite')?.keySlot).toBe('gemini-free');
     expect(storage.has('markbrain:laneKeys')).toBe(true);
   });
 
   it('auto never leaks a key from the other provider', async () => {
     await freshVault();
-    setKeySlot('openrouter', 'sk-or-abc');
+    setKeySlot('openrouter-free', 'sk-or-abc');
     expect(resolveLaneKey('embed', 'gemini-embedding-001')).toBeNull();
   });
 });
@@ -163,8 +164,49 @@ describe('lane binding persistence', () => {
 });
 
 describe('key slot inventory', () => {
-  it('declares exactly the three slots of D8', () => {
-    expect([...KEY_SLOTS]).toEqual(['gemini-free', 'gemini-paid', 'openrouter']);
+  it('declares exactly the four slots of D8 + design 24 (OpenRouter split free/paid)', () => {
+    expect([...KEY_SLOTS]).toEqual(['gemini-free', 'gemini-paid', 'openrouter-free', 'openrouter-paid']);
+  });
+});
+
+describe('OpenRouter tier order mirrors the Gemini law (design 24 §2)', () => {
+  it('FREE tier auto-picks openrouter-free before openrouter-paid', async () => {
+    await freshVault();
+    setKeySlot('openrouter-free', 'sk-or-free');
+    setKeySlot('openrouter-paid', 'sk-or-paid');
+    expect(resolveLaneKey('chat', 'nvidia/nemotron-3.5-lightning:free')?.keySlot).toBe('openrouter-free');
+  });
+
+  it('PAID tier auto-picks openrouter-paid on every OpenRouter lane', async () => {
+    await freshVault();
+    setKeySlot('openrouter-free', 'sk-or-free');
+    setKeySlot('openrouter-paid', 'sk-or-paid');
+    await setVaultChatTier('paid');
+    for (const model of ['nvidia/nemotron-3.5-lightning:free', 'z-ai/glm-5.3-flash', 'openai/gpt-5']) {
+      expect(resolveLaneKey('chat', model)?.keySlot, model).toBe('openrouter-paid');
+    }
+  });
+
+  it('PAID tier with an empty paid slot falls back to the free key', async () => {
+    await freshVault();
+    setKeySlot('openrouter-free', 'sk-or-free');
+    await setVaultChatTier('paid');
+    expect(resolveLaneKey('chat', 'nvidia/nemotron-3.5-lightning:free')?.keySlot).toBe('openrouter-free');
+  });
+
+  it('FREE tier with only the paid slot filled falls back to it', async () => {
+    await freshVault();
+    setKeySlot('openrouter-paid', 'sk-or-paid');
+    await setVaultChatTier('free');
+    expect(resolveLaneKey('chat', 'nvidia/nemotron-3.5-lightning:free')?.keySlot).toBe('openrouter-paid');
+  });
+
+  it('the tier order never leaks across providers', async () => {
+    await freshVault();
+    setKeySlot('openrouter-free', 'sk-or-free');
+    setKeySlot('openrouter-paid', 'sk-or-paid');
+    await setVaultChatTier('paid');
+    expect(resolveLaneKey('chat', 'gemini-3.5-flash-lite')).toBeNull();
   });
 });
 
@@ -172,11 +214,11 @@ describe('mode isolation (21C §2.2)', () => {
   it('plaintext markbrain:keys:* leftovers NEVER sign — vault RAM is the only source', async () => {
     stubWindow({
       'markbrain:keys:gemini-free': 'AIzaLEFTOVER-JUNK',
-      'markbrain:keys:openrouter': 'sk-or-LEFTOVER',
+      'markbrain:keys:openrouter-free': 'sk-or-LEFTOVER',
       'markbrain:laneKeys': JSON.stringify({ chat: 'gemini-free' }),
     });
     expect(getKeySlot('gemini-free')).toBeNull();
-    expect(getKeySlot('openrouter')).toBeNull();
+    expect(getKeySlot('openrouter-free')).toBeNull();
     expect(listFilledKeySlots()).toEqual([]);
     expect(anyKeyConfigured()).toBe(false);
     expect(resolveLaneKey('chat', 'gemini-3.5-flash-lite')).toBeNull();

@@ -7,6 +7,7 @@
  * client as its first argument so call sites cannot fall back to a global.
  */
 import { GoogleGenAI } from '@google/genai';
+import type { LaneAiSurface } from './lane';
 
 export type { GoogleGenAI };
 
@@ -16,7 +17,7 @@ export function createGeminiClient(apiKey: string): GoogleGenAI {
 }
 
 export async function streamFromModel(
-  client: GoogleGenAI,
+  client: LaneAiSurface,
   modelName: string,
   contents: string,
   systemInstruction: string,

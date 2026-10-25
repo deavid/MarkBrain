@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
-import type { GoogleGenAI } from '../providers/gemini';
 import { streamFromModel } from '../providers/gemini';
+import type { LaneAiClient } from '../lib/accountVault';
 import { logServer } from '../lib/log';
 import { estimateTokens } from '../lib/tokens';
 import { DEFAULT_SYSTEM_INSTRUCTION, buildCompiledPrompt } from '../lib/prompt';
@@ -27,7 +27,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     systemInstruction: clientSystemInstruction,
   } = req.body ?? {};
   let targetModel: string;
-  let ai: GoogleGenAI;
+  let ai: LaneAiClient;
   try {
     targetModel = requireModelId(model, 'chat');
     ai = aiForRequest(req, 'chat', targetModel);

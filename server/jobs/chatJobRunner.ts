@@ -9,14 +9,14 @@
  * partial preserved for Retry / Store-as-is / Discard.
  */
 import type { Response } from 'express';
-import { GoogleGenAI } from '@google/genai';
 import { getDb } from '../db/index';
 import {
-  resolveServerLaneKey,
+  aiClientForUser,
   isVaultUnlocked,
   VaultLockedError,
   NoKeyError,
 } from '../lib/accountVault';
+import type { LaneAiClient } from '../lib/accountVault';
 import { requireModelId } from '../lib/models';
 import { logServer } from '../lib/log';
 import { buildSummarizePrompt, DEFAULT_SYSTEM_INSTRUCTION } from '../lib/prompt';
@@ -241,8 +241,9 @@ export async function runJob(jobId: string): Promise<void> {
 
   try {
     const model = requireModelId(job.model, 'chat');
-    const apiKey = resolveServerLaneKey(job.user_id, 'chat', model);
-    const client = new GoogleGenAI({ apiKey });
+    // Facade (design-docs/24 §4): a `/`-shaped model id streams from
+    // OpenRouter; the `{text}` chunk shape is identical either way.
+    const client = aiClientForUser(job.user_id, 'chat', model);
 
     const stream = await client.models.generateContentStream({
       model,
@@ -493,10 +494,8 @@ export async function runPostCommitChores(userId: number, projectId: string, thr
   }
 }
 
-function choreClient(userId: number, capability: 'title' | 'summarize', modelId: string): GoogleGenAI {
-  if (!isVaultUnlocked(userId)) throw new VaultLockedError();
-  const apiKey = resolveServerLaneKey(userId, capability, modelId);
-  return new GoogleGenAI({ apiKey });
+function choreClient(userId: number, capability: 'title' | 'summarize', modelId: string): LaneAiClient {
+  return aiClientForUser(userId, capability, modelId);
 }
 
 async function runTitleChore(userId: number, projectId: string, threadId: string): Promise<void> {

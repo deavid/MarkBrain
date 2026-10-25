@@ -82,12 +82,15 @@ describe('the downgrade family stays dead', () => {
   });
 });
 
-describe('the catalog is the three REAL text models (David 2026-10-25)', () => {
-  it('text lanes offer exactly 3.5-flash-lite, 3.8-flash, 4-argon', () => {
+describe('the catalog is the three REAL Gemini text models + three OpenRouter lanes (design 24 §3)', () => {
+  it('text lanes offer 3 Gemini models and 3 OpenRouter models', () => {
     expect(listValidModelIds('chat')).toEqual([
       'gemini-3.5-flash-lite',
       'gemini-3.8-flash',
       'gemini-4-argon',
+      'nvidia/nemotron-3.5-lightning:free',
+      'z-ai/glm-5.3-flash',
+      'xiaomi/mimo-v2.6-flash',
     ]);
   });
 

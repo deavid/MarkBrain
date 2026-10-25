@@ -8,7 +8,7 @@
  * absent, so tests and keyless dev boxes still exercise the whole pipeline.
  */
 import type { Express, Request, Response } from 'express';
-import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
+import { aiForRequest, geminiAiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { getIndexStatus } from '../jobs/serverArtifactIndexer';
 import { QueryVectorCache } from '../../src/domains/search/queryVectorCache';
 import { tokenizeForFts, cosineSimilarity } from '../../src/domains/search/draftSearchEngine';
@@ -303,7 +303,8 @@ export function registerSearchIndexRoutes(app: Express): void {
       const title = typeof req.body?.title === 'string' ? req.body.title.slice(0, 300) : undefined;
       const capped = texts.map((t) => t.slice(0, EMBED_TEXT_CHAR_CAP));
 
-      const ai = aiForRequest(req, 'embed', embedModel);
+      // Embed is a Gemini-only lane (embedContent) — the catalog caps it there.
+      const ai = geminiAiForRequest(req, 'embed', embedModel);
 
       const embeddings: number[][] = [];
       const callCount = Math.ceil(capped.length / EMBED_BATCH_SIZE);

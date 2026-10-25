@@ -1,10 +1,12 @@
 /**
  * keySlots — user-supplied API credentials (BYOK, design-docs/16 D8/D9, §4.2 Tier 1).
  *
- * Three optional key slots, all optional, all device-local:
- *   gemini-free   the AI Studio free-quota key
- *   gemini-paid   the AI Studio paid key (the "put money on it" flip, D8)
- *   openrouter    the OpenRouter key
+ * Four optional key slots, all optional, all device-local (design-docs/24 §1):
+ *   gemini-free        the AI Studio free-quota key
+ *   gemini-paid        the AI Studio paid key (the "put money on it" flip, D8)
+ *   openrouter-free    the OpenRouter free-budget key (:free models)
+ *   openrouter-paid    the OpenRouter paid key (cheap flash models)
+ * (Legacy `openrouter` slot reads as openrouter-free — see localKeyVault.)
  *
  * STORAGE: plaintext localStorage + provider-side key restrictions (referrer
  * lock / domain allowlist) as the real wall. Known XSS exposure — accepted.
@@ -37,11 +39,16 @@ import {
 
 export { isLocalVaultLockedError };
 
-export type KeySlotId = 'gemini-free' | 'gemini-paid' | 'openrouter';
+export type KeySlotId = 'gemini-free' | 'gemini-paid' | 'openrouter-free' | 'openrouter-paid';
 
 export type KeyProvider = 'gemini' | 'openrouter';
 
-export const KEY_SLOTS: readonly KeySlotId[] = ['gemini-free', 'gemini-paid', 'openrouter'];
+export const KEY_SLOTS: readonly KeySlotId[] = [
+  'gemini-free',
+  'gemini-paid',
+  'openrouter-free',
+  'openrouter-paid',
+];
 
 export interface KeySlotInfo {
   id: KeySlotId;
@@ -64,11 +71,17 @@ export const KEY_SLOT_INFO: Record<KeySlotId, KeySlotInfo> = {
     label: 'Gemini Paid',
     hint: 'AI Studio paid key. One-click swap when free quota runs out (D8).',
   },
-  openrouter: {
-    id: 'openrouter',
+  'openrouter-free': {
+    id: 'openrouter-free',
     provider: 'openrouter',
-    label: 'OpenRouter',
-    hint: 'One key, many models. Domain-allowlist it and set a spend limit.',
+    label: 'OpenRouter Free',
+    hint: 'OpenRouter free-budget key. Signs the :free models — zero cost per call.',
+  },
+  'openrouter-paid': {
+    id: 'openrouter-paid',
+    provider: 'openrouter',
+    label: 'OpenRouter Paid',
+    hint: 'OpenRouter paid key. One-click swap when the free lane runs dry (D8).',
   },
 };
 
@@ -184,6 +197,11 @@ export function resolveLaneKey(lane: string, modelId: string): ResolvedKey | nul
   // An explicit lane binding (above) still wins over the tier preference.
   if (provider === 'gemini' && getVaultChatTier() === 'paid') {
     auto = ['gemini-paid', 'gemini-free'];
+  }
+  // Same tier law for OpenRouter ids (design-docs/24 §2) — PAID tier prefers
+  // the paid key on EVERY lane; the explicit lane binding above still wins.
+  if (provider === 'openrouter' && getVaultChatTier() === 'paid') {
+    auto = ['openrouter-paid', 'openrouter-free'];
   }
   const candidates = [...preferred, ...auto.filter((id) => !preferred.includes(id))];
   for (const id of candidates) {

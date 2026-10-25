@@ -106,6 +106,20 @@ registerProjectRoutes(app); // 21D: normalized atomic project sync + delta
 registerJobRoutes(app); // 21E: send-and-forget chat jobs + SSE watch
 logServer('success', 'SERVER', 'Content routes mounted behind requireAuth (per-user vault keys)');
 
+// API errors answer JSON — never Express's HTML stack page (design law:
+// an error string must say what actually failed, not leak a trace).
+// Non-API paths fall through to Express's default handler.
+app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+  if (!req.path.startsWith('/api') || res.headersSent) {
+    next(err);
+    return;
+  }
+  const e = err as { status?: number; statusCode?: number; message?: string };
+  const status = typeof e?.status === 'number' && e.status >= 400 ? e.status : typeof e?.statusCode === 'number' && e.statusCode >= 400 ? e.statusCode : 500;
+  const message = typeof e?.message === 'string' && e.message.trim() ? e.message.trim() : 'The request failed on the server.';
+  res.status(status).json({ error: message });
+});
+
 export async function startServer() {
   // SQLite + immutable Owner #1 (design-docs/21B §4.1).
   getDb();

@@ -71,6 +71,16 @@ Prefer Bun? `bun install` · `cp .env.example .env` · `bun run dev` — same ap
 same port, same env files. Throughout the docs `npm run x` ≡ `bun run x` and
 `npx x` ≡ `bunx x`.
 
+Want to try **Sign in to Server** (Connected mode) locally too? Give yourself
+an Owner account before (or instead of) the env bootstrap:
+
+```bash
+npm run user -- create you@example.com --password <pw> --owner   # writes data/markbrain.sqlite
+```
+
+No account needed for **Use Local Workspace** — that path works with an empty
+database and zero configuration.
+
 Env is layered and loads in order — real OS/runtime env → `.env` →
 `.env.shared` → the canonical shared file in the parent worktree (earlier
 wins); `.env.example` documents the stack and lists every key.
@@ -81,7 +91,7 @@ wins); `.env.example` documents the stack and lists every key.
 | `npm run build` | `vite build` → `dist/` |
 | `npm run preview` | `vite preview` — serve `dist/` |
 | `npm run lint` | `tsc --noEmit` |
-| `npm test` | `vitest run` (48 files in `src/tests/`) |
+| `npm test` | `vitest run` (51 files in `src/tests/`) |
 
 Notes:
 
@@ -101,12 +111,15 @@ Notes:
 server.ts                 # 10L entry (`tsx server.ts`) → server/
 server/                   # Express: /api/chat{,/stream,/cancel}, /api/summarize-chapter,
                           # /api/title-thread, /api/tts, /api/extract-artifact-from-file,
-                          # /api/models (server-owned catalog), /api/health,
-                          # /api/server-logs{,/stream,/clear}, /api/auth/config
-server/routes/            # one file per endpoint group (chat, summarize, title, tts,
-                          # extract, logs, health, auth, models)
-server/providers/         # gemini.ts — provider adapter (OpenRouter lands beside it)
-server/lib/               # env, log, tokens, prompt, models
+                          # /api/projects{,/…}, /api/jobs/…, /api/search-index/…,
+                          # /api/account/…, /api/auth/…, /api/admin/users,
+                          # /api/models (server-owned catalog), /api/health, /api/server-logs
+server/routes/            # one file per endpoint group (chat, account, projects, jobs,
+                          # searchIndex, tts, extract, summarize, title, logs, health, models)
+server/db/                # SQLite schema + revision-tracked projectRepo (21B/21D)
+server/jobs/              # send-and-forget chatJobRunner + serverArtifactIndexer (21E/21F)
+server/providers/         # gemini.ts — per-request clients from the user's vault key
+server/lib/               # env, log, tokens, prompt, models, accountVault, ttsCache
 src/App.tsx               # composition root (~650L): loader → AuthGate → Genesis → studio
 src/ui/                   # feature slices: chat, artifacts, graph, workspace, context, cleanup
                           # (Sidebar, ChatView, SpatialGraph, modals, gate… live here)

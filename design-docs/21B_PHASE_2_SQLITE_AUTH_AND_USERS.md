@@ -1,7 +1,7 @@
 # 21B — Phase 2: VPS SQLite Foundation, Auth, Account #1 & Server Key Vault
 
 > **Phase:** 2 of 7
-> **Goal:** Build the VPS SQLite database (`server/db/`), user authentication (`scrypt`), immutable Owner Account #1 (`deavidsedice@gmail.com`), the CLI user-management tool (`npm run user`), the Owner-only `/api/admin/users` endpoints, the encrypted-at-rest + unlocked-in-RAM account key vault (`/api/account/keys` & `/api/account/settings`), and gate all `/api/*` content routes behind `requireAuth`.
+> **Goal:** Build the VPS SQLite database (`server/db/`), user authentication (`scrypt`), immutable Owner Account #1 (`you@example.com`), the CLI user-management tool (`npm run user`), the Owner-only `/api/admin/users` endpoints, the encrypted-at-rest + unlocked-in-RAM account key vault (`/api/account/keys` & `/api/account/settings`), and gate all `/api/*` content routes behind `requireAuth`.
 > **Prerequisite:** Phase 1 committed and green.
 
 ---
@@ -322,7 +322,7 @@ Create `server/routes/account.ts` with `requireAuth` and `requireOwner` middlewa
      ```json
      {
        "token": "...",
-       "user": { "id": 1, "email": "deavidsedice@gmail.com", "isOwner": true, "vaultUnlocked": true }
+       "user": { "id": 1, "email": "you@example.com", "isOwner": true, "vaultUnlocked": true }
      }
      ```
 2. **`POST /api/auth/logout`** (`requireAuth`):
@@ -374,7 +374,7 @@ Update `server/app.ts` and the server routes (`chat.ts`, `summarize.ts`, `title.
 ## 8. Phase 2 Unit & Integration Tests (`src/tests/server-auth-and-vault.test.ts`)
 
 Write a comprehensive test file `src/tests/server-auth-and-vault.test.ts` covering:
-1. Bootstrapping Account #1 (`deavidsedice@gmail.com`) and verifying `is_owner = 1`.
+1. Bootstrapping Account #1 (`you@example.com`) and verifying `is_owner = 1`.
 2. Attempting to disable Account #1 via `setUserEnabled` or `PATCH /api/admin/users/1` fails with a clear error.
 3. Unauthenticated calls to `/api/chat/stream`, `/api/account/settings`, `/api/admin/users` return `401`.
 4. Logging in returns a session token and unlocks the server RAM vault.

@@ -99,11 +99,22 @@ function threadHeadBlocks(threadId: string, projectId: string, userId: number): 
   const head = getDb()
     .prepare(
       `SELECT state FROM chat_jobs WHERE user_id = ? AND project_id = ? AND thread_id = ?
-       ORDER BY created_at ASC LIMIT 1`
+       ORDER BY created_at ASC, rowid ASC LIMIT 1`
     )
     .get(userId, projectId, threadId) as { state: JobState } | undefined;
   if (!head) return false;
   return head.state === 'failed' || head.state === 'stopped';
+}
+
+/** The thread's oldest job row — the only one allowed to run (nextSendable mirror). */
+function threadHeadJobId(threadId: string, projectId: string, userId: number): string | null {
+  const head = getDb()
+    .prepare(
+      `SELECT job_id FROM chat_jobs WHERE user_id = ? AND project_id = ? AND thread_id = ?
+       ORDER BY created_at ASC, rowid ASC LIMIT 1`
+    )
+    .get(userId, projectId, threadId) as { job_id: string } | undefined;
+  return head?.job_id ?? null;
 }
 
 function nextQueuedJob(threadId: string, projectId: string, userId: number): ChatJobRow | null {
@@ -111,10 +122,16 @@ function nextQueuedJob(threadId: string, projectId: string, userId: number): Cha
   const row = getDb()
     .prepare(
       `SELECT job_id FROM chat_jobs WHERE user_id = ? AND project_id = ? AND thread_id = ?
-         AND state = 'queued' ORDER BY created_at ASC LIMIT 1`
+         AND state = 'queued' ORDER BY created_at ASC, rowid ASC LIMIT 1`
     )
     .get(userId, projectId, threadId) as { job_id: string } | undefined;
   return row ? getJobRow(row.job_id) : null;
+}
+
+/** Head resolved (completed / discarded / stored) → the next queued job may run. */
+function kickNextQueuedOnThread(threadId: string, projectId: string, userId: number): void {
+  const next = nextQueuedJob(threadId, projectId, userId);
+  if (next) void runJob(next.job_id);
 }
 
 /* ── SSE fan-out ──────────────────────────────────────────────────────────── */
@@ -196,6 +213,11 @@ export function enqueueJob(input: EnqueueSendInput): ChatJobRow {
 export async function runJob(jobId: string): Promise<void> {
   const job = getJobRow(jobId);
   if (!job || job.state !== 'queued') return;
+
+  // Per-thread FIFO (21E §2.2): only the HEAD job may run. A failed/stopped
+  // head blocks later queued jobs on the thread until the user retries,
+  // stores as-is, or discards the head — then the queue proceeds in order.
+  if (threadHeadJobId(job.thread_id, job.project_id, job.user_id) !== jobId) return;
 
   if (!isVaultUnlocked(job.user_id)) {
     failJob(jobId, new VaultLockedError());
@@ -288,6 +310,7 @@ export async function runJob(jobId: string): Promise<void> {
     });
 
     getDb().prepare('DELETE FROM chat_jobs WHERE job_id = ?').run(jobId);
+    kickNextQueuedOnThread(job.thread_id, job.project_id, job.user_id);
     broadcast(ctx, 'complete', { type: 'complete', revision, userTurnId, assistantTurnId });
     closeSubscribers(ctx);
     activeJobs.delete(jobId);
@@ -419,6 +442,7 @@ export function storeJobAsIs(jobId: string): { revision: number } | null {
     isFallbackPartial: true,
   });
   getDb().prepare('DELETE FROM chat_jobs WHERE job_id = ?').run(jobId);
+  kickNextQueuedOnThread(job.thread_id, job.project_id, job.user_id);
   return { revision: result.revision };
 }
 
@@ -432,8 +456,7 @@ export function discardJob(jobId: string): boolean {
   closeSubscribers(ctx ?? ({ subscribers: new Set() } as ActiveJobContext));
   activeJobs.delete(jobId);
   // Kick the next queued job on this thread, if the head is clear.
-  const next = nextQueuedJob(job.thread_id, job.project_id, job.user_id);
-  if (next) void runJob(next.job_id);
+  kickNextQueuedOnThread(job.thread_id, job.project_id, job.user_id);
   return true;
 }
 

@@ -36,7 +36,8 @@ export interface VpsDeltaSyncDeps {
   threadRegistry: ThreadRegistry;
 }
 
-function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDeltaSyncDeps): void {
+/** test seam — exercised by src/tests/cuj-gap-sync.test.ts */
+export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDeltaSyncDeps): void {
   const { timeline, artifacts, segmentation, graph, threadRegistry } = deps;
 
   // Tombstones first — deletions win over same-batch upserts.

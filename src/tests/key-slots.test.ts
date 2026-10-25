@@ -202,7 +202,7 @@ describe('mode isolation (21C §2.2)', () => {
       baseUrl: '',
       token: 'tok',
       userId: 1,
-      email: 'deavidsedice@gmail.com',
+      email: 'owner@example.com',
       isOwner: true,
       vaultUnlocked: true,
     });

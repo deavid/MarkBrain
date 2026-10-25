@@ -56,7 +56,7 @@ master blueprint + 7-phase Plan of Record for the executing agent:
 - **Fine Plans (7-Phase Step-by-Step Plan of Record):**
   - `design-docs/21_POR_INDEX.md` — Master index, invariants, and verification gates
   - `design-docs/21A_PHASE_1_GREAT_PURGE.md` — Purge Firebase, Firestore, Google Drive, and QR mailbox; add `scripts/verify-clean-dist.cjs` build guard
-  - `design-docs/21B_PHASE_2_SQLITE_AUTH_AND_USERS.md` — VPS SQLite schema, `scrypt` auth, immutable Owner Account #1 (`deavidsedice@gmail.com`), `npm run user` CLI, `/api/admin/users`, and server RAM/disk encrypted key vault
+  - `design-docs/21B_PHASE_2_SQLITE_AUTH_AND_USERS.md` — VPS SQLite schema, `scrypt` auth, immutable Owner Account #1 (`you@example.com`), `npm run user` CLI, `/api/admin/users`, and server RAM/disk encrypted key vault
   - `design-docs/21C_PHASE_3_LOCAL_VAULT_AND_MODE_ISOLATION.md` — Strict workspace isolation (`local` vs `vps:<host>:<email>`), `AuthGate` server login UI, WebCrypto `PBKDF2 + AES-GCM` Local Passphrase Vault (RAM-only decrypted keys), and Owner Users tab in Settings
   - `design-docs/21D_PHASE_4_ATOMIC_SYNC_AND_SETTINGS.md` — Normalized SQLite atomic tables, `revision` delta sync (`/api/projects/:id/delta`), anti-clobber law, and cross-device syncing of API keys + model slots
   - `design-docs/21E_PHASE_5_SEND_AND_FORGET_JOBS.md` — Server-side `ChatJobRunner` (`POST /api/projects/:id/jobs/send`) so locking the phone screen after hitting Send still finishes the LLM turn on the VPS, commits the Pair to SQLite, titles the thread, and auto-summarizes sealed chapters
@@ -71,7 +71,7 @@ master blueprint + 7-phase Plan of Record for the executing agent:
       belongs to Mode 2 (Connected VPS Workspace); Mode 1 (Local Workspace) is
       desktop-first.
 - [x] **S2. QR image for "Send to phone"** — KILLED by D2 (`19_NORTH_STAR_BLUEPRINT.md`).
-      PC and phone sync via the user's VPS account (`deavidsedice@gmail.com`).
+      PC and phone sync via the user's VPS account (`you@example.com`).
 - [x] **S3. VPS deployment posture** — RESOLVED by `19` & `21B`: Caddy serves
       static files to the public at $0; `/api/*` requires a valid VPS account
       login (`401` for strangers) and uses the authenticated user's own

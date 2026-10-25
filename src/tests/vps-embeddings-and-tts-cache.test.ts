@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vites
 import type { Server } from 'node:http';
 import { initDb, closeDbForTests, getDb } from '../../server/db';
 
-process.env.MARKBRAIN_OWNER_EMAIL = 'deavidsedice@gmail.com';
+process.env.MARKBRAIN_OWNER_EMAIL = 'owner@example.com';
 process.env.MARKBRAIN_OWNER_PASSWORD = 'owner-pass-123456';
 
 /* ── deterministic vector + provider mock ─────────────────────────────────── */
@@ -158,7 +158,7 @@ beforeAll(async () => {
   if (addr === null || typeof addr === 'string') throw new Error('no port');
   base = `http://127.0.0.1:${addr.port}`;
 
-  const login = await api('/api/auth/login', { method: 'POST', body: { email: 'deavidsedice@gmail.com', password: 'owner-pass-123456' } });
+  const login = await api('/api/auth/login', { method: 'POST', body: { email: 'owner@example.com', password: 'owner-pass-123456' } });
   expect(login.status).toBe(200);
   token = login.body.token;
   const key = await api('/api/account/keys', { method: 'PUT', body: { slot: 'gemini-free', apiKey: 'AIzaMockKey21F000000000000000000000000' } });

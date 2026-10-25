@@ -178,7 +178,7 @@ describe('3 — namespace isolation between modes', () => {
       baseUrl: '',
       token: 'tok',
       userId: 1,
-      email: 'deavidsedice@gmail.com',
+      email: 'owner@example.com',
       isOwner: false,
       vaultUnlocked: true,
     });
@@ -197,7 +197,7 @@ describe('4 — routing separation in gateway/api.ts', () => {
       baseUrl: 'https://vps.example',
       token: 'tok-abc-123',
       userId: 1,
-      email: 'deavidsedice@gmail.com',
+      email: 'owner@example.com',
       isOwner: true,
       vaultUnlocked: true,
     });

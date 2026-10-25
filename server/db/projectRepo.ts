@@ -155,7 +155,7 @@ function assembleProject(db: Db, userId: number, row: ProjectRow): ProjectSnapsh
       role: t.role as Turn['role'],
       content: t.content,
       timestamp: t.timestamp,
-      threadId: t.thread_id ?? undefined,
+      threadId: t.thread_id || undefined,
       meta: parseJson(t.meta_json, undefined),
     } as Turn;
   }).filter((t) => t.id);
@@ -264,12 +264,12 @@ function upsertTurn(db: Db, userId: number, projectId: string, turn: Turn, seq: 
   ).run(
     userId,
     projectId,
-    turn.threadId ?? null,
+    turn.threadId ?? '', // thread_id is NOT NULL; absent thread scoping lives in doc_json
     turn.id,
     seq,
     turn.role,
-    turn.content,
-    turn.timestamp,
+    turn.content ?? '', // content NOT NULL
+    turn.timestamp ?? Date.now(), // timestamp NOT NULL
     JSON.stringify(turn.meta ?? null),
     doc,
     rev
@@ -298,11 +298,11 @@ function upsertThread(db: Db, userId: number, projectId: string, thread: ChatThr
     userId,
     projectId,
     thread.id,
-    thread.title,
+    thread.title ?? '', // title NOT NULL
     thread.titleVersion ?? 0,
-    thread.folderId ?? null,
-    thread.createdAt,
-    thread.updatedAt,
+    thread.folderId ?? null, // folder_id is nullable
+    thread.createdAt ?? Date.now(), // created_at NOT NULL
+    thread.updatedAt ?? Date.now(), // updated_at NOT NULL
     JSON.stringify(thread),
     rev
   );
@@ -314,7 +314,7 @@ function upsertFolder(db: Db, userId: number, projectId: string, folder: ThreadF
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, project_id, folder_id) DO UPDATE SET
        name = excluded.name, order_index = excluded.order_index, revision = excluded.revision`
-  ).run(userId, projectId, folder.id, folder.name, folder.order ?? 0, rev);
+  ).run(userId, projectId, folder.id, folder.name ?? '', folder.order ?? 0, rev); // name NOT NULL
 }
 
 function upsertChapter(db: Db, userId: number, projectId: string, chapter: ChapterPartition, orderIndex: number, rev: number): void {
@@ -330,7 +330,7 @@ function upsertChapter(db: Db, userId: number, projectId: string, chapter: Chapt
   ).run(
     userId,
     projectId,
-    chapter.threadId ?? null,
+    chapter.threadId ?? '', // thread_id is NOT NULL; absent thread scoping lives in doc_json
     chapter.id,
     String(chapter.startIndex ?? 0),
     chapter.endIndex !== undefined && chapter.endIndex !== null ? String(chapter.endIndex) : null,
@@ -346,6 +346,7 @@ function upsertChapter(db: Db, userId: number, projectId: string, chapter: Chapt
 }
 
 function upsertArtifact(db: Db, userId: number, projectId: string, doc: UniversalArtifactDocument, rev: number): void {
+  if (!doc?.id) throw new Error('upsertArtifact: artifact.id is required.'); // artifact_id NOT NULL
   db.prepare(
     `INSERT INTO artifacts (user_id, project_id, artifact_id, doc_json, updated_at, revision)
      VALUES (?, ?, ?, ?, ?, ?)
@@ -357,6 +358,7 @@ function upsertArtifact(db: Db, userId: number, projectId: string, doc: Universa
 }
 
 function upsertEdge(db: Db, userId: number, projectId: string, edge: SemanticEdge, rev: number): void {
+  if (!edge?.id) throw new Error('upsertEdge: edge.id is required.'); // edge_id NOT NULL
   db.prepare(
     `INSERT INTO edges (user_id, project_id, edge_id, edge_json, revision)
      VALUES (?, ?, ?, ?, ?)
@@ -521,9 +523,23 @@ export function applyAtomicMutation(
           (m.chapters ?? []).forEach((c, i) => upsertChapter(db, userId, projectId, c, i, newRev));
           break;
         }
-        case 'replaceTurn':
-          upsertTurn(db, userId, projectId, { ...m.turn, threadId: m.threadId }, nextTurnSeq(), newRev);
+        case 'replaceTurn': {
+          // Partial replacement payloads (e.g. {id, content} on regenerate) merge
+          // into the stored turn — a bare upsert would crash NOT NULL columns
+          // (role/timestamp) and re-seq the row to the end of the timeline.
+          const row = db
+            .prepare('SELECT doc_json, seq FROM turns WHERE user_id = ? AND project_id = ? AND turn_id = ?')
+            .get(userId, projectId, m.turn.id) as { doc_json: string; seq: number } | undefined;
+          const prev = parseJson<Turn | null>(row?.doc_json, null);
+          const merged = { ...(prev ?? {}), ...m.turn, threadId: m.threadId } as Turn;
+          if (!merged.role || merged.content === undefined || merged.timestamp === undefined) {
+            throw new Error(
+              `replaceTurn: turn ${m.turn.id} is not stored yet and the replacement is missing role, content, or timestamp.`
+            );
+          }
+          upsertTurn(db, userId, projectId, merged, row?.seq ?? nextTurnSeq(), newRev);
           break;
+        }
         default: {
           const never: never = m;
           throw new Error(`Unknown mutation: ${JSON.stringify(never)}`);

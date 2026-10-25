@@ -199,7 +199,7 @@ In Connected VPS mode, chat turns (and Regenerate Last Reply) run inside a serve
      - **Sign in to Server** (`Email` + `Password`, plus collapsed *"Server URL"* defaulting to current origin).
      - **Use Local Workspace** (100% in this browser, no account).
 2. **Sidebar Workspace Indicator:**
-   - Shows clearly whether you are in **Local Workspace** (with a "Sign in to Server" button) or **Connected: `deavidsedice@gmail.com`** (with sync status indicator + "Switch to Local / Sign out").
+   - Shows clearly whether you are in **Local Workspace** (with a "Sign in to Server" button) or **Connected: `you@example.com`** (with sync status indicator + "Switch to Local / Sign out").
 3. **Model Settings Modal (`src/ui/workspace/ModelSettingsModal.tsx`):**
    - **Models tab:** unchanged compact picker; writes to VPS account settings when in Connected mode, or `localStorage` in Local mode.
    - **Keys tab:**
@@ -219,6 +219,6 @@ In Connected VPS mode, chat turns (and Regenerate Last Reply) run inside a serve
     - Installs `nodejs`, `ffmpeg`, `sqlite3`, and `caddy` on the VPS if missing,
     - Rsyncs build artifacts + `server/` + `package.json`,
     - Runs `npm ci --omit=dev`,
-    - Ensures Account #1 (`deavidsedice@gmail.com`) is seeded in SQLite,
+    - Ensures Account #1 (`you@example.com`) is seeded in SQLite,
     - Reloads `markbrain.service` and `caddy`,
     - Verifies `https://markbrain.unhaunter.com/api/health` returns `200 OK`.

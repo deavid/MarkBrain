@@ -86,7 +86,7 @@ markbrain.unhaunter.com ansible_user=root
 [markbrain_vps:vars]
 markbrain_domain=markbrain.unhaunter.com
 markbrain_port=3032
-markbrain_owner_email=deavidsedice@gmail.com
+markbrain_owner_email=you@example.com
 # Pass initial owner password only on first bootstrap via:
 # ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml -e "markbrain_owner_password=..."
 markbrain_owner_password=""

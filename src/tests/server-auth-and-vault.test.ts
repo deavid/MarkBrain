@@ -13,7 +13,7 @@ import { initDb, getDb, closeDbForTests } from '../../server/db';
 // In-memory DB must exist before any route handles a request.
 initDb(':memory:');
 
-const OWNER_EMAIL = 'deavidsedice@gmail.com';
+const OWNER_EMAIL = 'owner@example.com';
 const OWNER_PASSWORD = 'owner-pass-123456';
 const FRIEND_EMAIL = 'friend@example.com';
 const FRIEND_PASSWORD = 'friend-pass-123456';
@@ -69,7 +69,7 @@ afterAll(() => {
 });
 
 describe('21B §8.1 — Account #1 bootstrap', () => {
-  it('creates deavidsedice@gmail.com as id=1, is_owner=1, enabled', () => {
+  it('creates owner@example.com as id=1, is_owner=1, enabled', () => {
     const owner = findUserByEmail(OWNER_EMAIL);
     expect(owner).not.toBeNull();
     expect(owner!.id).toBe(1);

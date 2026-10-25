@@ -14,7 +14,7 @@ import type { Server } from 'node:http';
 import { initDb, closeDbForTests } from '../../server/db';
 import type { ProjectSnapshot } from '../services/stores/projectStore';
 
-process.env.MARKBRAIN_OWNER_EMAIL = 'deavidsedice@gmail.com';
+process.env.MARKBRAIN_OWNER_EMAIL = 'owner@example.com';
 process.env.MARKBRAIN_OWNER_PASSWORD = 'owner-pass-123456';
 
 initDb(':memory:');
@@ -107,7 +107,7 @@ beforeAll(async () => {
 
   const loginA = await api('/api/auth/login', {
     method: 'POST',
-    body: { email: 'deavidsedice@gmail.com', password: 'owner-pass-123456' },
+    body: { email: 'owner@example.com', password: 'owner-pass-123456' },
   });
   expect(loginA.status).toBe(200);
   tokenA = loginA.body.token;
@@ -115,7 +115,7 @@ beforeAll(async () => {
   // Second session = the phone.
   const loginB = await api('/api/auth/login', {
     method: 'POST',
-    body: { email: 'deavidsedice@gmail.com', password: 'owner-pass-123456' },
+    body: { email: 'owner@example.com', password: 'owner-pass-123456' },
   });
   expect(loginB.status).toBe(200);
   tokenB = loginB.body.token;

@@ -72,7 +72,8 @@ and fails if any secret-shaped string lands in `dist/`.
 ## 4. Run
 
 ```bash
-npm run dev                 # → http://localhost:$PORT  (PORT from .env; 3000 default)
+npm run dev                 # Node:  → http://localhost:$PORT  (PORT from .env; 3000 default)
+bun run dev                 # Bun:   same command, same URL
 ```
 
 One process serves the API and the UI (Vite runs as middleware, so there is no
@@ -80,6 +81,16 @@ second dev server and no proxy to configure). First screen is a gate with two
 paths: **Sign in to Server** (Connected VPS Workspace — email + password against
 this server) or **Use Local Workspace** (no account, this browser only). Local
 mode is the intended key-free path.
+
+To click **Sign in to Server** on your own machine, create an Owner account
+first (writes the local SQLite DB under `data/`, which is gitignored):
+
+```bash
+npm run user -- create you@example.com --password <pw> --owner    # or: bun run user -- …
+```
+
+(or set `MARKBRAIN_OWNER_EMAIL` / `MARKBRAIN_OWNER_PASSWORD` and let the first
+boot bootstrap it — never commit either). Everything else needs zero setup.
 
 ## 5. VPS / Self-Hosted Mode (Connected Workspace)
 
@@ -99,7 +110,8 @@ installs systemd + Caddy, health-checks):
 
 ```bash
 cp deploy/ansible/inventory.ini.example deploy/ansible/inventory.ini   # gitignored
-ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml   -e "markbrain_owner_password=..."    # first bootstrap only
+ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml \
+  -e "markbrain_owner_password=..."    # first bootstrap only
 ```
 
 Templates: `deploy/Caddyfile` (static from disk, `/api/*` → 127.0.0.1:3032 with
@@ -125,7 +137,7 @@ playbook under `deploy/ansible/`. Runtime data lives in `/var/lib/markbrain/`
 
 ```bash
 npm run lint        # tsc --noEmit — silent means clean
-npm test            # vitest — 440 tests across 48 files
+npm test            # vitest — 469 tests across 51 files
 npm run dev         # then open the printed URL: gate or studio, no red console spam
 ```
 

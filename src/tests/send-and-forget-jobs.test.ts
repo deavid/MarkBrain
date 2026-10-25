@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import type { Server } from 'node:http';
 import { initDb, closeDbForTests, getDb } from '../../server/db';
 
-process.env.MARKBRAIN_OWNER_EMAIL = 'deavidsedice@gmail.com';
+process.env.MARKBRAIN_OWNER_EMAIL = 'owner@example.com';
 process.env.MARKBRAIN_OWNER_PASSWORD = 'owner-pass-123456';
 
 /* ── provider mock (no network, deterministic pacing) ─────────────────────── */
@@ -214,7 +214,7 @@ beforeAll(async () => {
 
   const login = await api('/api/auth/login', {
     method: 'POST',
-    body: { email: 'deavidsedice@gmail.com', password: 'owner-pass-123456' },
+    body: { email: 'owner@example.com', password: 'owner-pass-123456' },
   });
   expect(login.status).toBe(200);
   token = login.body.token;

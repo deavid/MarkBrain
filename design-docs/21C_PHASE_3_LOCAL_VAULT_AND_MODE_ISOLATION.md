@@ -132,7 +132,7 @@ Update `src/ui/workspace/ModelSettingsModal.tsx`:
 In `src/ui/workspace/Sidebar.tsx`:
 - In the top user/account menu:
   - When in **Mode 1 (`local`)**: shows `"Local Workspace"` and an action **"Sign in to Server…"** (which returns to `AuthGate` or opens the login modal).
-  - When in **Mode 2 (`vps`)**: shows signed-in `email` (`deavidsedice@gmail.com`), a **"Switch to Local Workspace"** action, and **"Sign Out"**.
+  - When in **Mode 2 (`vps`)**: shows signed-in `email` (`you@example.com`), a **"Switch to Local Workspace"** action, and **"Sign Out"**.
 
 ---
 

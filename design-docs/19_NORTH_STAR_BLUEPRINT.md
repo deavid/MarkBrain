@@ -35,7 +35,7 @@ Once we draw that line, MarkBrain cleanly separates into **Two Isolated Modes** 
    - **Search is fast local lexical/keyword search.** No browser-side background embedding daemon, no 429 indexing storms in the browser.
 
 2. **Mode 2 — Connected VPS Workspace (David + Invited Friends + Self-Hosters):**
-   - Activated by signing into an account on the VPS (`email + password`, e.g. `deavidsedice@gmail.com` against `markbrain.unhaunter.com/api`).
+   - Activated by signing into an account on the VPS (`email + password`, e.g. `you@example.com` against `markbrain.unhaunter.com/api`).
    - **Zero public registration.** Account #1 (`is_owner = 1`, David) is seeded at install/deploy time and cannot be disabled or deleted. Friends only get an account if David creates one (via CLI or the owner-only Users tab in Settings) and can be enabled/disabled at any time.
    - **Strict data isolation:** Connected mode uses a completely separate local IndexedDB cache namespace (`markbrain-vps:<host>:<email>`) so local demo data and VPS account data never mix or cross-contaminate.
    - **Enter config & keys ONCE on PC, use everywhere on Phone:** API keys and model slot choices belong to the VPS account. On the VPS SQLite disk, API keys sit **encrypted at rest** (derived from the user's password) so a cold disk/backup theft exposes zero plaintext keys. While the user has an active login session, the keys are unlocked in VPS RAM — so logging in on the phone immediately has all keys, models, projects, notes, and chats ready with **zero re-typing on a phone keyboard**.
@@ -77,13 +77,13 @@ Once we draw that line, MarkBrain cleanly separates into **Two Isolated Modes** 
 
 ### D2. Kill the Unauthenticated QR / Mailbox Pairing Relay
 - **Decision:** Remove `server/routes/mailbox.ts`, `src/gateway/pairing.ts`, and `src/ui/workspace/usePairingTransfer.ts`.
-- **Why:** Any unauthenticated endpoint on the VPS that accepts and holds blobs in RAM/disk is an abuse surface for strangers, and David doesn't need QR device pairing when his PC and phone simply log into his VPS account (`deavidsedice@gmail.com`). Strangers on Local mode have Export/Import file.
+- **Why:** Any unauthenticated endpoint on the VPS that accepts and holds blobs in RAM/disk is an abuse surface for strangers, and David doesn't need QR device pairing when his PC and phone simply log into his VPS account (`you@example.com`). Strangers on Local mode have Export/Import file.
 
 ### D3. Strict Workspace Namespace Isolation (`local` vs `vps:<host>:<email>`)
 - **Decision:** Local Workspace and Connected VPS Workspace never share an IndexedDB database or `localStorage` state.
   - Local Workspace uses IndexedDB `markbrain-local`.
   - Connected VPS Workspace uses IndexedDB `markbrain-vps:<normalizedHost>:<email>`.
-- **Why:** Switching between "Continue Locally" and "Signed in as `deavidsedice@gmail.com`" must never merge, overwrite, or leak local scratch projects into the VPS account or vice versa. Signing out of the VPS cleanly returns to the gate without leaving plaintext keys behind.
+- **Why:** Switching between "Continue Locally" and "Signed in as `you@example.com`" must never merge, overwrite, or leak local scratch projects into the VPS account or vice versa. Signing out of the VPS cleanly returns to the gate without leaving plaintext keys behind.
 
 ### D4. Accounts & Authentication: Zero Public Signup, Immutable Owner Account #1
 - **Decision:**

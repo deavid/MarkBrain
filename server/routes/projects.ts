@@ -22,6 +22,12 @@ function isSnapshot(body: unknown): body is ProjectSnapshot {
   return Boolean(s && typeof s.projectId === 'string' && Array.isArray(s.turns));
 }
 
+/** Route-level guard: every failure answers JSON with an honest message. */
+function fail(res: Response, err: unknown, fallback: string): void {
+  const message = err instanceof Error && err.message.trim() ? err.message.trim() : fallback;
+  res.status(500).json({ error: message });
+}
+
 export function registerProjectRoutes(app: Express): void {
   app.get('/api/projects', (req: Request, res: Response) => {
     res.json({ projects: listProjectsForUser(req.user!.id) });
@@ -33,8 +39,12 @@ export function registerProjectRoutes(app: Express): void {
       res.status(400).json({ error: 'body must be a ProjectSnapshot (or { project })' });
       return;
     }
-    const { revision, project } = createProjectForUser(req.user!.id, snap);
-    res.status(201).json({ project, revision });
+    try {
+      const { revision, project } = createProjectForUser(req.user!.id, snap);
+      res.status(201).json({ project, revision });
+    } catch (err) {
+      fail(res, err, 'Project create failed.');
+    }
   });
 
   app.get('/api/projects/:projectId', (req: Request, res: Response) => {
@@ -57,9 +67,9 @@ export function registerProjectRoutes(app: Express): void {
   });
 
   app.post('/api/projects/:projectId/mutate', (req: Request, res: Response) => {
-    const mutations = req.body?.mutations;
+    const mutations = req.body?.mutations ?? (req.body?.op ? req.body : undefined);
     if (!mutations || (typeof mutations !== 'object')) {
-      res.status(400).json({ error: 'body.mutations is required' });
+      res.status(400).json({ error: 'body must carry a mutation ({ op, ... } or { mutations })' });
       return;
     }
     try {
@@ -99,7 +109,11 @@ export function registerProjectRoutes(app: Express): void {
       res.status(400).json({ error: 'body must be { projects: ProjectSnapshot[] }' });
       return;
     }
-    const { revision } = replaceAllProjectsForUser(req.user!.id, projects as ProjectSnapshot[]);
-    res.json({ ok: true, revision });
+    try {
+      const { revision } = replaceAllProjectsForUser(req.user!.id, projects as ProjectSnapshot[]);
+      res.json({ ok: true, revision });
+    } catch (err) {
+      fail(res, err, 'replaceAll failed.');
+    }
   });
 }

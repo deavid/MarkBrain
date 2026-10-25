@@ -31,6 +31,7 @@ import { getWorkspaceMode } from '../services/workspaceSession';
 import {
   getVaultSlot,
   setVaultSlot,
+  getVaultChatTier,
   isLocalVaultLockedError,
 } from './localKeyVault';
 
@@ -177,7 +178,13 @@ export function resolveLaneKey(lane: string, modelId: string): ResolvedKey | nul
   // on the proxy while another same-provider key is sitting right there (D9).
   const preferred =
     choice !== 'auto' && KEY_SLOT_INFO[choice].provider === provider ? [choice] : [];
-  const auto = KEY_SLOTS.filter((id) => KEY_SLOT_INFO[id].provider === provider);
+  let auto = KEY_SLOTS.filter((id) => KEY_SLOT_INFO[id].provider === provider);
+  // Tier is account-wide (David 2026-10-25) — same law as the server's
+  // resolveServerLaneKey: PAID prefers the paid key on EVERY Gemini lane.
+  // An explicit lane binding (above) still wins over the tier preference.
+  if (provider === 'gemini' && getVaultChatTier() === 'paid') {
+    auto = ['gemini-paid', 'gemini-free'];
+  }
   const candidates = [...preferred, ...auto.filter((id) => !preferred.includes(id))];
   for (const id of candidates) {
     const apiKey = getKeySlot(id);

@@ -29,9 +29,11 @@ import type { TurnMeta } from '../domains/01-dialogue-timeline/types';
 import { serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 import { logger } from '../utils/logger';
 import { placeholderTitle, sampleTurnsForTitle, titlePipelineStep } from '../domains/06-chat-threads';
+import { isAttachmentStaged, type ChatAttachment } from '../domains/06-chat-threads/types';
 import { DraftQueue, type DraftItem, regenerateAllowed } from './draftQueue';
 import { apiFetch } from '../gateway/api';
 import { getWorkspaceMode } from '../services/workspaceSession';
+import { isLocalVaultLockedError, resolveLaneKey } from '../data/keySlots';
 import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../domains/03-stream-protocol';
 
 /** App render values, snapshotted once when an attempt starts (see the header). */
@@ -88,6 +90,36 @@ export function resolveRetryAnchorIndex(
   return retryIdx - 1;
 }
 
+/** The honest sentence for a locked-keyes failure (design 23 §2.3). */
+export const VAULT_LOCKED_REASON =
+  'Your keys are locked — enter your password below to unlock and resend this.';
+
+/**
+ * Does this failure message describe a locked vault? Matches the two known
+ * sentences (server restart lock + local vault lock) and close variants.
+ */
+export function looksLikeVaultLocked(message: string): boolean {
+  return /keys? (are |is )?locked|key vault is locked|locked after a server restart|vault.*locked/i.test(
+    message
+  );
+}
+
+/**
+ * Local-mode VAULT_LOCKED detection (design 23 §2.3): a saved vault whose RAM
+ * is locked and no resolvable lane key means the send cannot sign — code it,
+ * don't bury it in a proxy 401.
+ */
+function localVaultLocked(modelId: string): boolean {
+  return (
+    getWorkspaceMode() !== 'vps' && isLocalVaultLockedError() && resolveLaneKey('chat', modelId) === null
+  );
+}
+
+/** errorCode for a failure message, or undefined (design 23 §2.3). */
+function errorCodeFor(message: string): string | undefined {
+  return looksLikeVaultLocked(message) ? 'VAULT_LOCKED' : undefined;
+}
+
 export class SendQueue {
   private drafts = new DraftQueue();
   private activeDraft: DraftItem | null = null;
@@ -127,17 +159,132 @@ export class SendQueue {
     }
     this.noteSendIntent(deps, threadId, text);
     // New sends enter the tail; the walk stays strict FIFO (nextSendable).
-    this.drafts.enqueue(threadId, text);
+    const item = this.drafts.enqueue(threadId, text);
+    // Design 23 §2.1: ENQUEUE SNAPSHOTS the armed set (staged + committed) —
+    // the draft owns its payload from here on; retry re-sends this exact set.
+    this.drafts.setAttachments(item.id, deps.threadRegistry.getAttachments(threadId));
     deps.triggerReRender();
     this.kick();
   }
 
-  /** Retry a failed/stopped draft — clean resend of the ask. */
+  /**
+   * Reconcile server jobs into local drafts (design 23 §4). The server is the
+   * source of truth for sends in Connected mode: a failed/stopped job that
+   * lost its draft (reload, older client) materializes WITH its exits, and
+   * queued/sending jobs materialize as queued drafts whose executeVpsAttempt
+   * only attaches (never double-sends). Without this, a vault-locked failure
+   * FIFO-blocks every later send behind an invisible head — "chat never sends".
+   * No kick() here: user actions (exit the head, next send) drive watchers.
+   */
+  async reconcileServerJobs(projectId: string): Promise<void> {
+    if (getWorkspaceMode() !== 'vps') return;
+    const deps = this.getDeps();
+    try {
+      const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/jobs`);
+      if (!res.ok) return;
+      const body = (await res.json()) as {
+        jobs: Array<{
+          jobId: string;
+          threadId: string;
+          kind?: 'send' | 'regenerate';
+          state: string;
+          askText: string;
+          partialText: string;
+          errorReason: string | null;
+        }>;
+      };
+      for (const job of body.jobs ?? []) {
+        if (this.drafts.findByServerJobId(job.jobId)) continue; // a draft already owns it
+        const state: DraftItem['state'] =
+          job.state === 'failed' ? 'failed' : job.state === 'stopped' ? 'stopped' : 'queued';
+        const reason = job.errorReason || undefined;
+        this.drafts.materialize({
+          threadId: job.threadId,
+          text: job.askText,
+          kind: job.kind,
+          state,
+          partial: job.partialText || undefined,
+          reason,
+          errorCode: looksLikeVaultLocked(reason ?? '') ? 'VAULT_LOCKED' : undefined,
+          serverJobId: job.jobId,
+        });
+        logger.info('App', `Reconciled server job ${job.jobId} → ${state} draft`);
+      }
+      deps.triggerReRender();
+    } catch (err) {
+      logger.warn('App', 'reconcileServerJobs failed', err);
+    }
+  }
+
+  /**
+   * Retry a failed/stopped draft — clean resend of the ask. The attachment
+   * snapshot is KEPT as-is (design 23 §2.1.4: same send, same payload) — it
+   * is deliberately NOT re-snapshotted here.
+   */
   retryDraft(id: string): void {
     logger.action('App', 'Retry draft', { draftId: id });
     this.drafts.retry(id);
     this.getDeps().triggerReRender();
     this.kick();
+  }
+
+  /**
+   * The draft whose un-sent payload the staged tray edits (design 23 §2.1.2):
+   * the thread's HEAD draft while it is `queued` and nothing is `sending`.
+   * Once a draft is sending/failed/stopped its snapshot is frozen and new
+   * staging arms the NEXT send (registry staged set) again.
+   */
+  getEditableDraftForThread(threadId: string): DraftItem | null {
+    const items = this.drafts.getItemsForThread(threadId);
+    if (items.some((i) => i.state === 'sending')) return null;
+    const head = items[0];
+    return head && head.state === 'queued' ? head : null;
+  }
+
+  /**
+   * Tray editor verb (design 23 §2.1.2). SOURCE OF TRUTH: the draft's
+   * `attachments` snapshot — `mutator` returns the next list and the thread
+   * registry's staged set is re-mirrored from it (stage/unstage/granularity),
+   * so `commitStagedAttachments` welds exactly this payload at commit. Committed
+   * entries are history: the mutator may change their granularity but never
+   * drop them (a dropped one is restored). Refused on a frozen draft.
+   */
+  updateDraftAttachments(
+    id: string,
+    mutator: (list: ChatAttachment[]) => ChatAttachment[]
+  ): void {
+    const item = this.drafts.getItem(id);
+    if (!item || item.state === 'sending') return;
+    const deps = this.getDeps();
+    const current = item.attachments ?? [];
+    const committed = current.filter((a) => !isAttachmentStaged(a));
+    const mutated = mutator(current.map((a) => ({ ...a })));
+    // Committed = history: keep every one that the mutator dropped.
+    const keptCommitted = committed.map(
+      (c) => mutated.find((m) => m.artifactId === c.artifactId) ?? c
+    );
+    const next = [
+      ...keptCommitted,
+      ...mutated.filter((m) => isAttachmentStaged(m)),
+    ];
+    this.drafts.setAttachments(id, next);
+    // Mirror the staged subset (and committed granularity) into the registry.
+    const threadId = item.threadId;
+    const live = deps.threadRegistry.getAttachments(threadId);
+    for (const att of live) {
+      const want = next.find((n) => n.artifactId === att.artifactId);
+      if (!want && isAttachmentStaged(att)) {
+        deps.threadRegistry.unstageArtifact(threadId, att.artifactId);
+      } else if (want && want.granularity !== att.granularity) {
+        deps.threadRegistry.setAttachmentGranularity(threadId, att.artifactId, want.granularity);
+      }
+    }
+    for (const want of next) {
+      if (isAttachmentStaged(want) && !live.some((l) => l.artifactId === want.artifactId)) {
+        deps.threadRegistry.stageArtifact(threadId, want.artifactId, want.granularity);
+      }
+    }
+    deps.triggerReRender();
   }
 
   /** Discard the would-be pair — ask, partial, buffers, gone with no trace. */
@@ -241,10 +388,13 @@ export class SendQueue {
     const anchorIdx = resolveRetryAnchorIndex(turns, lastAssistant.id);
     const askText = turns[anchorIdx]?.content || lastAssistant.content || 'Regenerate the last reply';
     logger.action('App', 'Regenerate last reply', { threadId, turnId: lastAssistant.id });
-    this.drafts.enqueue(threadId, askText, {
+    const item = this.drafts.enqueue(threadId, askText, {
       kind: 'regenerate',
       targetTurnId: lastAssistant.id,
     });
+    // Same snapshot law as a send (design 23 §2.1) — regenerate carries its
+    // payload with it.
+    this.drafts.setAttachments(item.id, deps.threadRegistry.getAttachments(threadId));
     deps.triggerReRender();
     this.kick();
   }
@@ -383,13 +533,11 @@ export class SendQueue {
       }
     } catch (err) {
       logger.error('App', 'Draft attempt failed unexpectedly', err);
-      this.drafts.fail(
-        item.id,
+      const reason =
         err instanceof Error && err.message.trim()
           ? err.message.trim().slice(0, 400)
-          : 'The request failed — no reply came back.',
-        item.partial
-      );
+          : 'The request failed — no reply came back.';
+      this.drafts.fail(item.id, reason, item.partial, errorCodeFor(reason));
     } finally {
       this.activeDraft = null;
       this.jobAbort = null;
@@ -416,18 +564,31 @@ export class SendQueue {
     const bufferedArtifacts: ExtractedArtifactUpsert[] = [];
     const bufferedShifts: ExtractedTopicShift[] = [];
     let streamedContent = '';
+    let sawFirstChunk = false;
 
     try {
+      // Design 23 §2.3: a locked local vault with no signable key is a
+      // VAULT_LOCKED exit — code it so the card can unlock + auto-retry.
+      if (localVaultLocked(ctx.model.id)) {
+        this.drafts.fail(item.id, VAULT_LOCKED_REASON, undefined, 'VAULT_LOCKED');
+        return;
+      }
+      // Design 23 §2.1: compile from the draft's SNAPSHOT (fallback: live set
+      // for drafts that pre-date the snapshot / survived a reload).
+      const payloadAttachments = item.attachments ?? deps.threadRegistry.getAttachments(threadId);
+      this.drafts.setProgress(item.id, { phase: 'connecting' });
       // The ask is NOT a turn yet — it rides the payload as the last message
       // and becomes a turn only at commitPair.
       const virtualAsk = { id: `virtual-${item.id}`, role: 'user' as const, content: item.text, timestamp: Date.now() };
       const compiled = deps.compiler.compile({
-        attachments: deps.threadRegistry.getAttachments(threadId),
+        attachments: payloadAttachments,
         tokenCeiling: ctx.tokenCeiling,
         log: true, // once-per-send lifecycle log (display memo must stay silent)
         historyTurns: [...this.turnsOf(deps, threadId), virtualAsk],
         historyChapters: this.chaptersOf(deps, threadId),
       });
+      // Connected enough to ask; zero bytes back is its own observable phase.
+      this.drafts.setProgress(item.id, { phase: 'awaiting-first-token' });
 
       const result = await deps.stream.executeStreamingTurn(
         {
@@ -441,11 +602,30 @@ export class SendQueue {
           onStatus: (status) => {
             deps.setStreamingStatus(status.message);
             deps.setStreamPhase(status.state === 'writing' ? 'streaming' : 'waiting');
+            if (status.state === 'thinking') {
+              this.drafts.setProgress(item.id, { phase: 'awaiting-first-token' });
+            } else if (status.state === 'writing' && !sawFirstChunk) {
+              this.drafts.setProgress(item.id, {
+                phase: 'writing',
+                firstTokenAt: Date.now(),
+                chars: streamedContent.length,
+              });
+            }
             deps.triggerReRender();
           },
           onChunk: (_cleanDelta, accumulatedClean) => {
             streamedContent = accumulatedClean;
             this.drafts.updatePartial(item.id, accumulatedClean);
+            if (!sawFirstChunk) {
+              sawFirstChunk = true;
+              this.drafts.setProgress(item.id, {
+                phase: 'writing',
+                firstTokenAt: Date.now(),
+                chars: accumulatedClean.length,
+              });
+            } else {
+              this.drafts.setProgress(item.id, { chars: accumulatedClean.length });
+            }
             deps.setStreamPhase('streaming');
             deps.triggerReRender();
           },
@@ -506,7 +686,7 @@ export class SendQueue {
         typeof err?.message === 'string' && err.message.trim()
           ? err.message.trim().slice(0, 400)
           : 'The request failed — no reply came back.';
-      this.drafts.fail(item.id, reason, streamedContent || undefined);
+      this.drafts.fail(item.id, reason, streamedContent || undefined, errorCodeFor(reason));
     }
   }
 
@@ -583,10 +763,14 @@ export class SendQueue {
     const threadId = item.threadId;
     deps.setStreamingStatus(`Connecting to ${ctx.model.name}...`);
     deps.setStreamPhase('waiting');
+    this.drafts.setProgress(item.id, { phase: 'connecting' });
 
+    // Design 23 §2.1: compile + staged payload come from the draft's SNAPSHOT
+    // (fallback keeps pre-snapshot drafts working).
+    const payloadAttachments = item.attachments ?? deps.threadRegistry.getAttachments(threadId);
     const virtualAsk = { id: `virtual-${item.id}`, role: 'user' as const, content: item.text, timestamp: Date.now() };
     const compiled = deps.compiler.compile({
-      attachments: deps.threadRegistry.getAttachments(threadId),
+      attachments: payloadAttachments,
       tokenCeiling: ctx.tokenCeiling,
       log: true,
       historyTurns: [...this.turnsOf(deps, threadId), virtualAsk],
@@ -623,7 +807,7 @@ export class SendQueue {
             compiledPrompt: compiled.compiledPrompt,
             systemInstruction: compiled.systemInstruction,
             model: ctx.model.id,
-            stagedAttachments: deps.threadRegistry.getStagedAttachments(threadId),
+            stagedAttachments: payloadAttachments.filter(isAttachmentStaged),
             targetTurnId: item.targetTurnId ?? null,
           }),
         }
@@ -655,6 +839,8 @@ export class SendQueue {
           return;
         }
         if (!res.ok || !res.body) throw new Error(`stream HTTP ${res.status}`);
+        // Watch attached — connected, zero bytes back (design 23 §2.2).
+        this.drafts.setProgress(item.id, { phase: 'awaiting-first-token' });
 
         const terminal = await this.readVpsSse(res, item, deps);
         if (terminal) return;
@@ -696,6 +882,16 @@ export class SendQueue {
           deps.setStreamPhase('streaming');
           deps.setStreamingStatus(null);
           this.drafts.updatePartial(item.id, data.partialText ?? '');
+          const current = this.drafts.getItem(item.id);
+          if (current?.progress?.phase !== 'writing') {
+            this.drafts.setProgress(item.id, {
+              phase: 'writing',
+              firstTokenAt: Date.now(),
+              chars: (data.partialText ?? '').length,
+            });
+          } else {
+            this.drafts.setProgress(item.id, { chars: (data.partialText ?? '').length });
+          }
           deps.triggerReRender();
         } else if (event === 'complete') {
           this.drafts.resolve(item.id);
@@ -705,11 +901,12 @@ export class SendQueue {
           return true;
         } else if (event === 'error') {
           // Terminal server failure: land the draft failed with the server's
-          // reason (retry re-attaches to the same job id).
+          // reason + machine code (retry re-attaches to the same job id).
           this.drafts.fail(
             item.id,
             String(data.message || 'The request failed — no reply came back.'),
-            item.partial
+            item.partial,
+            typeof data.code === 'string' && data.code ? data.code : errorCodeFor(String(data.message || ''))
           );
           deps.triggerReRender();
           return true;
@@ -742,16 +939,23 @@ export class SendQueue {
     let streamedContent = '';
 
     try {
+      if (localVaultLocked(ctx.model.id)) {
+        this.drafts.fail(item.id, VAULT_LOCKED_REASON, undefined, 'VAULT_LOCKED');
+        return;
+      }
+      const payloadAttachments = item.attachments ?? deps.threadRegistry.getAttachments(threadId);
+      this.drafts.setProgress(item.id, { phase: 'connecting' });
       const historyTurns = this.turnsOf(deps, threadId).map((t) =>
         t.id === targetTurnId ? { ...t, content: '' } : t
       );
       const compiled = deps.compiler.compile({
-        attachments: deps.threadRegistry.getAttachments(threadId),
+        attachments: payloadAttachments,
         tokenCeiling: ctx.tokenCeiling,
         log: true,
         historyTurns,
         historyChapters: this.chaptersOf(deps, threadId),
       });
+      this.drafts.setProgress(item.id, { phase: 'awaiting-first-token' });
 
       const result = await deps.stream.executeStreamingTurn(
         {
@@ -770,6 +974,15 @@ export class SendQueue {
           onChunk: (_d, acc) => {
             streamedContent = acc;
             this.drafts.updatePartial(item.id, acc);
+            if (this.drafts.getItem(item.id)?.progress?.phase !== 'writing') {
+              this.drafts.setProgress(item.id, {
+                phase: 'writing',
+                firstTokenAt: Date.now(),
+                chars: acc.length,
+              });
+            } else {
+              this.drafts.setProgress(item.id, { chars: acc.length });
+            }
             deps.setStreamPhase('streaming');
             deps.triggerReRender();
           },
@@ -820,7 +1033,7 @@ export class SendQueue {
         typeof err?.message === 'string' && err.message.trim()
           ? err.message.trim().slice(0, 400)
           : 'The request failed — no reply came back.';
-      this.drafts.fail(item.id, reason, streamedContent || undefined);
+      this.drafts.fail(item.id, reason, streamedContent || undefined, errorCodeFor(reason));
     }
   }
 

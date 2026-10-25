@@ -223,18 +223,14 @@ export function resolveServerLaneKey(userId: number, capability: LaneCapability,
     throw new NoKeyError('openrouter');
   }
 
-  if (capability === 'chat') {
-    const preferPaid =
-      chatTier === 'paid' ||
-      (!payload['gemini-free'] && Boolean(payload['gemini-paid']));
-    if (preferPaid && payload['gemini-paid']) return payload['gemini-paid'];
-    if (payload['gemini-free']) return payload['gemini-free'];
-    if (payload['gemini-paid']) return payload['gemini-paid'];
-    throw new NoKeyError('gemini');
-  }
-
-  // Infrastructure lanes (extract/summarize/title/embed/tts/qaGen) prefer the
-  // free-quota key and fall back to paid — the tier flip is a chat concern.
+  // Tier is ACCOUNT-WIDE (David 2026-10-25): "PAID" means every Gemini lane —
+  // chat, extract, summarize, title, qaGen, embed, tts — signs with the paid
+  // key. The earlier chat-only reading made embeddings/title/extract burn the
+  // free quota while chat alone ran paid. Free tier prefers the free key with
+  // paid as fallback (free = generous quota; paid = costs money per call).
+  // Explicit OpenRouter routing above is unaffected. Design-docs/21B §3.4
+  // amended accordingly.
+  if (chatTier === 'paid' && payload['gemini-paid']) return payload['gemini-paid'];
   if (payload['gemini-free']) return payload['gemini-free'];
   if (payload['gemini-paid']) return payload['gemini-paid'];
   throw new NoKeyError('gemini');

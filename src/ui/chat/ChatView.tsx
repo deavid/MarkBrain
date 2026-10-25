@@ -51,8 +51,66 @@ import {
   formatAttachmentProvenance,
   formatTokens,
 } from '../context/AttachmentControls';
-import { tts } from '../../gateway/api';
+import { tts, authUnlock } from '../../gateway/api';
+import { unlockLocalVault } from '../../data/localKeyVault';
+import { getWorkspaceMode } from '../../services/workspaceSession';
+import type { DraftProgress } from '../../application/draftQueue';
 import { getModelForSlot } from '../../data/modelConfig';
+
+/** Ticking elapsed clock for a draft phase (design 23 §2.2) — cleans up. */
+function useElapsed(since: number | undefined): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (since === undefined) return;
+    setNow(Date.now());
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [since]);
+  return since === undefined ? 0 : Math.max(0, Math.floor((now - (since ?? now)) / 1000));
+}
+
+const PHASE_LABEL: Record<string, string> = {
+  queued: 'QUEUED',
+  connecting: 'CONNECTING',
+  'awaiting-first-token': 'AWAITING FIRST TOKEN',
+  writing: 'WRITING',
+};
+
+/** The one phase chip: honest state + clock (+ chars once writing). */
+const DraftPhaseChip: React.FC<{
+  progress?: DraftProgress;
+  kind?: 'send' | 'regenerate';
+  fallback: string;
+}> = ({ progress, kind, fallback }) => {
+  const secs = useElapsed(progress ? (progress.phase === 'writing' ? progress.firstTokenAt ?? progress.since : progress.since) : undefined);
+  const prefix = kind === 'regenerate' ? 'REGENERATE · ' : '';
+  if (!progress) return <>{prefix}{fallback}</>;
+  const label = PHASE_LABEL[progress.phase] ?? String(progress.phase).toUpperCase();
+  if (progress.phase === 'queued') return <>{prefix}{label}</>;
+  if (progress.phase === 'writing') {
+    const chars = progress.chars ?? 0;
+    return (
+      <>
+        {prefix}
+        {label} · {secs}s · {chars.toLocaleString()} chars
+      </>
+    );
+  }
+  if (progress.phase === 'awaiting-first-token') {
+    return (
+      <>
+        {prefix}
+        {label} · {secs}s — the model is thinking; no text yet
+      </>
+    );
+  }
+  return (
+    <>
+      {prefix}
+      {label} · {secs}s
+    </>
+  );
+};
 
 /** How many lines the composer grows to fit before it starts scrolling. */
 const COMPOSER_MAX_LINES = 5;
@@ -95,11 +153,19 @@ interface ChatViewProps {
   /** Unpaired asks (design-docs/18) — drafts live outside the conversation. */
   drafts?: Array<{
     id: string;
+    threadId: string;
+    createdAt: number;
     state: 'queued' | 'sending' | 'failed' | 'stopped';
     text: string;
     reason?: string;
     partial?: string;
     kind?: 'send' | 'regenerate';
+    /** Design 23: the draft OWNS its payload snapshot (session-only). */
+    attachments?: ChatAttachment[];
+    /** Design 23 §2.2: honest phase + clock. */
+    progress?: DraftProgress;
+    /** Design 23 §2.3: machine-readable exit (VAULT_LOCKED → unlock row). */
+    errorCode?: string;
   }>;
   onRetryDraft?: (id: string) => void;
   onStoreAsIsDraft?: (id: string) => void;
@@ -312,7 +378,47 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setCollapsedChapterIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const stagedAttachments = attachments.filter(isAttachmentStaged);
+  // Design 23 §2.1.2: while the head draft is queued and nothing is sending,
+  // the tray is THAT draft's editor — rows come from its snapshot. Otherwise
+  // it shows the live staged set (arms the next send).
+  const headDraft = drafts[0];
+  const editingDraft =
+    headDraft && headDraft.state === 'queued' && !drafts.some((d) => d.state === 'sending')
+      ? headDraft
+      : null;
+  const stagedAttachments = (editingDraft?.attachments ?? attachments).filter(isAttachmentStaged);
+  const trayCaption = editingDraft
+    ? 'riding this send · removable until it goes out'
+    : 'arms the next send · removable until then';
+  const activeDraftForPhase =
+    drafts.find((d) => d.state === 'sending') ?? drafts.find((d) => d.state === 'queued');
+  // VAULT_LOCKED unlock row state (design 23 §2.3) — per draft card.
+  const [unlockPw, setUnlockPw] = useState<Record<string, string>>({});
+  const [unlockErr, setUnlockErr] = useState<Record<string, string>>({});
+  const [unlockBusy, setUnlockBusy] = useState<Record<string, boolean>>({});
+  const handleUnlockDraft = async (d: { id: string }) => {
+    const pw = unlockPw[d.id] ?? '';
+    if (!pw) {
+      setUnlockErr((e) => ({ ...e, [d.id]: 'Enter your password.' }));
+      return;
+    }
+    setUnlockBusy((b) => ({ ...b, [d.id]: true }));
+    setUnlockErr((e) => ({ ...e, [d.id]: '' }));
+    try {
+      const ok =
+        getWorkspaceMode() === 'vps' ? (await authUnlock(pw)).ok : await unlockLocalVault(pw);
+      if (ok) {
+        onRetryDraft?.(d.id);
+        setUnlockPw((p) => ({ ...p, [d.id]: '' }));
+      } else {
+        setUnlockErr((e) => ({ ...e, [d.id]: 'Wrong password — try again.' }));
+      }
+    } catch {
+      setUnlockErr((e) => ({ ...e, [d.id]: 'Unlock failed — try again.' }));
+    } finally {
+      setUnlockBusy((b) => ({ ...b, [d.id]: false }));
+    }
+  };
   const committedAttachments = attachments.filter((a) => !isAttachmentStaged(a));
 
   const attachmentsOfTurn = (message: Turn, globalIndex: number): ChatAttachment[] =>
@@ -703,6 +809,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               onSetGranularity={(id, g) => onSetAttachmentGranularity?.(id, g)}
               onUnstage={(id) => onUnstageAttachment?.(id)}
               onOpenDetail={onOpenArtifact}
+              caption={trayCaption}
             />
 
             <form
@@ -765,7 +872,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {isLoading ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Synthesizing...</span>
+                      <span>
+                        {activeDraftForPhase?.progress?.phase === 'queued'
+                          ? 'Queued…'
+                          : activeDraftForPhase?.progress?.phase === 'connecting'
+                            ? 'Connecting…'
+                            : activeDraftForPhase?.progress?.phase === 'awaiting-first-token'
+                              ? 'Waiting for first token…'
+                              : 'Writing reply…'}
+                      </span>
                     </>
                   ) : (
                     <>
@@ -1446,10 +1561,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <div className="flex items-center justify-between gap-3 text-xs font-mono text-ink-dim bg-surface-2 p-3 rounded-lg max-w-xl animate-in fade-in">
             <div className="flex items-center gap-2.5 min-w-0">
               <Loader2 className="w-4 h-4 animate-spin text-[#38bdf8] shrink-0" />
-              <span className="truncate">{streamingStatus || 'MarkBrain is thinking...'}</span>
-              <span className="text-[10px] text-[#567295] font-mono px-1.5 py-0.5 rounded bg-surface-0 shrink-0">
-                {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')}s
+              {/* Design 23 §2.2: the bar leads with the phase chip + clock. */}
+              <span
+                data-testid="stream-phase-chip"
+                className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-[#38bdf8]"
+              >
+                <DraftPhaseChip
+                  progress={activeDraftForPhase?.progress}
+                  kind={activeDraftForPhase?.kind}
+                  fallback="Working"
+                />
               </span>
+              <span className="truncate text-ink-dim">{streamingStatus}</span>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
@@ -1494,6 +1617,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               onSetGranularity={(id, g) => onSetAttachmentGranularity?.(id, g)}
               onUnstage={(id) => onUnstageAttachment?.(id)}
               onOpenDetail={onOpenArtifact}
+              caption={trayCaption}
             />
           </div>
         )}
@@ -1523,6 +1647,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <div className="flex items-center gap-2 min-w-0">
                     {isBlocked && <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
                     <span
+                      data-testid="draft-phase-chip"
                       className={`shrink-0 font-semibold uppercase tracking-wider text-[10px] ${
                         isBlocked
                           ? 'text-red-300'
@@ -1531,21 +1656,37 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             : 'text-ink-mute'
                       }`}
                     >
-                      {isBusy
-                        ? d.kind === 'regenerate'
-                          ? 'Regenerating the reply'
-                          : 'Writing reply'
-                        : d.state === 'queued'
+                      {isBlocked ? (
+                        d.state === 'stopped'
                           ? d.kind === 'regenerate'
-                            ? 'Regenerate queued'
-                            : 'Queued'
-                          : d.state === 'stopped'
-                            ? d.kind === 'regenerate'
-                              ? 'Regenerate stopped'
-                              : 'Stopped'
-                            : d.kind === 'regenerate'
-                              ? 'Regenerate failed'
-                              : 'Failed'}
+                            ? 'Regenerate stopped'
+                            : 'Stopped'
+                          : d.kind === 'regenerate'
+                            ? 'Regenerate failed'
+                            : 'Failed'
+                      ) : (
+                        <DraftPhaseChip
+                          progress={d.progress}
+                          kind={d.kind}
+                          fallback={
+                            isBusy
+                              ? d.kind === 'regenerate'
+                                ? 'Regenerating the reply'
+                                : 'Writing reply'
+                              : drafts.some(
+                                    (x) =>
+                                      x.id !== d.id &&
+                                      x.threadId === d.threadId &&
+                                      (x.state === 'failed' || x.state === 'stopped') &&
+                                      x.createdAt <= d.createdAt
+                                  )
+                                ? 'Queued — blocked by the failed draft above (choose Retry / Store as-is / Discard there)'
+                                : d.kind === 'regenerate'
+                                  ? 'Regenerate queued'
+                                  : 'Queued'
+                          }
+                        />
+                      )}
                     </span>
                     {isBlocked && d.reason && (
                       <span className="truncate text-red-200/90">{d.reason}</span>
@@ -1587,6 +1728,65 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 </div>
                 <div className="mt-1 truncate text-ink-dim">{d.text}</div>
+                {/* Design 23 §2.1.3: the frozen payload, read-only — what this
+                    send actually carries. */}
+                {d.attachments && d.attachments.length > 0 && (
+                  <div className="mt-1 flex items-center gap-1.5 flex-wrap text-[10px] font-mono text-ink-dim">
+                    <span data-testid="draft-payload">
+                      {d.attachments.length} note{d.attachments.length === 1 ? '' : 's'} ·{' '}
+                      {formatTokens(
+                        d.attachments.reduce((sum, a) => sum + (tokensFor(a.artifactId) || 0), 0)
+                      )}{' '}
+                      tok riding this send
+                    </span>
+                    {d.attachments.map((a) => (
+                      <span
+                        key={a.artifactId}
+                        className="flex items-center gap-1 rounded bg-recess-1 px-1.5 py-0.5 text-[9px] text-ink-faint"
+                        title={titleFor(a.artifactId)}
+                      >
+                        <AttachmentDot
+                          state={a.turnIndex === null ? 'staged' : a.granularity}
+                          label={titleFor(a.artifactId)}
+                          size="sm"
+                        />
+                        <span className="max-w-[120px] truncate">{titleFor(a.artifactId)}</span>
+                        {GRANULARITY_LABEL[a.granularity]}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {isBlocked && d.errorCode === 'VAULT_LOCKED' && (
+                  <div
+                    className="mt-1.5 flex items-center gap-1.5 flex-wrap"
+                    data-testid="draft-vault-unlock-row"
+                  >
+                    <input
+                      type="password"
+                      data-testid="draft-vault-unlock-password"
+                      value={unlockPw[d.id] ?? ''}
+                      onChange={(e) => setUnlockPw((p) => ({ ...p, [d.id]: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void handleUnlockDraft(d);
+                      }}
+                      placeholder="Password"
+                      aria-label="Password to unlock your keys"
+                      className="w-40 rounded-lg bg-recess-1 shadow-well px-2 py-1 text-[11px] text-ink placeholder:text-ink-faint focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleUnlockDraft(d)}
+                      data-testid="draft-vault-unlock"
+                      disabled={unlockBusy[d.id]}
+                      className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {unlockBusy[d.id] ? 'Unlocking…' : 'Unlock & resend'}
+                    </button>
+                    {unlockErr[d.id] ? (
+                      <span className="text-red-300">{unlockErr[d.id]}</span>
+                    ) : null}
+                  </div>
+                )}
                 {d.partial && (isBusy || isBlocked) && (
                   <div className="mt-1.5 max-h-24 overflow-y-auto rounded bg-recess-1 px-2 py-1.5 text-[11px] text-ink-dim whitespace-pre-wrap">
                     {d.partial}

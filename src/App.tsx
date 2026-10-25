@@ -33,8 +33,10 @@ import { useDomains } from './domains/DomainRegistry';
 import { estimateArtifactCutTokens } from './domains/03-optical-compiler';
 import { isAttachmentStaged } from './domains/06-chat-threads';
 import type { Granularity } from './domains/granularity';
+import { cycleGranularity } from './domains/granularity';
 import { useImportSession } from './ui/artifacts/import/useImportSession';
 import { SendQueue } from './application/sendQueue';
+import { getWorkspaceMode } from './services/workspaceSession';
 import type { SendQueueDeps } from './application/sendQueue';
 import { chatCancel, titleThread, models as fetchModels, embedTexts } from './gateway/api';
 import { loadSearchConfig, saveSearchConfig } from './domains/search/searchConfig';
@@ -94,6 +96,16 @@ export default function App() {
 
   const [tick, setTick] = useState(0);
   const triggerReRender = useCallback(() => setTick((t) => t + 1), []);
+
+  // Design 23 §4: server jobs reconcile into drafts whenever a vps project
+  // loads — a lost failed HEAD must materialize with its exits, or it
+  // silently FIFO-blocks every later send ("chat never sends").
+  useEffect(() => {
+    if (!authInitialized || !currentUser || getWorkspaceMode() !== 'vps') return;
+    const projectId = workspace.getActiveProjectId();
+    if (!projectId) return;
+    void sendQueueRef.current?.reconcileServerJobs(projectId);
+  }, [authInitialized, currentUser, workspace, tick]);
 
   useEffect(() => {
     const unsubWorkspace = workspace.subscribe(() => triggerReRender());
@@ -570,10 +582,10 @@ export default function App() {
   };
 
   const {
-    handleAttachArtifact,
-    handleUnstageAttachment,
-    handleToggleAttachment,
-    handleSetAttachmentGranularity,
+    handleAttachArtifact: handleAttachArtifactRaw,
+    handleUnstageAttachment: handleUnstageAttachmentRaw,
+    handleToggleAttachment: handleToggleAttachmentRaw,
+    handleSetAttachmentGranularity: handleSetAttachmentGranularityRaw,
     handleAddArtifact,
     handleImportArtifact,
     handleTriageKeepBoth,
@@ -594,6 +606,50 @@ export default function App() {
     triageFocusId,
     setTriageFocusId,
   });
+
+  // Design 23 §2.1.2: while the thread's head draft is `queued` (nothing
+  // sending), the DRAFT's attachment snapshot is the SOURCE OF TRUTH for the
+  // un-sent payload — every attach verb edits it via updateDraftAttachments,
+  // which mirrors the staged subset back into the thread registry so
+  // commitStagedAttachments welds exactly this payload. Frozen draft (sending/
+  // failed/stopped) or no draft → the registry staged set arms the NEXT send.
+  const editableDraft = sendQueue.getEditableDraftForThread(activeThreadId);
+  const handleToggleAttachment = (artifactId: string) => {
+    if (!editableDraft) return handleToggleAttachmentRaw(artifactId);
+    sendQueue.updateDraftAttachments(editableDraft.id, (list) => {
+      const existing = list.find((a) => a.artifactId === artifactId);
+      if (!existing) {
+        return [
+          ...list,
+          { artifactId, granularity: 'full', addedAt: Date.now(), turnIndex: null, turnId: null },
+        ];
+      }
+      if (isAttachmentStaged(existing)) return list.filter((a) => a.artifactId !== artifactId);
+      return list.map((a) =>
+        a.artifactId === artifactId ? { ...a, granularity: cycleGranularity(a.granularity) } : a
+      );
+    });
+  };
+  const handleAttachArtifact = (artifactId: string) => {
+    if (!editableDraft) return handleAttachArtifactRaw(artifactId);
+    sendQueue.updateDraftAttachments(editableDraft.id, (list) =>
+      list.some((a) => a.artifactId === artifactId)
+        ? list
+        : [...list, { artifactId, granularity: 'full', addedAt: Date.now(), turnIndex: null, turnId: null }]
+    );
+  };
+  const handleUnstageAttachment = (artifactId: string) => {
+    if (!editableDraft) return handleUnstageAttachmentRaw(artifactId);
+    sendQueue.updateDraftAttachments(editableDraft.id, (list) =>
+      list.filter((a) => !(isAttachmentStaged(a) && a.artifactId === artifactId))
+    );
+  };
+  const handleSetAttachmentGranularity = (artifactId: string, granularity: Granularity) => {
+    if (!editableDraft) return handleSetAttachmentGranularityRaw(artifactId, granularity);
+    sendQueue.updateDraftAttachments(editableDraft.id, (list) =>
+      list.map((a) => (a.artifactId === artifactId ? { ...a, granularity } : a))
+    );
+  };
 
   // Session lives at App level: closing ImportModal keeps the queue processing.
   const importSession = useImportSession(projectMeta, handleImportArtifact);

@@ -336,11 +336,15 @@ function failJob(jobId: string, err: unknown, partial = ''): void {
       : err instanceof Error && err.message
         ? err.message.slice(0, 500)
         : 'The request failed — no reply came back.';
+  // Design 23 §2.3: the SSE error event carries a machine code alongside the
+  // human sentence (client maps it to draft.errorCode → on-card unlock).
+  const code =
+    err instanceof VaultLockedError || err instanceof NoKeyError ? err.code : undefined;
   setJobState(jobId, 'failed', { partial, error: message });
   const job = getJobRow(jobId);
   if (job) bumpProjectRevision(job.user_id, job.project_id); // reconnecting clients see the failed state
   const ctx = activeJobs.get(jobId);
-  broadcast(ctx, 'error', { type: 'error', message });
+  broadcast(ctx, 'error', { type: 'error', message, ...(code ? { code } : {}) });
   logServer('error', 'JOB:FAIL', `Job ${jobId}: ${message}`);
 }
 
@@ -359,7 +363,17 @@ export function attachSubscriber(jobId: string, res: Response): 'snapshot' | 'go
     return 'gone';
   }
   if (job.state === 'failed') {
-    res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', message: job.error_reason ?? 'failed' })}\n\n`);
+    // Cheap code re-derivation (no schema change): the known vault sentence
+    // maps back to VAULT_LOCKED so a reconnecting client still shows unlock.
+    const reason = job.error_reason ?? 'failed';
+    const code = /locked after a server restart|keys? (are |is )?locked/i.test(reason)
+      ? 'VAULT_LOCKED'
+      : /No API key configured/i.test(reason)
+        ? 'NO_API_KEY'
+        : undefined;
+    res.write(
+      `event: error\ndata: ${JSON.stringify({ type: 'error', message: reason, ...(code ? { code } : {}) })}\n\n`
+    );
     res.end();
     return 'gone';
   }

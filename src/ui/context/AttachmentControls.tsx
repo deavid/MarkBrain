@@ -336,6 +336,11 @@ interface StagedTrayProps {
   onSetGranularity: (artifactId: string, g: Granularity) => void;
   onUnstage: (artifactId: string) => void;
   onOpenDetail?: (artifactId: string) => void;
+  /**
+   * What these rows ARE (design 23 §2.1): editing a queued draft's payload
+   * ("riding this send") vs arming the next one ("arms the next send").
+   */
+  caption?: string;
 }
 
 /**
@@ -349,6 +354,7 @@ export const StagedTray: React.FC<StagedTrayProps> = ({
   onSetGranularity,
   onUnstage,
   onOpenDetail,
+  caption = 'arms the next send · removable until then',
 }) => {
   const [expanded, setExpanded] = useState(items.length <= 3);
   if (items.length === 0) return null;
@@ -366,9 +372,7 @@ export const StagedTray: React.FC<StagedTrayProps> = ({
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           Staged for this message ({items.length}) · {formatTokens(totalTokens)} tok
         </button>
-        <span className="text-[9px] font-mono text-[#7dd3fc]/70">
-          rides the next send · removable until then
-        </span>
+        <span className="text-[9px] font-mono text-[#7dd3fc]/70">{caption}</span>
       </div>
 
       {expanded && items.length > 1 && (

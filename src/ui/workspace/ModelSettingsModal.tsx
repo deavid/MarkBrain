@@ -94,6 +94,12 @@ function keySlotPlaceholder(id: KeySlotId): string {
   return id === 'openrouter' ? 'sk-or-…' : 'AIza…';
 }
 
+/** Honest tier copy (David 2026-10-25): tier is account-wide, not chat-only. */
+const TIER_HINT =
+  'PAID signs every lane — chat, extract, titles, embeddings, TTS — with the Paid key. FREE prefers the free key.';
+const HINT_VPS = TIER_HINT;
+const HINT_LOCAL = TIER_HINT;
+
 export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, onClose, catalog }) => {
   const [slots, setSlots] = useState<ModelSlotConfig>(DEFAULT_MODEL_SLOTS);
   const [liveCatalog, setLiveCatalog] = useState<ModalCatalogEntry[]>(catalog);
@@ -575,7 +581,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
 
           <div className="flex items-center gap-2 mt-3">
             <span className="text-[9px] font-mono uppercase tracking-wider text-[#556985]">
-              Chat tier
+              Key tier
             </span>
             <div className="flex rounded-lg overflow-hidden shadow-well" data-testid="vps-chat-tier">
               {(['free', 'paid'] as const).map((t) => (
@@ -591,6 +597,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
               ))}
             </div>
           </div>
+          <p className="text-[10px] text-[#788fa8] font-mono mt-1.5">
+            {HINT_VPS}
+          </p>
           {vpsKeysError && <p className="text-[10px] text-red-400 mt-2">{vpsKeysError}</p>}
         </section>
       );
@@ -724,7 +733,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
         </div>
         <div className="flex items-center gap-2 mt-3">
           <span className="text-[9px] font-mono uppercase tracking-wider text-[#556985]">
-            Chat tier
+            Key tier
           </span>
           <div className="flex rounded-lg overflow-hidden shadow-well" data-testid="local-chat-tier">
             {(['free', 'paid'] as const).map((t) => (
@@ -742,6 +751,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
             ))}
           </div>
         </div>
+        <p className="text-[10px] text-[#788fa8] font-mono mt-1.5">
+          {HINT_LOCAL}
+        </p>
         {listFilledKeySlots().length === 0 && (
           <p className="text-[10px] text-[#788fa8] font-mono mt-2">
             No keys configured — add one to talk to a model from this device.

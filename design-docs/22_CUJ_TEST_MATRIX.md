@@ -44,10 +44,10 @@
 
 | # | Critical User Journey | Local | Connected | Evidence |
 |---|---|---|---|---|
-| C1 | Send → stream → **pair commits atomically** (both turns at once) | ✅ | ✅ | local: `draft-stop-store-as-is`, `user-journeys`; vps: `send-and-forget-jobs` (server commit) |
+| C1 | Send → stream → **pair commits atomically** (both turns at once) | ✅ | ✅ | local: `draft-stop-store-as-is`, `user-journeys`; vps: `send-and-forget-jobs` (server commit). Payload law: enqueue SNAPSHOTS the armed set onto the draft — `send-model` (compile uses the snapshot) |
 | C2 | **Stop** mid-stream → stopped draft, partial kept, timeline untouched | ✅ | ✅ | `draft-stop-store-as-is` ("abort → stopped draft"); vps stop: `send-and-forget-jobs` §5.3 |
 | C3 | Failed attempt → draft keeps reason (never turn content) | ✅ | ✅ | `draft-stop-store-as-is`, `stream-failure-propagation`; vps: `send-and-forget-jobs` §5.2 (failed job, 0 turns) |
-| C4 | **Retry** (clean resend) | ✅ | ✅ | `stream-failure-propagation` ("retry re-queues"); vps `POST /jobs/:id/retry` ✅ (`cuj-gap-jobs` G2) |
+| C4 | **Retry** (clean resend) | ✅ | ✅ | `stream-failure-propagation` ("retry re-queues"); vps `POST /jobs/:id/retry` ✅ (`cuj-gap-jobs` G2). Retry re-sends the SAME attachment snapshot ✅ (`send-model`) |
 | C5 | **Store as-is** (only exit that writes a pair) | ✅ | ✅ | `draft-stop-store-as-is`; vps: `send-and-forget-jobs` §5.3 |
 | C6 | **Discard** (no trace) | ✅ | ✅ | `draft-stop-store-as-is`; vps `DELETE /jobs/:id` ✅ (`cuj-gap-jobs` G2) |
 | C7 | **Regenerate last reply** — old reply stays until replacement lands | ✅ | ✅ | `stream-failure-propagation` (target pair, regenerate refused unless empty queue); vps: `vps-user-journeys` ("commitPair… replaceTurn rewrites content, id preserved") |
@@ -59,6 +59,8 @@
 | C13 | Drafts survive reload; buffers don't; regenerate draft survives | ✅ | ✅ | `stream-failure-propagation` |
 | C14 | Stream failure vocabulary (401, error event, no-complete, partial-only) | ✅ | ✅ | `stream-failure-propagation` (5 reject paths + happy path) |
 | C15 | One message in flight at a time | ✅ | ✅ | `stream-failure-propagation` |
+| C16 | **Draft shows honest phase + clock** (queued / connecting / awaiting first token / writing · chars) | ✅ | ✅ | `send-model` (phase ladder + writing clock/chars survive failure) |
+| C17 | **VAULT_LOCKED unlock-on-card → auto-retry** (errorCode on the draft; unlock re-sends the same snapshot) | ✅ | ✅ | `send-model` (errorCode lands, reason stays human); server SSE `code`: `send-and-forget-jobs`; unlock row 🖱️ |
 
 ## D. Threads & folders
 
@@ -121,6 +123,7 @@
 | H6 | Cross-device settings sync (PC slot change visible on phone) | n/a | ✅ | `atomic-sqlite-sync` §6.4 |
 | H7 | Owner Users tab: add / enable / disable / reset password | n/a | ✅ | `server-auth-and-vault` §8.7–8.8 (friend create, 403 non-owner, disable kills session) |
 | H8 | Keys never leak into exports | ✅ | ✅ | `export-scrub` (5) |
+| H9 | **Key tier = PAID routes EVERY lane** (chat/extract/title/embed/tts/qaGen) to the paid key; FREE prefers free; explicit lane binding wins | ✅ | ✅ | `tier-key-routing` (8 cases, server + local auto-order) — amended 21B §3.4 after David found chat-only routing |
 
 ## I. TTS (Read-aloud)
 

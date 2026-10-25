@@ -24,6 +24,19 @@
 
 export type DraftState = 'queued' | 'sending' | 'failed' | 'stopped';
 
+/** Honest, observable phases only (design 23 §2.2) — never invent "thinking". */
+export type DraftPhase = 'queued' | 'connecting' | 'awaiting-first-token' | 'writing';
+
+export interface DraftProgress {
+  phase: DraftPhase;
+  /** When the current phase began (ms epoch) — the card ticks off this. */
+  since: number;
+  /** When the first chunk landed (writing phase). */
+  firstTokenAt?: number;
+  /** Clean partial length while writing. */
+  chars?: number;
+}
+
 export interface DraftItem {
   /** Connected-mode only (21E §4): the VPS job this draft is watching. */
   serverJobId?: string;
@@ -42,9 +55,27 @@ export interface DraftItem {
   state: DraftState;
   /** Failure reason (provider text). Queue-side only; never turn content. */
   reason?: string;
+  /**
+   * Machine-readable exit (design 23 §2.3) — `reason` stays the human
+   * sentence. `VAULT_LOCKED` drives the on-card unlock row. Persisted: a
+   * reloaded failed draft still shows the right recovery.
+   */
+  errorCode?: string;
   /** Partial reply text if the attempt got somewhere before failing/stopping. */
   partial?: string;
   createdAt: number;
+  /**
+   * THE PAYLOAD (design 23 §2.1): snapshot of the armed attachment set
+   * (staged + committed) taken at enqueue. The draft owns it — retry re-sends
+   * THIS, never a live re-read. SESSION-ONLY (like bufferedArtifacts): a
+   * reload keeps text+partial and the compile falls back to the live set.
+   */
+  attachments?: ChatAttachment[];
+  /**
+   * Honest stream phase + clock (design 23 §2.2). SESSION-ONLY — a reloaded
+   * draft has no attempt in flight, so no stale clock is shown.
+   */
+  progress?: DraftProgress;
   /**
    * Side effects buffered during the attempt and applied ONLY on commit
    * (pair + its artifacts + its topic shifts land atomically). Discard drops
@@ -57,6 +88,7 @@ export interface DraftItem {
 const STORAGE_KEY = 'markbrain:draftQueue';
 // Mode-scoped reads/writes: a draft queued in Local never appears in VPS (21C §1).
 import { getScopedStorageKey } from '../services/workspaceSession';
+import type { ChatAttachment } from '../domains/06-chat-threads/types';
 
 function storage(): Storage | null {
   try {
@@ -144,7 +176,12 @@ export class DraftQueue {
 
   private save(): void {
     try {
-      const serializable = this.items.map(({ bufferedArtifacts: _a, bufferedShifts: _s, ...rest }) => rest);
+      // Session-only fields (design 23): attachments snapshot + progress clock
+      // die with the page — like bufferedArtifacts, they describe THIS attempt
+      // on THIS device. Reload keeps text+partial+reason+errorCode.
+      const serializable = this.items.map(
+        ({ bufferedArtifacts: _a, bufferedShifts: _s, attachments: _att, progress: _p, ...rest }) => rest
+      );
       storage()?.setItem(getScopedStorageKey(STORAGE_KEY), JSON.stringify(serializable));
     } catch {
       /* storage full/unavailable — drafts still live in memory */
@@ -169,6 +206,42 @@ export class DraftQueue {
     return this.items.filter((i) => i.threadId === threadId);
   }
 
+  /** Reconcile entry point (design 23 §4): a server job that has no local
+   *  draft materializes as one — a lost failed HEAD must never silently
+   *  FIFO-block the thread forever. */
+  materialize(init: {
+    threadId: string;
+    text: string;
+    state: DraftState;
+    kind?: 'send' | 'regenerate';
+    targetTurnId?: string;
+    partial?: string;
+    reason?: string;
+    errorCode?: string;
+    serverJobId?: string;
+  }): DraftItem {
+    const item: DraftItem = {
+      id: makeDraftId(),
+      threadId: init.threadId,
+      text: init.text,
+      kind: init.kind,
+      targetTurnId: init.targetTurnId,
+      state: init.state,
+      partial: init.partial,
+      reason: init.reason,
+      errorCode: init.errorCode,
+      serverJobId: init.serverJobId,
+      createdAt: Date.now(),
+    };
+    this.items.push(item);
+    this.emit();
+    return item;
+  }
+
+  findByServerJobId(jobId: string): DraftItem | undefined {
+    return this.items.find((i) => i.serverJobId === jobId);
+  }
+
   getItem(id: string): DraftItem | undefined {
     return this.items.find((i) => i.id === id);
   }
@@ -184,12 +257,44 @@ export class DraftQueue {
       text,
       state: 'queued',
       createdAt: Date.now(),
+      // Design 23 §2.2: the clock starts the moment the ask is queued.
+      progress: { phase: 'queued', since: Date.now() },
       ...(extra.kind ? { kind: extra.kind } : {}),
       ...(extra.targetTurnId ? { targetTurnId: extra.targetTurnId } : {}),
     };
     this.items.push(item);
     this.emit();
     return item;
+  }
+
+  /**
+   * Snapshot the armed attachment set onto the draft (design 23 §2.1) — the
+   * draft OWNS its payload from here on. Call once at enqueue; retry never
+   * re-snapshots (it is the same send).
+   */
+  setAttachments(id: string, list: ChatAttachment[]): void {
+    const item = this.getItem(id);
+    if (!item) return;
+    item.attachments = list.map((a) => ({ ...a }));
+    this.emit();
+  }
+
+  /** Merge a partial progress update. A phase change resets `since` to now. */
+  setProgress(id: string, partial: Partial<DraftProgress>): void {
+    const item = this.getItem(id);
+    if (!item) return;
+    const prev = item.progress;
+    const phase = partial.phase ?? prev?.phase ?? 'queued';
+    const phaseChanged = phase !== (prev?.phase ?? 'queued');
+    const firstTokenAt = partial.firstTokenAt ?? prev?.firstTokenAt;
+    const chars = partial.chars ?? prev?.chars;
+    item.progress = {
+      phase,
+      since: partial.since ?? (phaseChanged || !prev ? Date.now() : prev.since),
+      ...(firstTokenAt !== undefined ? { firstTokenAt } : {}),
+      ...(chars !== undefined ? { chars } : {}),
+    };
+    this.emit();
   }
 
   markSending(id: string): void {
@@ -214,13 +319,18 @@ export class DraftQueue {
     // No emit: buffers are in-memory only and not worth a re-render.
   }
 
-  /** Attempt finished with no reply — the draft stays, with the reason. */
-  fail(id: string, reason: string, partial?: string): void {
+  /**
+   * Attempt finished with no reply — the draft stays, with the reason and an
+   * optional machine-readable `errorCode` (design 23 §2.3; reason is the
+   * human sentence either way).
+   */
+  fail(id: string, reason: string, partial?: string, errorCode?: string): void {
     const item = this.getItem(id);
     if (!item) return;
     item.state = 'failed';
     item.reason = reason;
     if (partial !== undefined) item.partial = partial;
+    if (errorCode !== undefined) item.errorCode = errorCode;
     this.emit();
   }
 
@@ -233,12 +343,18 @@ export class DraftQueue {
     this.emit();
   }
 
-  /** Clean resend of the ask. The partial is kept for store-as-is only. */
+  /**
+   * Clean resend of the ask. The partial is kept for store-as-is only. The
+   * attachment snapshot is KEPT (same send — design 23 §2.1.4); the previous
+   * attempt's errorCode is cleared — the new attempt re-lands it if needed.
+   */
   retry(id: string): void {
     const item = this.getItem(id);
     if (!item || item.state === 'sending' || item.state === 'queued') return;
     item.state = 'queued';
     delete item.reason;
+    delete item.errorCode;
+    if (item.progress) item.progress = { phase: 'queued', since: Date.now() };
     this.emit();
   }
 

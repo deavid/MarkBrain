@@ -259,6 +259,14 @@ Create `server/lib/accountVault.ts` using only Node's built-in `node:crypto`:
        "code": "VAULT_LOCKED"
      }
      ```
+> **Amended 2026-10-25 (David):** the tier is **account-wide** — `chatTier ===
+> 'paid'` routes EVERY Gemini lane (chat, extract, summarize, title, qaGen,
+> embed, tts) to `keys['gemini-paid']`, not just chat. The original text scoped
+> the paid preference to `capability === 'chat'`, which made embeddings and
+> title/extract burn the free quota while chat alone ran paid. FREE tier
+> prefers the free key with paid as fallback. Same law in the Local mode
+> auto-order (`src/data/keySlots.ts`).
+
 4. **Resolving a Lane Key on the Server (`resolveServerLaneKey(userId, capability, modelId)`):**
    - Reads the user's decrypted `AccountKeysPayload` + `user_settings.chat_tier`.
    - If `modelId` is an OpenRouter model (contains `/` or provider `'openrouter'`), uses `keys.openrouter`.

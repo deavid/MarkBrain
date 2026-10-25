@@ -19,6 +19,7 @@ import type { IArtifactDocumentDomain } from '../domains/01-artifact-document';
 import type { IChapterSegmentationDomain } from '../domains/02-chapter-segmentation';
 import type { ITopologicalGraphDomain } from '../domains/02-topological-graph';
 import type { ThreadRegistry } from '../domains/06-chat-threads';
+import { reconcileThreadAttachments } from '../domains/06-chat-threads';
 import { apiFetch } from '../gateway/api';
 import { getWorkspaceMode } from '../services/workspaceSession';
 import type { ProjectDeltaResponse } from '../../server/db/projectRepo';
@@ -125,30 +126,46 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
   // entries must follow, or the staged tray never empties ("attachments
   // didn't get removed when sent to the draft bin") and the chips never render
   // on the turn (they read the registry, not the turn meta).
-  for (const incoming of delta.turns) {
-    const atts = (incoming as { meta?: { attachments?: unknown } }).meta?.attachments;
-    if (!Array.isArray(atts)) continue;
-    const threadId = incoming.threadId ?? threadRegistry.getActiveThreadId();
-    for (const att of atts as Array<{ artifactId?: unknown; turnIndex?: unknown; turnId?: unknown }>) {
-      if (typeof att.artifactId !== 'string' || !att.artifactId) continue;
-      const turnIndex =
-        typeof att.turnIndex === 'number' && Number.isFinite(att.turnIndex) && att.turnIndex >= 0
-          ? att.turnIndex
-          : null;
-      threadRegistry.commitAttachment(
-        threadId,
-        att.artifactId,
-        turnIndex,
-        typeof att.turnId === 'string' ? att.turnId : null
-      );
+  const weldProvenance = () => {
+    for (const incoming of delta.turns) {
+      const atts = (incoming as { meta?: { attachments?: unknown } }).meta?.attachments;
+      if (!Array.isArray(atts)) continue;
+      const threadId = incoming.threadId ?? threadRegistry.getActiveThreadId();
+      for (const att of atts as Array<{ artifactId?: unknown; turnIndex?: unknown; turnId?: unknown }>) {
+        if (typeof att.artifactId !== 'string' || !att.artifactId) continue;
+        const turnIndex =
+          typeof att.turnIndex === 'number' && Number.isFinite(att.turnIndex) && att.turnIndex >= 0
+            ? att.turnIndex
+            : null;
+        threadRegistry.commitAttachment(
+          threadId,
+          att.artifactId,
+          turnIndex,
+          typeof att.turnId === 'string' ? att.turnId : null
+        );
+      }
     }
-  }
+  };
+  weldProvenance(); // common case: the thread already exists
 
   // Threads / folders: patch existing rows, create missing ones.
   for (const incoming of delta.threads) {
-    if (threadRegistry.getThread(incoming.id)) threadRegistry.patch(incoming.id, incoming);
-    else threadRegistry.createThread(incoming);
+    if (threadRegistry.getThread(incoming.id)) {
+      // NEVER let a delta thread row downgrade attachment provenance (live
+      // 2026-10-25): the thread doc's attachment list is the client's last
+      // save — a VPS pair commits server-side while the thread row still says
+      // staged. Patching it verbatim clobbered the weld this same merge just
+      // applied from the turn meta, and the next save persisted the lie.
+      const existing = threadRegistry.getThread(incoming.id)!;
+      threadRegistry.patch(incoming.id, {
+        ...incoming,
+        attachments: reconcileThreadAttachments(existing.attachments ?? [], incoming.attachments ?? []),
+      });
+    } else {
+      threadRegistry.createThread(incoming);
+    }
   }
+  weldProvenance(); // a createThread above may have arrived with stale staged entries
   const knownFolders = new Set(threadRegistry.getFolders().map((f) => f.id));
   for (const incoming of delta.folders) {
     if (!knownFolders.has(incoming.id)) threadRegistry.createFolder(incoming.name);

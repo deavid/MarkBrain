@@ -37,6 +37,28 @@ const rand = () => Math.random().toString(36).slice(2, 6);
  *
  * `-1` is committed. Only `null` means staged.
  */
+/**
+ * Merge two attachment lists WITHOUT downgrading provenance: a staged entry
+ * (`turnIndex === null`) in `incoming` must never overwrite a committed entry
+ * in `existing` (the delta thread row is the client's last save; the turn meta
+ * is the server's truth). Committed wins per artifactId; attachments known
+ * only to either side are kept.
+ */
+export function reconcileThreadAttachments(
+  existing: ChatAttachment[],
+  incoming: ChatAttachment[]
+): ChatAttachment[] {
+  const byId = new Map<string, ChatAttachment>();
+  for (const a of existing) byId.set(a.artifactId, a);
+  for (const a of incoming) {
+    const prev = byId.get(a.artifactId);
+    if (!prev) byId.set(a.artifactId, a);
+    else if (isAttachmentStaged(a) && !isAttachmentStaged(prev)) byId.set(a.artifactId, prev); // no downgrade
+    else byId.set(a.artifactId, a);
+  }
+  return [...byId.values()];
+}
+
 function normalizeAttachments(raw: unknown): ChatAttachment[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
@@ -311,6 +333,43 @@ export class ThreadRegistry {
 
     const allTurns = ((input.turns || []) as Turn[]).map(tag);
     const allChapters = ((input.chapters || []) as ChapterPartition[]).map(tag);
+
+    // Attachment provenance from the SERVER's turns (live 2026-10-25, David:
+    // "I refreshed, and it does not work"). The thread's attachment list rides
+    // the client's last save — a pair that committed server-side (VPS job)
+    // left the staged entries `turnIndex: null` in that list, so after a
+    // refresh the tray showed them STAGED again (a re-send trap) and the chips
+    // never rendered. The turns are the truth: an attachment named in a turn's
+    // meta.attachments is IN the chat, whatever the stale thread doc says.
+    const provenance = new Map<string, { turnIndex: number; turnId: string | null }>();
+    for (const turn of allTurns) {
+      const atts = (turn as { meta?: { attachments?: unknown } }).meta?.attachments;
+      if (!Array.isArray(atts)) continue;
+      for (const att of atts as Array<{ artifactId?: unknown; turnIndex?: unknown; turnId?: unknown }>) {
+        if (typeof att.artifactId !== 'string' || !att.artifactId || provenance.has(att.artifactId)) continue;
+        const turnIndex =
+          typeof att.turnIndex === 'number' && Number.isFinite(att.turnIndex) && att.turnIndex >= 0
+            ? att.turnIndex
+            : -1; // in the chat, provenance unknown — never staged again
+        provenance.set(att.artifactId, {
+          turnIndex,
+          turnId: typeof att.turnId === 'string' ? att.turnId : null,
+        });
+      }
+    }
+    if (provenance.size > 0) {
+      this.threads = this.threads.map((t) => {
+        let changed = false;
+        const attachments = t.attachments.map((a) => {
+          if (!isAttachmentStaged(a)) return a;
+          const prov = provenance.get(a.artifactId);
+          if (!prov) return a;
+          changed = true;
+          return { ...a, turnIndex: prov.turnIndex, turnId: prov.turnId };
+        });
+        return changed ? { ...t, attachments } : t;
+      });
+    }
 
     const preferred = this.threads.find(
       (t) => t.id === input.activeThreadId && t.lifecycle === 'active'

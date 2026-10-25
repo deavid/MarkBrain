@@ -6,7 +6,8 @@
  * detach, and deleting an artifact garbage-collects its dangling attachments.
  */
 import { describe, it, expect } from 'vitest';
-import { ThreadRegistry } from '../domains/06-chat-threads';
+import { ThreadRegistry, reconcileThreadAttachments } from '../domains/06-chat-threads';
+import type { ChatAttachment } from '../domains/06-chat-threads/types';
 
 function registryWithTwoChats() {
   const registry = new ThreadRegistry();
@@ -195,6 +196,79 @@ describe('attachment timeline (staged → committed)', () => {
     expect(registry.getAttachments(a)[0].turnIndex).toBe(0);
   });
 
+  it('hydrate welds staged entries named in turns meta.attachments (refresh never resurrects the staged tray)', () => {
+    // Live 2026-10-25: after a refresh, the thread doc (client's last save)
+    // still said staged, so the tray repopulated and the chips never rendered.
+    const registry = new ThreadRegistry();
+    registry.hydrate({
+      projectId: 'p',
+      threads: [
+        {
+          id: 'thread-x',
+          folderId: null,
+          title: 'X',
+          titleState: 'auto',
+          titleVersion: 1,
+          createdAt: 0,
+          updatedAt: 0,
+          lastActivityAt: 0,
+          lifecycle: 'active' as const,
+          lastOutcome: 'ok' as const,
+          preview: '',
+          attachments: [
+            { artifactId: 'art-a', granularity: 'full' as const, addedAt: 1, turnIndex: null, turnId: null },
+            { artifactId: 'art-b', granularity: 'full' as const, addedAt: 1, turnIndex: null, turnId: null },
+          ],
+        },
+      ],
+      turns: [
+        {
+          id: 'turn-1',
+          role: 'user' as const,
+          content: 'ask',
+          timestamp: 1,
+          threadId: 'thread-x',
+          meta: { attachments: [{ artifactId: 'art-a', turnIndex: 0, turnId: 'turn-1' }] },
+        },
+      ],
+    });
+    const atts = registry.getAttachments('thread-x');
+    const a = atts.find((x) => x.artifactId === 'art-a')!;
+    expect(a.turnIndex).toBe(0);
+    expect(a.turnId).toBe('turn-1');
+    // Not named in any turn → stays staged (it genuinely arms the next send).
+    const b = atts.find((x) => x.artifactId === 'art-b')!;
+    expect(b.turnIndex).toBeNull();
+    expect(registry.getStagedAttachments('thread-x').map((x) => x.artifactId)).toEqual(['art-b']);
+  });
+
+  it('reconcileThreadAttachments never downgrades committed provenance to staged', () => {
+    const committed: ChatAttachment = {
+      artifactId: 'art-1',
+      granularity: 'full',
+      addedAt: 1,
+      turnIndex: 2,
+      turnId: 'turn-2',
+    };
+    const staleStaged: ChatAttachment = {
+      artifactId: 'art-1',
+      granularity: 'full',
+      addedAt: 1,
+      turnIndex: null,
+      turnId: null,
+    };
+    const other: ChatAttachment = {
+      artifactId: 'art-new',
+      granularity: 'full',
+      addedAt: 1,
+      turnIndex: null,
+      turnId: null,
+    };
+    expect(reconcileThreadAttachments([committed], [staleStaged])).toEqual([committed]);
+    expect(reconcileThreadAttachments([], [staleStaged, other])).toEqual([staleStaged, other]);
+    expect(reconcileThreadAttachments([committed], [])).toEqual([committed]);
+  });
+
   it('legacy snapshots without a turnIndex hydrate as committed at turnIndex -1 (never staged, never a fake turn)', () => {
     const registry = new ThreadRegistry();
     registry.hydrate({
@@ -202,7 +276,6 @@ describe('attachment timeline (staged → committed)', () => {
       threads: [
         {
           id: 'thread-old',
-          folderId: null,
           title: 'Old',
           titleState: 'auto',
           titleVersion: 2,

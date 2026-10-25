@@ -11,6 +11,12 @@ export interface TurnMeta {
   streamState?: string;
   /** True when the numbers are estimates (no real usage telemetry came back). */
   isFallback?: boolean;
+  /**
+   * Attachments welded to this turn by the commit (server or client mirror):
+   * artifactId + provenance. The registry's thread list is the staging state;
+   * the TURN META is the committed truth (design 23 §2.1/§2.4.1).
+   */
+  attachments?: Array<{ artifactId: string; granularity?: string; addedAt?: number; turnIndex?: number | null; turnId?: string | null }>;
 }
 
 /**

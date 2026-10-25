@@ -414,13 +414,39 @@ describe('G6 — useVpsDeltaSync mergeDeltaIntoDomains', () => {
       deps
     );
     const byArt = (id: string) => state.committedAttachments.filter((c) => c.artifactId === id);
-    expect(byArt('art-1')).toEqual([
-      { threadId: 'thread-active', artifactId: 'art-1', turnIndex: 4, turnId: 't-user-9' },
+    // The merge welds twice (before AND after the threads loop) so a
+    // createThread that arrived in the same batch still gets welded; the real
+    // registry commit is idempotent (committed entries are never re-welded).
+    expect(byArt('art-1')[0]).toEqual({ threadId: 'thread-active', artifactId: 'art-1', turnIndex: 4, turnId: 't-user-9' });
+    expect(byArt('art-2')[0]).toEqual({ threadId: 'thread-other', artifactId: 'art-2', turnIndex: 0, turnId: 't-f-1' });
+    // The weld is idempotent (merge runs it before AND after the threads loop,
+    // so an already-committed entry is a no-op — one commit per artifact).
+    const uniqueArts = new Set(state.committedAttachments.map((c) => c.artifactId));
+    expect([...uniqueArts].sort()).toEqual(['art-1', 'art-2']);
+    expect(state.committedAttachments.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a delta thread row NEVER downgrades welded provenance to staged (live 2026-10-25)', () => {
+    // The thread doc's attachment list is the client's LAST SAVE — after a VPS
+    // pair commits server-side it still says staged. Patching it verbatim
+    // clobbered the provenance the same merge had just welded from turn meta,
+    // and the next save persisted the lie (tray repopulated, chips vanished).
+    const { state, deps } = makeStubs({
+      activeThreadId: 'thread-active',
+      threads: [{ id: 'thread-active', title: 'T', attachments: [{ artifactId: 'art-1', turnIndex: 4, turnId: 't9' }] }],
+    });
+    mergeDeltaIntoDomains(
+      makeDelta({
+        revision: 12,
+        threads: [{ id: 'thread-active', title: 'T', attachments: [{ artifactId: 'art-1', turnIndex: null, turnId: null }] }] as never,
+      }),
+      deps
+    );
+    const patched = state.patchedThreads.find((p) => p.id === 'thread-active');
+    expect(patched).toBeTruthy();
+    expect((patched!.patch as { attachments: Array<{ turnIndex: number }> }).attachments).toEqual([
+      { artifactId: 'art-1', turnIndex: 4, turnId: 't9' },
     ]);
-    expect(byArt('art-2')).toEqual([
-      { threadId: 'thread-other', artifactId: 'art-2', turnIndex: 0, turnId: 't-f-1' },
-    ]);
-    expect(state.committedAttachments.length).toBe(2); // junk ignored
   });
 
   it('threads patch when known and create when new; unknown folders are created', () => {
@@ -441,7 +467,9 @@ describe('G6 — useVpsDeltaSync mergeDeltaIntoDomains', () => {
       }),
       deps
     );
-    expect(state.patchedThreads).toEqual([{ id: 'thread-known', patch: { id: 'thread-known', title: 'renamed' } }]);
+    expect(state.patchedThreads).toEqual([
+      { id: 'thread-known', patch: { id: 'thread-known', title: 'renamed', attachments: [] } },
+    ]);
     expect(state.createdThreads.map((t) => (t as { id: string }).id)).toEqual(['thread-new']);
     expect(state.createdFolders).toEqual(['Fresh']); // known folder not recreated
     expect(state.folders.map((f) => f.name)).toEqual(['Known', 'Fresh']);

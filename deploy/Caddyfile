@@ -1,0 +1,25 @@
+markbrain.unhaunter.com {
+    encode zstd gzip
+
+    # Only /api/* wakes up the Node + SQLite daemon on 127.0.0.1:3032.
+    # flush_interval -1 ensures SSE chat streams (/api/jobs/*/stream) never buffer.
+    handle /api/* {
+        reverse_proxy 127.0.0.1:3032 {
+            flush_interval -1
+        }
+    }
+
+    # All static assets and SPA routes are served directly by Caddy from disk.
+    # Random visitors in Local Workspace mode never touch the Node process.
+    handle {
+        root * /srv/markbrain/dist
+        try_files {path} /index.html
+        file_server
+    }
+
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}

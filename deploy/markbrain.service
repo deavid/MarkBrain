@@ -1,0 +1,26 @@
+[Unit]
+Description=MarkBrain VPS Backend (SQLite + Jobs + Indexer + TTS Cache)
+After=network.target
+
+[Service]
+Type=simple
+User=markbrain
+Group=markbrain
+WorkingDirectory=/srv/markbrain
+EnvironmentFile=/etc/markbrain/markbrain.env
+Environment=NODE_ENV=production
+Environment=PORT=3032
+Environment=MARKBRAIN_DB_PATH=/var/lib/markbrain/markbrain.sqlite
+Environment=MARKBRAIN_TTS_CACHE_DIR=/var/lib/markbrain/tts-cache
+ExecStart=/usr/bin/npx tsx server.ts
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/markbrain
+
+[Install]
+WantedBy=multi-user.target

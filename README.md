@@ -50,10 +50,10 @@ grows up — and honest about that.
 | Layer | What |
 |---|---|
 | Frontend | React 19 + Vite 8 + Tailwind 4, TypeScript, SPA in `src/` |
-| Backend | Express backend in `server/` (`app.ts` + `routes/` for chat, summarize, title, tts, extract, logs, health, auth, models + `providers/gemini.ts` + `lib/`), behind the 10-line `server.ts` entry; mounts Vite (dev) or `dist/` (prod); owns the model catalog (`GET /api/models`) |
-| Auth/DB | Firebase Auth (Google popup) + Firestore, per-user trees, rules in `firestore.rules`; or the Local branch (no account, IndexedDB) |
+| Backend | Express backend in `server/` (`app.ts` + `routes/` for chat, account/auth, projects, jobs, search-index, tts, extract, logs, health, models + `db/` SQLite + `jobs/` runner/indexer + `providers/gemini.ts`), behind the 10-line `server.ts` entry; mounts Vite (dev) or `dist/` (prod); owns the model catalog (`GET /api/models`) |
+| Auth/DB | **Two-Mode** (design-docs/19–21): *Local Workspace* — no account, IndexedDB, WebCrypto passphrase vault, browser→provider direct. *Connected VPS Workspace* — scrypt accounts (immutable Owner #1), SQLite at rest, `requireAuth` on every `/api/*` content route, per-user server-side key vault |
 | Domain logic | DDD-ish micro-domains in `src/domains/` behind `DomainRegistry` — see `design-docs/03_DOMAIN_ARCHITECTURE_RULES.md` |
-| Persistence | One port, two backends: Firestore (default) or local IndexedDB — `src/services/persistenceService.ts` is the only module that knows both exist. Canonical backup/restore JSON (Backup DB / Restore DB). |
+| Persistence | One port, two backends: `localStore` (IndexedDB) or `vpsStore` (SQLite + isolated `markbrain-vps:` mirror with delta sync) — `src/services/persistenceService.ts` is the only module that knows both exist. Canonical backup/restore JSON (Backup DB / Restore DB). |
 
 ## Run it
 
@@ -81,18 +81,19 @@ wins); `.env.example` documents the stack and lists every key.
 | `npm run build` | `vite build` → `dist/` |
 | `npm run preview` | `vite preview` — serve `dist/` |
 | `npm run lint` | `tsc --noEmit` |
-| `npm test` | `vitest run` (18 files in `src/tests/`) |
+| `npm test` | `vitest run` (48 files in `src/tests/`) |
 
 Notes:
 
-- `.env` is optional. With no `GEMINI_API_KEY` the AI endpoints answer from a
-  canned demo / heuristic fallback; with no `FIREBASE_API_KEY` the app boots
-  into Local mode (IndexedDB, this browser only) and the gate hides the Google
-  button. `.env.example` lists every key.
-- First screen is an auth gate with two branches: `Continue with Google`
-  (cloud) and `Continue locally` (no account, this browser only). On a fresh
-  account you land on Project Genesis, then the main studio. Projects are
-  deletable from the project selection screen (Workspace Deck).
+- `.env` is optional for local dev. There are no cloud-auth variables —
+  Firebase was removed (design-docs/19). API keys live in the Local mode
+  passphrase vault or the Connected mode server vault (never in env/git);
+  `npm run build` scans `dist/` for leaks.
+- First screen is a gate with two branches: **Sign in to Server** (Connected
+  VPS Workspace — email + password) and **Use Local Workspace** (no account,
+  this browser only). On a fresh account you land on Project Genesis, then
+  the main studio. Projects are deletable from the project selection screen
+  (Workspace Deck).
 
 ## Shape of the code
 
@@ -115,8 +116,8 @@ src/domains/              # micro-domains behind DomainRegistry: workspace, arti
                           # document/versioning, dialogue timeline, chapter segmentation,
                           # topological graph, chapter recalibration, optical compiler,
                           # stream protocol, chat-threads
-src/services/             # firebase, Google Drive import, localBackend, persistenceService
-src/services/stores/      # ProjectStore port: projectStore.ts + firestoreStore, localStore, hydrate
+src/services/             # workspaceSession (mode + scoped keys), localBackend, persistenceService
+src/services/stores/      # ProjectStore port: projectStore.ts + localStore, vpsStore, hydrate
 src/data/models.ts        # FALLBACK_MODEL — one constant while GET /api/models is in flight
 scripts/                  # evidence pack + headless capture/acceptance runners (see below)
 design-docs/              # the actual spec — see index in SCRATCH.md
@@ -124,18 +125,18 @@ design-docs/              # the actual spec — see index in SCRATCH.md
 
 ## Headless access & screenshots
 
-Agents (or you) can run the app fully unattended — auth mocked at the
-network/storage layer, Firestore held so nothing real is touched:
+Agents (or you) can run the app fully unattended — Local Workspace fixture
+mode, zero cloud accounts, zero keys, nothing real is touched:
 
 ```bash
 npm i --prefix /tmp/pw playwright-core    # one-time
 node scripts/evidence.cjs                 # ★ full evidence pack: journey suite + geometry audit
-node scripts/headless-capture.cjs         # → chat/graph/mobile PNGs (fixture mode, offline)
-node scripts/headless-capture.cjs --real  # real-data mode: live auth + live Firestore reads, writes no-op
 node scripts/roundtrip-test.cjs           # acceptance: export → fresh browser → import → same UI
 node scripts/delete-test.cjs              # acceptance: project deletion + confirmation flow
-node scripts/cleanup-tool-test.cjs        # acceptance: archive → permanent delete (the deletion law, design-docs/14)
 ```
+
+(`headless-capture.cjs` / `cleanup-tool-test.cjs` still carry pre-Phase-1
+Firebase seeding — legacy, not part of the gate.)
 
 Mechanics, gotchas, selector map, and caveats: **[`design-docs/AGENT_RUNBOOK.md`](design-docs/AGENT_RUNBOOK.md)**.
 One rule to remember: capture/test runs are strictly **serial** — one

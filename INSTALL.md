@@ -57,14 +57,17 @@ you can start with an empty `.env` or none at all.
 
 | Key | Turns on | If you skip it |
 |---|---|---|
-| `GEMINI_API_KEY` (AI Studio) | chat + streaming, chapter summaries, thread titles, document→artifact extraction, Gemini TTS | the server still runs: canned "Offline demo" chat reply, no titles, heuristic import extraction, browser speech synthesis for TTS |
-| `FIREBASE_API_KEY` | the cloud branch: Google sign-in + per-user Firestore trees | **nothing breaks** — an empty key boots straight into Local mode (IndexedDB, this browser only), the gate hides the Google button, and a WARN in the console says so |
-| `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIRESTORE_DB_ID` | the cloud branch only | ignored in Local mode |
 | `PORT` | the dev/prod port | `3000` |
-| `GOOGLE_PICKER_API_KEY` | the Drive/Docs import tab (shelved; also needs `VITE_GOOGLE_PICKER_ENABLED=true`) | paste-a-link import still works |
+| `MARKBRAIN_OWNER_EMAIL` / `MARKBRAIN_OWNER_PASSWORD` | VPS first boot: bootstrap Owner Account #1 automatically (Phase 2) | nothing — bootstrap the owner later with `npm run user -- create … --owner` |
 
-`.env*` is gitignored and stays that way — never put a key in `.env.example`,
-`firebase-applet-config.json` or any other tracked file.
+There are **no cloud-auth variables**. Firebase, Firestore, and Google Drive
+were removed (design-docs/19). API keys are never env vars: Local mode stores
+them in the browser passphrase vault, Connected mode in the server's encrypted
+`user_secrets` table (see SECURITY.md, Two-Mode boundary).
+
+`.env*` is gitignored and stays that way — never put a key in `.env.example`
+or any other tracked file. `npm run build` runs `scripts/verify-clean-dist.cjs`
+and fails if any secret-shaped string lands in `dist/`.
 
 ## 4. Run
 
@@ -73,11 +76,38 @@ npm run dev                 # → http://localhost:$PORT  (PORT from .env; 3000 
 ```
 
 One process serves the API and the UI (Vite runs as middleware, so there is no
-second dev server and no proxy to configure). First screen is a gate: *Continue
-with Google* (only rendered when `FIREBASE_API_KEY` is set) or *Continue locally*
-(no account, this browser only). Local mode is the intended key-free path.
+second dev server and no proxy to configure). First screen is a gate with two
+paths: **Sign in to Server** (Connected VPS Workspace — email + password against
+this server) or **Use Local Workspace** (no account, this browser only). Local
+mode is the intended key-free path.
 
-## 5. Command map
+## 5. VPS / Self-Hosted Mode (Connected Workspace)
+
+Two-mode architecture (design-docs/19–21): Local needs zero accounts; the
+Connected workspace runs the SQLite daemon behind Caddy on your own box.
+
+**Bootstrap Owner Account #1** (immutable — it can never be disabled):
+
+```bash
+npm run user -- create you@example.com --password <pw> --owner
+# or let the server do it on first boot: set MARKBRAIN_OWNER_EMAIL +
+# MARKBRAIN_OWNER_PASSWORD in the service environment (never in git).
+```
+
+**Deploy** from the developer machine with Ansible (builds locally, rsyncs,
+installs systemd + Caddy, health-checks):
+
+```bash
+cp deploy/ansible/inventory.ini.example deploy/ansible/inventory.ini   # gitignored
+ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml   -e "markbrain_owner_password=..."    # first bootstrap only
+```
+
+Templates: `deploy/Caddyfile` (static from disk, `/api/*` → 127.0.0.1:3032 with
+SSE passthrough), `deploy/markbrain.service` (hardened systemd unit), and the
+playbook under `deploy/ansible/`. Runtime data lives in `/var/lib/markbrain/`
+(SQLite + TTS Ogg cache) — never in git.
+
+## 6. Command map
 
 | Bun (docs/scripts) | Node equivalent |
 |---|---|
@@ -91,11 +121,11 @@ with Google* (only rendered when `FIREBASE_API_KEY` is set) or *Continue locally
 | `node scripts/evidence.cjs` | identical — the scripts are plain Node CommonJS |
 | `npm i --prefix /tmp/pw playwright-core` | identical |
 
-## 6. Verify the install
+## 7. Verify the install
 
 ```bash
 npm run lint        # tsc --noEmit — silent means clean
-npm test            # vitest — expect 151 passing across 18 files
+npm test            # vitest — 440 tests across 48 files
 npm run dev         # then open the printed URL: gate or studio, no red console spam
 ```
 
@@ -107,11 +137,13 @@ node scripts/evidence.cjs                 # full journey suite + geometry audit
 node scripts/cleanup-tool-test.cjs        # archive → permanent delete acceptance
 ```
 
-The headless scripts read `FIREBASE_API_KEY` from the layered env (they seed a
-fake signed-in user whose key must match the vite-injected one) and hold
-Firestore requests, so nothing real is touched — but they do need a key present.
+The headless harnesses (`headless-capture.cjs`, `cleanup-tool-test.cjs`) still
+carry pre-Phase-1 Firebase seeding and are **legacy** — Firebase was removed in
+design-docs/19; they are not part of the verification gate (`lint + test +
+build`). `scripts/evidence.cjs` runs against the Local fixture with no cloud
+accounts and no keys.
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
@@ -119,7 +151,6 @@ Firestore requests, so nothing real is touched — but they do need a key presen
 | `Cannot find module '.../node_modules/.bin/tsx'` | `npm install` never ran |
 | `npm test` refuses to start / engines warning | Node older than 22.12, or an odd major (23/25) — `nvm use 22` or `24` |
 | `EADDRINUSE` on startup | another dev server owns the port; change `PORT` in `.env` |
-| Console `WARN ... FIREBASE_API_KEY is empty` | expected in Local mode, not an error |
 | Blank screen, no console error | check the terminal running `npm run dev`; the Express layer logs the failure there |
 | `npm ci` fails | it needs `package-lock.json`, which only exists after your first `npm install` |
 | Windows | same commands; use `copy .env.example .env` and PowerShell's `$env:PORT` if you need a one-off port |

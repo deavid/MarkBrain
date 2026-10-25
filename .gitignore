@@ -21,3 +21,6 @@ data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+
+# Personal Ansible inventory (host/password overrides) — only .example is tracked
+deploy/ansible/inventory.ini

@@ -21,6 +21,7 @@ import { requireModelId } from '../lib/models';
 import { logServer } from '../lib/log';
 import { buildSummarizePrompt, DEFAULT_SYSTEM_INSTRUCTION } from '../lib/prompt';
 import { estimateTokens } from '../lib/tokens';
+import { parseSentinelBlocks } from '../../src/utils/sentinelParser';
 import { buildTitlePrompt, cleanupTitle } from '../../src/prompts/lanes';
 import { StreamProtocolDomain } from '../../src/domains/03-stream-protocol';
 import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../../src/domains/03-stream-protocol/types';
@@ -640,7 +641,13 @@ async function runChapterSummaries(userId: number, projectId: string, threadId: 
     if (!chapter) continue;
     const sealed = chapter.status === 'completed';
     if (!sealed) continue;
-    if (chapter.description && chapter.summary) continue; // never re-summarizes
+    // Never re-summarizes — UNLESS the stored fields are sentinel soup from
+    // the old parser (live 2026-10-25): garbage in the fields is not content,
+    // so the chore rewrites it on its next pass.
+    const soup = /===\s*(SUBTITLE|DESCRIPTION|SUMMARY)\s*===/i.test(
+      `${(chapter as { description?: string }).description ?? ''}${(chapter as { summary?: string }).summary ?? ''}`
+    );
+    if (chapter.description && chapter.summary && !soup) continue; // never re-summarizes
 
     // Gather this chapter's turns (startIndex..endIndex window).
     const turns = db
@@ -664,12 +671,19 @@ async function runChapterSummaries(userId: number, projectId: string, threadId: 
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('summarize exceeded 12s')), 12_000)),
     ]);
     const raw = response.text || '';
-    // Same fallback parse as routes/summarize: DESCRIPTION:/SUMMARY: or raw.
+    // Sentinel headers FIRST (the prompt's own format, `=== FIELD ===`), then
+    // the legacy `FIELD:` colon form. Live 2026-10-25: the model obeyed the
+    // prompt, the parser only knew the colon form → the whole reply INCLUDING
+    // the `=== SUBTITLE ===` markers was stored as description AND summary,
+    // and the detail modal rendered the sentinel soup.
+    const blocks = parseSentinelBlocks(raw);
     const descMatch = raw.match(/DESCRIPTION:\s*([\s\S]*?)(?=SUMMARY:|$)/i);
     const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]*)$/i);
-    chapter.description = descMatch ? descMatch[1].trim() : chapter.description ?? raw.trim().slice(0, 4000);
-    chapter.summary = summaryMatch ? summaryMatch[1].trim() : chapter.summary ?? raw.trim().slice(0, 4000);
-    chapter.subtitle = (chapter as { subtitle?: string }).subtitle ?? chapter.title;
+    chapter.description =
+      blocks.description || (descMatch ? descMatch[1].trim() : '') || chapter.description || raw.trim().slice(0, 4000);
+    chapter.summary =
+      blocks.summary || (summaryMatch ? summaryMatch[1].trim() : '') || chapter.summary || raw.trim().slice(0, 4000);
+    chapter.subtitle = blocks.subtitle || (chapter as { subtitle?: string }).subtitle || chapter.title;
 
     db.prepare(
       'UPDATE chapters SET title = ?, description = ?, summary = ?, doc_json = ?, revision = ? WHERE user_id = ? AND project_id = ? AND chapter_id = ?'

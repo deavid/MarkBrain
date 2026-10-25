@@ -366,6 +366,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [collapsedChapterIds, setCollapsedChapterIds] = useState<Record<string, boolean>>({});
+  // Chapter body layers (description / summary) — COLLAPSED by default
+  // (2026-10-25: a Full cut dumped both layers' full prose into the chat).
+  const [collapsedChapterLayers, setCollapsedChapterLayers] = useState<Record<string, boolean>>({});
+  const isLayerCollapsed = (chapterId: string, layer: 'description' | 'summary'): boolean =>
+    collapsedChapterLayers[`${chapterId}:${layer}`] ?? true;
+  const toggleChapterLayer = (chapterId: string, layer: 'description' | 'summary'): void =>
+    setCollapsedChapterLayers((prev) => ({ ...prev, [`${chapterId}:${layer}`]: !(prev[`${chapterId}:${layer}`] ?? true) }));
   const [summarizingIds, setSummarizingIds] = useState<Record<string, boolean>>({});
   const [summarizeErrorIds, setSummarizeErrorIds] = useState<Record<string, string>>({});
 
@@ -1148,10 +1155,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       data-testid="chapter-layer-description"
                       className="text-xs text-ink-dim leading-relaxed bg-recess-1 shadow-well p-3 rounded-lg"
                     >
-                      <div className="font-semibold text-[10px] text-[#e2c328] mb-1 font-mono uppercase tracking-wider">
-                        Description
-                      </div>
-                      <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.description) }} />
+                      <button
+                        type="button"
+                        onClick={() => toggleChapterLayer(chapter.id, 'description')}
+                        aria-expanded={!isLayerCollapsed(chapter.id, 'description')}
+                        className="w-full flex items-center justify-between gap-2 cursor-pointer"
+                      >
+                        <div className="font-semibold text-[10px] text-[#e2c328] mb-1 font-mono uppercase tracking-wider">
+                          Description
+                        </div>
+                        <span className="text-[9px] font-mono text-[#6b82a3] shrink-0">
+                          {isLayerCollapsed(chapter.id, 'description') ? '+ show' : '− hide'}
+                        </span>
+                      </button>
+                      {!isLayerCollapsed(chapter.id, 'description') && (
+                        <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.description) }} />
+                      )}
                     </div>
                   )}
                   {cutIncludes(granularity, 'summary') && chapter.summary && (
@@ -1159,10 +1178,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       data-testid="chapter-layer-summary"
                       className="text-xs text-ink-dim leading-relaxed bg-recess-1 shadow-well p-3 rounded-lg"
                     >
-                      <div className="font-semibold text-[10px] text-[#f99014] mb-1 font-mono uppercase tracking-wider">
-                        Summary
-                      </div>
-                      <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.summary) }} />
+                      <button
+                        type="button"
+                        onClick={() => toggleChapterLayer(chapter.id, 'summary')}
+                        aria-expanded={!isLayerCollapsed(chapter.id, 'summary')}
+                        className="w-full flex items-center justify-between gap-2 cursor-pointer"
+                      >
+                        <div className="font-semibold text-[10px] text-[#f99014] mb-1 font-mono uppercase tracking-wider">
+                          Summary
+                        </div>
+                        <span className="text-[9px] font-mono text-[#6b82a3] shrink-0">
+                          {isLayerCollapsed(chapter.id, 'summary') ? '+ show' : '− hide'}
+                        </span>
+                      </button>
+                      {!isLayerCollapsed(chapter.id, 'summary') && (
+                        <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.summary) }} />
+                      )}
                     </div>
                   )}
                   {/* Missing layer under a chosen cut = chrome, not content: a

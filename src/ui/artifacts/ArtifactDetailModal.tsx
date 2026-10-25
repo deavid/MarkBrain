@@ -3,6 +3,37 @@ import { createPortal } from 'react-dom';
 import { Artifact } from '../../types';
 import type { Granularity } from '../../domains/granularity';
 import { GRANULARITY_LABEL, GRANULARITY_ORDER, getGranularityChipClass } from '../../domains/granularity';
+
+/** A metadata field card that starts COLLAPSED (2026-10-25: the description
+ * and summary are long; opening the modal must not dump 10k tokens of text).
+ * Header row always visible; click to expand. */
+function CollapsibleField({
+  label,
+  labelClass,
+  children,
+}: {
+  label: string;
+  labelClass: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="p-3 rounded-lg bg-surface-2 space-y-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between gap-2 cursor-pointer"
+        aria-expanded={open}
+      >
+        <span className={`text-[10px] font-mono uppercase tracking-wider font-semibold block ${labelClass}`}>
+          {label}
+        </span>
+        <span className="text-[9px] font-mono text-[#6b82a3] shrink-0">{open ? '− hide' : '+ show'}</span>
+      </button>
+      {open && children}
+    </div>
+  );
+}
 import {
   X,
   FileCode,
@@ -273,36 +304,27 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           {activeTab === 'content' && (
             <div className="space-y-4">
               {subtitle && (
-                <div className="p-3 rounded-lg bg-surface-2 space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#79ca4b] font-semibold block">
-                    Subtitle (ships with the title)
-                  </span>
+                <CollapsibleField label="Subtitle (ships with the title)" labelClass="text-[#79ca4b]">
                   <div
                     className="md-body italic"
                     dangerouslySetInnerHTML={{ __html: renderMarkdown(subtitle) }}
                   />
-                </div>
+                </CollapsibleField>
               )}
 
               {description && (
-                <div className="p-3 rounded-lg bg-surface-2 space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#8ab1e0] font-semibold block">
-                    Description
-                  </span>
+                <CollapsibleField label="Description" labelClass="text-[#8ab1e0]">
                   <div
                     className="md-body"
                     dangerouslySetInnerHTML={{ __html: renderMarkdown(description) }}
                   />
-                </div>
+                </CollapsibleField>
               )}
 
               {summary && (
-                <div className="p-3 rounded-lg bg-surface-2 space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#e0b96c] font-semibold block">
-                    Summary
-                  </span>
+                <CollapsibleField label="Summary" labelClass="text-[#e0b96c]">
                   <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(summary) }} />
-                </div>
+                </CollapsibleField>
               )}
 
               <div className="p-3.5 rounded-lg bg-surface-1 space-y-1.5">

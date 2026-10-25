@@ -19,6 +19,15 @@
  * - Empty slot = key absent = the app works without it (D9). Slots that were
  *   never filled store NOTHING (no empty-string keys sitting in storage).
  */
+import {
+  enableVault,
+  unlockVault,
+  lockVault,
+  disableVault,
+  peekSlots,
+  setSlotInVault,
+  isVaultEnabled,
+} from './keyVault';
 
 export type KeySlotId = 'gemini-free' | 'gemini-paid' | 'openrouter';
 
@@ -71,22 +80,79 @@ function isKeySlotId(v: unknown): v is KeySlotId {
   return typeof v === 'string' && (KEY_SLOTS as readonly string[]).includes(v);
 }
 
-/** Trimmed non-empty key, or null. A whitespace-only paste counts as unfilled. */
+/** Trimmed non-empty key, or null. A whitespace-only paste counts as unfilled.
+ *  Vault-aware (§4.2 Tier 2): when the vault is enabled this reads the
+ *  decrypted map — and a LOCKED vault reads as absent, so lanes degrade
+ *  honestly instead of using anything stale. */
 export function getKeySlot(id: KeySlotId): string | null {
+  if (isVaultEnabled()) {
+    const slots = peekSlots();
+    const raw = slots ? slots[id] : null;
+    if (raw === null || raw === undefined) return null;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
   const raw = storage()?.getItem(KEY_PREFIX + id) ?? null;
   if (raw === null) return null;
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** Store a key, or clear the slot with null/empty. Cleared slots store nothing. */
+/** Store a key, or clear the slot with null/empty. Cleared slots store nothing.
+ *  Vault-aware: writes go into the encrypted blob when the vault is on. */
 export function setKeySlot(id: KeySlotId, value: string | null): void {
+  const trimmed = (value ?? '').trim();
+  if (isVaultEnabled()) {
+    // Throws when locked — the settings UI disables inputs in that state.
+    setSlotInVault(id, trimmed.length > 0 ? trimmed : null);
+    return;
+  }
   const s = storage();
   if (!s) return;
-  const trimmed = (value ?? '').trim();
   if (trimmed.length === 0) s.removeItem(KEY_PREFIX + id);
   else s.setItem(KEY_PREFIX + id, trimmed);
 }
+
+/* ------------------------------------------------------------- vault façade
+ * keySlots stays the ONLY module app code touches for credentials (§4.4).
+ * These wrappers are the migration/lock surface for the settings UI.
+ */
+
+export async function enableVaultForKeys(passphrase: string): Promise<void> {
+  // Migrate whatever plaintext slots exist now, then let the vault take over.
+  const current: Record<string, string> = {};
+  for (const id of KEY_SLOTS) {
+    const raw = storage()?.getItem(KEY_PREFIX + id) ?? null;
+    const trimmed = (raw ?? '').trim();
+    if (trimmed.length > 0) current[id] = trimmed;
+  }
+  await enableVault(passphrase, current);
+  // Plaintext copies die the moment the vault holds them.
+  const s = storage();
+  if (s) for (const id of KEY_SLOTS) s.removeItem(KEY_PREFIX + id);
+}
+
+export async function unlockVaultForKeys(passphrase: string): Promise<boolean> {
+  return unlockVault(passphrase);
+}
+
+export function lockVaultForKeys(): void {
+  lockVault();
+}
+
+/** Disable the vault and put the keys back into plaintext Tier 1 storage. */
+export async function disableVaultForKeys(passphrase: string): Promise<void> {
+  const slots = await disableVault(passphrase);
+  const s = storage();
+  if (!s) return;
+  for (const id of KEY_SLOTS) {
+    const trimmed = (slots[id] ?? '').trim();
+    if (trimmed.length > 0) s.setItem(KEY_PREFIX + id, trimmed);
+    else s.removeItem(KEY_PREFIX + id);
+  }
+}
+
+export { isVaultEnabled, isUnlocked, vaultSupported } from './keyVault';
 
 /** True when at least one slot is filled — the app boots fine either way (D9). */
 export function anyKeyConfigured(): boolean {

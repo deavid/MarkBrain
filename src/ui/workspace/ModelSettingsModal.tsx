@@ -17,6 +17,13 @@ import {
   listFilledKeySlots,
   loadLaneKeys,
   setLaneKey,
+  enableVaultForKeys,
+  disableVaultForKeys,
+  unlockVaultForKeys,
+  lockVaultForKeys,
+  isVaultEnabled,
+  isUnlocked as isVaultUnlocked,
+  vaultSupported,
 } from '../../data/keySlots';
 import type { KeySlotId, LaneKeyChoice } from '../../data/keySlots';
 
@@ -87,6 +94,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     openrouter: false,
   });
   const [laneKeys, setLaneKeys] = useState<Record<string, LaneKeyChoice>>({});
+  const [passphrase, setPassphrase] = useState('');
+  const [vaultError, setVaultError] = useState<string | null>(null);
+  const [vaultTick, setVaultTick] = useState(0); // re-render after lock/unlock
 
   useEffect(() => {
     if (!isOpen) return;
@@ -140,6 +150,60 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
 
   const toggleShown = (id: KeySlotId) =>
     setShownKeys((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const refreshKeyValues = () => {
+    const filled: Record<KeySlotId, string> = { 'gemini-free': '', 'gemini-paid': '', openrouter: '' };
+    for (const id of KEY_SLOTS) filled[id] = getKeySlot(id) ?? '';
+    setKeyValues(filled);
+    setVaultTick((t) => t + 1);
+  };
+
+  const vaultOn = isVaultEnabled();
+  const vaultOpen = vaultOn && isVaultUnlocked();
+
+  const handleEnableVault = async () => {
+    setVaultError(null);
+    try {
+      await enableVaultForKeys(passphrase);
+      setPassphrase('');
+      refreshKeyValues();
+      logger.action('ModelSettings', 'Vault enabled — keys now encrypted at rest');
+    } catch (err: unknown) {
+      setVaultError(err instanceof Error ? err.message : 'Could not enable the vault');
+    }
+  };
+
+  const handleUnlockVault = async () => {
+    setVaultError(null);
+    const ok = await unlockVaultForKeys(passphrase);
+    if (ok) {
+      setPassphrase('');
+      refreshKeyValues();
+      logger.action('ModelSettings', 'Vault unlocked');
+    } else {
+      setVaultError('Wrong passphrase.');
+    }
+  };
+
+  const handleLockVault = () => {
+    setVaultError(null);
+    lockVaultForKeys();
+    setPassphrase('');
+    refreshKeyValues();
+    logger.action('ModelSettings', 'Vault locked');
+  };
+
+  const handleDisableVault = async () => {
+    setVaultError(null);
+    try {
+      await disableVaultForKeys(passphrase);
+      setPassphrase('');
+      refreshKeyValues();
+      logger.action('ModelSettings', 'Vault disabled — keys back to Tier 1 storage');
+    } catch (err: unknown) {
+      setVaultError(err instanceof Error ? err.message : 'Could not disable the vault');
+    }
+  };
 
   /** D8: one-click Free↔Paid flip for a lane, only when both keys exist. */
   const swapChatKey = () => {
@@ -300,10 +364,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                       type={shownKeys[id] ? 'text' : 'password'}
                       value={keyValues[id]}
                       onChange={(e) => commitKey(id, e.target.value)}
-                      placeholder={keySlotPlaceholder(id)}
+                      placeholder={vaultOn && !vaultOpen ? 'unlock the vault to edit' : keySlotPlaceholder(id)}
+                      disabled={vaultOn && !vaultOpen}
                       autoComplete="off"
                       spellCheck={false}
-                      className="w-full rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 pr-8 shadow-well"
+                      className="w-full rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 pr-8 shadow-well disabled:opacity-50"
                     />
                     <button
                       onClick={() => toggleShown(id)}
@@ -325,6 +390,80 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
               <p className="text-[10px] text-[#788fa8] font-mono mt-2">
                 No keys configured — every lane falls back to the server proxy.
               </p>
+            )}
+
+            {/* Vault (§4.2 Tier 2): keys encrypted at rest under a passphrase. */}
+            {vaultSupported() && (
+              <div className="mt-3 rounded-xl bg-surface-2 p-3" data-testid="vault-controls" key={vaultTick}>
+                <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-ink-mute">
+                  <KeyRound className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  Vault
+                  <span className="text-[9px] normal-case tracking-normal text-[#788fa8]">
+                    {vaultOn
+                      ? vaultOpen
+                        ? 'unlocked — keys encrypted at rest'
+                        : 'locked — keys unreadable until unlocked'
+                      : 'off — keys stored plain in this browser'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    type="password"
+                    value={passphrase}
+                    onChange={(e) => setPassphrase(e.target.value)}
+                    placeholder={vaultOn && vaultOpen ? 'current passphrase (to turn off)' : 'passphrase'}
+                    autoComplete="new-password"
+                    spellCheck={false}
+                    className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 shadow-well"
+                  />
+                  {!vaultOn && (
+                    <button
+                      onClick={handleEnableVault}
+                      data-testid="vault-enable"
+                      className="px-2.5 py-1.5 rounded-lg bg-veil-2 hover:bg-veil-3 text-[10px] font-mono text-[#38bdf8] shadow-well cursor-pointer"
+                    >
+                      Encrypt keys
+                    </button>
+                  )}
+                  {vaultOn && !vaultOpen && (
+                    <button
+                      onClick={handleUnlockVault}
+                      data-testid="vault-unlock"
+                      className="px-2.5 py-1.5 rounded-lg bg-veil-2 hover:bg-veil-3 text-[10px] font-mono text-[#38bdf8] shadow-well cursor-pointer"
+                    >
+                      Unlock
+                    </button>
+                  )}
+                  {vaultOn && vaultOpen && (
+                    <>
+                      <button
+                        onClick={handleLockVault}
+                        data-testid="vault-lock"
+                        className="px-2.5 py-1.5 rounded-lg bg-veil-2 hover:bg-veil-3 text-[10px] font-mono text-[#38bdf8] shadow-well cursor-pointer"
+                      >
+                        Lock now
+                      </button>
+                      <button
+                        onClick={handleDisableVault}
+                        data-testid="vault-disable"
+                        className="px-2.5 py-1.5 rounded-lg bg-veil-2 hover:bg-veil-3 text-[10px] font-mono text-[#e0b96c] shadow-well cursor-pointer"
+                      >
+                        Turn off
+                      </button>
+                    </>
+                  )}
+                </div>
+                {vaultError && (
+                  <p className="text-[10px] text-[#f28894] font-mono mt-1.5" data-testid="vault-error">
+                    {vaultError}
+                  </p>
+                )}
+                <p className="text-[10px] text-[#556985] leading-relaxed mt-1.5">
+                  AES-GCM under a PBKDF2 passphrase (never stored). Lost passphrase = keys are
+                  unreadable — clear them and paste new ones. Locked vault sends those lanes to
+                  the server proxy or the honest empty state.
+                </p>
+              </div>
             )}
           </section>
 

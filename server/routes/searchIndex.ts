@@ -24,6 +24,15 @@ const EMBED_MAX_PER_REQUEST = 80;
  */
 const EMBED_BATCH_SIZE = EMBED_MAX_PER_REQUEST;
 /** The caller windows long documents; the route enforces its own hard ceiling. */
+/**
+ * Running count of `embedContent` calls since boot.
+ *
+ * The free tier meters THESE (1,000/day), not HTTP requests — so this is the
+ * number to quote when "what spent the quota?" comes up. Logging it per call
+ * is what turns the next quota conversation from estimates into facts.
+ */
+let embedContentCalls = 0;
+
 const QA_MAX_SECTIONS = 12;
 const QA_MAX_CHARS = 20000;
 const QA_MAX_CHARS_PER_SECTION = 2500;
@@ -36,10 +45,10 @@ const QA_MAX_CHARS_PER_SECTION = 2500;
  *   generate-qa  -> gemini-3.5-flash-lite     the LLM text quota (same one chat uses)
  *   embed        -> gemini-embedding-001      the VECTOR quota, separate and far smaller
  *
- * A note costs one LLM window per ~12 sections and then one embed request per
- * 50 strings, so indexing burns the embeddings budget far faster than it burns
- * the LLM's. Say which one ran out, in words, or the only visible symptom is a
- * counter that will not move.
+ * A note costs one LLM window per ~12 sections and then one embedContent call
+ * per 80 strings, so indexing burns the embeddings budget far faster than it
+ * burns the LLM's. Say which one ran out, in words, or the only visible
+ * symptom is a counter that will not move.
  */
 function quotaExplanation(
   err: unknown,
@@ -233,6 +242,16 @@ export function registerSearchIndexRoutes(app: Express): void {
         });
       }
 
+      // The OTHER budget. One line per window so "what spent the quota?" has
+      // an answer from the log alone — placed before the key check so it fires
+      // on the real path, not only the offline one.
+      logServer(
+        'info',
+        'API:SEARCH_QA',
+        `generate-qa: ${sections.length} sections -> 1 LLM call [${qaModel}]` +
+          `${title ? ` "${title.slice(0, 60)}"` : ''}`
+      );
+
       if (!ai) {
         logServer('warn', 'API:SEARCH_QA', 'No GEMINI_API_KEY — returning fallback Q&A pairs');
         return res.json({ qaPairs: fallbackQaPairs(sections), offline: true });
@@ -288,8 +307,22 @@ export function registerSearchIndexRoutes(app: Express): void {
       }
 
       const embeddings: number[][] = [];
+      const callCount = Math.ceil(capped.length / EMBED_BATCH_SIZE);
+      logServer(
+        'info',
+        'API:SEARCH_EMBED',
+        `embed: ${capped.length} texts -> ${callCount} embedContent call(s) [${taskType}]` +
+          `${title ? ` "${title.slice(0, 60)}"` : ''}`
+      );
       for (let i = 0; i < capped.length; i += EMBED_BATCH_SIZE) {
         const batch = capped.slice(i, i + EMBED_BATCH_SIZE);
+        embedContentCalls += 1;
+        logServer(
+          'info',
+          'API:SEARCH_EMBED',
+          `embedContent #${embedContentCalls}: ${batch.length} texts [${embedModel}]` +
+            ` (batch ${Math.floor(i / EMBED_BATCH_SIZE) + 1}/${callCount})`
+        );
         const response = await ai.models.embedContent({
           model: embedModel,
           contents: batch,

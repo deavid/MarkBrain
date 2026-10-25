@@ -60,6 +60,7 @@ import { groupTurnsByChapter } from './domains/02-chapter-segmentation';
 import type { ProjectExportInput } from './utils/tokenCalculator';
 import { createWorkspaceHandlers } from './ui/workspace/createWorkspaceHandlers';
 import { useDatabaseTransfer } from './ui/workspace/useDatabaseTransfer';
+import { usePairingTransfer } from './ui/workspace/usePairingTransfer';
 import { createArtifactHandlers } from './ui/artifacts/createArtifactHandlers';
 import { createGraphHandlers } from './ui/graph/createGraphHandlers';
 import { createChapterHandlers } from './ui/chat/createChapterHandlers';
@@ -202,6 +203,15 @@ export default function App() {
   const [triageFocusId, setTriageFocusId] = useState<string | null>(null);
 
   const { importDbFileRef, handleExportDatabase, dbImportInput } = useDatabaseTransfer();
+  const { sendState, sendToPhone, clearSend, pickupIfPaired } = usePairingTransfer();
+
+  // Boot: if the URL carries #pair=code.slot, pick up the paired bundle and
+  // reload so restored data appears (§5). The fragment is cleared inside.
+  useEffect(() => {
+    pickupIfPaired().then((n) => {
+      if (n !== null && n > 0) window.location.reload();
+    });
+  }, [pickupIfPaired]);
 
   const { handleSelectProjectAndLaunchChat, handleCreateProject } = createWorkspaceHandlers({
     workspace,
@@ -742,6 +752,9 @@ export default function App() {
         onOpenExport={() => setIsExportOpen(true)}
         onOpenImport={() => setIsImportOpen(true)}
         onExportDatabase={handleExportDatabase}
+        onSendToPhone={() => {
+          sendToPhone();
+        }}
         onImportDatabase={() => importDbFileRef.current?.click()}
         onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
         onOpenServerLogs={() => setIsServerLogsOpen(true)}
@@ -967,6 +980,58 @@ export default function App() {
         onClose={() => setIsModelSettingsOpen(false)}
         catalog={availableModels}
       />
+
+      {/* Pairing URL (§5): the secret rides in the fragment — show it so the
+          user can QR-encode it or type it on the other device. Server-side
+          this is just one-shot ciphertext. */}
+      {sendState.status === 'ready' && sendState.url && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+          <div
+            data-testid="pairing-url-modal"
+            className="w-full max-w-md bg-surface-0 rounded-2xl shadow-2xl p-5 text-ink font-mono"
+          >
+            <h2 className="text-sm font-semibold tracking-wide">Send to phone</h2>
+            <p className="text-[11px] text-[#788fa8] leading-relaxed mt-2">
+              Open this link on the other device (or QR-encode it). End-to-end
+              encrypted — the server holds only ciphertext for 10 minutes and
+              cannot read it. One-shot: the first device to open it wins.
+            </p>
+            <div className="mt-3 rounded-lg bg-surface-3 p-2.5 shadow-well break-all text-[10px] text-[#8ab1e0]">
+              {sendState.url}
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                data-testid="pairing-copy"
+                onClick={() => navigator.clipboard.writeText(sendState.url!)}
+                className="px-3 py-1.5 rounded-lg bg-veil-2 hover:bg-veil-3 text-[11px] font-mono text-[#38bdf8] shadow-well cursor-pointer"
+              >
+                Copy link
+              </button>
+              <button
+                data-testid="pairing-close"
+                onClick={clearSend}
+                className="px-3 py-1.5 rounded-lg bg-veil-2 hover:bg-veil-3 text-[11px] font-mono text-ink-mute shadow-well cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {sendState.status === 'error' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+          <div className="w-full max-w-md bg-surface-0 rounded-2xl shadow-2xl p-5 text-ink font-mono">
+            <h2 className="text-sm font-semibold tracking-wide text-[#f28894]">Send failed</h2>
+            <p className="text-[11px] text-[#788fa8] leading-relaxed mt-2">{sendState.error}</p>
+            <button
+              onClick={clearSend}
+              className="mt-3 px-3 py-1.5 rounded-lg bg-veil-2 hover:bg-veil-3 text-[11px] font-mono text-ink-mute shadow-well cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Quick thread switcher (Cmd/Ctrl+K) — archived included, dimmed */}
       {isSwitcherOpen && (

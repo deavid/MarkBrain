@@ -35,6 +35,7 @@ import {
   MoreHorizontal,
   Trash2,
   Settings2,
+  Smartphone,
 } from 'lucide-react';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 import type { ChatRenderMode } from '../chat/chatRenderMode';
@@ -104,6 +105,8 @@ interface SidebarProps {
   onOpenExport: () => void;
   onOpenImport: () => void;
   onExportDatabase: () => void;
+  /** Send an E2E-encrypted backup to another device (QR pairing, §5). */
+  onSendToPhone: () => void;
   onImportDatabase: () => void;
   onOpenProjectLauncher: () => void;
   onOpenServerLogs?: () => void;
@@ -152,6 +155,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenExport,
   onOpenImport,
   onExportDatabase,
+  onSendToPhone,
   onImportDatabase,
   onOpenProjectLauncher,
   onOpenServerLogs,
@@ -1283,6 +1287,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-[#38bdf8]" />
                     <span>Restore DB</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      logger.action('Sidebar', 'Send backup to another device (pairing)');
+                      onSendToPhone();
+                    }}
+                    data-testid="send-to-phone"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer col-span-1"
+                    title="Encrypt a backup and send it to your phone — end-to-end, the server cannot read it"
+                  >
+                    <Smartphone className="w-3.5 h-3.5 text-[#e0b96c]" />
+                    <span>Send to phone</span>
                   </button>
                 </div>
               </div>

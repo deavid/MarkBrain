@@ -12,7 +12,7 @@
  * static shell (Phase 2) makes it unnecessary. Both paths answer the same
  * Response vocabulary; call sites cannot tell which happened.
  */
-import { resolveLaneKey } from '../data/keySlots';
+import { resolveLaneKey, listFilledKeySlots } from '../data/keySlots';
 import {
   directChatStream,
   directEmbed,
@@ -307,8 +307,6 @@ export function models(): Promise<ModelsResponse> {
  * Never rejects — an empty list means "keep whatever catalog you had".
  */
 export async function liveCatalogs(): Promise<CatalogModel[]> {
-  const { listFilledKeySlots, resolveLaneKey } = await import('../data/keySlots');
-  const { directListModels } = await import('./direct');
   const out: CatalogModel[] = [];
   const seen = new Set<string>();
   for (const slot of listFilledKeySlots()) {

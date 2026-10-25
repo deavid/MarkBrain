@@ -1,14 +1,13 @@
 import type { Express, Request, Response } from 'express';
 import { serverLogsBuffer } from '../lib/log';
-import { resolveServerMode } from '../lib/mode';
 
 export function registerHealthRoutes(app: Express): void {
 app.get('/api/health', (_req: Request, res: Response) => {
-  const mode = resolveServerMode(process.env);
+  // Shell/proxy mode split is gone (design-docs/21B §7): keys are per-user
+  // vault entries now, never process.env. Health stays public + honest.
   res.json({
     status: 'ok',
-    mode,
-    hasApiKey: Boolean(process.env.GEMINI_API_KEY),
+    authRequired: true,
     time: new Date().toISOString(),
     logsCount: serverLogsBuffer.length,
   });

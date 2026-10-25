@@ -1,8 +1,8 @@
 import type { Express, Request, Response } from 'express';
-import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import { EXTRACT_READ_CHAR_CAP, buildExtractPrompt, readSentinelArtifact } from '../lib/prompt';
 import { requireModelId } from '../lib/models';
+import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 
 export function registerExtractRoutes(app: Express): void {
 app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) => {
@@ -21,6 +21,7 @@ app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) 
     }
 
     const extractModel = requireModelId(model, 'extract');
+    const ai = aiForRequest(req, 'extract', extractModel);
 
     if (ai) {
       if (content.length > EXTRACT_READ_CHAR_CAP) {
@@ -116,6 +117,7 @@ app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) 
       },
     });
   } catch (err: unknown) {
+    if (err instanceof VaultLockedError || err instanceof NoKeyError) return sendVaultError(res, err);
     logServer('error', 'API:EXTRACT', `Error in /api/extract-artifact-from-file: ${err instanceof Error ? err.message : err}`, err);
     const errorMessage = err instanceof Error ? err.message : 'Extraction error';
     res.status(500).json({ error: errorMessage });

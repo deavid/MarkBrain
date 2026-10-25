@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
-import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import { requireModelId } from '../lib/models';
+import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 
 export function registerTtsRoutes(app: Express): void {
 app.post('/api/tts', async (req: Request, res: Response) => {
@@ -12,6 +12,7 @@ app.post('/api/tts', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Text is required for TTS' });
     }
 
+    const ai = aiForRequest(req, 'tts', ttsModel);
     const cleanSpokenText = text
       .replace(/```[\s\S]*?```/g, ' [code specification block omitted] ')
       .replace(/`([^`]+)`/g, '$1')
@@ -63,6 +64,7 @@ app.post('/api/tts', async (req: Request, res: Response) => {
       cleanSpokenText,
     });
   } catch (err: unknown) {
+    if (err instanceof VaultLockedError || err instanceof NoKeyError) return sendVaultError(res, err);
     logServer('error', 'API:TTS', `Error in /api/tts: ${err instanceof Error ? err.message : err}`, err);
     const cleanSpokenText = (req.body.text || '')
       .replace(/```[\s\S]*?```/g, '')

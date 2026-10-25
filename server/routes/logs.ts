@@ -1,12 +1,13 @@
 import type { Express, Request, Response } from 'express';
 import { logServer, serverLogsBuffer, logSubscribers, type ServerLogEntry } from '../lib/log';
+import { requireAuth } from './account';
 
 export function registerServerLogsRoutes(app: Express): void {
-app.get('/api/server-logs', (_req: Request, res: Response) => {
+app.get('/api/server-logs', requireAuth, (_req: Request, res: Response) => {
   res.json({ logs: serverLogsBuffer });
 });
 
-app.get('/api/server-logs/stream', (req: Request, res: Response) => {
+app.get('/api/server-logs/stream', requireAuth, (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -25,7 +26,7 @@ app.get('/api/server-logs/stream', (req: Request, res: Response) => {
   });
 });
 
-app.post('/api/server-logs/clear', (_req: Request, res: Response) => {
+app.post('/api/server-logs/clear', requireAuth, (_req: Request, res: Response) => {
   serverLogsBuffer.length = 0;
   logServer('info', 'LOGS:CLEAR', 'Server logs buffer cleared by client');
   res.json({ success: true });

@@ -1,23 +1,28 @@
+/**
+ * Gemini provider — per-request clients only (design-docs/21B §7.3).
+ *
+ * There is no process-wide singleton and no process.env key: every request
+ * builds its client from the authenticated user's own vault key via
+ * `aiForRequest()` in server/lib/accountVault.ts. `streamFromModel` takes the
+ * client as its first argument so call sites cannot fall back to a global.
+ */
 import { GoogleGenAI } from '@google/genai';
-import { logServer } from '../lib/log';
 
-const apiKey = process.env.GEMINI_API_KEY;
-export let ai: GoogleGenAI | null = null;
-if (apiKey) {
-  ai = new GoogleGenAI();
-  logServer('success', 'GEMINI:INIT', `Gemini SDK initialized successfully with API key (length: ${apiKey.length})`);
-} else {
-  logServer('warn', 'GEMINI:INIT', 'GEMINI_API_KEY not found in environment; running in local synthesis fallback mode');
+export type { GoogleGenAI };
+
+/** Explicit constructor — apiKey arrives from the caller's vault, never env. */
+export function createGeminiClient(apiKey: string): GoogleGenAI {
+  return new GoogleGenAI({ apiKey });
 }
 
 export async function streamFromModel(
+  client: GoogleGenAI,
   modelName: string,
   contents: string,
   systemInstruction: string,
   reqId: number
 ) {
-  logServer('info', 'GEMINI:STREAM_CALL', `#${reqId} Calling ai.models.generateContentStream(${modelName})`);
-  return await ai!.models.generateContentStream({
+  return await client.models.generateContentStream({
     model: modelName,
     contents,
     config: {

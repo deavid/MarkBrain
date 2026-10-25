@@ -8,7 +8,7 @@
  * absent, so tests and keyless dev boxes still exercise the whole pipeline.
  */
 import type { Express, Request, Response } from 'express';
-import { ai } from '../providers/gemini';
+import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { logServer } from '../lib/log';
 import type { GeneratedQaPair } from '../../src/services/searchIndexStore';
 import { tryRequireModelId } from '../lib/models';
@@ -251,10 +251,7 @@ export function registerSearchIndexRoutes(app: Express): void {
           `${title ? ` "${title.slice(0, 60)}"` : ''}`
       );
 
-      if (!ai) {
-        logServer('warn', 'API:SEARCH_QA', 'No GEMINI_API_KEY — returning fallback Q&A pairs');
-        return res.json({ qaPairs: fallbackQaPairs(sections), offline: true });
-      }
+      const ai = aiForRequest(req, 'qaGen', qaModel);
 
       const response = await ai.models.generateContent({
         model: qaModel,
@@ -269,6 +266,7 @@ export function registerSearchIndexRoutes(app: Express): void {
       }
       res.json({ qaPairs });
     } catch (err: unknown) {
+      if (err instanceof VaultLockedError || err instanceof NoKeyError) return sendVaultError(res, err);
       const message = err instanceof Error ? err.message : 'Q&A extraction error';
       logServer('error', 'API:SEARCH_QA', `Error in /api/search-index/generate-qa: ${message}`, err);
       const quota = quotaExplanation(err, 'llm', qaModel);
@@ -299,10 +297,7 @@ export function registerSearchIndexRoutes(app: Express): void {
       const title = typeof req.body?.title === 'string' ? req.body.title.slice(0, 300) : undefined;
       const capped = texts.map((t) => t.slice(0, EMBED_TEXT_CHAR_CAP));
 
-      if (!ai) {
-        logServer('warn', 'API:SEARCH_EMBED', 'No GEMINI_API_KEY — returning deterministic vectors');
-        return res.json({ embeddings: capped.map(fallbackEmbedding), offline: true });
-      }
+      const ai = aiForRequest(req, 'embed', embedModel);
 
       const embeddings: number[][] = [];
       const callCount = Math.ceil(capped.length / EMBED_BATCH_SIZE);
@@ -348,6 +343,7 @@ export function registerSearchIndexRoutes(app: Express): void {
       }
       res.json({ embeddings });
     } catch (err: unknown) {
+      if (err instanceof VaultLockedError || err instanceof NoKeyError) return sendVaultError(res, err);
       const message = err instanceof Error ? err.message : 'Embedding error';
       logServer('error', 'API:SEARCH_EMBED', `Error in /api/search-index/embed: ${message}`, err);
       const quota = quotaExplanation(err, 'embeddings', embedModel);

@@ -1,9 +1,11 @@
 import type { Express, Request, Response } from 'express';
-import { ai, streamFromModel } from '../providers/gemini';
+import type { GoogleGenAI } from '../providers/gemini';
+import { streamFromModel } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import { estimateTokens } from '../lib/tokens';
 import { DEFAULT_SYSTEM_INSTRUCTION, buildCompiledPrompt } from '../lib/prompt';
 import { DEFAULT_MODEL_ID, requireModelId } from '../lib/models';
+import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 
 export function registerChatRoutes(app: Express): void {
 app.post('/api/chat/cancel', (req: Request, res: Response) => {
@@ -16,6 +18,27 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
   const reqId = (req as any).reqId || Math.floor(Math.random() * 10000);
   const startTime = Date.now();
   let isClientAborted = false;
+
+  // Resolve the caller's model + vault key BEFORE committing to SSE, so
+  // 400/428 answer as JSON (design-docs/21B §7: locked vault → 428).
+  const {
+    model = DEFAULT_MODEL_ID,
+    projectTitle = 'Untitled',
+    systemInstruction: clientSystemInstruction,
+  } = req.body ?? {};
+  let targetModel: string;
+  let ai: GoogleGenAI;
+  try {
+    targetModel = requireModelId(model, 'chat');
+    ai = aiForRequest(req, 'chat', targetModel);
+  } catch (err) {
+    if (err instanceof VaultLockedError || err instanceof NoKeyError) {
+      logServer('warn', 'STREAM:NO_KEY', `#${reqId} ${err.code}: ${err.message}`);
+      return sendVaultError(res, err);
+    }
+    const msg = err instanceof Error ? err.message : 'Bad model';
+    return res.status(400).json({ error: msg });
+  }
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -40,19 +63,12 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
   };
 
   try {
-    const {
-      model = DEFAULT_MODEL_ID,
-      projectTitle = 'Untitled',
-      systemInstruction: clientSystemInstruction,
-    } = req.body;
-
     const systemInstruction = clientSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
     const compiledPrompt = buildCompiledPrompt(req.body);
 
     // Model errors are FINAL (David 2026-10-25): no substitution, no watchdog
     // swap. An unknown model or a provider failure is the real error — the
-    // client's draft shows it as-is.
-    const targetModel = requireModelId(model, 'chat');
+    // client's draft shows it as-is. (targetModel + ai resolved above.)
 
     logServer('info', 'STREAM:INIT', `#${reqId} Initiating stream for project="${projectTitle}", model=${targetModel}, promptChars=${compiledPrompt.length}`);
 
@@ -63,7 +79,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       model: targetModel,
     });
 
-    if (ai) {
+    {
       sendSSE('status', {
         state: 'thinking',
         message: `Thinking with ${targetModel}...`,
@@ -73,7 +89,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
 
       // The requested model answers, or the request fails with the real
       // reason. There is no second stream waiting behind a timer.
-      const responseStream = await streamFromModel(targetModel, compiledPrompt, systemInstruction, reqId);
+      const responseStream = await streamFromModel(ai, targetModel, compiledPrompt, systemInstruction, reqId);
       const usedModel = targetModel;
 
       let fullText = '';
@@ -171,60 +187,6 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
 
       sendSSE('complete', {
         rawReply: fullText,
-        telemetry,
-      });
-
-      sendSSE('done', { success: true });
-      res.end();
-    } else {
-      logServer('info', 'STREAM:FALLBACK', `#${reqId} Running in local simulation fallback`);
-      sendSSE('status', {
-        state: 'thinking',
-        message: 'Demo mode (no API key) — streaming a canned reply...',
-        timestamp: Date.now(),
-      });
-
-      await new Promise((r) => setTimeout(r, 350));
-
-      sendSSE('status', {
-        state: 'writing',
-        message: 'Writing reply...',
-        timestamp: Date.now(),
-      });
-
-      const sampleChunks = [
-        `### Offline demo\n\nThe server is running without a GEMINI_API_KEY, so this is a canned reply — but it exercises the real pipeline: streaming, tag stripping, and note extraction.\n\n`,
-        `\`\`\`artifact\ntitle: Example Note\ntype: note\nabstract: A canned note produced by the local simulation fallback.\nhighConcept: false\n# Example Note\n\nThis note exists so the extraction pipeline can be exercised without an API key. Put a real key in .env to talk to an actual model.\n\`\`\`\n\n`,
-        `Prose stays clean, and the block above becomes a note in your graph. That's the whole loop.\n\n`,
-      ];
-
-      let accumulated = '';
-      for (const c of sampleChunks) {
-        if (isClientAborted) break;
-        accumulated += c;
-        sendSSE('chunk', {
-          delta: c,
-          accumulatedLength: accumulated.length,
-          timestamp: Date.now(),
-        });
-        await new Promise((r) => setTimeout(r, 250));
-      }
-
-      const inputTokens = estimateTokens(compiledPrompt);
-      const outputTokens = estimateTokens(accumulated);
-
-      const telemetry = {
-        model: targetModel,
-        inputTokens,
-        outputTokens,
-        totalTokens: inputTokens + outputTokens,
-        latencyMs: Date.now() - startTime,
-        timeToFirstChunkMs: 350,
-        isFallback: true,
-      };
-
-      sendSSE('complete', {
-        rawReply: accumulated,
         telemetry,
       });
 

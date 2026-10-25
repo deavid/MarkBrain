@@ -127,7 +127,10 @@ const CAPABILITY_DEFAULTS: Record<ModelCapability, string> = {
 function isProviderAvailable(provider: ModelProvider): boolean {
   switch (provider) {
     case 'gemini':
-      return Boolean(process.env.GEMINI_API_KEY);
+      // Keys are per-user vault entries now (design-docs/21B), never env —
+      // the catalog is always offered; whether a call succeeds depends on
+      // the caller's own configured slots.
+      return true;
   }
 }
 

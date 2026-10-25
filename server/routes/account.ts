@@ -1,0 +1,340 @@
+/**
+ * Auth, Owner admin & account key-vault routes (design-docs/21B §6).
+ *
+ * Public:  POST /api/auth/login
+ * Auth:    POST /api/auth/logout, GET /api/auth/session, POST /api/auth/unlock,
+ *          GET/PUT /api/account/settings, PUT /api/account/keys
+ * Owner:   GET/POST /api/admin/users, PATCH /api/admin/users/:id
+ *
+ * Sessions: 32-byte random hex token, TTL 30 days, stored ONLY as sha256 in
+ * `sessions.token_hash`; the raw token travels in `Authorization: Bearer` or
+ * the `mb_session` HttpOnly; SameSite=Strict cookie.
+ * Raw API keys never leave the server (redacted `{configured, hint}` only).
+ */
+import crypto from 'node:crypto';
+import type { Express, Request, Response, NextFunction } from 'express';
+import { getDb } from '../db';
+import {
+  isVaultUnlocked,
+  lockVault,
+  unlockVaultWithPassword,
+  readKeysPayload,
+  writeKeysPayload,
+  redactKeys,
+  VaultLockedError,
+  type AccountKeysPayload,
+  type KeySlotId,
+  type AuthUser,
+} from '../lib/accountVault';
+import {
+  findUserById,
+  findUserByEmail,
+  createUser,
+  listUsers,
+  setUserEnabled,
+  changeUserPassword,
+  getRawUserById,
+} from '../lib/users';
+import { verifyPassword } from '../lib/accountVault';
+
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function sha256hex(input: string): string {
+  return crypto.createHash('sha256').update(input).digest('hex');
+}
+
+function parseCookies(req: Request): Record<string, string> {
+  const header = req.headers.cookie;
+  if (!header) return {};
+  const out: Record<string, string> = {};
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+  }
+  return out;
+}
+
+function extractToken(req: Request): string | null {
+  const auth = req.headers.authorization;
+  if (auth && auth.startsWith('Bearer ')) return auth.slice(7).trim();
+  const cookies = parseCookies(req);
+  return cookies.mb_session ?? null;
+}
+
+/** 401 unless a live session for an enabled user attaches `req.user`. */
+export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  const token = extractToken(req);
+  if (!token) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return;
+  }
+  const row = getDb()
+    .prepare(
+      `SELECT s.token_hash, s.user_id, s.expires_at, u.email, u.is_owner, u.enabled
+       FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.token_hash = ?`
+    )
+    .get(sha256hex(token)) as
+    | { token_hash: string; user_id: number; expires_at: number; email: string; is_owner: number; enabled: number }
+    | undefined;
+
+  if (!row || row.enabled !== 1 || row.expires_at <= Date.now()) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return;
+  }
+  const user: AuthUser = {
+    id: row.user_id,
+    email: row.email,
+    isOwner: row.is_owner === 1,
+    vaultUnlocked: isVaultUnlocked(row.user_id),
+  };
+  req.user = user;
+  next();
+}
+
+/** requireAuth + owner check (403 for authenticated non-owners). */
+export function requireOwner(req: Request, res: Response, next: NextFunction): void {
+  requireAuth(req, res, (err?: unknown) => {
+    if (err) {
+      next(err);
+      return;
+    }
+    if (!req.user?.isOwner) {
+      res.status(403).json({ error: 'Owner access required.' });
+      return;
+    }
+    next();
+  });
+}
+
+function issueSession(userId: number): string {
+  const token = crypto.randomBytes(32).toString('hex');
+  const now = Date.now();
+  getDb()
+    .prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .run(sha256hex(token), userId, now, now + SESSION_TTL_MS);
+  return token;
+}
+
+function setSessionCookie(res: Response, token: string): void {
+  const secure = res.req.secure ? '; Secure' : '';
+  res.setHeader(
+    'Set-Cookie',
+    `mb_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`
+  );
+}
+
+interface SettingsRow {
+  model_slots_json: string;
+  chat_tier: string;
+}
+
+function readSettings(userId: number): { modelSlots: Record<string, string>; chatTier: string } {
+  const row = getDb()
+    .prepare('SELECT model_slots_json, chat_tier FROM user_settings WHERE user_id = ?')
+    .get(userId) as SettingsRow | undefined;
+  let modelSlots: Record<string, string> = {};
+  if (row) {
+    try {
+      modelSlots = JSON.parse(row.model_slots_json) as Record<string, string>;
+    } catch {
+      modelSlots = {};
+    }
+  }
+  return { modelSlots, chatTier: row?.chat_tier ?? 'free' };
+}
+
+const VALID_SLOTS: KeySlotId[] = ['gemini-free', 'gemini-paid', 'openrouter'];
+
+export function registerAccountRoutes(app: Express): void {
+  // ── POST /api/auth/login (public) ────────────────────────────────────────
+  app.post('/api/auth/login', (req: Request, res: Response) => {
+    const { email, password } = req.body ?? {};
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      res.status(400).json({ error: 'email and password are required.' });
+      return;
+    }
+    const user = findUserByEmail(email);
+    const raw = user ? getRawUserById(user.id) : null;
+    if (!user || !raw || raw.enabled !== 1 || !verifyPassword(password, raw.password_hash)) {
+      res.status(401).json({ error: 'Invalid email or password.' });
+      return;
+    }
+    try {
+      unlockVaultWithPassword(user.id, password);
+    } catch (err) {
+      res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid email or password.' });
+      return;
+    }
+    const token = issueSession(user.id);
+    setSessionCookie(res, token);
+    res.json({
+      token,
+      user: { id: user.id, email: user.email, isOwner: user.isOwner, vaultUnlocked: true },
+    });
+  });
+
+  // ── POST /api/auth/logout (requireAuth) ──────────────────────────────────
+  app.post('/api/auth/logout', requireAuth, (req: Request, res: Response) => {
+    const token = extractToken(req);
+    if (token) {
+      getDb().prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256hex(token));
+    }
+    const userId = req.user!.id;
+    const remaining = getDb()
+      .prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?')
+      .get(userId) as { n: number };
+    if (remaining.n === 0) lockVault(userId); // last session out wipes the RAM key
+    res.setHeader('Set-Cookie', 'mb_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+    res.json({ ok: true });
+  });
+
+  // ── GET /api/auth/session (requireAuth) ──────────────────────────────────
+  app.get('/api/auth/session', requireAuth, (req: Request, res: Response) => {
+    res.json({ user: req.user });
+  });
+
+  // ── POST /api/auth/unlock (requireAuth) ──────────────────────────────────
+  app.post('/api/auth/unlock', requireAuth, (req: Request, res: Response) => {
+    const { password } = req.body ?? {};
+    if (typeof password !== 'string' || password.length === 0) {
+      res.status(400).json({ error: 'password is required.' });
+      return;
+    }
+    try {
+      unlockVaultWithPassword(req.user!.id, password);
+      res.json({ ok: true, vaultUnlocked: true });
+    } catch {
+      res.status(401).json({ error: 'Invalid password.' });
+    }
+  });
+
+  // ── GET /api/account/settings (requireAuth) ──────────────────────────────
+  app.get('/api/account/settings', requireAuth, (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const { modelSlots, chatTier } = readSettings(userId);
+    let keys = redactKeys(null);
+    let vaultUnlocked = isVaultUnlocked(userId);
+    if (vaultUnlocked) {
+      try {
+        keys = redactKeys(readKeysPayload(userId));
+      } catch (err) {
+        if (err instanceof VaultLockedError) {
+          vaultUnlocked = false;
+        } else {
+          throw err;
+        }
+      }
+    }
+    res.json({ modelSlots, chatTier, vaultUnlocked, keys });
+  });
+
+  // ── PUT /api/account/settings (requireAuth) ──────────────────────────────
+  app.put('/api/account/settings', requireAuth, (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const { modelSlots, chatTier } = req.body ?? {};
+    const current = readSettings(userId);
+    const nextSlots =
+      modelSlots && typeof modelSlots === 'object' ? (modelSlots as Record<string, string>) : current.modelSlots;
+    const nextTier = typeof chatTier === 'string' && chatTier === 'paid' ? 'paid' : chatTier === 'free' ? 'free' : current.chatTier;
+    getDb()
+      .prepare(
+        `INSERT INTO user_settings (user_id, model_slots_json, chat_tier, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET model_slots_json = excluded.model_slots_json,
+           chat_tier = excluded.chat_tier, updated_at = excluded.updated_at`
+      )
+      .run(userId, JSON.stringify(nextSlots), nextTier, Date.now());
+    res.json({ ok: true, modelSlots: nextSlots, chatTier: nextTier });
+  });
+
+  // ── PUT /api/account/keys (requireAuth; vault must be unlocked, else 428) ─
+  app.put('/api/account/keys', requireAuth, (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const { slot, apiKey } = req.body ?? {};
+    if (!VALID_SLOTS.includes(slot)) {
+      res.status(400).json({ error: `slot must be one of ${VALID_SLOTS.join(', ')}` });
+      return;
+    }
+    if (apiKey !== null && typeof apiKey !== 'string') {
+      res.status(400).json({ error: 'apiKey must be a string or null' });
+      return;
+    }
+    if (!isVaultUnlocked(userId)) {
+      const err = new VaultLockedError();
+      res.status(428).json({ error: err.message, code: err.code });
+      return;
+    }
+    let payload: AccountKeysPayload = {};
+    try {
+      payload = readKeysPayload(userId) ?? {};
+    } catch (err) {
+      if (err instanceof VaultLockedError) {
+        res.status(428).json({ error: err.message, code: err.code });
+        return;
+      }
+      throw err;
+    }
+    if (apiKey === null || apiKey === '') {
+      delete payload[slot as KeySlotId];
+    } else {
+      payload[slot as KeySlotId] = apiKey;
+    }
+    writeKeysPayload(userId, payload);
+    res.json({ ok: true, keys: redactKeys(payload) });
+  });
+
+  // ── Owner admin (requireAuth + requireOwner) ─────────────────────────────
+  app.get('/api/admin/users', requireOwner, (_req: Request, res: Response) => {
+    res.json({ users: listUsers() });
+  });
+
+  app.post('/api/admin/users', requireOwner, (req: Request, res: Response) => {
+    const { email, password } = req.body ?? {};
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      res.status(400).json({ error: 'email and password are required.' });
+      return;
+    }
+    try {
+      const created = createUser(email, password);
+      res.status(201).json({ user: created });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'User creation failed.' });
+    }
+  });
+
+  app.patch('/api/admin/users/:id', requireOwner, (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      res.status(400).json({ error: 'Invalid user id.' });
+      return;
+    }
+    const target = findUserById(id);
+    if (!target) {
+      res.status(404).json({ error: 'User not found.' });
+      return;
+    }
+    const { enabled, password } = req.body ?? {};
+
+    if (enabled === false && (target.id === 1 || target.isOwner)) {
+      res.status(400).json({ error: 'The owner account cannot be disabled.' });
+      return;
+    }
+    if (enabled !== undefined && typeof enabled !== 'boolean') {
+      res.status(400).json({ error: 'enabled must be a boolean.' });
+      return;
+    }
+    if (password !== undefined && (typeof password !== 'string' || password.length < 8)) {
+      res.status(400).json({ error: 'password must be at least 8 characters.' });
+      return;
+    }
+
+    try {
+      if (typeof enabled === 'boolean') setUserEnabled(id, enabled);
+      if (typeof password === 'string') changeUserPassword(id, password);
+      res.json({ user: findUserById(id) });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Update failed.' });
+    }
+  });
+}

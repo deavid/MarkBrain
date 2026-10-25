@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
-import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import { requireModelId } from '../lib/models';
+import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 
 export function registerTitleRoutes(app: Express): void {
 // API: Thread title generation (best-effort meta call for the staged titling
@@ -14,10 +14,15 @@ app.post('/api/title-thread', async (req: Request, res: Response) => {
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.json({ title: null });
     }
-    if (!ai) {
+    const titleModel = requireModelId(model, 'title');
+    let ai;
+    try {
+      ai = aiForRequest(req, 'title', titleModel);
+    } catch (err) {
+      // Locked vault / no key are real answers on this lane too (§7).
+      if (err instanceof VaultLockedError || err instanceof NoKeyError) return sendVaultError(res, err);
       return res.json({ title: null });
     }
-    const titleModel = requireModelId(model, 'title');
 
     const transcript = messages
       .map((m: { role: string; content: string }) => `${m.role}: ${String(m.content || '').slice(0, 400)}`)
@@ -63,6 +68,7 @@ Title:`;
     logServer('info', 'API:TITLE', `Thread title v${version} -> "${title}"`);
     res.json({ title });
   } catch (err: unknown) {
+    if (err instanceof VaultLockedError || err instanceof NoKeyError) return sendVaultError(res, err);
     // Best-effort: never fail the pipeline call with a 5xx — client keeps old title.
     logServer('warn', 'API:TITLE', `title-thread failed: ${err instanceof Error ? err.message : err}`);
     res.json({ title: null });

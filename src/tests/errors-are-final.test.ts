@@ -52,8 +52,9 @@ describe('the downgrade family stays dead', () => {
     expect(chat).not.toContain('WATCHDOG');
     expect(chat).not.toContain('FIRST_CHUNK_TIMEOUT');
     expect(chat).not.toContain('Downgrading to');
-    // The requested model streams, full stop.
-    expect(chat).toContain('streamFromModel(targetModel');
+    // The requested model streams, full stop — via the caller's per-request
+    // vault client (design-docs/21B §7.3), never a process-global key.
+    expect(chat).toContain('streamFromModel(ai, targetModel');
   });
 
   it('no route substitutes a model silently', () => {

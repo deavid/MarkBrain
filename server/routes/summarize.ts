@@ -1,10 +1,10 @@
 import type { Express, Request, Response } from 'express';
-import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import { estimateTokens } from '../lib/tokens';
 import { buildSummarizePrompt } from '../lib/prompt';
 import { parseSentinelBlocks } from '../../src/utils/sentinelParser';
 import { requireModelId } from '../lib/models';
+import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 
 export function registerSummarizeRoutes(app: Express): void {
 app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
@@ -24,6 +24,7 @@ app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
     let descriptionText = '';
     let summaryText = '';
 
+    const ai = aiForRequest(req, 'summarize', summarizeModel);
     if (ai) {
       const prompt = buildSummarizePrompt({ title, messages, steeringPrompt });
 
@@ -70,6 +71,7 @@ app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
       tokens: estimateTokens(subtitleText + descriptionText + summaryText),
     });
   } catch (err: unknown) {
+    if (err instanceof VaultLockedError || err instanceof NoKeyError) return sendVaultError(res, err);
     const errorMessage = err instanceof Error ? err.message : 'Summarization error';
     // A deadline breach is not a crash: answer 504 so the client stops waiting
     // and the chapter shows its Retry instead of a socket that never returns.

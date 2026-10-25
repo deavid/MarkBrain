@@ -15,14 +15,17 @@
  * + graph. Same primitive Firebase's own auth persistence prefers.
  */
 import type { ProjectSnapshot } from './stores/projectStore';
+import { getActiveIdbName } from './workspaceSession';
 
-const DB_NAME = 'markbrain-local';
+// Active-workspace DB name: 'markbrain-local' in local mode, namespaced
+// 'markbrain-vps:<origin>:<email>' in Connected VPS mode (21C §1).
+const DB_NAME = getActiveIdbName();
 const DB_VERSION = 1;
 const STORE = 'projects';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = indexedDB.open(getActiveIdbName(), DB_VERSION); // re-read per open — mode can flip at runtime
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {

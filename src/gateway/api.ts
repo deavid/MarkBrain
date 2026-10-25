@@ -6,13 +6,17 @@
  * out on the wire, nor how callers interpret responses (no throwing, no
  * response parsing here; call sites keep owning non-ok/shape handling).
  *
- * Phase 1 (design-docs/16): each function routes browser→provider when the
- * lane's key slot is filled (direct.ts), else falls through to the server
- * proxy below — keys are optional (D9), so the proxy path stays until the
- * static shell (Phase 2) makes it unnecessary. Both paths answer the same
- * Response vocabulary; call sites cannot tell which happened.
+ * Mode routing (design-docs/21C §1/§2.2):
+ * - `vps` mode: EVERY call goes through the VPS proxy via `apiFetch`
+ *   (baseUrl + `Authorization: Bearer <token>`). Browser-direct is never used —
+ *   the server signs with its own unlocked vault.
+ * - `local` mode: a filled key slot in the WebCrypto vault routes browser→
+ *   provider through `direct.ts`; otherwise the request falls to the same-origin
+ *   proxy unauthenticated (401 unless a server session also exists).
+ * Both paths answer the same Response vocabulary; call sites cannot tell.
  */
-import { resolveLaneKey } from '../data/keySlots';
+import { resolveLaneKey, type ResolvedKey } from '../data/keySlots';
+import { getWorkspaceMode, getVpsSession, type VpsSessionInfo } from '../services/workspaceSession';
 import {
   directChatStream,
   directEmbed,
@@ -23,6 +27,128 @@ import {
   directTts,
 } from './direct';
 
+/* ------------------------------------------------------------------ apiFetch */
+
+/**
+ * Prefix the active VPS baseUrl and attach the Bearer token when present.
+ * Same-origin requests in local mode carry no Authorization header.
+ */
+export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const session = getWorkspaceMode() === 'vps' ? getVpsSession() : null;
+  const baseUrl = session?.baseUrl ?? '';
+  const token = session?.token ?? '';
+  return fetch(baseUrl + path, {
+    ...init,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
+/** Direct browser→provider is allowed only in local mode with a filled slot. */
+function inVpsMode(): boolean {
+  return getWorkspaceMode() === 'vps';
+}
+
+/* ------------------------------------------------------------ auth & account */
+
+export interface LoginResponseUser {
+  id: number;
+  email: string;
+  isOwner: boolean;
+  vaultUnlocked: boolean;
+}
+
+export interface LoginResponse {
+  token: string;
+  user: LoginResponseUser;
+}
+
+/** POST /api/auth/login against an explicit server URL ('' = same origin). */
+export function authLogin(baseUrl: string, email: string, password: string): Promise<Response> {
+  return fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function authLogout(): Promise<Response> {
+  return apiFetch('/api/auth/logout', { method: 'POST' });
+}
+
+export function authSession(): Promise<Response> {
+  return apiFetch('/api/auth/session');
+}
+
+export function authUnlock(password: string): Promise<Response> {
+  return apiFetch('/api/auth/unlock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+}
+
+export interface AccountSettingsResponse {
+  modelSlots: Record<string, string>;
+  chatTier: 'free' | 'paid';
+  vaultUnlocked: boolean;
+  keys: Record<string, { configured: boolean; hint: string | null }>;
+}
+
+export function getAccountSettings(): Promise<Response> {
+  return apiFetch('/api/account/settings');
+}
+
+export function putAccountSettings(body: { modelSlots?: Record<string, string>; chatTier?: string }): Promise<Response> {
+  return apiFetch('/api/account/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export function putAccountKeys(slot: string, apiKey: string | null): Promise<Response> {
+  return apiFetch('/api/account/keys', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slot, apiKey }),
+  });
+}
+
+export interface AdminUserRow {
+  id: number;
+  email: string;
+  isOwner: boolean;
+  enabled: boolean;
+  createdAt: number;
+}
+
+export function listAdminUsers(): Promise<Response> {
+  return apiFetch('/api/admin/users');
+}
+
+export function createAdminUser(email: string, password: string): Promise<Response> {
+  return apiFetch('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function patchAdminUser(id: number, patch: { enabled?: boolean; password?: string }): Promise<Response> {
+  return apiFetch(`/api/admin/users/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+export type { VpsSessionInfo };
+
+/* ----------------------------------------------------------------------- tts */
+
 export interface TtsRequest {
   text: string;
   voice: string;
@@ -32,15 +158,17 @@ export interface TtsRequest {
 
 export function tts(params: TtsRequest): Promise<Response> {
   const key = resolveLaneKey('tts', params.model || 'gemini-3.8-flash-lite-tts');
-  if (key && params.model) {
+  if (key && params.model && !inVpsMode()) {
     return directTts(key, { text: params.text, voice: params.voice, model: params.model });
   }
-  return fetch('/api/tts', {
+  return apiFetch('/api/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: params.text, voice: params.voice, model: params.model }),
   });
 }
+
+/* ------------------------------------------------------------------ extract */
 
 export interface ExtractArtifactFromFileRequest {
   content: string;
@@ -64,10 +192,10 @@ export function extractArtifactFromFile(
   init: ExtractArtifactFromFileInit = {}
 ): Promise<Response> {
   const key = resolveLaneKey('extract', params.model || 'gemini-3.5-flash-lite');
-  if (key && params.model) {
+  if (key && params.model && !inVpsMode()) {
     return directExtractArtifact(key, { ...params, model: params.model });
   }
-  return fetch('/api/extract-artifact-from-file', {
+  return apiFetch('/api/extract-artifact-from-file', {
     method: 'POST',
     signal: init.signal,
     headers: { 'Content-Type': 'application/json' },
@@ -83,13 +211,17 @@ export function extractArtifactFromFile(
   });
 }
 
+/* ------------------------------------------------------------ server logs */
+
 export function serverLogs(): Promise<Response> {
-  return fetch('/api/server-logs');
+  return apiFetch('/api/server-logs');
 }
 
 export function clearServerLogs(): Promise<Response> {
-  return fetch('/api/server-logs/clear', { method: 'POST' });
+  return apiFetch('/api/server-logs/clear', { method: 'POST' });
 }
+
+/* --------------------------------------------------------------------- chat */
 
 export interface ChatStreamPayload {
   model?: string;
@@ -115,14 +247,14 @@ export function chatStream(
   init: ChatStreamInit = {}
 ): Promise<Response> {
   const key = resolveLaneKey('chat', payload.model || 'gemini-3.5-flash-lite');
-  if (key && payload.model) {
+  if (key && payload.model && !inVpsMode()) {
     return directChatStream(key, {
       model: payload.model,
       compiledPrompt: payload.compiledPrompt || '',
       systemInstruction: payload.systemInstruction,
     });
   }
-  return fetch('/api/chat/stream', {
+  return apiFetch('/api/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -139,14 +271,14 @@ export interface TitleThreadRequest {
 
 export function titleThread(params: TitleThreadRequest): Promise<Response> {
   const key = resolveLaneKey('title', params.model || 'gemini-3.5-flash-lite');
-  if (key && params.model) {
+  if (key && params.model && !inVpsMode()) {
     return directTitleThread(key, {
       messages: params.messages,
       version: params.version,
       model: params.model,
     });
   }
-  return fetch('/api/title-thread', {
+  return apiFetch('/api/title-thread', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages: params.messages, version: params.version, model: params.model }),
@@ -154,7 +286,7 @@ export function titleThread(params: TitleThreadRequest): Promise<Response> {
 }
 
 export function chatCancel(reason: string): Promise<Response> {
-  return fetch('/api/chat/cancel', {
+  return apiFetch('/api/chat/cancel', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason }),
@@ -182,7 +314,7 @@ export interface GenerateArtifactQaRequest {
 
 export function generateArtifactQa(params: GenerateArtifactQaRequest): Promise<Response> {
   const key = resolveLaneKey('qaGen', params.model || 'gemini-3.5-flash-lite');
-  if (key && params.model) {
+  if (key && params.model && !inVpsMode()) {
     return directGenerateQa(key, {
       title: params.title,
       subtitle: params.subtitle,
@@ -190,7 +322,7 @@ export function generateArtifactQa(params: GenerateArtifactQaRequest): Promise<R
       model: params.model,
     });
   }
-  return fetch('/api/search-index/generate-qa', {
+  return apiFetch('/api/search-index/generate-qa', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: params.title, subtitle: params.subtitle, sections: params.sections, model: params.model }),
@@ -207,10 +339,10 @@ export interface EmbedTextsRequest {
 
 export function embedTexts(params: EmbedTextsRequest): Promise<Response> {
   const key = resolveLaneKey('embed', params.model || 'gemini-embedding-001');
-  if (key && params.model) {
+  if (key && params.model && !inVpsMode()) {
     return directEmbed(key, { ...params, model: params.model });
   }
-  return fetch('/api/search-index/embed', {
+  return apiFetch('/api/search-index/embed', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ texts: params.texts, taskType: params.taskType, title: params.title, model: params.model }),
@@ -238,7 +370,7 @@ export async function summarizeChapter(
   timeoutMs = 15_000
 ): Promise<Response> {
   const key = resolveLaneKey('summarize', params.model || 'gemini-3.5-flash-lite');
-  if (key && params.model) {
+  if (key && params.model && !inVpsMode()) {
     return directSummarizeChapter(key, {
       title: params.title,
       messages: params.messages,
@@ -252,7 +384,7 @@ export async function summarizeChapter(
     timeoutMs
   );
   try {
-    return await fetch('/api/summarize-chapter', {
+    return await apiFetch('/api/summarize-chapter', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -292,6 +424,5 @@ export interface ModelsResponse {
 
 /** Rejects on network/parse failure; callers keep their own fallback and shape validation. */
 export function models(): Promise<ModelsResponse> {
-  return fetch('/api/models').then((res) => res.json());
+  return apiFetch('/api/models').then((res) => res.json());
 }
-

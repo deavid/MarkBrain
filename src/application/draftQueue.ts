@@ -53,6 +53,8 @@ export interface DraftItem {
 }
 
 const STORAGE_KEY = 'markbrain:draftQueue';
+// Mode-scoped reads/writes: a draft queued in Local never appears in VPS (21C §1).
+import { getScopedStorageKey } from '../services/workspaceSession';
 
 function storage(): Storage | null {
   try {
@@ -109,7 +111,7 @@ export class DraftQueue {
 
   private load(): void {
     try {
-      const raw = storage()?.getItem(STORAGE_KEY);
+      const raw = storage()?.getItem(getScopedStorageKey(STORAGE_KEY));
       if (!raw) return;
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return;
@@ -141,7 +143,7 @@ export class DraftQueue {
   private save(): void {
     try {
       const serializable = this.items.map(({ bufferedArtifacts: _a, bufferedShifts: _s, ...rest }) => rest);
-      storage()?.setItem(STORAGE_KEY, JSON.stringify(serializable));
+      storage()?.setItem(getScopedStorageKey(STORAGE_KEY), JSON.stringify(serializable));
     } catch {
       /* storage full/unavailable — drafts still live in memory */
     }

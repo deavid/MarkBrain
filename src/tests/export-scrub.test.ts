@@ -9,6 +9,11 @@ import { serializeDatabase, parseDatabaseExport } from '../services/persistenceS
 import { exportToJSON, exportToMarkdown, exportToYAML } from '../utils/tokenCalculator';
 import { setKeySlot, getKeySlot } from '../data/keySlots';
 import { setByokEnabledForTests } from '../data/byokFlag';
+import {
+  createOrResetLocalVault,
+  sealLocalVault,
+  destroyLocalVault,
+} from '../data/localKeyVault';
 
 const SECRET_FREE = 'AIza-SECRET-FREE-KEY-123';
 const SECRET_PAID = 'AIza-SECRET-PAID-KEY-456';
@@ -31,19 +36,22 @@ function stubWindowWithKeys() {
   return storage;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   setByokEnabledForTests(true); // this suite exercises real key storage
+  await createOrResetLocalVault('scrub-test-pass'); // keys live in the vault (21C)
 });
 
 afterEach(() => {
+  destroyLocalVault();
   setByokEnabledForTests(false);
   vi.unstubAllGlobals();
 });
 
-function seedKeys() {
+async function seedKeys() {
   setKeySlot('gemini-free', SECRET_FREE);
   setKeySlot('gemini-paid', SECRET_PAID);
   setKeySlot('openrouter', SECRET_OR);
+  await sealLocalVault();
   expect(getKeySlot('gemini-free')).toBe(SECRET_FREE); // sanity: seeding worked
 }
 
@@ -102,9 +110,9 @@ function expectNoSecrets(text: string, where: string) {
 }
 
 describe('exports never contain key material', () => {
-  it('serializeDatabase (database export) is clean', () => {
+  it('serializeDatabase (database export) is clean', async () => {
     stubWindowWithKeys();
-    seedKeys();
+    await seedKeys();
     const out = serializeDatabase({
       format: 'markbrain-database',
       version: 1,
@@ -115,31 +123,31 @@ describe('exports never contain key material', () => {
     expectNoSecrets(out, 'serializeDatabase');
   });
 
-  it('exportToJSON is clean', () => {
+  it('exportToJSON is clean', async () => {
     stubWindowWithKeys();
-    seedKeys();
+    await seedKeys();
     const proj = sampleProject();
     const out = exportToJSON([proj.meta as any], proj as any);
     expectNoSecrets(out, 'exportToJSON');
   });
 
-  it('exportToMarkdown is clean', () => {
+  it('exportToMarkdown is clean', async () => {
     stubWindowWithKeys();
-    seedKeys();
+    await seedKeys();
     const out = exportToMarkdown(sampleProject() as any);
     expectNoSecrets(out, 'exportToMarkdown');
   });
 
-  it('exportToYAML is clean', () => {
+  it('exportToYAML is clean', async () => {
     stubWindowWithKeys();
-    seedKeys();
+    await seedKeys();
     const out = exportToYAML(sampleProject() as any);
     expectNoSecrets(out, 'exportToYAML');
   });
 
-  it('parseDatabaseExport output round-trips without dragging keys in', () => {
+  it('parseDatabaseExport output round-trips without dragging keys in', async () => {
     stubWindowWithKeys();
-    seedKeys();
+    await seedKeys();
     const json = serializeDatabase({
       format: 'markbrain-database',
       version: 1,

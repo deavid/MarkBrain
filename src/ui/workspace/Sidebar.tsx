@@ -106,8 +106,15 @@ interface SidebarProps {
   onImportDatabase: () => void;
   onOpenProjectLauncher: () => void;
   onOpenServerLogs?: () => void;
-  currentUser?: { displayName?: string | null; email?: string | null; photoURL?: string | null } | null;
+  currentUser?: {
+    displayName?: string | null;
+    email?: string | null;
+    photoURL?: string | null;
+    mode?: 'local' | 'vps';
+  } | null;
   onSignOut?: () => void;
+  /** Connected mode: drop to the isolated Local Workspace without hitting the gate. */
+  onSwitchToLocal?: () => void;
   threads?: ChatThread[];
   folders?: ThreadFolder[];
   activeThreadId?: string;
@@ -155,6 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenServerLogs,
   currentUser,
   onSignOut,
+  onSwitchToLocal,
   threads = [],
   folders = [],
   activeThreadId,
@@ -447,24 +455,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl bg-surface-4 p-1.5 shadow-pop animate-in fade-in slide-in-from-top-1 duration-100">
                 <div className="px-2.5 py-1.5">
                   <span className="text-xs font-semibold text-ink block truncate">
-                    {currentUser ? currentUser.displayName || 'Google Account' : 'Not signed in'}
+                    {currentUser?.mode === 'vps'
+                      ? currentUser.email || 'Connected workspace'
+                      : 'Local Workspace'}
                   </span>
                   <span className="text-[10px] font-mono text-ink-mute block truncate">
-                    {currentUser?.email || 'local workspace'}
+                    {currentUser?.mode === 'vps'
+                      ? 'connected · synced to server'
+                      : currentUser?.email || 'this device only'}
                   </span>
                 </div>
-                {currentUser && (
+                {currentUser?.mode === 'local' && (
                   <button
                     onClick={() => {
-                      logger.action('Sidebar', 'Sign out (return to gate)');
+                      logger.action('Sidebar', 'Sign in to Server (return to gate)');
                       setAccountOpen(false);
                       onSignOut?.();
                     }}
-                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-mono text-[#f28894] hover:bg-surface-3 transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-mono text-[#8ab1e0] hover:bg-surface-3 transition-colors cursor-pointer"
                   >
                     <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out</span>
+                    <span>Sign in to Server…</span>
                   </button>
+                )}
+                {currentUser?.mode === 'vps' && (
+                  <>
+                    <button
+                      onClick={() => {
+                        logger.action('Sidebar', 'Switch to Local Workspace');
+                        setAccountOpen(false);
+                        onSwitchToLocal?.();
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-mono text-ink hover:bg-surface-3 transition-colors cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Switch to Local Workspace</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        logger.action('Sidebar', 'Sign out (return to gate)');
+                        setAccountOpen(false);
+                        onSignOut?.();
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-mono text-[#f28894] hover:bg-surface-3 transition-colors cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sign Out</span>
+                    </button>
+                  </>
                 )}
               </div>
             )}

@@ -1,39 +1,53 @@
 import React, { useState } from 'react';
-import { Brain, AlertCircle, Terminal, HardDrive, RefreshCw } from 'lucide-react';
+import { Brain, AlertCircle, Terminal, HardDrive, RefreshCw, ChevronDown, Server } from 'lucide-react';
 import { logger } from '../../utils/logger';
 
 interface AuthGateProps {
-  onSignIn: () => Promise<any>;
-  onContinueLocal?: () => Promise<void>;
+  /** VPS login: POST /api/auth/login against baseUrl ('' = same origin). */
+  onVpsLogin: (email: string, password: string, baseUrl: string) => Promise<unknown>;
+  onContinueLocal: () => Promise<void> | void;
   onOpenServerLogs?: () => void;
 }
 
 /**
- * Pre-flight gate. Firebase sign-in is gone (design-docs/19): today the only
- * branch is Local Workspace (IndexedDB, this browser). Phase 21C adds the
- * "Sign in to Server" (VPS account) form above Continue locally.
+ * Pre-flight gate (design-docs/21C §3) — two crystal-clear entry paths:
+ * 1. Primary: Sign in to Server (email + password, optional Server URL).
+ * 2. Secondary: Use Local Workspace (this browser only, BYOK).
  */
-export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, onOpenServerLogs }) => {
+export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal, onOpenServerLogs }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showUrl, setShowUrl] = useState(false);
+  const [serverUrl, setServerUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleContinueLocal = () => {
-    logger.action('AuthGate', 'User chose Continue locally (Local workspace)');
-    onContinueLocal?.();
-  };
+  const effectiveBaseUrl = showUrl ? serverUrl.trim().replace(/\/+$/, '') : '';
 
-  const handleSignIn = async () => {
+  const handleVpsLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) {
+      setErrorMessage('Email and password are required.');
+      return;
+    }
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      await onSignIn();
+      logger.action('AuthGate', 'Sign in to Server submitted');
+      await onVpsLogin(email.trim(), password, effectiveBaseUrl);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sign-in failed.';
       setErrorMessage(msg);
-      logger.error('AuthGate', 'Sign-in failed', err);
+      logger.error('AuthGate', 'Server sign-in failed', err);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleContinueLocal = () => {
+    logger.action('AuthGate', 'User chose Local Workspace');
+    setErrorMessage(null);
+    void onContinueLocal();
   };
 
   return (
@@ -56,7 +70,68 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
           </p>
         </div>
 
-        <div className="w-full flex flex-col items-center gap-4">
+        {/* 1. Primary — Sign in to Server */}
+        <form
+          onSubmit={handleVpsLogin}
+          data-testid="vps-login-form"
+          className="w-full flex flex-col gap-3 rounded-2xl bg-surface-2 shadow-step p-4"
+        >
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
+            <Server className="w-3.5 h-3.5 text-brand" />
+            Sign in to Server
+          </div>
+
+          <input
+            type="email"
+            data-testid="vps-login-email"
+            autoComplete="username"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full h-10 rounded-xl bg-surface-0 border border-line px-3 text-[13px] text-ink placeholder:text-ink-mute focus:outline-none focus:border-brand"
+          />
+          <input
+            type="password"
+            data-testid="vps-login-password"
+            autoComplete="current-password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full h-10 rounded-xl bg-surface-0 border border-line px-3 text-[13px] text-ink placeholder:text-ink-mute focus:outline-none focus:border-brand"
+          />
+
+          <button
+            type="button"
+            data-testid="vps-login-url-toggle"
+            onClick={() => setShowUrl((v) => !v)}
+            className="flex items-center gap-1 text-[10px] font-mono text-ink-mute hover:text-ink-dim transition-colors cursor-pointer self-start"
+          >
+            <ChevronDown className={`w-3 h-3 transition-transform ${showUrl ? 'rotate-180' : ''}`} />
+            Server URL
+          </button>
+          {showUrl && (
+            <input
+              type="url"
+              data-testid="vps-login-url"
+              placeholder={typeof window !== 'undefined' ? window.location.origin : ''}
+              value={serverUrl}
+              onChange={(e) => setServerUrl(e.target.value)}
+              className="w-full h-9 rounded-xl bg-surface-0 border border-line px-3 text-[11px] font-mono text-ink placeholder:text-ink-mute focus:outline-none focus:border-brand"
+            />
+          )}
+
+          <button
+            type="submit"
+            data-testid="vps-login-submit"
+            disabled={isLoading}
+            className="w-full h-10 rounded-xl bg-brand hover:bg-brand/90 text-white text-[13px] font-semibold shadow-step transition-colors cursor-pointer disabled:opacity-60"
+          >
+            {isLoading ? 'Signing in…' : 'Sign In'}
+          </button>
+        </form>
+
+        {/* 2. Secondary — Local Workspace */}
+        <div className="w-full flex flex-col items-center gap-2">
           <button
             type="button"
             onClick={handleContinueLocal}
@@ -65,12 +140,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
             className="w-full flex items-center justify-center gap-2.5 h-11 rounded-xl bg-surface-2 hover:bg-surface-3 active:bg-surface-4 text-ink text-[13px] font-medium shadow-step transition-colors cursor-pointer disabled:opacity-60"
           >
             <HardDrive className="w-4 h-4 text-ink-dim" />
-            <span>Continue locally</span>
+            <span>Use Local Workspace</span>
           </button>
-
           <p className="text-[11px] leading-relaxed text-ink-mute text-center max-w-[300px]">
-            Stays in this browser only — saved to this device's IndexedDB. Bring your own API
-            key to talk to the model. Export a backup at any time.
+            Stays in this browser only. Bring your own API key.
           </p>
         </div>
 
@@ -87,7 +160,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
             <div className="flex items-center gap-2 pt-1 flex-wrap">
               <button
                 type="button"
-                onClick={handleSignIn}
+                onClick={handleVpsLogin}
                 className="px-2.5 py-1 rounded-lg bg-veil-3 hover:bg-veil-4 text-red-200 text-[11px] font-mono transition-colors cursor-pointer"
               >
                 <RefreshCw className="w-3 h-3 inline mr-1" />
@@ -107,10 +180,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSignIn, onContinueLocal, o
             </div>
           </div>
         )}
-
-        <p className="text-[11px] leading-relaxed text-ink-mute text-center max-w-[300px]">
-          Everything you make here is stored in this browser. Export a backup at any time.
-        </p>
       </div>
     </div>
   );

@@ -674,7 +674,7 @@ export default function App() {
     return (
       <>
         <AuthGate
-          onSignIn={signIn}
+          onVpsLogin={signIn}
           onContinueLocal={continueLocal}
           onOpenServerLogs={() => setIsServerLogsOpen(true)}
         />
@@ -743,6 +743,7 @@ export default function App() {
         onOpenCleanup={() => setIsCleanupOpen(true)}
         currentUser={currentUser}
         onSignOut={signOut}
+        onSwitchToLocal={continueLocal}
         threads={threadRegistry.getThreads()}
         folders={threadRegistry.getFolders()}
         activeThreadId={activeThreadId}

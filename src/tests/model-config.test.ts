@@ -5,6 +5,7 @@
  * settings change lands on the very next request.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { getScopedStorageKey } from '../services/workspaceSession';
 import {
   DEFAULT_MODEL_SLOTS,
   MODEL_CONFIG_KEY,
@@ -117,15 +118,15 @@ describe('loadModelConfig', () => {
 
   it('removes the key when the config returns to defaults', () => {
     const storage = stubWindow({
-      [MODEL_CONFIG_KEY]: JSON.stringify({ ...DEFAULT_MODEL_SLOTS, chat: 'gemini-3.8-flash' }),
+      [getScopedStorageKey(MODEL_CONFIG_KEY)]: JSON.stringify({ ...DEFAULT_MODEL_SLOTS, chat: 'gemini-3.8-flash' }),
     });
     saveModelConfig(DEFAULT_MODEL_SLOTS);
-    expect(storage.has(MODEL_CONFIG_KEY)).toBe(false);
+    expect(storage.has(getScopedStorageKey(MODEL_CONFIG_KEY))).toBe(false);
     expect(loadModelConfig()).toEqual(DEFAULT_MODEL_SLOTS);
   });
 
   it('survives malformed JSON without throwing', () => {
-    stubWindow({ [MODEL_CONFIG_KEY]: '{not json' });
+    stubWindow({ [getScopedStorageKey(MODEL_CONFIG_KEY)]: '{not json' });
     expect(loadModelConfig()).toEqual(DEFAULT_MODEL_SLOTS);
   });
 });

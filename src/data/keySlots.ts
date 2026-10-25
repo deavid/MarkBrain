@@ -20,8 +20,21 @@
  * - Keys are never logged (not even length).
  * - Empty slot = key absent = the app works without it (D9). Slots that were
  *   never filled store NOTHING (no empty-string keys sitting in storage).
+ *
+ * Mode dispatch (design-docs/21C §2.2):
+ * - `local` mode reads/writes ONLY through the WebCrypto passphrase vault
+ *   (src/data/localKeyVault.ts) — plaintext `markbrain:keys:*` storage is dead.
+ * - `vps` mode never holds raw keys on the client: resolveLaneKey returns
+ *   null so every call routes through /api/*, where the server's vault signs.
  */
-import { byokEnabled } from './byokFlag';
+import { getWorkspaceMode } from '../services/workspaceSession';
+import {
+  getVaultSlot,
+  setVaultSlot,
+  isLocalVaultLockedError,
+} from './localKeyVault';
+
+export { isLocalVaultLockedError };
 
 export type KeySlotId = 'gemini-free' | 'gemini-paid' | 'openrouter';
 
@@ -76,22 +89,16 @@ function isKeySlotId(v: unknown): v is KeySlotId {
 
 /** Trimmed non-empty key, or null. A whitespace-only paste counts as unfilled. */
 export function getKeySlot(id: KeySlotId): string | null {
-  // Flag off = BYOK does not exist: leftovers read as empty (see byokFlag).
-  if (!byokEnabled()) return null;
-  const raw = storage()?.getItem(KEY_PREFIX + id) ?? null;
-  if (raw === null) return null;
-  const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  // Connected VPS: the browser never holds raw keys (21C §2.2).
+  if (getWorkspaceMode() === 'vps') return null;
+  return getVaultSlot(id);
 }
 
 /** Store a key, or clear the slot with null/empty. Cleared slots store nothing. */
 export function setKeySlot(id: KeySlotId, value: string | null): void {
-  if (!byokEnabled()) return;
-  const trimmed = (value ?? '').trim();
-  const s = storage();
-  if (!s) return;
-  if (trimmed.length === 0) s.removeItem(KEY_PREFIX + id);
-  else s.setItem(KEY_PREFIX + id, trimmed);
+  if (getWorkspaceMode() === 'vps') return; // server vault owns keys in vps mode
+  // Local mode: RAM update is synchronous; the envelope re-seal follows.
+  void setVaultSlot(id, value);
 }
 
 /** True when at least one slot is filled — the app boots fine either way (D9). */
@@ -117,7 +124,6 @@ const isLaneKeyChoice = (v: unknown): v is LaneKeyChoice => v === 'auto' || isKe
 
 export function loadLaneKeys(): Record<string, LaneKeyChoice> {
   const out: Record<string, LaneKeyChoice> = {};
-  if (!byokEnabled()) return out;
   try {
     const raw = storage()?.getItem(LANE_KEYS_KEY);
     if (raw) {
@@ -135,7 +141,6 @@ export function loadLaneKeys(): Record<string, LaneKeyChoice> {
 }
 
 export function setLaneKey(lane: string, choice: LaneKeyChoice): void {
-  if (!byokEnabled()) return;
   const s = storage();
   if (!s) return;
   const all = loadLaneKeys();
@@ -162,6 +167,9 @@ export interface ResolvedKey {
  * the honest "add a key" empty state (Phase 2+).
  */
 export function resolveLaneKey(lane: string, modelId: string): ResolvedKey | null {
+  // vps mode: every AI call routes through the VPS proxy (21C §2.2) — the
+  // server unlocks its own vault per request. No client-side credential.
+  if (getWorkspaceMode() === 'vps') return null;
   const provider = providerOfModel(modelId);
   const choice = loadLaneKeys()[lane] ?? LANE_KEY_DEFAULT;
   // The binding is a PREFERENCE: try it first, then fall through to the

@@ -40,7 +40,7 @@ export interface DomainContextValue {
   currentUser: WorkspaceUser | null;
   authInitialized: boolean;
   cloudProjectsCount: number | null;
-  signIn: () => Promise<WorkspaceUser>;
+  signIn: (email: string, password: string, baseUrl?: string) => Promise<WorkspaceUser>;
   continueLocal: () => Promise<void>;
   signOut: () => Promise<void>;
   createCloudWorkspace: (meta: {

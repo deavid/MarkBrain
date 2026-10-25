@@ -27,6 +27,9 @@ export type ModelSlotConfig = Record<ModelSlot, string>;
 
 export const MODEL_CONFIG_KEY = 'markbrain:modelConfig';
 
+/** Mode-scoped: a model setting in Local never bleeds into VPS and vice versa (21C §1). */
+import { getScopedStorageKey } from '../services/workspaceSession';
+
 /** Mirrors server/lib/models.ts CAPABILITY_DEFAULTS — same lane defaults. */
 export const DEFAULT_MODEL_SLOTS: ModelSlotConfig = {
   chat: 'gemini-3.5-flash-lite',
@@ -59,7 +62,7 @@ export function normalizeModelConfig(raw: unknown): ModelSlotConfig {
 export function loadModelConfig(): ModelSlotConfig {
   try {
     if (typeof window === 'undefined') return { ...DEFAULT_MODEL_SLOTS };
-    const raw = window.localStorage.getItem(MODEL_CONFIG_KEY);
+    const raw = window.localStorage.getItem(getScopedStorageKey(MODEL_CONFIG_KEY));
     if (!raw) return { ...DEFAULT_MODEL_SLOTS };
     return normalizeModelConfig(JSON.parse(raw));
   } catch {
@@ -73,8 +76,9 @@ export function saveModelConfig(config: ModelSlotConfig): void {
     const normalized = normalizeModelConfig(config);
     // Default state is the absence of a key — same contract as searchConfig.
     const isDefault = MODEL_SLOTS.every((s) => normalized[s] === DEFAULT_MODEL_SLOTS[s]);
-    if (isDefault) window.localStorage.removeItem(MODEL_CONFIG_KEY);
-    else window.localStorage.setItem(MODEL_CONFIG_KEY, JSON.stringify(normalized));
+    const scoped = getScopedStorageKey(MODEL_CONFIG_KEY);
+    if (isDefault) window.localStorage.removeItem(scoped);
+    else window.localStorage.setItem(scoped, JSON.stringify(normalized));
   } catch {
     // Private-mode storage failure must not break the settings modal.
   }

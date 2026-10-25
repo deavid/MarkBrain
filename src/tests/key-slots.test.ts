@@ -1,11 +1,16 @@
 /**
- * keySlots — BYOK credential storage (design-docs/16 D8/D9, §4.2 Tier 1).
- * Pins: keys optional, empty slots store nothing, lane binding never crosses
- * providers (a gemini model never signs with the OpenRouter key), and keys
- * never leak into anything export-shaped.
+ * keySlots — credential dispatch behind the mode split (design-docs/16 D8/D9,
+ * 21C §2.2).
+ *
+ * Pins:
+ * - local mode reads/writes ONLY through the WebCrypto passphrase vault —
+ *   plaintext `markbrain:keys:*` storage is dead (leftovers never sign).
+ * - vps mode never holds raw keys on the client: resolveLaneKey is always
+ *   null so every call routes through /api/*.
+ * - keys optional (D9), empty slots store nothing, lane binding never
+ *   crosses providers, keys never leak into anything export-shaped.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { setByokEnabledForTests } from '../data/byokFlag';
 import {
   KEY_SLOTS,
   anyKeyConfigured,
@@ -17,6 +22,18 @@ import {
   setKeySlot,
   setLaneKey,
 } from '../data/keySlots';
+import {
+  createOrResetLocalVault,
+  unlockLocalVault,
+  destroyLocalVault,
+  lockLocalVault,
+  sealLocalVault,
+  hasSavedLocalVault,
+  setPbkdf2IterationsForTests,
+} from '../data/localKeyVault';
+import { setWorkspaceMode, clearWorkspaceMode, saveVpsSession, clearVpsSession } from '../services/workspaceSession';
+
+const PASS = 'test-pass-1234';
 
 function stubWindow(seed: Record<string, string> = {}) {
   const storage = new Map(Object.entries(seed));
@@ -30,21 +47,30 @@ function stubWindow(seed: Record<string, string> = {}) {
         storage.delete(k);
       },
     },
+    location: { origin: 'http://localhost:3030' },
   });
   return storage;
 }
 
+async function freshVault(seed: Record<string, string> = {}) {
+  const storage = stubWindow(seed);
+  await createOrResetLocalVault(PASS);
+  return storage;
+}
+
 beforeEach(() => {
-  setByokEnabledForTests(true); // the behavioral suite runs with BYOK on
+  setPbkdf2IterationsForTests(1000);
 });
 
 afterEach(() => {
-  setByokEnabledForTests(false);
+  destroyLocalVault();
+  clearWorkspaceMode();
+  clearVpsSession();
   vi.unstubAllGlobals();
 });
 
 describe('key slots are optional (D9)', () => {
-  it('boots with no keys at all', () => {
+  it('boots with no keys at all', async () => {
     stubWindow();
     expect(anyKeyConfigured()).toBe(false);
     expect(listFilledKeySlots()).toEqual([]);
@@ -53,50 +79,54 @@ describe('key slots are optional (D9)', () => {
     expect(resolveLaneKey('chat', 'openai/gpt-5')).toBeNull();
   });
 
-  it('empty or whitespace-only writes clear the slot and store nothing', () => {
-    const storage = stubWindow({ 'markbrain:keys:gemini-free': 'AIza-old' });
+  it('empty or whitespace-only writes clear the slot and store nothing', async () => {
+    const storage = await freshVault();
+    setKeySlot('gemini-free', 'AIza-old');
+    expect(getKeySlot('gemini-free')).toBe('AIza-old');
     setKeySlot('gemini-free', '   ');
     expect(getKeySlot('gemini-free')).toBeNull();
+    // Plaintext slot names never appear — the vault envelope is the only record.
     expect(storage.has('markbrain:keys:gemini-free')).toBe(false);
+    expect(hasSavedLocalVault()).toBe(true);
 
     setKeySlot('gemini-paid', '');
-    expect(storage.has('markbrain:keys:gemini-paid')).toBe(false);
+    expect(getKeySlot('gemini-paid')).toBeNull();
   });
 
-  it('trims pasted keys but stores them verbatim otherwise', () => {
-    stubWindow();
+  it('trims pasted keys but stores them verbatim otherwise', async () => {
+    await freshVault();
     setKeySlot('openrouter', '  sk-or-abc123  ');
     expect(getKeySlot('openrouter')).toBe('sk-or-abc123');
   });
 });
 
 describe('lane binding never crosses providers', () => {
-  it('routes gemini models to gemini keys only', () => {
-    stubWindow({ 'markbrain:keys:openrouter': 'sk-or-abc' });
+  it('routes gemini models to gemini keys only', async () => {
+    await freshVault();
+    setKeySlot('openrouter', 'sk-or-abc');
     expect(providerOfModel('gemini-3.8-flash')).toBe('gemini');
     expect(resolveLaneKey('chat', 'gemini-3.8-flash')).toBeNull(); // OR key cannot sign it
   });
 
-  it('routes slash-shaped ids to openrouter', () => {
-    stubWindow({ 'markbrain:keys:gemini-free': 'AIza-x' });
+  it('routes slash-shaped ids to openrouter', async () => {
+    await freshVault();
+    setKeySlot('gemini-free', 'AIza-x');
     expect(providerOfModel('openai/gpt-5')).toBe('openrouter');
     expect(resolveLaneKey('chat', 'openai/gpt-5')).toBeNull(); // gemini key cannot sign it
   });
 
-  it('auto prefers the free slot before paid', () => {
-    stubWindow({
-      'markbrain:keys:gemini-free': 'AIza-free',
-      'markbrain:keys:gemini-paid': 'AIza-paid',
-    });
+  it('auto prefers the free slot before paid', async () => {
+    await freshVault();
+    setKeySlot('gemini-free', 'AIza-free');
+    setKeySlot('gemini-paid', 'AIza-paid');
     const resolved = resolveLaneKey('chat', 'gemini-3.5-flash-lite');
     expect(resolved?.keySlot).toBe('gemini-free');
   });
 
-  it('an explicit lane binding beats auto, and falls through when empty', () => {
-    const storage = stubWindow({
-      'markbrain:keys:gemini-free': 'AIza-free',
-      'markbrain:keys:gemini-paid': 'AIza-paid',
-    });
+  it('an explicit lane binding beats auto, and falls through when empty', async () => {
+    const storage = await freshVault();
+    setKeySlot('gemini-free', 'AIza-free');
+    setKeySlot('gemini-paid', 'AIza-paid');
     setLaneKey('chat', 'gemini-paid');
     expect(resolveLaneKey('chat', 'gemini-3.5-flash-lite')?.keySlot).toBe('gemini-paid');
 
@@ -110,8 +140,9 @@ describe('lane binding never crosses providers', () => {
     expect(storage.has('markbrain:laneKeys')).toBe(true);
   });
 
-  it('auto never leaks a key from the other provider', () => {
-    stubWindow({ 'markbrain:keys:openrouter': 'sk-or-abc' });
+  it('auto never leaks a key from the other provider', async () => {
+    await freshVault();
+    setKeySlot('openrouter', 'sk-or-abc');
     expect(resolveLaneKey('embed', 'gemini-embedding-001')).toBeNull();
   });
 });
@@ -137,14 +168,8 @@ describe('key slot inventory', () => {
   });
 });
 
-describe('flag off = BYOK does not exist (David 2026-10-25)', () => {
-  afterEach(() => {
-    setByokEnabledForTests(false);
-    vi.unstubAllGlobals();
-  });
-
-  it('stored leftovers act as EMPTY — a hidden key must not keep signing requests', () => {
-    setByokEnabledForTests(false);
+describe('mode isolation (21C §2.2)', () => {
+  it('plaintext markbrain:keys:* leftovers NEVER sign — vault RAM is the only source', async () => {
     stubWindow({
       'markbrain:keys:gemini-free': 'AIzaLEFTOVER-JUNK',
       'markbrain:keys:openrouter': 'sk-or-LEFTOVER',
@@ -154,28 +179,36 @@ describe('flag off = BYOK does not exist (David 2026-10-25)', () => {
     expect(getKeySlot('openrouter')).toBeNull();
     expect(listFilledKeySlots()).toEqual([]);
     expect(anyKeyConfigured()).toBe(false);
-    // ...and nothing resolves to a signing key: everything goes through the
-    // server, exactly as the UI says ("the server owner's key").
     expect(resolveLaneKey('chat', 'gemini-3.5-flash-lite')).toBeNull();
-    expect(resolveLaneKey('chat', 'openrouter/auto')).toBeNull();
-    expect(loadLaneKeys()).toEqual({});
   });
 
-  it('writes are ignored while the flag is off — no silent storage', () => {
-    setByokEnabledForTests(false);
-    const store = stubWindow();
-    setKeySlot('gemini-free', 'AIzaNEW');
-    setLaneKey('chat', 'gemini-paid');
-    expect(store.get('markbrain:keys:gemini-free')).toBeUndefined();
-    expect(store.get('markbrain:laneKeys')).toBeUndefined();
-    expect(store.size).toBe(0);
+  it('locked vault reads as empty until unlocked (isLocalVaultLockedError path)', async () => {
+    await freshVault();
+    setKeySlot('gemini-free', 'AIza-free');
+    await sealLocalVault(); // deterministic envelope before the "reload"
+    // Simulate reload: vault envelope on disk, RAM gone.
+    lockLocalVault();
+    expect(resolveLaneKey('chat', 'gemini-3.5-flash-lite')).toBeNull();
+    const ok = await unlockLocalVault(PASS);
+    expect(ok).toBe(true);
+    expect(resolveLaneKey('chat', 'gemini-3.5-flash-lite')?.apiKey).toBe('AIza-free');
   });
 
-  it('the leftovers are still there when the flag comes back on (inert, not destroyed)', () => {
-    stubWindow({ 'markbrain:keys:gemini-free': 'AIzaLEFTOVER-JUNK' });
-    setByokEnabledForTests(false);
+  it('vps mode: resolveLaneKey is always null — the browser never holds raw keys', async () => {
+    const storage = await freshVault();
+    setKeySlot('gemini-free', 'AIza-free'); // even a filled local vault…
+    setWorkspaceMode('vps');
+    saveVpsSession({
+      baseUrl: '',
+      token: 'tok',
+      userId: 1,
+      email: 'deavidsedice@gmail.com',
+      isOwner: true,
+      vaultUnlocked: true,
+    });
     expect(getKeySlot('gemini-free')).toBeNull();
-    setByokEnabledForTests(true);
-    expect(getKeySlot('gemini-free')).toBe('AIzaLEFTOVER-JUNK');
+    expect(resolveLaneKey('chat', 'gemini-3.5-flash-lite')).toBeNull();
+    expect(resolveLaneKey('chat', 'openai/gpt-5')).toBeNull();
+    void storage;
   });
 });

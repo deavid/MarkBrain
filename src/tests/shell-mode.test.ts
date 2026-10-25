@@ -64,8 +64,35 @@ describe('cspHeader', () => {
   it('production script-src has no unsafe-inline/eval (§4.2 Tier 2.3)', () => {
     const csp = cspHeader(false);
     const scriptSrc = csp.split('; ').find((d) => d.startsWith('script-src'))!;
-    expect(scriptSrc).toBe("script-src 'self'");
-    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+    // Exactly 'self' plus the two Google origins @firebase/auth itself calls.
+    // (googleapis.com / www.google.com for the reCAPTCHA loader.) No unsafe-*
+    // in production — that is the whole point of Tier 2.3.
+    expect(scriptSrc).toBe(
+      "script-src 'self' https://apis.google.com https://www.google.com"
+    );
+    expect(csp).not.toContain("'unsafe-inline' https://apis");
+    expect(scriptSrc).not.toContain('unsafe-inline');
+    expect(scriptSrc).not.toContain('unsafe-eval');
+  });
+
+  it('lets Google sign-in load its SDK in BOTH modes (regression: auth/internal-error)', () => {
+    // @firebase/auth references https://apis.google.com/js/api.js; with the origin
+    // missing from script-src the load fails and Firebase reports the opaque
+    // auth/internal-error, so "Continue with Google" appeared broken for reasons
+    // that were two console lines away. Never narrow this again without an
+    // end-to-end sign-in test.
+    for (const csp of [cspHeader(false), cspHeader(true)]) {
+      const scriptSrc = csp.split('; ').find((d) => d.startsWith('script-src'))!;
+      expect(scriptSrc).toContain('https://apis.google.com');
+      expect(scriptSrc).toContain('https://www.google.com');
+    }
+  });
+
+  it('frames our own auth handler as well as Google (popups need it)', () => {
+    for (const csp of [cspHeader(false), cspHeader(true)]) {
+      expect(csp).toContain('frame-src');
+      expect(csp).toContain('https://*.firebaseapp.com');
+    }
   });
 
   it('dev relaxes only what HMR + Fast Refresh need', () => {

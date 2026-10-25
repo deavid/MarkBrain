@@ -109,6 +109,13 @@ export const isSlowSaveSeam = (): boolean => devParam('slowsave');
  */
 const lastSavedJson = new Map<string, string>();
 
+/**
+ * How many times we have actually gone to a backend. Firestore bills per
+ * document write (20k free/day), so this counter is the number that decides
+ * whether a session is free or on fire. Logged, not guessed.
+ */
+
+
 export async function saveProjectSnapshot(
   projectId: string,
   snapshot: Omit<ProjectSnapshot, 'projectId' | 'updatedAt'>

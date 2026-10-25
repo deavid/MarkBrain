@@ -36,6 +36,8 @@ export interface PersistDeps {
 }
 
 /** Skips when there is no active project, hydration hasn't landed, or the run is read-only. */
+let persistAttempts = 0;
+
 export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
   const {
     workspace,
@@ -49,6 +51,11 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
     isCaptureMode,
   } = deps;
   const activeId = workspace.getActiveProjectId();
+  // Count EVERY debounced save that would have gone to a backend. This is the
+  // cadence that decides whether a session is free (20k Firestore writes/day)
+  // or on fire, so it is measured before any gate can hide it.
+  persistAttempts += 1;
+  logger.info('DomainRegistry', `Persist attempt #${persistAttempts} for ${activeId ?? '(none)'}`);
   if (!activeId) return;
   if (!hydratedRef.current) {
     // Every silently-blocked save is a session that dies on refresh — say so.

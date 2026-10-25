@@ -15,7 +15,15 @@
  */
 
 export function cspHeader(isDev: boolean): string {
-  const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self'";
+  // External script origins the app genuinely calls, both referenced by
+  // @firebase/auth itself: gapi (the sign-in popup flow and the Drive Picker
+  // loader) and the reCAPTCHA scripts. Without them the sign-in SDK's load
+  // errors out and Firebase reports it as an opaque `auth/internal-error` —
+  // which is how this broke when the policy landed (D7 / Phase 2).
+  const GOOGLE_SCRIPTS = 'https://apis.google.com https://www.google.com';
+  const scriptSrc = isDev
+    ? `'self' 'unsafe-inline' 'unsafe-eval' ${GOOGLE_SCRIPTS}`
+    : `'self' ${GOOGLE_SCRIPTS}`;
   const connectExtras = isDev ? ' ws:' : '';
 
   return [
@@ -32,7 +40,9 @@ export function cspHeader(isDev: boolean): string {
     // Direct provider calls (BYOK) + Firebase + Drive import, nothing else.
     `connect-src 'self' https://generativelanguage.googleapis.com https://openrouter.ai https://*.googleapis.com https://*.google.com https://*.firebaseio.com https://*.firebaseapp.com wss://*.googleapis.com wss://*.firebaseio.com${connectExtras}`,
     // Google auth popups/redirect frames + the Drive Picker iframe.
-    `frame-src 'self' https://accounts.google.com https://apis.google.com https://docs.google.com https://*.google.com`,
+    // + our own auth handler (PROJECT.firebaseapp.com/__/auth/handler), which
+    // is already in connect-src — it is the app calling itself.
+    `frame-src 'self' https://accounts.google.com https://apis.google.com https://docs.google.com https://*.google.com https://*.firebaseapp.com`,
     `object-src 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,

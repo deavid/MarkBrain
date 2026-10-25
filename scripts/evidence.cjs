@@ -3,7 +3,7 @@
  * scripts/evidence.cjs — deterministic evidence pack for LLM screening.
  *
  * Machine gathers, LLM judges. Runs a fixed journey suite + a geometry/occlusion
- * audit against the dev server (fixture auth, zero cloud writes), and writes a
+ * audit against the dev server (local fixture, zero cloud writes), and writes a
  * self-contained pack: summary.json (machine verdicts, failures first),
  * per-journey steps + checkpoint screenshots + console slices, per-surface
  * audit JSON + culprit clip shots, aria snapshots. No image comparison anywhere.
@@ -73,8 +73,6 @@ for (const f of ENV_LAYERS) {
   const parsed = dotenv ? dotenv.parse(text) : parseEnvFallback(text);
   for (const [k, v] of Object.entries(parsed)) if (!(k in process.env)) process.env[k] = v;
 }
-const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-
 function requirePlaywright() {
   for (const c of ['playwright-core', '/tmp/pw/node_modules/playwright-core']) {
     try { return require(c); } catch { /* next */ }
@@ -479,58 +477,21 @@ async function main() {
   const chrome = findChrome();
   mkDir(PACK);
 
-  const API_KEY = process.env.FIREBASE_API_KEY;
-  const PROJECT = process.env.FIREBASE_PROJECT_ID;
   const PORT = process.env.PORT || '3030';
   const APP = process.env.MARKBRAIN_URL || `http://localhost:${PORT}`;
   summary.app = APP;
-  if (!API_KEY) { log('FIREBASE_API_KEY not found in layered env'); process.exit(2); }
   try {
     const r = await fetch(`${APP}/api/health`, { signal: AbortSignal.timeout(3000) });
     if (!r.ok) throw new Error(String(r.status));
   } catch { log(`App not reachable at ${APP} — start it first:  npm run dev  (or bun run dev)`); process.exit(2); }
 
-  // ── auth mock (fixture) ───────────────────────────────────────────────────
-  const nowSec = Math.floor(Date.now() / 1000);
-  const UID = 'headless-capture-001';
-  const ID_TOKEN = [
-    b64url({ alg: 'RS256', typ: 'JWT' }),
-    b64url({ iss: `https://securetoken.google.com/${PROJECT}`, aud: PROJECT, sub: UID,
-      auth_time: nowSec, iat: nowSec, exp: nowSec + 3600, email: 'headless.capture@example.com',
-      email_verified: true,
-      firebase: { sign_in_provider: 'google.com', identities: { 'google.com': ['headless.capture@example.com'] } } }),
-    'sig',
-  ].join('.');
-  const fakeUser = {
-    uid: UID, displayName: 'Headless Capture', email: 'headless.capture@example.com',
-    emailVerified: true, photoURL: null, phoneNumber: null, isAnonymous: false,
-    providerData: [{ providerId: 'google.com', uid: UID, displayName: 'Headless Capture', email: 'headless.capture@example.com', photoURL: null }],
-    apiKey: API_KEY, createdAt: String(nowSec - 86400), lastLoginAt: String(nowSec),
-    stsTokenManager: { refreshToken: `headless-refresh-${nowSec}`, accessToken: ID_TOKEN, expirationTime: (nowSec + 3600) * 1000 },
-  };
-
+  // No auth mock: Phase 1 (design-docs/19) boots every session as the Local
+  // Workspace user — the gate never blocks fixture runs.
   const browser = await chromium.launch({
     executablePath: chrome, headless: true,
     args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
   });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  await ctx.addInitScript(({ key, raw }) => {
-    try { window.localStorage.setItem(`firebase:authUser:${key}:[DEFAULT]`, raw); } catch {}
-  }, { key: API_KEY, raw: JSON.stringify(fakeUser) });
-  await ctx.route(/firestore\.googleapis\.com/, () => {}); // hold — fixture seam
-  await ctx.route(/identitytoolkit\.googleapis\.com\/v1\/accounts:lookup/, (route) => route.fulfill({
-    status: 200, contentType: 'application/json',
-    body: JSON.stringify({ users: [{ localId: UID, email: 'headless.capture@example.com',
-      displayName: 'Headless Capture', emailVerified: true,
-      providerData: [{ providerId: 'google.com', rawId: UID, email: 'headless.capture@example.com' }],
-      createdAt: String((nowSec - 86400) * 1000), lastLoginAt: String(nowSec * 1000),
-      idToken: ID_TOKEN, refreshToken: `headless-refresh-${nowSec}`, expiresIn: '3600' }] }),
-  }));
-  await ctx.route(/securetoken\.googleapis\.com/, (route) => route.fulfill({
-    status: 200, contentType: 'application/json',
-    body: JSON.stringify({ access_token: ID_TOKEN, id_token: ID_TOKEN, expires_in: '3600',
-      refresh_token: `headless-refresh-${nowSec}`, token_type: 'Bearer', user_id: UID, project_id: PROJECT }),
-  }));
 
   const page = await ctx.newPage();
   // J13 deliberately forces a 500 — errors during that phase are EXPECTED evidence.
@@ -1169,12 +1130,12 @@ async function main() {
   });
 
   // ── J10 import modal ──────────────────────────────────────────────────────
-  await journey(page, '10-import', 'Sidebar I/O → import modal (Drive + local tabs)', async (page) => {
+  await journey(page, '10-import', 'Sidebar I/O → import modal (local files only)', async (page) => {
     await page.getByRole('button', { name: /^Import$/ }).first().click();
     step('click', 'Import');
     await page.waitForTimeout(800);
     const txt = await bodyText();
-    check(/Google Drive|Local Files/i.test(txt), 'import lanes visible');
+    check(/Import Markdown|drop multiple/i.test(txt), 'local import lane visible');
     await shot(page, 'import-modal');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(400);
@@ -1253,7 +1214,7 @@ async function main() {
     const txt = await bodyText();
     const queueEmpty = (await page.locator('[data-testid="draft-queue"]').count()) === 0;
     check(queueEmpty, 'draft resolved after successful retry');
-    check(/This send should fail/.test(txt), 'ask became a chat turn only after pairing');
+    check(/This send should fail/.test(txt), 'ask became a chat turn only after retry');
     await shot(page, 'after-retry');
     } finally {
       forceFailurePhase = false;

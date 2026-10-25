@@ -21,16 +21,10 @@ import {
   getBackend,
   setBackend,
 } from '../services/persistenceService';
-import {
-  auth,
-  signInWithGoogle,
-  logOut,
-  subscribeToAuth,
-} from '../services/firebase';
-import { User } from 'firebase/auth';
 import { persistProjectSnapshot, attachPersistWorker } from '../application/persistWorker';
 import { useSessionMachine } from '../application/sessionMachine';
 import { loadProjectSnapshotIntoDomains, loadNewWorkspace } from '../application/snapshotLoader';
+import type { WorkspaceUser } from '../types';
 
 export interface DomainContextValue {
   workspace: IWorkspaceDomain;
@@ -43,10 +37,10 @@ export interface DomainContextValue {
   stream: IStreamProtocolDomain;
   recalibration: IChapterRecalibrationDomain;
   compiler: IOpticalCompilerDomain;
-  currentUser: User | null;
+  currentUser: WorkspaceUser | null;
   authInitialized: boolean;
   cloudProjectsCount: number | null;
-  signIn: () => Promise<User>;
+  signIn: () => Promise<WorkspaceUser>;
   continueLocal: () => Promise<void>;
   signOut: () => Promise<void>;
   createCloudWorkspace: (meta: {
@@ -102,10 +96,6 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     continueLocal,
     signOut,
   } = useSessionMachine({
-    auth,
-    signInWithGoogle,
-    logOut,
-    subscribeToAuth,
     getBackend,
     setBackend,
     listUserProjects,

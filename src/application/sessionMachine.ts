@@ -1,27 +1,23 @@
 /**
- * Session machine — the auth observer, the two gate branches (Google / Local),
- * the backend switch on continueLocal/signOut, and the boot-gate state App waits
- * on (`authInitialized`, `cloudProjectsCount`).
+ * Session machine — the boot identity, the Local Workspace branch, and the
+ * boot-gate state App waits on (`authInitialized`, `cloudProjectsCount`).
  *
- * Two branches at the gate, but everything downstream sees only
- * `currentUser`: the Local branch presents a display-only pseudo-user so App,
- * Sidebar and Genesis stay backend-agnostic. Which backend a session actually
+ * Firebase sign-in is gone (design-docs/19, Phase 1): every session boots as
+ * the Local Workspace pseudo-user. Phase 21C re-wires `signIn` to the VPS
+ * account login (`POST /api/auth/login`) and adds the mode switch — until
+ * then `signIn` simply continues locally. Which backend a session actually
  * writes to lives entirely in persistenceService (getBackend/setBackend) — do
  * not make that decision here.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { User } from 'firebase/auth';
+import type { WorkspaceUser } from '../types';
 import type { IWorkspaceDomain } from '../domains/00-workspace';
 import type { ProjectSnapshot } from '../services/stores/projectStore';
 import type { StorageBackend } from '../services/persistenceService';
 import { logger } from '../utils/logger';
 
 export interface SessionDeps {
-  auth: { currentUser: User | null } | null;
-  signInWithGoogle: () => Promise<User>;
-  logOut: () => Promise<void>;
-  subscribeToAuth: (callback: (user: User | null) => void) => () => void;
   getBackend: () => StorageBackend;
   setBackend: (backend: StorageBackend) => void;
   listUserProjects: () => Promise<ProjectSnapshot[]>;
@@ -29,41 +25,30 @@ export interface SessionDeps {
 }
 
 export interface SessionMachine {
-  currentUser: User | null;
+  currentUser: WorkspaceUser | null;
   authInitialized: boolean;
-  /** null = "cloud project list not resolved yet" (App holds its boot loader on this) */
+  /** null = "project list not resolved yet" (App holds its boot loader on this) */
   cloudProjectsCount: number | null;
   setCloudProjectsCount: Dispatch<SetStateAction<number | null>>;
-  signIn: () => Promise<User>;
+  signIn: () => Promise<WorkspaceUser>;
   continueLocal: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 export function useSessionMachine(deps: SessionDeps): SessionMachine {
-  const {
-    auth,
-    signInWithGoogle,
-    logOut,
-    subscribeToAuth,
-    getBackend,
-    setBackend,
-    listUserProjects,
-    workspace,
-  } = deps;
+  const { getBackend, setBackend, listUserProjects, workspace } = deps;
 
-  const LOCAL_USER = useMemo(
-    () =>
-      ({
-        uid: 'local',
-        email: 'local@markbrain.local',
-        displayName: 'Local Space',
-        photoURL: null,
-      }) as unknown as User,
+  const LOCAL_USER = useMemo<WorkspaceUser>(
+    () => ({
+      uid: 'local',
+      email: 'local@markbrain.local',
+      displayName: 'Local Workspace',
+      photoURL: null,
+      mode: 'local',
+    }),
     []
   );
-  const [currentUser, setCurrentUser] = useState<User | null>(() =>
-    getBackend() === 'local' ? LOCAL_USER : auth?.currentUser ?? null
-  );
+  const [currentUser, setCurrentUser] = useState<WorkspaceUser | null>(() => LOCAL_USER);
   const [authInitialized, setAuthInitialized] = useState<boolean>(false);
   const [cloudProjectsCount, setCloudProjectsCount] = useState<number | null>(null);
 
@@ -79,32 +64,26 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
     }
   }, [listUserProjects, workspace]);
 
-  // Auth observer: Google sign-in state. In Local mode the Firebase observer
-  // fires `null` on every reload — that must NOT knock the session back to
-  // the gate, so Local mode keeps the pseudo-user and loads local projects.
+  // Boot identity: resolve immediately as the Local Workspace user and load
+  // its project list. (Phase 21C re-introduces an auth observer here for the
+  // VPS session.)
   useEffect(() => {
-    const unsubAuth = subscribeToAuth(async (user) => {
-      if (getBackend() === 'local') {
-        setCurrentUser(LOCAL_USER);
-        setAuthInitialized(true);
-        await loadUserCloudData();
-        return;
-      }
-      setCurrentUser(user);
+    let cancelled = false;
+    (async () => {
+      if (cancelled) return;
+      setCurrentUser(LOCAL_USER);
       setAuthInitialized(true);
-      if (user) {
-        await loadUserCloudData();
-      } else {
-        setCloudProjectsCount(null);
-      }
-    });
-
-    return unsubAuth;
-  }, [loadUserCloudData, LOCAL_USER, subscribeToAuth, getBackend]);
+      await loadUserCloudData();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [LOCAL_USER, loadUserCloudData]);
 
   const signIn = useCallback(async () => {
-    return await signInWithGoogle();
-  }, [signInWithGoogle]);
+    // Phase 21C: VPS login form. Today the gate offers Local Workspace only.
+    return LOCAL_USER;
+  }, [LOCAL_USER]);
 
   const continueLocal = useCallback(async () => {
     setBackend('local');
@@ -114,15 +93,9 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
   }, [loadUserCloudData, LOCAL_USER, setBackend]);
 
   const signOut = useCallback(async () => {
-    setBackend('firestore');
-    try {
-      await logOut(); // no-op when there is no Firebase user (Local mode)
-    } catch {
-      /* already signed out */
-    }
     setCurrentUser(null);
     setCloudProjectsCount(null);
-  }, [setBackend, logOut]);
+  }, []);
 
   return {
     currentUser,

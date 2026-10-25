@@ -44,42 +44,40 @@ source of truth** (3.8 bug) + title lane honors its slot.
   a00c401); catalog = the three REAL text models (ed22294); a bad model
   can never kill the server (130cf16 — it once did).
 
-## PENDING DEEP-DIVE DISCUSSION (David teaches Vega — do NOT build, do NOT decide)
+## ARCHITECTURAL DEEP DIVE — COMPLETED & LOCKED IN PoR (`19` / `20` / `21*`)
 
-David 2026-10-25: *"you'll need to learn from me what's the deal here overall.
-Cause you don't know what are we really trying to optimize for."* The
-discussion starts from what we optimize FOR — the architecture follows.
+David & Vega completed the architectural deep dive on 2026-10-25 and locked the
+master blueprint + 7-phase Plan of Record for the executing agent:
 
-- **D5. FOSS + hosting — "probably this is the core of the discussion."**
-  Apache-2, free as in beer, users bring their own keys, toy fits free quota,
-  demo-space vs VPS, "I don't want to pay for them and I don't want to be
-  responsible for them."
-- **D1. Where does data live — reframed by David as a clean slate:**
-  Firestore (yay/nay) vs VPS storage (yay/nay) vs both vs neither vs a third
-  option. Known constraints on the table: 20k writes/day burn from
-  whole-snapshot saves, 1MiB doc cap, user-verified Firestore pricing, the
-  phone↔PC sync requirement, data always safe locally. Also on the table:
-  Google's serverless suite ("the firexyz thingies" — Cloud Functions & co) —
-  David is NOT clear on what it is; Vega to explain it plainly when relevant.
-- **D2. Sync/provider architecture** — pending D1 (previous partial decisions
-  recorded in 09/17 stay as-is until then).
-- **D3. BYOK as a model / keys-before-login / whose Firebase key** — pending
-  D1, shelved together with T6.
-- **D4. RESOLVED (David):** BYOK leftovers stay INERT — "don't touch it, just
-  don't consume them." No wipe. Shipped as such (9552dfc).
+- **North Star Blueprint (Soul, Requirements, Decisions D1–D10):**
+  `design-docs/19_NORTH_STAR_BLUEPRINT.md`
+- **Coarse Plan (10-Mile Breadth Map across all 10 bases):**
+  `design-docs/20_COARSE_ARCHITECTURE_PLAN.md`
+- **Fine Plans (7-Phase Step-by-Step Plan of Record):**
+  - `design-docs/21_POR_INDEX.md` — Master index, invariants, and verification gates
+  - `design-docs/21A_PHASE_1_GREAT_PURGE.md` — Purge Firebase, Firestore, Google Drive, and QR mailbox; add `scripts/verify-clean-dist.cjs` build guard
+  - `design-docs/21B_PHASE_2_SQLITE_AUTH_AND_USERS.md` — VPS SQLite schema, `scrypt` auth, immutable Owner Account #1 (`deavidsedice@gmail.com`), `npm run user` CLI, `/api/admin/users`, and server RAM/disk encrypted key vault
+  - `design-docs/21C_PHASE_3_LOCAL_VAULT_AND_MODE_ISOLATION.md` — Strict workspace isolation (`local` vs `vps:<host>:<email>`), `AuthGate` server login UI, WebCrypto `PBKDF2 + AES-GCM` Local Passphrase Vault (RAM-only decrypted keys), and Owner Users tab in Settings
+  - `design-docs/21D_PHASE_4_ATOMIC_SYNC_AND_SETTINGS.md` — Normalized SQLite atomic tables, `revision` delta sync (`/api/projects/:id/delta`), anti-clobber law, and cross-device syncing of API keys + model slots
+  - `design-docs/21E_PHASE_5_SEND_AND_FORGET_JOBS.md` — Server-side `ChatJobRunner` (`POST /api/projects/:id/jobs/send`) so locking the phone screen after hitting Send still finishes the LLM turn on the VPS, commits the Pair to SQLite, titles the thread, and auto-summarizes sealed chapters
+  - `design-docs/21F_PHASE_6_VPS_EMBEDDINGS_AND_TTS_CACHE.md` — VPS-only semantic indexer & search (`POST /api/projects/:id/search`) with lexical-only search in Local mode; VPS `ffmpeg` TTS re-encoding (`ogg`, 22kHz mono, `q=-1`) + disk cache (`data/tts-cache/`)
+  - `design-docs/21G_PHASE_7_CADDY_ANSIBLE_DEPLOY.md` — `deploy/Caddyfile`, `deploy/markbrain.service`, and `deploy/ansible/playbook.yml` for `markbrain.unhaunter.com`
 
-## PENDING FROM SIRIUS (`artifacts/sirius/2026-10-25-byok-model-routing/`)
+## PENDING FROM SIRIUS — SUPERSEDED BY `19`–`21G` (except S1 Mobile Polish)
 
-- [ ] **S1. (04-A) PWA install + mobile pass** — unbuilt. READ
-      `MOBILE_UX_SPEC.md` before quoting effort. Android only (David:
-      "iOS users can go and buy themselves an Android"). Ask: mobile first,
-      or deploy first and polish after real use?
-- [ ] **S2. (04-B) QR image for "Send to phone"** — decision: ~2kB dep vs
-      hand-rolled encoder vs link-is-enough. David approves deps.
-- [ ] **S3. (04-C) VPS deployment posture** — public VPS allowed to run
-      proxy mode (`MARKBRAIN_PROXY=1`) or shell-mode forever?
-- [ ] **S4. auth/internal-error is opaque** — should surface the real cause
-      (the Google sign-in failure was a CSP block shown as "internal-error").
+- [ ] **S1. (04-A) PWA install + mobile pass** — READ `MOBILE_UX_SPEC.md`
+      before quoting effort. Android only. Note: in the new architecture (`19`),
+      full mobile support (Send-and-Forget, synced keys, background indexing)
+      belongs to Mode 2 (Connected VPS Workspace); Mode 1 (Local Workspace) is
+      desktop-first.
+- [x] **S2. QR image for "Send to phone"** — KILLED by D2 (`19_NORTH_STAR_BLUEPRINT.md`).
+      PC and phone sync via the user's VPS account (`deavidsedice@gmail.com`).
+- [x] **S3. VPS deployment posture** — RESOLVED by `19` & `21B`: Caddy serves
+      static files to the public at $0; `/api/*` requires a valid VPS account
+      login (`401` for strangers) and uses the authenticated user's own
+      unlocked vault key.
+- [x] **S4. Firebase auth/internal-error** — KILLED by D1 (Firebase removed
+      entirely in Phase 1).
 
 ## DRAWER (explicitly parked — do not design prematurely)
 

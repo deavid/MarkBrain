@@ -91,10 +91,6 @@ export function clearServerLogs(): Promise<Response> {
   return fetch('/api/server-logs/clear', { method: 'POST' });
 }
 
-export function authConfig(): Promise<Response> {
-  return fetch('/api/auth/config');
-}
-
 export interface ChatStreamPayload {
   model?: string;
   messages?: any[];

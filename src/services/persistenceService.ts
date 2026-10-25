@@ -4,7 +4,6 @@ import { HEADLESS_FIXTURE } from '../data/headlessFixture';
 import type { ChapterPartition } from '../domains/02-chapter-segmentation/types';
 import { GRANULARITY_LAW } from '../domains/granularity';
 import { withDeadline } from '../utils/deadline';
-import { firestoreStore } from './stores/firestoreStore';
 import { localStore } from './stores/localStore';
 import { hydrateSnapshot } from './stores/hydrate';
 import type { ProjectStore, ProjectSnapshot } from './stores/projectStore';
@@ -14,15 +13,16 @@ export type { ProjectSnapshot } from './stores/projectStore';
 /**
  * The only module that knows more than one storage backend exists, and even it
  * dispatches once, in getStore(). Everything above calls these functions and
- * stays backend-agnostic; the ProjectStore port keeps Firebase and IndexedDB
- * types from leaking upward.
+ * stays backend-agnostic; the ProjectStore port keeps the storage SDKs from
+ * leaking upward.
  *
- * Two backends: 'firestore' (default, per-user tree) and 'local' (IndexedDB, no
- * account, this browser only). The choice is a meta-key in localStorage
- * (markbrain:backend) — meta-use of localStorage, not a data mirror. Data
- * itself lives in exactly one place per session.
+ * Firebase/Firestore is gone (design-docs/19, Phase 1). Today's single
+ * backend is 'local' (IndexedDB, this browser only). Phase 21D adds 'vps'
+ * (Connected VPS Workspace → SQLite behind the same port). The choice is a
+ * meta-key in localStorage (`markbrain:backend`) — meta-use of localStorage,
+ * not a data mirror. Data itself lives in exactly one place per session.
  */
-export type StorageBackend = 'firestore' | 'local';
+export type StorageBackend = 'local';
 
 const BACKEND_KEY = 'markbrain:backend';
 export const LOCAL_UID = 'local';
@@ -46,17 +46,20 @@ export const SAVE_ACK_DEADLINE_MS = 15_000;
 export const LOAD_DEADLINE_MS = 30_000;
 
 export function getBackend(): StorageBackend {
+  // Phase 1: only 'local' exists. Phase 21D re-reads this meta-key to pick 'vps'.
   try {
-    return window.localStorage.getItem(BACKEND_KEY) === 'local' ? 'local' : 'firestore';
+    const stored = window.localStorage.getItem(BACKEND_KEY);
+    if (stored === 'vps') return 'vps' as StorageBackend; // reserved for 21D
+    return 'local';
   } catch {
-    logger.warn('Persistence', 'localStorage unavailable — defaulting to firestore backend');
-    return 'firestore';
+    logger.warn('Persistence', 'localStorage unavailable — defaulting to local backend');
+    return 'local';
   }
 }
 
 export function setBackend(backend: StorageBackend): void {
   try {
-    if (backend === 'firestore') window.localStorage.removeItem(BACKEND_KEY);
+    if (backend === 'local') window.localStorage.setItem(BACKEND_KEY, backend);
     else window.localStorage.setItem(BACKEND_KEY, backend);
   } catch {
     logger.warn('Persistence', 'setBackend: storage write failed — backend choice not persisted');
@@ -70,7 +73,8 @@ export function setBackend(backend: StorageBackend): void {
  * store would go stale; never memoize the result.
  */
 function getStore(): ProjectStore {
-  return getBackend() === 'local' ? localStore : firestoreStore;
+  // Phase 1: local only. Phase 21D branches 'vps' → vpsStore here.
+  return localStore;
 }
 
 /**

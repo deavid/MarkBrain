@@ -1,4 +1,4 @@
-/** Anticorruption port between `persistenceService` and the two storage backends (`firestoreStore`, `localStore`). */
+/** Anticorruption port between `persistenceService` and the storage backends (`localStore`, later `vpsStore`). */
 import type { Turn } from '../../domains/01-dialogue-timeline/types';
 import type { ChapterPartition } from '../../domains/02-chapter-segmentation/types';
 import type { UniversalArtifactDocument } from '../../domains/01-artifact-document/types';
@@ -30,10 +30,10 @@ export interface ProjectSnapshot {
 
 /**
  * Backend contract:
- * - `load`: returns `null` ONLY when confirmed absent; throws on network/auth/IDB errors so callers never hydrate empty over real data.
+ * - `load`: returns `null` ONLY when confirmed absent; throws on network/IDB errors so callers never hydrate empty over real data.
  * - `list`: returns `[]` when unauthenticated or unreadable (never throws).
- * - `save`: full snapshot upsert (Firestore merges; IndexedDB replaces the record).
- * - `replaceAll`: local clears + writes atomically; Firestore merges upserts without deleting remote docs absent from the export.
+ * - `save`: full snapshot upsert (IndexedDB replaces the record; 21D's vpsStore merges atomically per entity).
+ * - `replaceAll`: local clears + writes atomically.
  */
 export interface ProjectStore {
   load(projectId: string): Promise<ProjectSnapshot | null>;

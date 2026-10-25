@@ -10,14 +10,13 @@ import { cspHeader } from './lib/csp';
 import { registerServerLogsRoutes } from './routes/logs';
 import { registerHealthRoutes } from './routes/health';
 import { registerModelsRoutes } from './routes/models';
-import { registerAuthRoutes } from './routes/auth';
 import { registerChatRoutes } from './routes/chat';
 import { registerSummarizeRoutes } from './routes/summarize';
 import { registerTitleRoutes } from './routes/title';
 import { registerTtsRoutes } from './routes/tts';
 import { registerExtractRoutes } from './routes/extract';
 import { registerSearchIndexRoutes } from './routes/searchIndex';
-import { registerMailboxRoutes } from './routes/mailbox';
+
 
 // Project root, not server/. This file lives one level down, so __dirname is
 // re-derived here; path.join(__dirname, 'dist') below depends on that.
@@ -56,14 +55,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health + auth + models + mailbox always mount: static-shell and proxy agree
-// on them. The mailbox holds only E2E ciphertext (design-docs/16 §5) — it is
-// the ONE stateful thing this server owns, and it cannot read what it stores.
+// Health + models always mount: static-shell and proxy agree on them.
 registerServerLogsRoutes(app);
 registerHealthRoutes(app);
 registerModelsRoutes(app); // GET /api/models — server-owned model catalog
-registerAuthRoutes(app);
-registerMailboxRoutes(app);
 
 if (serverMode === 'proxy') {
   registerChatRoutes(app);

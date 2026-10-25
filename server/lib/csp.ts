@@ -8,6 +8,7 @@
  *
  * Every origin listed is one the app actually calls. If a feature gains a new
  * external origin, add it HERE and say why — do not widen the defaults.
+ * Firebase/Google auth/Picker origins removed (design-docs/19, Phase 1).
  *
  * Dev difference: Vite's dev server + React Fast Refresh inject inline
  * scripts and open an HMR websocket, so dev relaxes script-src and allows
@@ -15,15 +16,9 @@
  */
 
 export function cspHeader(isDev: boolean): string {
-  // External script origins the app genuinely calls, both referenced by
-  // @firebase/auth itself: gapi (the sign-in popup flow and the Drive Picker
-  // loader) and the reCAPTCHA scripts. Without them the sign-in SDK's load
-  // errors out and Firebase reports it as an opaque `auth/internal-error` —
-  // which is how this broke when the policy landed (D7 / Phase 2).
-  const GOOGLE_SCRIPTS = 'https://apis.google.com https://www.google.com';
-  const scriptSrc = isDev
-    ? `'self' 'unsafe-inline' 'unsafe-eval' ${GOOGLE_SCRIPTS}`
-    : `'self' ${GOOGLE_SCRIPTS}`;
+  // Firebase / Google auth / Picker origins are gone (design-docs/19):
+  // only the two model providers remain as third-party origins.
+  const scriptSrc = isDev ? `'self' 'unsafe-inline' 'unsafe-eval'` : `'self'`;
   const connectExtras = isDev ? ' ws:' : '';
 
   return [
@@ -37,12 +32,10 @@ export function cspHeader(isDev: boolean): string {
     // Markdown may embed https: images; TTS/audio and object URLs use data:/blob:.
     `img-src 'self' data: blob: https:`,
     `media-src 'self' data: blob:`,
-    // Direct provider calls (BYOK) + Firebase + Drive import, nothing else.
-    `connect-src 'self' https://generativelanguage.googleapis.com https://openrouter.ai https://*.googleapis.com https://*.google.com https://*.firebaseio.com https://*.firebaseapp.com wss://*.googleapis.com wss://*.firebaseio.com${connectExtras}`,
-    // Google auth popups/redirect frames + the Drive Picker iframe.
-    // + our own auth handler (PROJECT.firebaseapp.com/__/auth/handler), which
-    // is already in connect-src — it is the app calling itself.
-    `frame-src 'self' https://accounts.google.com https://apis.google.com https://docs.google.com https://*.google.com https://*.firebaseapp.com`,
+    // Direct provider calls (BYOK) — nothing else. Markdown never emits
+    // iframes (raw HTML unsupported), so frame-src stays 'self'.
+    `connect-src 'self' https://generativelanguage.googleapis.com https://openrouter.ai${connectExtras}`,
+    `frame-src 'self'`,
     `object-src 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,

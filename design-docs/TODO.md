@@ -11,6 +11,34 @@
 
 ---
 
+## Done — 2026-10-25: failures are drafts, not turns (`dev-vega`)
+
+Built per `18_CHAT_PAIRS_AND_QUEUE.md` (commit e95682a). Stripped the whole
+failed-request-as-turn family (17 §4) and rebuilt: DraftQueue (device-local
+drafts, per-thread FIFO, failed head never skipped, three exits
+Retry/Store-as-is/Discard), atomic commitPair as the ONLY turn writer,
+in-flight streaming in the draft area, transport treats a stream without a
+complete event as failure even with partial text. 412/412.
+
+---
+## ~~PENDING~~ Done — strip failed-request handling (`dev-vega`)
+
+David 2026-10-25, third rejection: the error is stored **as an assistant turn**
+(`<turn role="assistant">Gemini: API key not valid…</turn>`) — it pollutes the
+conversation, persists forever, and poisons the LLM's view of what it said.
+*"Don't patch - strip."*
+
+- **Full inventory:** `17_ERROR_HANDLING_INVENTORY.md` — every piece (error
+  production, turn write path, persistence, LLM payload, UI surfaces, thread
+  state), the poison paths (payload, persistence, titles, summaries, exports),
+  the strip checklist, and the open design questions.
+- **Design ADOPTED: `18_CHAT_PAIRS_AND_QUEUE.md`** — chat is complete pairs;
+  unpaired asks are drafts in a strict-FIFO device-local queue (retry /
+  store-as-is / discard; stop at a failed head). Strip + rebuild together
+  per 18 §8 map. No piecemeal patches.
+
+---
+
 ## Done — 2026-10-25: a failed request can no longer impersonate the model (`dev-vega`)
 
 David, verbatim: *"We called Gemini 3.5 Flash Lite SUCCESSFULLED and it replied

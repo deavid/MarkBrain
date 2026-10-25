@@ -238,7 +238,6 @@ export default function App() {
     handleStopGeneration,
     handleSendMessage,
     handleCancelQueued,
-    handleRetryThread,
     threadRuntimes,
     unreadThreadIds,
     markThreadUnread,
@@ -856,8 +855,6 @@ export default function App() {
                   threadTitle={threadRegistry.getThread(activeThreadId)?.title || 'New thread'}
                   threadTitleState={threadRegistry.getThread(activeThreadId)?.titleState || 'placeholder'}
                   threadArchived={threadRegistry.getThread(activeThreadId)?.lifecycle === 'archived'}
-                  threadRuntime={threadRuntimes[activeThreadId]?.state || 'idle'}
-                  queuePosition={threadRuntimes[activeThreadId]?.position || 0}
                   onSuggestTitle={() => handleSuggestTitle(activeThreadId)}
                   onRenameTitle={(title) => {
                     logger.action('App', 'Renamed thread from the chat title', { title });
@@ -865,8 +862,10 @@ export default function App() {
                     triggerReRender();
                   }}
                   onUnarchive={() => threadRegistry.setThreadLifecycle(activeThreadId, 'active')}
-                  onRetry={handleRetryThread}
-                  onCancelQueued={() => handleCancelQueued(activeThreadId)}
+                  drafts={sendQueue.getDraftsForThread(activeThreadId)}
+                  onRetryDraft={(id) => sendQueue.retryDraft(id)}
+                  onStoreAsIsDraft={(id) => sendQueue.storeAsIsDraft(id)}
+                  onDiscardDraft={(id) => sendQueue.discardDraft(id)}
                   onOpenServerLogs={() => setIsServerLogsOpen(true)}
                   onAddArtifactToProject={handleAddArtifact}
                   onSummarizeChapter={handleSummarizeChapter}

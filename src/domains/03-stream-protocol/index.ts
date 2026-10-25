@@ -339,20 +339,10 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       return finalResult;
     }
 
-    if (!accumulatedRaw.trim()) {
-      // No complete event, no text, no error: the stream died quietly.
-      // Returning an empty "success" here is how a failed request once
-      // rendered in chat as a model reply of "No reply came back."
-      throw new Error('The stream ended without a reply.');
-    }
-
-    const demuxed = this.demuxFullTurn(accumulatedRaw);
-    return {
-      cleanReply: demuxed.cleanText,
-      rawReply: accumulatedRaw,
-      artifacts: demuxed.artifactUpserts,
-      topicShift: demuxed.topicShift,
-    };
+    // No 'complete' event = the attempt did not finish. Partial text, if any,
+    // belongs to the draft (store-as-is), never to a committed pair — an
+    // unpaired ask must not reach chat storage (design-docs/18).
+    throw new Error('The stream ended without a reply.');
     } catch (err: any) {
       if (err.name === 'AbortError' || callbacks.signal?.aborted) {
         const demuxed = this.demuxFullTurn(accumulatedRaw);

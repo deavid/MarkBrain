@@ -605,7 +605,7 @@ async function main() {
   });
 
   // ── J3 stop ───────────────────────────────────────────────────────────────
-  await journey(page, '03-chat-stop', 'Stop mid-stream → interrupted badge', async (page) => {
+  await journey(page, '03-chat-stop', 'Stop mid-stream → stopped draft (never a turn)', async (page) => {
     // flash-lite may finish before we click — retry the whole send, and click
     // Stop the instant it appears (no intervening screenshot).
     let stopped = false;
@@ -624,12 +624,20 @@ async function main() {
       }
     }
     if (!stopped) {
-      warn('stream ended before Stop on all 3 attempts — interrupt badge untested this run');
+      warn('stream ended before Stop on all 3 attempts — stopped draft untested this run');
     } else {
-      await waitIdle(page, 30_000);
+      await waitIdle(page, 30_000).catch(() => {});
+      const card = page.getByTestId('draft-stopped').first();
+      check(await card.isVisible().catch(() => false), 'stopped draft card shown (not a chat turn)');
       const txt = await bodyText();
-      check(/Interrupted|interrupted/i.test(txt), 'interrupted badge shown');
+      check(/Stopped/i.test(txt), 'stopped state is worded');
       await shot(page, 'after-stop');
+      // Clean up: discard the draft so later journeys start clean.
+      const discard = page.getByTestId('draft-discard').first();
+      if (await discard.isVisible().catch(() => false)) {
+        await discard.click();
+        step('click', 'Discard');
+      }
     }
   });
 
@@ -1221,7 +1229,7 @@ async function main() {
   });
 
   // ── J13 error + retry ─────────────────────────────────────────────────────
-  await journey(page, '13-error-retry', 'Stream 500 → error banner + Retry recovers', async (page) => {
+  await journey(page, '13-error-retry', 'Stream 500 → failed draft + Retry pairs it', async (page) => {
     forceFailurePhase = true;
     try {
     await page.route('**/api/chat/stream', (route) => route.fulfill({
@@ -1229,18 +1237,23 @@ async function main() {
     step('route', 'force 500 on /api/chat/stream');
     await composer.fill('This send should fail');
     await send();
-    await page.getByText(/Generation failed|Error communicating/).first().waitFor({ state: 'visible', timeout: 30_000 });
-    step('wait', 'error banner');
-    await shot(page, 'error-banner');
+    await page.getByTestId('draft-failed').first().waitFor({ state: 'visible', timeout: 30_000 });
+    step('wait', 'failed draft card');
+    const failedTxt = await bodyText();
+    check(/HTTP 500|forced failure/i.test(failedTxt), 'failure reason lives on the draft');
+    check(!/Generation failed/.test(failedTxt), 'no error banner / no failure in the feed');
+    await shot(page, 'error-draft');
     await page.unroute('**/api/chat/stream');
-    const retry = page.getByRole('button', { name: /Retry/i }).first();
+    const retry = page.getByTestId('draft-retry').first();
     check(await retry.isVisible().catch(() => false), 'Retry affordance present');
     await retry.click();
     step('click', 'Retry');
     await waitIdle(page);
     await page.waitForTimeout(1500);
     const txt = await bodyText();
-    check(!/Generation failed/.test(txt), 'error banner cleared after retry');
+    const queueEmpty = (await page.locator('[data-testid="draft-queue"]').count()) === 0;
+    check(queueEmpty, 'draft resolved after successful retry');
+    check(/This send should fail/.test(txt), 'ask became a chat turn only after pairing');
     await shot(page, 'after-retry');
     } finally {
       forceFailurePhase = false;

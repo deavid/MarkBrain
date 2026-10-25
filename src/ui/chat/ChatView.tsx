@@ -89,13 +89,20 @@ interface ChatViewProps {
   threadTitle?: string;
   threadTitleState?: 'placeholder' | 'auto' | 'manual';
   threadArchived?: boolean;
-  threadRuntime?: ThreadRuntime;
-  queuePosition?: number;
   onSuggestTitle?: () => void | Promise<boolean>;
   onRenameTitle?: (title: string) => void;
   onUnarchive?: () => void;
-  onRetry?: () => void;
-  onCancelQueued?: () => void;
+  /** Unpaired asks (design-docs/18) — drafts live outside the conversation. */
+  drafts?: Array<{
+    id: string;
+    state: 'queued' | 'sending' | 'failed' | 'stopped';
+    text: string;
+    reason?: string;
+    partial?: string;
+  }>;
+  onRetryDraft?: (id: string) => void;
+  onStoreAsIsDraft?: (id: string) => void;
+  onDiscardDraft?: (id: string) => void;
   /**
    * Lifted chat draft (LAW 4): this component unmounts when [+ Attach] opens
    * the library, so the unsent text must live in App, keyed by thread.
@@ -147,13 +154,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   threadTitle = 'New thread',
   threadTitleState = 'placeholder',
   threadArchived = false,
-  threadRuntime = 'idle',
-  queuePosition = 0,
   onSuggestTitle,
   onRenameTitle,
   onUnarchive,
-  onRetry,
-  onCancelQueued,
+  drafts = [],
+  onRetryDraft,
+  onStoreAsIsDraft,
+  onDiscardDraft,
   draftText,
   onDraftTextChange,
   missingMatchCount = 0,
@@ -571,17 +578,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   const lastGroup = chapters[chapters.length - 1];
-  const lastMessage = lastGroup?.turns[lastGroup.turns.length - 1];
-  const lastMessageFailed =
-    lastMessage?.role === 'assistant' &&
-    (lastMessage.meta?.streamState === 'error' ||
-      lastMessage.meta?.streamState === 'interrupted');
-  const showRetry =
-    Boolean(onRetry) &&
-    (threadRuntime === 'error' || threadRuntime === 'interrupted') &&
-    !isLoading &&
-    queuePosition === 0 &&
-    lastMessageFailed;
 
   return (
     <div className="relative flex-1 flex flex-col min-h-0 min-w-0 w-full h-full bg-surface-0 text-ink select-text overflow-hidden pt-0 mt-0">
@@ -1090,38 +1086,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     const isTtsLoading = ttsLoadingId === message.id;
                     const isRaw = isMessageRaw(message.id);
                     const isCopied = copiedMessageId === message.id;
-                    const isFailed = !isUser && message.meta?.streamState === 'error';
-
-                    // A failed request is NOT a reply: different widget on
-                    // purpose. No "MarkBrain" name, no message bubble, no
-                    // reply actions — a red-bordered error card, so nobody
-                    // can read it as something the model said.
-                    if (isFailed) {
-                      return (
-                        <div
-                          key={message.id}
-                          className="flex flex-col group items-start"
-                          data-testid="turn-error"
-                        >
-                          <div className="max-w-[92%] sm:max-w-[85%] w-full rounded-xl border border-brand bg-red-500/[0.07] p-3 sm:p-4">
-                            <div className="flex items-center gap-2 text-[11px] font-mono text-red-300 uppercase tracking-wider font-semibold">
-                              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                              <span>Request failed</span>
-                              <span className="text-[#627794] font-normal normal-case tracking-normal">
-                                • {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
-                            <p className="mt-2 text-xs sm:text-sm text-red-100/90 leading-relaxed whitespace-pre-wrap">
-                              {message.content}
-                            </p>
-                            <div className="mt-2 text-[10px] font-mono text-[#869ab8]">
-                              {message.meta?.model ? `Attempted with ${message.meta.model}` : ''}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-
                     return (
                       <div
                         key={message.id}
@@ -1326,31 +1290,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             <div className="mt-2.5 pt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-[#637894]">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="text-[#38bdf8] font-semibold">{message.meta.model || '—'}</span>
-                                {message.meta.streamState !== 'error' && (
-                                  <>
-                                    <span>•</span>
-                                    <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.inputTokens ?? 0} in</span>
-                                    <span>•</span>
-                                    <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.outputTokens ?? 0} out</span>
-                                    <span>•</span>
-                                    <span className="text-[#a4bddf] font-semibold tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.totalTokens ?? 0} total tok</span>
-                                  </>
+                                <span>•</span>
+                                <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.inputTokens ?? 0} in</span>
+                                <span>•</span>
+                                <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.outputTokens ?? 0} out</span>
+                                <span>•</span>
+                                <span className="text-[#a4bddf] font-semibold tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.totalTokens ?? 0} total tok</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {message.meta.timeToFirstChunkMs != null && (
+                                  <span className="text-[#556985] tabular-nums">
+                                    first chunk {(message.meta.timeToFirstChunkMs / 1000).toFixed(2)}s
+                                  </span>
+                                )}
+                                {message.meta.latencyMs != null && (
+                                  <span className="text-[#556985] tabular-nums">
+                                    {(message.meta.latencyMs / 1000).toFixed(2)}s
+                                  </span>
                                 )}
                               </div>
-                              {message.meta.streamState !== 'error' && (
-                                <div className="flex items-center gap-2">
-                                  {message.meta.timeToFirstChunkMs != null && (
-                                    <span className="text-[#556985] tabular-nums">
-                                      first chunk {(message.meta.timeToFirstChunkMs / 1000).toFixed(2)}s
-                                    </span>
-                                  )}
-                                  {message.meta.latencyMs != null && (
-                                    <span className="text-[#556985] tabular-nums">
-                                      {(message.meta.latencyMs / 1000).toFixed(2)}s
-                                    </span>
-                                  )}
-                                </div>
-                              )}
                             </div>
                           )}
 
@@ -1361,12 +1319,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             </div>
                           )}
 
-                          {message.meta?.streamState === 'interrupted' && (
-                            <div className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 text-[10px] font-mono">
-                              <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                              <span className="font-semibold tracking-wider uppercase text-[10px]">Response Interrupted</span>
-                            </div>
-                          )}
 
 
                           {message.meta?.downgradedFrom && (
@@ -1489,21 +1441,85 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </div>
       )}
 
-      {showRetry && (
-        <div className="mx-3 sm:mx-6 mb-2 flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-wash-warn text-[11px] font-mono text-[#e0b96c] animate-in fade-in duration-150 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <AlertCircle className="w-3.5 h-3.5 text-[#e0b96c] shrink-0" />
-            <span className="truncate">
-              {threadRuntime === 'error' ? 'Generation failed' : 'Response interrupted'} — the last reply didn't finish.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => onRetry?.()}
-            className="px-3 py-1 rounded-lg bg-surface-4 hover:bg-[#4a3818] text-[#f0d090] font-semibold transition-colors cursor-pointer shrink-0"
-          >
-            Retry
-          </button>
+      {/* Draft queue (design-docs/18): unpaired asks live here — never in the
+          feed. A sending draft shows its streaming partial (the reply has not
+          earned a place in the conversation yet); a failed/stopped one offers
+          the three exits: Retry / Store as-is / Discard. */}
+      {drafts.length > 0 && (
+        <div className="mx-3 sm:mx-6 mb-2 space-y-1.5 shrink-0" data-testid="draft-queue">
+          {drafts.map((d) => {
+            const isBusy = d.state === 'sending';
+            const isBlocked = d.state === 'failed' || d.state === 'stopped';
+            return (
+              <div
+                key={d.id}
+                data-testid={`draft-${d.state}`}
+                className={`rounded-lg border px-3 py-2 text-[11px] font-mono ${
+                  isBlocked ? 'border-brand bg-red-500/[0.07]' : 'border-line bg-surface-2'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isBlocked && <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+                    <span
+                      className={`shrink-0 font-semibold uppercase tracking-wider text-[10px] ${
+                        isBlocked
+                          ? 'text-red-300'
+                          : isBusy
+                            ? 'text-[#38bdf8]'
+                            : 'text-ink-mute'
+                      }`}
+                    >
+                      {isBusy ? 'Writing reply' : d.state === 'queued' ? 'Queued' : d.state === 'stopped' ? 'Stopped' : 'Failed'}
+                    </span>
+                    {isBlocked && d.reason && (
+                      <span className="truncate text-red-200/90">{d.reason}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {isBlocked && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onRetryDraft?.(d.id)}
+                          data-testid="draft-retry"
+                          className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink font-semibold transition-colors cursor-pointer"
+                        >
+                          Retry
+                        </button>
+                        {d.partial && (
+                          <button
+                            type="button"
+                            onClick={() => onStoreAsIsDraft?.(d.id)}
+                            data-testid="draft-store-as-is"
+                            className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-[#38bdf8] transition-colors cursor-pointer"
+                          >
+                            Store as-is
+                          </button>
+                        )}
+                      </>
+                    )}
+                    {(isBlocked || d.state === 'queued') && (
+                      <button
+                        type="button"
+                        onClick={() => onDiscardDraft?.(d.id)}
+                        data-testid="draft-discard"
+                        className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-[#e0b96c] transition-colors cursor-pointer"
+                      >
+                        Discard
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-1 truncate text-ink-dim">{d.text}</div>
+                {d.partial && (isBusy || isBlocked) && (
+                  <div className="mt-1.5 max-h-24 overflow-y-auto rounded bg-recess-1 px-2 py-1.5 text-[11px] text-ink-dim whitespace-pre-wrap">
+                    {d.partial}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1551,18 +1567,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
               rows={1}
               className="flex-1 bg-recess-1 shadow-well rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 transition-colors resize-none leading-relaxed overflow-y-auto max-h-[140px]"
             />
-
-            {/* Pending sends for THIS thread (serial queue) — cancel never touches the live stream */}
-            {queuePosition > 0 && !isLoading && (
-              <button
-                type="button"
-                onClick={() => onCancelQueued?.()}
-                className="px-2.5 py-2 rounded-lg bg-surface-4 hover:bg-[#423214] text-[#e0b96c] text-[10px] font-mono transition-colors cursor-pointer shrink-0"
-                title="Cancel queued messages for this thread"
-              >
-                {queuePosition} queued ✕
-              </button>
-            )}
 
             {isLoading && onStopGeneration ? (
               <button

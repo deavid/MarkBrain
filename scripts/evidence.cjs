@@ -1173,15 +1173,19 @@ async function main() {
   });
 
   // ── J11 model picker ──────────────────────────────────────────────────────
-  await journey(page, '11-model-picker', 'Model selector shows server catalog entry', async (page) => {
-    const acc = page.getByText(/Inference Model/i).first();
-    await acc.click({ timeout: 5000 });
-    await page.waitForTimeout(600);
+  // Inference Model row opens the Model Settings popup directly (no accordion).
+  await journey(page, '11-model-picker', 'Inference Model row opens Model Settings with server catalog', async (page) => {
+    const row = page.getByTestId('open-model-settings').first();
+    await row.click({ timeout: 5000 });
+    await page.waitForTimeout(800);
+    check(await page.getByTestId('model-settings-modal').isVisible().catch(() => false), 'Model Settings popup opened');
     const txt = await bodyText();
-    check(/flash-lite|Flash Lite/i.test(txt), 'flash-lite listed');
-    const hasMeta = /Window|Latency/.test(txt);
-    if (!hasMeta) warn('model metadata (Window/Latency) not visible after opening picker');
+    check(/flash-lite|Flash Lite/i.test(txt), 'flash-lite listed in the slot selects');
+    const tabs = await page.getByTestId('settings-tab-keys').isVisible().catch(() => false);
+    check(tabs, 'Keys tab present (own section, not mixed into models)');
     await shot(page, 'model-picker');
+    await page.getByTestId('model-settings-close').click().catch(() => {});
+    await page.waitForTimeout(300);
   });
 
   // ── J12 mobile ────────────────────────────────────────────────────────────

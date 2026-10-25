@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Settings2, KeyRound, Info, Eye, EyeOff, Check } from 'lucide-react';
+import { X, Settings2, KeyRound, Eye, EyeOff, Check } from 'lucide-react';
 import { logger } from '../../utils/logger';
 import { models as fetchModels, liveCatalogs } from '../../gateway/api';
 import {
@@ -56,20 +56,19 @@ interface ModelSettingsModalProps {
 interface SlotRow {
   slot: ModelSlot;
   label: string;
-  hint: string;
   group: 'chat' | 'workhorse' | 'infra';
 }
 
 type ModalCatalogEntry = ModelSettingsModalProps['catalog'][number];
 
 const SLOT_ROWS: SlotRow[] = [
-  { slot: 'chat', label: 'Chat', hint: 'The replies you read. Reasoning power vs money lives here.', group: 'chat' },
-  { slot: 'extract', label: 'Extract', hint: 'Import lane — files become structured notes.', group: 'workhorse' },
-  { slot: 'summarize', label: 'Summarize', hint: 'Chapter recaps and descriptions.', group: 'workhorse' },
-  { slot: 'qaGen', label: 'Q&A gen', hint: 'Search-index question/answer generation.', group: 'workhorse' },
-  { slot: 'title', label: 'Titles', hint: 'Thread titles (2–6 words, best-effort).', group: 'workhorse' },
-  { slot: 'embed', label: 'Embeddings', hint: 'Search-index vectors. Not comparable across models.', group: 'infra' },
-  { slot: 'tts', label: 'Read-aloud', hint: 'Voice synthesis.', group: 'infra' },
+  { slot: 'chat', label: 'Chat', group: 'chat' },
+  { slot: 'extract', label: 'Extract', group: 'workhorse' },
+  { slot: 'summarize', label: 'Summarize', group: 'workhorse' },
+  { slot: 'qaGen', label: 'Q&A gen', group: 'workhorse' },
+  { slot: 'title', label: 'Titles', group: 'workhorse' },
+  { slot: 'embed', label: 'Embeddings', group: 'infra' },
+  { slot: 'tts', label: 'Read-aloud', group: 'infra' },
 ];
 
 function optionsFor(slot: ModelSlot, catalog: ModalCatalogEntry[]): ModalCatalogEntry[] {
@@ -95,6 +94,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
   });
   const [laneKeys, setLaneKeys] = useState<Record<string, LaneKeyChoice>>({});
   const [passphrase, setPassphrase] = useState('');
+  // NOT VERIFIED — see design-docs/16. Hidden unless VITE_BYOK=1, because the
+  // bring-your-own-key model is unsettled and David will not ship something he
+  // cannot validate.
+  const byokEnabled = import.meta.env.VITE_BYOK === '1';
+  const [tab, setTab] = useState<'models' | 'keys'>('models');
   const [vaultError, setVaultError] = useState<string | null>(null);
   const [vaultTick, setVaultTick] = useState(0); // re-render after lock/unlock
 
@@ -221,11 +225,40 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
   const renderRow = (row: SlotRow) => {
     const options = optionsFor(row.slot, liveCatalog);
     const isChat = row.group === 'chat';
+    if (!isChat) {
+      return (
+        <div
+          key={row.slot}
+          data-testid={`slot-${row.slot}`}
+          className="flex items-center justify-between gap-2"
+        >
+          <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute shrink-0">
+            {row.label}
+          </span>
+          <select
+            data-testid={`select-${row.slot}`}
+            value={slots[row.slot]}
+            onChange={(e) => setSlot(row.slot, e.target.value)}
+            className="shrink-0 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1 shadow-well cursor-pointer min-w-[10rem]"
+          >
+            {options.length === 0 && (
+              <option value={slots[row.slot]}>{slots[row.slot]} (not in catalog)</option>
+            )}
+            {options.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+                {m.available === false ? ' — no key' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      );
+    }
     return (
       <div
         key={row.slot}
         data-testid={`slot-${row.slot}`}
-        className={`rounded-xl p-3 ${isChat ? 'bg-veil-1 shadow-lift' : 'bg-surface-2'}`}
+        className="rounded-xl p-3 bg-veil-1 shadow-lift"
       >
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -241,15 +274,12 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                 </span>
               )}
             </div>
-            <p className="text-[10px] text-[#788fa8] leading-tight mt-1">{row.hint}</p>
           </div>
           <select
             data-testid={`select-${row.slot}`}
             value={slots[row.slot]}
             onChange={(e) => setSlot(row.slot, e.target.value)}
-            className={`shrink-0 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 shadow-well cursor-pointer ${
-              isChat ? 'min-w-[13rem]' : 'min-w-[11rem]'
-            }`}
+            className="shrink-0 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 shadow-well cursor-pointer min-w-[13rem]"
           >
             {options.length === 0 && (
               <option value={slots[row.slot]}>{slots[row.slot]} (not in catalog)</option>
@@ -262,11 +292,6 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
             ))}
           </select>
         </div>
-        {options.find((m) => m.id === slots[row.slot])?.quotaNote && (
-          <p className="text-[10px] text-[#e0b96c] font-mono mt-1.5">
-            {options.find((m) => m.id === slots[row.slot])!.quotaNote}
-          </p>
-        )}
         {isChat && (
           <div className="flex items-center gap-2 mt-2">
             <span className="text-[9px] font-mono uppercase tracking-wider text-[#556985]">
@@ -293,8 +318,12 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
+      onMouseDown={onClose}
+    >
       <div
+        onMouseDown={(e) => e.stopPropagation()}
         data-testid="model-settings-modal"
         className="relative w-full max-w-2xl max-h-[85vh] bg-surface-0 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-ink font-mono animate-in fade-in zoom-in-95 duration-200"
       >
@@ -320,6 +349,27 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          <div className="flex gap-1 p-1 rounded-xl bg-surface-2" role="tablist" aria-label="Model settings sections">
+            {(['models', 'keys'] as const).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={tab === t}
+                data-testid={`settings-tab-${t}`}
+                onClick={() => setTab(t)}
+                className={`flex-1 min-h-[28px] rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors cursor-pointer ${
+                  tab === t
+                    ? 'bg-surface-3 shadow-lift text-ink font-semibold'
+                    : 'text-ink-faint hover:text-ink-dim'
+                }`}
+              >
+                {t === 'models' ? 'Models' : 'Keys'}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'models' && (
+          <>
           <section>
             <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
               Chat
@@ -331,27 +381,42 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
             <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
               Workhorse
             </div>
-            <div className="space-y-1.5">{SLOT_ROWS.filter((r) => r.group === 'workhorse').map(renderRow)}</div>
+            <div className="space-y-1">{SLOT_ROWS.filter((r) => r.group === 'workhorse').map(renderRow)}</div>
           </section>
 
           <section>
             <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
               Infrastructure
             </div>
-            <div className="space-y-1.5">{SLOT_ROWS.filter((r) => r.group === 'infra').map(renderRow)}</div>
+            <div className="space-y-1">{SLOT_ROWS.filter((r) => r.group === 'infra').map(renderRow)}</div>
           </section>
+          </>
+          )}
 
+          {tab === 'keys' && (
+          <>
+          {!byokEnabled && (
+            <section className="rounded-xl bg-recess-1 p-3" data-testid="key-status">
+              <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-ink-mute mb-1.5">
+                <KeyRound className="w-3.5 h-3.5 text-[#e0b96c]" />
+                Keys
+              </div>
+              <p className="text-xs text-ink-dim">
+                Your messages are sent using the server owner’s API key. Using
+                your own key is not available yet.
+              </p>
+            </section>
+          )}
+          {byokEnabled && (
           <section className="rounded-xl bg-recess-1 p-3" data-testid="key-status">
             <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-ink-mute">
               <KeyRound className="w-3.5 h-3.5 text-[#e0b96c]" />
-              Keys — all optional
+              Keys
             </div>
             <p className="text-[11px] text-[#788fa8] leading-relaxed mt-1.5 mb-3">
-              Stored in THIS browser only, never sent anywhere but the provider
-              it belongs to. Empty slots are fine — those lanes use the server's
-              key if the deployment has one. Lock keys to this origin in the
-              provider console (referrer/domain restriction) — that is the real
-              wall while storage is plain.
+              Stored in this browser only, and only sent to the provider each
+              key belongs to. Empty slots are fine — those lanes use the
+              server owner’s key.
             </p>
             <div className="space-y-2">
               {KEY_SLOTS.map((id) => (
@@ -388,7 +453,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
             </div>
             {listFilledKeySlots().length === 0 && (
               <p className="text-[10px] text-[#788fa8] font-mono mt-2">
-                No keys configured — every lane falls back to the server proxy.
+                No keys configured — every lane uses the server owner’s key.
               </p>
             )}
 
@@ -459,22 +524,16 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                   </p>
                 )}
                 <p className="text-[10px] text-[#556985] leading-relaxed mt-1.5">
-                  AES-GCM under a PBKDF2 passphrase (never stored). Lost passphrase = keys are
-                  unreadable — clear them and paste new ones. Locked vault sends those lanes to
-                  the server proxy or the honest empty state.
+                  Keys are encrypted in this browser under your passphrase. A lost
+                  passphrase means the keys are gone — clear them and paste new ones.
+                  A locked vault means those lanes use the server owner’s key.
                 </p>
               </div>
             )}
           </section>
-
-          <div className="flex items-start gap-2 px-1">
-            <Info className="w-3.5 h-3.5 text-[#556985] shrink-0 mt-0.5" />
-            <p className="text-[10px] text-[#556985] leading-relaxed">
-              Free-tier quotas are real: <span className="text-[#e0b96c]">3.8 Flash</span> allows
-              ~20 requests/day and its latency swings from 1.3s to minutes under load. If a big-brain
-              reply is downgraded, the message says so — nothing swaps silently.
-            </p>
-          </div>
+          )}
+          </>
+          )}
         </div>
       </div>
     </div>

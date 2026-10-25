@@ -32,6 +32,10 @@ export default defineConfig(() => {
       'import.meta.env.VITE_FIREBASE_AUTH_DOMAIN': JSON.stringify(process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || ''),
       'import.meta.env.VITE_FIREBASE_STORAGE_BUCKET': JSON.stringify(process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || ''),
       'import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID': JSON.stringify(process.env.FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || ''),
+      // Not verified. The whole BYOK UI is behind this so it cannot be shipped
+      // as working while the model itself is still unsettled. Set VITE_BYOK=1
+      // to look at it. Default off.
+      'import.meta.env.VITE_BYOK': JSON.stringify(process.env.VITE_BYOK || ''),
       'import.meta.env.VITE_FIRESTORE_DB_ID': JSON.stringify(process.env.FIRESTORE_DB_ID || process.env.VITE_FIRESTORE_DB_ID || ''),
     },
     server: {

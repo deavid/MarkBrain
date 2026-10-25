@@ -741,7 +741,6 @@ export default function App() {
         artifacts={domainArtifacts}
         onSelectProject={(p) => workspace.setActiveProject(p.id)}
         selectedModel={selectedModel}
-        availableModels={availableModels}
         onSelectModel={handleSelectModel}
         onOpenModelSettings={() => setIsModelSettingsOpen(true)}
         chosenVoice={chosenVoice}

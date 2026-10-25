@@ -87,7 +87,6 @@ interface SidebarProps {
   artifacts: Artifact[];
   onSelectProject: (p: ProjectMetadata) => void;
   selectedModel: ModelOption;
-  availableModels: ModelOption[];
   onSelectModel: (m: ModelOption) => void;
   /** Opens the capability-slot Model Settings popup (design-docs/16 §3.1). */
   onOpenModelSettings?: () => void;
@@ -141,7 +140,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   artifacts,
   onSelectProject,
   selectedModel,
-  availableModels,
   onSelectModel,
   onOpenModelSettings,
   chosenVoice = 'Kore',
@@ -182,7 +180,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   // Accordion toggles expand inline in document flow, which guarantees the panels can never be clipped.
   const [projectAccordionOpen, setProjectAccordionOpen] = useState(false);
-  const [modelAccordionOpen, setModelAccordionOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [ioToolsOpen, setIoToolsOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(true);
@@ -996,95 +993,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="rounded-xl bg-surface-2 p-1.5">
             <button
               onClick={() => {
-                const nextState = !modelAccordionOpen;
-                logger.action('Sidebar', `Toggle model accordion: ${nextState ? 'opened' : 'closed'}`);
-                setModelAccordionOpen(nextState);
+                logger.action('Sidebar', 'Open model settings');
+                onOpenModelSettings?.();
               }}
-              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-3 cursor-pointer"
+              data-testid="open-model-settings"
+              title="Model settings — one model per lane"
+              className="w-full flex items-center gap-2.5 pl-1.5 pr-2 py-2 rounded-lg text-left transition-colors hover:bg-surface-3 cursor-pointer"
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-lg bg-recess-1 shadow-well flex items-center justify-center shrink-0">
-                  <Cpu className="w-4 h-4 text-[#e05a66]" />
-                </div>
-                <div className="min-w-0">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
-                    Inference Model
-                  </span>
-                  <span className="text-xs font-semibold text-ink truncate block">
-                    {selectedModel.name}
-                  </span>
-                </div>
+              <div className="w-7 h-7 rounded-lg bg-recess-1 shadow-well flex items-center justify-center shrink-0">
+                <Cpu className="w-4 h-4 text-[#e05a66]" />
               </div>
-              <div className="flex items-center gap-1.5 text-[#556985]">
-                <span className="text-[10px] font-mono text-[#38bdf8]">{selectedModel.badge}</span>
-                {onOpenModelSettings && (
-                  <button
-                    onClick={onOpenModelSettings}
-                    data-testid="open-model-settings"
-                    title="Model settings — one model per lane"
-                    className="w-6 h-6 rounded-lg bg-surface-3 hover:bg-surface-4 flex items-center justify-center text-ink-mute hover:text-ink transition-colors cursor-pointer"
-                  >
-                    <Settings2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {modelAccordionOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
+                  Inference Model
+                </span>
+                <span className="text-xs font-semibold text-ink truncate block">
+                  {selectedModel.name}
+                </span>
               </div>
+              <Settings2 className="w-3.5 h-3.5 shrink-0 text-[#556985]" />
             </button>
-
-            {modelAccordionOpen && (
-              <div className="mt-0.5 pb-1.5 space-y-1 animate-in fade-in duration-100">
-                {availableModels.map((m) => {
-                  const isSelected = m.id === selectedModel.id;
-                  // Server catalog flag (GET /api/models): false = provider key
-                  // missing, replies fall back to canned demo. Unknown (fallback
-                  // model pre-fetch) stays unmarked rather than guessing.
-                  const isUnavailable = (m as ModelOption & { available?: boolean }).available === false;
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => {
-                        logger.action('Sidebar', `Selected inference model: ${m.name} (${m.id})`);
-                        onSelectModel(m);
-                        setModelAccordionOpen(false);
-                      }}
-                      title={isUnavailable ? 'API key not configured — replies are demo' : undefined}
-                      className={`w-full p-2.5 rounded-lg text-left transition-colors cursor-pointer ${
-                        isSelected
-                          ? 'bg-veil-2 shadow-lift text-ink'
-                          : 'text-ink-dim hover:bg-veil-1 hover:text-ink'
-                      } ${isUnavailable ? 'opacity-60' : ''}`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-xs font-mono text-ink">{m.name}</span>
-                          {isSelected && <Check className="w-3.5 h-3.5 text-[#38bdf8]" />}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {isUnavailable && (
-                            <span
-                              className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-veil-3 text-[#f28894]"
-                              title="API key not configured — replies are demo"
-                            >
-                              no key
-                            </span>
-                          )}
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-veil-3 text-[#e0b96c]">
-                            {m.badge}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-[11px] text-[#788fa8] leading-tight mb-1.5">
-                        {m.description}
-                      </p>
-                      <div className="flex items-center justify-between text-[10px] font-mono text-[#526a8a] mt-1.5">
-                        <span>Latency: {m.latency}</span>
-                        <span>Window: {m.contextWindow}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
           </div>
 
           {/* Reading preference, not project data: it sits next to the model

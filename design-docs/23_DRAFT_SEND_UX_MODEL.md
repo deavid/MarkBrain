@@ -89,6 +89,21 @@ chat was exactly that: one vault-locked job as head, three sends queued behind
 it forever, nothing on screen. A queued draft behind a blocked head says so:
 *"Queued — blocked by the failed draft above."*
 
+### 2.4.1 Retry carries the CURRENT selection (added after the 2026-10-25
+"retried the model that failed twice" bug)
+A Retry is the user's NEXT attempt, not a replay of the failed one. When the
+client retries a failed/stopped VPS job it recompiles the prompt from the
+draft's payload and POSTs `{ model, compiledPrompt, systemInstruction }` to
+`/api/jobs/:id/retry`; the server persists the overrides onto the job row
+before re-running. The committed pair's model + token stats therefore describe
+the attempt that actually ran. Server-side provenance law: the pair commits
+SERVER-side, and the delta turn's `meta.attachments` (turnId + turnIndex) must
+be welded back into the client's registry (`ThreadRegistry.commitAttachment`
+via the delta merge) — otherwise the staged tray never empties and the chips
+never render. Also: a usage-bearing terminal chunk (no text, just the bill)
+must be captured before the empty-text skip, or the honest token count is lost
+and the card shows estimates.
+
 ## 2.5 — Topic-shift chapter law (David 2026-10-25, live-found)
 
 A model reply may carry several `<topic_shift>` sentinels; chapter cuts obey:

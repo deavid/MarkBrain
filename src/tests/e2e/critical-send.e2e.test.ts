@@ -34,11 +34,21 @@ const upstream = {
   behavior: 'ok' as UpstreamBehavior,
   chunkDelayMs: 20,
   requests: [] as string[], // the prompts that reached the fake LLM
+  models: [] as string[], // the model ids the fake LLM was asked to serve
 };
 
-function fakeLlmResponse(): Response {
+/** Models whose id contains '/fail-model' ALWAYS fail — per-model behaviors. */
+function fakeLlmResponse(init?: RequestInit): Response {
+  let model = '';
+  try {
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+    model = String(body?.model ?? '');
+  } catch {
+    /* junk body */
+  }
+  upstream.models.push(model);
   upstream.requests.push('hit');
-  if (upstream.behavior === 'fail-500') {
+  if (upstream.behavior === 'fail-500' || model.includes('/fail-model')) {
     return new Response(JSON.stringify({ error: { message: 'upstream exploded' } }), {
       status: 500,
       headers: { 'content-type': 'application/json' },
@@ -95,7 +105,7 @@ let base = '';
 let token = '';
 let userId = 1;
 const PROJECT_ID = 'proj-e2e-send';
-const THREADS = ['th-a', 'th-b', 'th-c', 'th-d', 'th-e'];
+const THREADS = ['th-a', 'th-b', 'th-c', 'th-d', 'th-e', 'th-f'];
 
 interface ApiRes {
   status: number;
@@ -155,7 +165,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.startsWith(base)) return realFetch(url, init); // the real app
-    if (url.startsWith('https://openrouter.ai/')) return fakeLlmResponse(); // the fake LLM
+    if (url.startsWith('https://openrouter.ai/')) return fakeLlmResponse(init); // the fake LLM
     // Refuse everything else — no external system is EVER stressed by a test.
     throw new Error(`E2E fetch router: unexpected outbound request to ${url}`);
   });
@@ -170,7 +180,13 @@ afterEach(() => {
 import { SendQueue, type SendQueueDeps } from '../../application/sendQueue';
 import type { ChatAttachment } from '../../domains/06-chat-threads/types';
 
-function makeClientDeps(threadId: string, renderedPhases: string[]): SendQueueDeps {
+function makeClientDeps(
+  threadId: string,
+  renderedPhases: string[],
+  modelBox: { current: { id: string; name: string } } = {
+    current: { id: 'nvidia/nemotron-3.5-lightning:free', name: 'Nemotron' },
+  }
+): SendQueueDeps {
   const turns: Array<{ id: string; role: string; content: string; timestamp: number }> = [];
   let turnN = 0;
   return {
@@ -244,7 +260,7 @@ function makeClientDeps(threadId: string, renderedPhases: string[]): SendQueueDe
     postChatCancel: vi.fn(),
     confirm: () => true,
     getContext: () => ({
-      model: { id: 'nvidia/nemotron-3.5-lightning:free', name: 'Nemotron' } as never,
+      model: modelBox.current as never,
       projectId: PROJECT_ID,
       projectTitle: 'E2E Project',
       tokenCeiling: 4000,
@@ -255,8 +271,8 @@ function makeClientDeps(threadId: string, renderedPhases: string[]): SendQueueDe
 // the triggerReRender closure needs the queue — a settable ref does it
 const queueRef: { current: SendQueue | null } = { current: null };
 
-function newClientQueue(threadId: string, renderedPhases: string[]): SendQueue {
-  const deps = makeClientDeps(threadId, renderedPhases);
+function newClientQueue(threadId: string, renderedPhases: string[], modelBox?: { current: { id: string; name: string } }): SendQueue {
+  const deps = makeClientDeps(threadId, renderedPhases, modelBox);
   const queue = new SendQueue(() => deps);
   queueRef.current = queue;
   return queue;
@@ -531,5 +547,67 @@ describe('C14 — VAULT_LOCKED: honest code, unlock, retry', () => {
     const askIdx = turns.findIndex((t) => t.role === 'user' && t.content === 'sent while locked');
     expect(askIdx).toBeGreaterThanOrEqual(0);
     expect(turns[askIdx + 1].content).toBe('Reply from the fake LLM.');
+  }, 20000);
+});
+/* ── C15: send-with-attachments fails → change model → retry ──────────────── */
+
+describe('C15 — failed send with attachments → change model → retry', () => {
+  // David's live scenario (2026-10-25): the first model fails twice; the user
+  // selects another model and hits Retry. Expected: the retry uses the NEW
+  // model, the pair's model + token stats reflect the attempt that actually
+  // ran, and the attachments ride the send (provenance welded server-side).
+  it('the retry carries the CURRENT model; the pair records it with real tokens', async () => { // vitest: real-HTTP journeys
+    upstream.requests = [];
+    upstream.models = [];
+    upstream.behavior = 'fail-500'; // the first model's lane fails upstream
+    const modelBox = { current: { id: 'nvidia/nemotron-3.5-lightning:free', name: 'Nemotron' } };
+    const queue = newClientQueue('th-f', [], modelBox);
+
+    queue.handleSendMessage('retry me with a different model');
+    await waitFor(() => {
+      const d = queue.getDraftsForThread('th-f')[0];
+      return d?.state === 'failed' ? d : null;
+    }, 10000);
+    expect(upstream.requests.length).toBe(1);
+    expect((await turnsOfThread('th-f')).length).toBe(0); // failed → zero turns
+
+    // The user changes the model (nvidia → z-ai, both OpenRouter lanes), then
+    // hits Retry on the failed draft.
+    upstream.behavior = 'ok';
+    modelBox.current = { id: 'z-ai/glm-5.3-flash', name: 'GLM 5.3 Flash' };
+    queue.retryDraft(queue.getDraftsForThread('th-f')[0].id);
+    await waitFor(() => (queue.getQueue().length === 0 ? true : null), 10000);
+
+    // The fake LLM saw the FAILED model once and the NEW model on the retry —
+    // never a re-run of the model that already failed twice.
+    expect(upstream.models).toEqual(['nvidia/nemotron-3.5-lightning:free', 'z-ai/glm-5.3-flash']);
+    expect(upstream.requests.length).toBe(2);
+
+    // Exactly one pair, and its stats come from the attempt that succeeded:
+    // the NEW model + the fake LLM's usage (10 in / 6 out / 16 total), never
+    // the failed model's identity.
+    const turns = await turnsOfThread('th-f');
+    expect(turns.length).toBe(2);
+    const delta = await api(`/api/projects/${PROJECT_ID}/delta?since=0`, { token });
+    const rows = (delta.body.turns as Array<{ threadId?: string; role: string; meta?: any }>).filter(
+      (t) => t.threadId === 'th-f'
+    );
+    const ai = rows.find((t) => t.role === 'assistant')!;
+    expect(ai.meta?.model).toBe('z-ai/glm-5.3-flash');
+    expect(ai.meta?.inputTokens).toBe(10);
+    expect(ai.meta?.totalTokens).toBe(16);
+
+    // The staged attachment rode the retry and got provenance welded —
+    // chips render on the user turn (not stuck in the staged tray).
+    const user = rows.find((t) => t.role === 'user')!;
+    const atts = user.meta?.attachments as Array<{ artifactId: string; turnId?: string; turnIndex?: number | null }>;
+    expect(atts?.length).toBe(1);
+    expect(atts[0].artifactId).toBe('art-e2e-staged-1');
+    expect(atts[0].turnId).toBe((user as unknown as { id: string }).id);
+    expect(atts[0].turnIndex).toBeGreaterThanOrEqual(0);
+
+    // No leftover job rows.
+    const jobs = await api(`/api/projects/${PROJECT_ID}/jobs`, { token });
+    expect((jobs.body.jobs as Array<{ jobId: string }>).length).toBe(0);
   }, 20000);
 });

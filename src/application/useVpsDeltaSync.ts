@@ -119,6 +119,31 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
     timeline.loadTurns([...merged, ...additions]);
   }
 
+  // Attachment provenance from server-committed pairs (design 23 §2.5, live
+  // 2026-10-25): the pair lands SERVER-side; the delta turn's meta.attachments
+  // carry the turnId + turnIndex the server welded. The registry's staged
+  // entries must follow, or the staged tray never empties ("attachments
+  // didn't get removed when sent to the draft bin") and the chips never render
+  // on the turn (they read the registry, not the turn meta).
+  for (const incoming of delta.turns) {
+    const atts = (incoming as { meta?: { attachments?: unknown } }).meta?.attachments;
+    if (!Array.isArray(atts)) continue;
+    const threadId = incoming.threadId ?? threadRegistry.getActiveThreadId();
+    for (const att of atts as Array<{ artifactId?: unknown; turnIndex?: unknown; turnId?: unknown }>) {
+      if (typeof att.artifactId !== 'string' || !att.artifactId) continue;
+      const turnIndex =
+        typeof att.turnIndex === 'number' && Number.isFinite(att.turnIndex) && att.turnIndex >= 0
+          ? att.turnIndex
+          : null;
+      threadRegistry.commitAttachment(
+        threadId,
+        att.artifactId,
+        turnIndex,
+        typeof att.turnId === 'string' ? att.turnId : null
+      );
+    }
+  }
+
   // Threads / folders: patch existing rows, create missing ones.
   for (const incoming of delta.threads) {
     if (threadRegistry.getThread(incoming.id)) threadRegistry.patch(incoming.id, incoming);

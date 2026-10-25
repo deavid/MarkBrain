@@ -289,10 +289,12 @@ export async function runJob(jobId: string): Promise<void> {
 
     for await (const chunk of stream) {
       if (abortController.signal.aborted) break;
+      // Usage often rides the FINAL chunk (no text, just the bill). Capture
+      // it BEFORE the empty-text skip or the honest token count is lost.
+      if (chunk.usageMetadata) usage = chunk.usageMetadata;
       const text = chunk.text || '';
       if (!text) continue;
       if (timeToFirstChunkMs === null) timeToFirstChunkMs = Date.now() - jobStart;
-      if (chunk.usageMetadata) usage = chunk.usageMetadata;
       raw += text;
       const demuxed = domain.demuxFullTurn(raw);
       // Live partial = prose without sentinel blocks; buffers ride alongside.
@@ -475,12 +477,33 @@ export function stopJob(jobId: string): boolean {
   return true;
 }
 
-export function retryJob(jobId: string): boolean {
+export function retryJob(
+  jobId: string,
+  overrides?: { model?: string; compiledPrompt?: string; systemInstruction?: string }
+): boolean {
   const job = getJobRow(jobId);
   if (!job || (job.state !== 'failed' && job.state !== 'stopped')) return false;
   // FIFO integrity (21E §2.2): only the thread's HEAD may be retried — a
   // retry that would land BEHIND a live/dead head just stacks duplicate work.
   if (threadHeadJobId(job.thread_id, job.project_id, job.user_id) !== jobId) return false;
+  // Design 23 §2.5 (live 2026-10-25): the user may have CHANGED the model (or
+  // the staged payload) before retrying. The retry is the user's next attempt
+  // — it must carry the CURRENT selection and a freshly compiled prompt, not
+  // silently re-run the exact request that already failed.
+  const model = overrides?.model?.trim();
+  const compiledPrompt = overrides?.compiledPrompt;
+  const systemInstruction = overrides?.systemInstruction;
+  if (model || compiledPrompt !== undefined || systemInstruction !== undefined) {
+    getDb()
+      .prepare(
+        `UPDATE chat_jobs SET
+          model = COALESCE(?, model),
+          compiled_prompt = COALESCE(?, compiled_prompt),
+          system_instruction = COALESCE(?, system_instruction),
+          updated_at = ? WHERE job_id = ?`
+      )
+      .run(model ?? null, compiledPrompt ?? null, systemInstruction ?? null, Date.now(), jobId);
+  }
   getDb()
     .prepare(
       `UPDATE chat_jobs SET state = 'queued', partial_text = '', error_reason = NULL,

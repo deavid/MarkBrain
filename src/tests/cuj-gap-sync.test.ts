@@ -159,6 +159,7 @@ function makeStubs(seed: {
     deletedFolders: [] as string[],
     createdThreads: [] as unknown[],
     mergedInactiveChapters: [] as Array<{ threadId: string; chapters: Array<Record<string, unknown>> }>,
+    committedAttachments: [] as Array<{ threadId: string; artifactId: string; turnIndex: number | null; turnId: string | null }>,
     patchedThreads: [] as Array<{ id: string; patch: unknown }>,
     createdFolders: [] as string[],
   };
@@ -216,6 +217,15 @@ function makeStubs(seed: {
       getFolders: () => state.folders,
       mergeInactiveChapters: (threadId: string, chapters: Array<Record<string, unknown>>) => {
         state.mergedInactiveChapters.push({ threadId, chapters });
+      },
+      commitAttachment: (
+        threadId: string,
+        artifactId: string,
+        turnIndex: number | null,
+        turnId: string | null
+      ) => {
+        state.committedAttachments.push({ threadId, artifactId, turnIndex, turnId });
+        return true;
       },
       createFolder: (name: string) => {
         state.createdFolders.push(name);
@@ -361,6 +371,56 @@ describe('G6 — useVpsDeltaSync mergeDeltaIntoDomains', () => {
     expect(state.turns[2].content).toBe('early');
     expect(state.turns[3].content).toBe('c');
     expect(state.turns.some((t) => t.id === 't-other')).toBe(false);
+  });
+
+  it('server attachment provenance commits registry staged entries (tray empties, chips render)', () => {
+    // Live 2026-10-25: the pair commits SERVER-side; the registry's staged
+    // entries stayed `null` forever → the staged tray never emptied and the
+    // chips never rendered ("attachments didn't get removed when sent to the
+    // draft bin").
+    const { state, deps } = makeStubs({ activeThreadId: 'thread-active' });
+    mergeDeltaIntoDomains(
+      makeDelta({
+        revision: 11,
+        turns: [
+          {
+            id: 't-user-9',
+            threadId: 'thread-active',
+            role: 'user',
+            content: 'the ask',
+            timestamp: 1,
+            meta: { attachments: [{ artifactId: 'art-1', turnIndex: 4, turnId: 't-user-9' }] },
+          },
+          // Foreign thread: provenance routes by the turn's OWN threadId.
+          {
+            id: 't-f-1',
+            threadId: 'thread-other',
+            role: 'user',
+            content: 'other lane',
+            timestamp: 2,
+            meta: { attachments: [{ artifactId: 'art-2', turnIndex: 0, turnId: 't-f-1' }] },
+          },
+          // Junk rows must be ignored, not crash the merge.
+          {
+            id: 't-junk',
+            threadId: 'thread-active',
+            role: 'user',
+            content: 'junk',
+            timestamp: 3,
+            meta: { attachments: [{ artifactId: '', turnIndex: 1 }, {}, 'nonsense'] },
+          },
+        ] as never,
+      }),
+      deps
+    );
+    const byArt = (id: string) => state.committedAttachments.filter((c) => c.artifactId === id);
+    expect(byArt('art-1')).toEqual([
+      { threadId: 'thread-active', artifactId: 'art-1', turnIndex: 4, turnId: 't-user-9' },
+    ]);
+    expect(byArt('art-2')).toEqual([
+      { threadId: 'thread-other', artifactId: 'art-2', turnIndex: 0, turnId: 't-f-1' },
+    ]);
+    expect(state.committedAttachments.length).toBe(2); // junk ignored
   });
 
   it('threads patch when known and create when new; unknown folders are created', () => {

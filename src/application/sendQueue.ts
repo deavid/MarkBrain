@@ -824,7 +824,19 @@ export class SendQueue {
       }
       if (known.state === 'failed' || known.state === 'stopped') {
         // Only reachable via an explicit user Retry (failed heads never auto-kick).
-        const retryRes = await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
+        // Design 23 §2.5 (live 2026-10-25): the retry carries the CURRENT
+        // selection — the user may have changed the model after the failure,
+        // and the recompiled prompt reflects the draft's payload. Re-running
+        // the frozen failed request verbatim would just fail the same way.
+        const retryRes = await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/retry`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: ctx.model.id,
+            compiledPrompt: compiled.compiledPrompt,
+            systemInstruction: compiled.systemInstruction,
+          }),
+        });
         if (!retryRes.ok) throw new Error(`Retry failed (HTTP ${retryRes.status})`);
       }
     } else {

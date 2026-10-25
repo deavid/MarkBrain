@@ -131,6 +131,27 @@ describe('attachment timeline (staged → committed)', () => {
     expect(committed.every((x) => x.turnIndex === 3 && x.turnId === 'turn-3')).toBe(true);
   });
 
+  it('commitAttachment welds ONE staged entry (VPS delta mirror); committed entries are untouched', () => {
+    const { registry, a } = registryWithTwoChats();
+    registry.stageArtifact(a, 'art-1');
+    registry.attachArtifact(a, 'art-2', 'full', 0, 'turn-0'); // already committed
+
+    expect(registry.commitAttachment(a, 'art-1', 5, 'turn-5')).toBe(true);
+    expect(registry.getStagedAttachments(a)).toHaveLength(0);
+    const att1 = registry.getAttachments(a).find((x) => x.artifactId === 'art-1')!;
+    expect(att1.turnIndex).toBe(5);
+    expect(att1.turnId).toBe('turn-5');
+    // The committed neighbor keeps its own provenance.
+    const att2 = registry.getAttachments(a).find((x) => x.artifactId === 'art-2')!;
+    expect(att2.turnIndex).toBe(0);
+    expect(att2.turnId).toBe('turn-0');
+
+    // Unknown artifact / unknown thread / already-committed → no-op.
+    expect(registry.commitAttachment(a, 'art-ghost', 6, 'turn-6')).toBe(false);
+    expect(registry.commitAttachment(a, 'art-2', 6, 'turn-6')).toBe(false);
+    expect(registry.commitAttachment('thread-nope', 'art-1', 6, 'turn-6')).toBe(false);
+  });
+
   it('unstage on a committed attachment is a no-op — history has no delete key', () => {
     const { registry, a } = registryWithTwoChats();
     registry.attachArtifact(a, 'art-1', 'full', 0, 'turn-0');

@@ -27,17 +27,21 @@ process.env.MARKBRAIN_OWNER_PASSWORD = 'owner-pass-123456';
 
 type Behavior = 'ok' | 'fail-500' | 'ok-with-sentinels';
 
-const behavior: { current: Behavior; failFirst: number; calls: number } = {
+const behavior: { current: Behavior; failFirst: number; calls: number; models: string[]; prompts: string[] } = {
   current: 'ok',
   failFirst: 0,
   calls: 0,
+  models: [],
+  prompts: [],
 };
 
 vi.mock('@google/genai', () => {
   class MockGoogleGenAI {
     models = {
-      async *generateContentStream() {
+      async *generateContentStream(params?: { model?: string; contents?: string }) {
         behavior.calls += 1;
+        behavior.models.push(String(params?.model ?? ''));
+        behavior.prompts.push(String(params?.contents ?? ''));
         if (behavior.current === 'fail-500' || behavior.calls <= behavior.failFirst) {
           const err = new Error('Provider error: 500 Internal Server Error') as Error & { status?: number };
           err.status = 500;
@@ -314,6 +318,36 @@ describe('G2 — job exits (retry / discard)', () => {
     expect(ai).toBeTruthy();
     expect(ai!.content).toBe('Hello from the mocked model reply.');
     behavior.failFirst = 0;
+  });
+
+  it('retry with overrides uses the CURRENT model + fresh prompt (live 2026-10-25: a retry after a model change re-ran the failed nvidia request)', async () => {
+    const threadId = 'thread-g2-retry-override';
+    seedThread(threadId);
+    behavior.current = 'fail-500';
+    behavior.calls = 0;
+    behavior.models = [];
+    behavior.prompts = [];
+
+    const jobId = await enqueueSend(threadId, 'fail then change model and retry');
+    await waitFor(() => (jobState(jobId) === 'failed' ? true : null));
+    expect(behavior.models).toEqual(['gemini-3.5-flash-lite']);
+
+    // The user changed the model and hit Retry: the client recompiles and
+    // sends overrides. The retry must run the NEW model + NEW prompt.
+    behavior.current = 'ok';
+    const retry = await api(`/api/jobs/${jobId}/retry`, {
+      method: 'POST',
+      body: { model: 'gemini-3.8-flash', compiledPrompt: 'compiled:FRESH prompt', systemInstruction: 'fresh-sys' },
+    });
+    expect(retry.status).toBe(200);
+    await waitFor(() => (jobState(jobId) === undefined ? true : null));
+
+    expect(behavior.models).toEqual(['gemini-3.5-flash-lite', 'gemini-3.8-flash']);
+    expect(behavior.prompts[1]).toBe('compiled:FRESH prompt');
+    const delta = await api(`/api/projects/${PROJECT_ID}/delta?since=0`);
+    const ai = (delta.body.turns as Array<{ id: string; meta?: any }>).find((t) => t.id === `turn-ai-${jobId}`);
+    expect(ai).toBeTruthy();
+    expect(ai!.meta?.model).toBe('gemini-3.8-flash');
   });
 
   it('DELETE /api/jobs/:id discards: job gone, revision bumped, zero turns written', async () => {

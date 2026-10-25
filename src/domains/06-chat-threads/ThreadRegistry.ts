@@ -214,6 +214,37 @@ export class ThreadRegistry {
     return staged.length;
   }
 
+  /**
+   * Welds ONE attachment to its provenance — the VPS delta mirror of
+   * commitStagedAttachments. When a pair commits SERVER-side, the delta turn
+   * arrives with meta.attachments carrying turnId + turnIndex; the registry's
+   * staged entries must follow (live 2026-10-25: they stayed `null`, so the
+   * staged tray never emptied and the chips never rendered on the turn).
+   * Unknown artifact ids are ignored (purged elsewhere), non-staged entries
+   * keep their granularity.
+   */
+  commitAttachment(
+    threadId: string,
+    artifactId: string,
+    turnIndex: number | null,
+    turnId: string | null = null
+  ): boolean {
+    const idx = this.threads.findIndex((t) => t.id === threadId);
+    if (idx === -1 || !artifactId) return false;
+    const thread = this.threads[idx];
+    const att = thread.attachments.find((a) => a.artifactId === artifactId);
+    if (!att || !isAttachmentStaged(att)) return false;
+    this.threads[idx] = {
+      ...thread,
+      attachments: thread.attachments.map((a) =>
+        a.artifactId === artifactId ? { ...a, turnIndex, turnId } : a
+      ),
+      updatedAt: Date.now(),
+    };
+    this.emit();
+    return true;
+  }
+
   setAttachmentGranularity(
     threadId: string,
     artifactId: string,

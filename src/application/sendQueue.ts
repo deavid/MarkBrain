@@ -478,50 +478,68 @@ export class SendQueue {
       }));
 
       const isInterrupted = controller.signal.aborted;
+      const prose = result.cleanReply || streamedContent;
+      // A "completed" stream with no prose and no artifacts is a failed
+      // request, not a reply. The stream layer throws first; this is the
+      // second brace — it must never be written as something the model said.
+      const failedEmpty = !prose && !isInterrupted && extractedList.length === 0;
+
       const estPrompt =
         result.telemetry?.inputTokens ??
         Math.max(1, estimateTokens(compiled.compiledPrompt || ''));
       const estCand =
         result.telemetry?.outputTokens ??
-        Math.max(1, estimateTokens(result.cleanReply || streamedContent || ''));
+        Math.max(1, estimateTokens(prose || ''));
       const totalTok = result.telemetry?.totalTokens ?? (estPrompt + estCand);
 
-      this.updateTurnInThread(deps, threadId, assistantTurnId, {
-        content:
-          result.cleanReply ||
-          streamedContent ||
-          (isInterrupted
-            ? ''
-            : extractedList.length > 0
-              ? `Extracted ${extractedList.length} note${extractedList.length === 1 ? '' : 's'} — no prose reply came back.`
-              : 'No reply came back. Try again.'),
-        extractedArtifacts: extractedList,
-        meta: {
+      if (failedEmpty) {
+        logger.error('App', 'Stream completed with no reply — recording as failed turn', {
+          threadId,
           model: result.telemetry?.model || ctx.model.name,
-          inputTokens: estPrompt,
-          outputTokens: estCand,
-          totalTokens: totalTok,
-          latencyMs: result.telemetry?.latencyMs,
-          timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
-          isFallback: result.telemetry?.isFallback ?? true,
-          // Honest downgrade trail — the UI banner reads this (design-docs/16 §2).
-          downgradedFrom: result.telemetry?.downgradedFrom,
-          isStreaming: false,
-          streamState: isInterrupted ? 'interrupted' : 'completed',
-        },
+        });
+      }
+      this.updateTurnInThread(deps, threadId, assistantTurnId, {
+        content: failedEmpty
+          ? 'The request failed — no reply came back.'
+          : prose ||
+            (isInterrupted
+              ? ''
+              : `Extracted ${extractedList.length} note${extractedList.length === 1 ? '' : 's'} — no prose reply came back.`),
+        extractedArtifacts: extractedList,
+        meta: failedEmpty
+          ? {
+              model: result.telemetry?.model || ctx.model.name,
+              isStreaming: false,
+              streamState: 'error' as const,
+            }
+          : {
+              model: result.telemetry?.model || ctx.model.name,
+              inputTokens: estPrompt,
+              outputTokens: estCand,
+              totalTokens: totalTok,
+              latencyMs: result.telemetry?.latencyMs,
+              timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
+              isFallback: result.telemetry?.isFallback ?? true,
+              // Honest downgrade trail — the UI banner reads this (design-docs/16 §2).
+              downgradedFrom: result.telemetry?.downgradedFrom,
+              isStreaming: false,
+              streamState: isInterrupted ? 'interrupted' : 'completed',
+            },
       });
       deps.threadRegistry.patch(threadId, {
-        lastOutcome: isInterrupted ? 'interrupted' : 'ok',
+        lastOutcome: failedEmpty ? 'error' : isInterrupted ? 'interrupted' : 'ok',
         lastActivityAt: Date.now(),
       });
       deps.triggerReRender();
-      logger.info('App', `Turn completed${isInterrupted ? ' (interrupted)' : ''}`, {
-        threadId,
-        model: result.telemetry?.model || ctx.model.name,
-        totalTokens: totalTok,
-        artifacts: extractedList.length,
-        topicShifts: result.topicShift ? 1 : 0,
-      });
+      if (!failedEmpty) {
+        logger.info('App', `Turn completed${isInterrupted ? ' (interrupted)' : ''}`, {
+          threadId,
+          model: result.telemetry?.model || ctx.model.name,
+          totalTokens: totalTok,
+          artifacts: extractedList.length,
+          topicShifts: result.topicShift ? 1 : 0,
+        });
+      }
       if (!isInterrupted) this.maybeRetitle(chain, threadId);
     } catch (err: any) {
       if (err.name === 'AbortError' || controller.signal.aborted) {
@@ -550,8 +568,14 @@ export class SendQueue {
         });
       } else {
         logger.error('App', 'Streaming turn failed', err);
+        // Show the real reason ("Gemini: API key not valid…", "HTTP 500: …")
+        // when we have one — the user can act on it. Never invent a reply.
+        const reason =
+          typeof err?.message === 'string' && err.message.trim()
+            ? err.message.trim().slice(0, 400)
+            : 'The request failed — no reply came back.';
         this.updateTurnInThread(deps, threadId, assistantTurnId, {
-          content: streamedContent || 'Error communicating with reasoning engine. Please try again.',
+          content: streamedContent || reason,
           meta: {
             model: ctx.model.name,
             isStreaming: false,

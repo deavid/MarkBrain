@@ -248,6 +248,10 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
     let accumulatedRaw = '';
     let accumulatedClean = '';
     let finalResult: StreamTurnResult | null = null;
+    // A provider failure rides inside an HTTP-200 SSE as status{state:'error'}
+    // (the adapter wraps its own fetch) or as an 'error' event. Collecting it
+    // here is what stops a rejected request from becoming an empty "success".
+    let streamError: string | null = null;
 
     try {
       const response = await chatStream(payload, { signal: callbacks.signal });
@@ -280,9 +284,18 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
         const eventName = eventMatch ? eventMatch[1].trim() : 'message';
         const rawData = dataMatch ? dataMatch[1].trim() : '';
 
+        let data: any = {};
         try {
-          const data = rawData ? JSON.parse(rawData) : {};
+          data = rawData ? JSON.parse(rawData) : {};
+        } catch (err) {
+          logger.warn('Stream', 'Unparseable SSE frame — skipped', err);
+          continue;
+        }
+        {
           if (eventName === 'status') {
+            if (data?.state === 'error') {
+              streamError = streamError || data.message || 'The provider rejected the request.';
+            }
             callbacks.onStatus?.(data);
             this.handlers.onStatusChanged?.forEach((fn) => fn(data));
           } else if (eventName === 'chunk') {
@@ -312,16 +325,25 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
             }
             finalResult.artifacts.forEach((art) => callbacks.onArtifact?.(art));
           } else if (eventName === 'error') {
-            throw new Error(data.error || 'Stream error from server');
+            streamError = streamError || data.error || 'Stream error from server';
           }
-        } catch (err) {
-          logger.warn('Stream', 'Error processing SSE chunk — stream continues', err);
         }
       }
     }
 
+    if (streamError) {
+      throw new Error(streamError);
+    }
+
     if (finalResult) {
       return finalResult;
+    }
+
+    if (!accumulatedRaw.trim()) {
+      // No complete event, no text, no error: the stream died quietly.
+      // Returning an empty "success" here is how a failed request once
+      // rendered in chat as a model reply of "No reply came back."
+      throw new Error('The stream ended without a reply.');
     }
 
     const demuxed = this.demuxFullTurn(accumulatedRaw);

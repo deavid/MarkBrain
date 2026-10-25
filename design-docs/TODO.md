@@ -11,6 +11,29 @@
 
 ---
 
+## Done — 2026-10-25: a failed request can no longer impersonate the model (`dev-vega`)
+
+David, verbatim: *"We called Gemini 3.5 Flash Lite SUCCESSFULLED and it replied
+'No reply came back. Try again.' … This UX says that the LLM replied [that]."* A
+wrong BYOK key (401) was swallowed by the adapter into `status{state:'error'}`
+inside an HTTP-200 SSE; the stream layer found no `complete` event and returned
+an empty **success**; the queue wrote the ghost reply with model name + token
+counts.
+
+- **Three braces:** `executeStreamingTurn` now collects `status{error}` and
+  `error` events and **throws** (the old frame-catch swallowed error events
+  too), and an empty end-of-stream throws *"ended without a reply"*;
+  `sendQueue` records `failedEmpty` as `streamState:'error'` + `lastOutcome:'error'`
+  with no token accounting, and the catch path shows the **real reason**
+  (`Gemini: API key not valid…`) instead of *"Error communicating with
+  reasoning engine"*; ChatView renders a red **REQUEST FAILED** chip and hides
+  token/latency numbers on failed turns.
+- Ghost copy *"No reply came back. Try again."* deleted — pinned by
+  `src/tests/stream-failure-propagation.test.ts` (9 tests, incl. source-level
+  copy bans).
+
+---
+
 ## Done — 2026-10-22: notes are sent as filenames, not as ids (`dev-vega`)
 
 David: *"we are sending the IDs to the LLM in chat which incorrectly is taking

@@ -1090,6 +1090,37 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     const isTtsLoading = ttsLoadingId === message.id;
                     const isRaw = isMessageRaw(message.id);
                     const isCopied = copiedMessageId === message.id;
+                    const isFailed = !isUser && message.meta?.streamState === 'error';
+
+                    // A failed request is NOT a reply: different widget on
+                    // purpose. No "MarkBrain" name, no message bubble, no
+                    // reply actions — a red-bordered error card, so nobody
+                    // can read it as something the model said.
+                    if (isFailed) {
+                      return (
+                        <div
+                          key={message.id}
+                          className="flex flex-col group items-start"
+                          data-testid="turn-error"
+                        >
+                          <div className="max-w-[92%] sm:max-w-[85%] w-full rounded-xl border border-brand bg-red-500/[0.07] p-3 sm:p-4">
+                            <div className="flex items-center gap-2 text-[11px] font-mono text-red-300 uppercase tracking-wider font-semibold">
+                              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                              <span>Request failed</span>
+                              <span className="text-[#627794] font-normal normal-case tracking-normal">
+                                • {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-xs sm:text-sm text-red-100/90 leading-relaxed whitespace-pre-wrap">
+                              {message.content}
+                            </p>
+                            <div className="mt-2 text-[10px] font-mono text-[#869ab8]">
+                              {message.meta?.model ? `Attempted with ${message.meta.model}` : ''}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
 
                     return (
                       <div
@@ -1295,25 +1326,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             <div className="mt-2.5 pt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-[#637894]">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="text-[#38bdf8] font-semibold">{message.meta.model || '—'}</span>
-                                <span>•</span>
-                                <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.inputTokens ?? 0} in</span>
-                                <span>•</span>
-                                <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.outputTokens ?? 0} out</span>
-                                <span>•</span>
-                                <span className="text-[#a4bddf] font-semibold tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.totalTokens ?? 0} total tok</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {message.meta.timeToFirstChunkMs != null && (
-                                  <span className="text-[#556985] tabular-nums">
-                                    first chunk {(message.meta.timeToFirstChunkMs / 1000).toFixed(2)}s
-                                  </span>
-                                )}
-                                {message.meta.latencyMs != null && (
-                                  <span className="text-[#556985] tabular-nums">
-                                    {(message.meta.latencyMs / 1000).toFixed(2)}s
-                                  </span>
+                                {message.meta.streamState !== 'error' && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.inputTokens ?? 0} in</span>
+                                    <span>•</span>
+                                    <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.outputTokens ?? 0} out</span>
+                                    <span>•</span>
+                                    <span className="text-[#a4bddf] font-semibold tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.totalTokens ?? 0} total tok</span>
+                                  </>
                                 )}
                               </div>
+                              {message.meta.streamState !== 'error' && (
+                                <div className="flex items-center gap-2">
+                                  {message.meta.timeToFirstChunkMs != null && (
+                                    <span className="text-[#556985] tabular-nums">
+                                      first chunk {(message.meta.timeToFirstChunkMs / 1000).toFixed(2)}s
+                                    </span>
+                                  )}
+                                  {message.meta.latencyMs != null && (
+                                    <span className="text-[#556985] tabular-nums">
+                                      {(message.meta.latencyMs / 1000).toFixed(2)}s
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -1330,6 +1367,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               <span className="font-semibold tracking-wider uppercase text-[10px]">Response Interrupted</span>
                             </div>
                           )}
+
 
                           {message.meta?.downgradedFrom && (
                             <div

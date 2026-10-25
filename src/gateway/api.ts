@@ -12,13 +12,12 @@
  * static shell (Phase 2) makes it unnecessary. Both paths answer the same
  * Response vocabulary; call sites cannot tell which happened.
  */
-import { resolveLaneKey, listFilledKeySlots } from '../data/keySlots';
+import { resolveLaneKey } from '../data/keySlots';
 import {
   directChatStream,
   directEmbed,
   directExtractArtifact,
   directGenerateQa,
-  directListModels,
   directSummarizeChapter,
   directTitleThread,
   directTts,
@@ -300,43 +299,3 @@ export function models(): Promise<ModelsResponse> {
   return fetch('/api/models').then((res) => res.json());
 }
 
-/**
- * Live provider catalogs for every filled key slot (design-docs/16 Phase 1).
- * Merges all of them; entries the server catalog already knows keep their rich
- * display metadata (badge/quota), new ids ride through with minimal metadata.
- * Never rejects — an empty list means "keep whatever catalog you had".
- */
-export async function liveCatalogs(): Promise<CatalogModel[]> {
-  const out: CatalogModel[] = [];
-  const seen = new Set<string>();
-  for (const slot of listFilledKeySlots()) {
-    // Any lane model on that provider resolves the same credential.
-    const resolved = resolveLaneKey('chat', slot === 'openrouter' ? 'openrouter/auto' : 'gemini-3.5-flash-lite');
-    if (!resolved) continue;
-    try {
-      const res = await directListModels(resolved);
-      if (!res.ok) continue;
-      const body = await res.json();
-      for (const m of body?.models ?? []) {
-        const key = `${m.provider}/${m.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({
-          id: m.id,
-          provider: m.provider,
-          available: true,
-          name: m.name || m.id,
-          badge: m.provider === 'openrouter' ? 'OR' : 'Gemini',
-          powerRating: 3,
-          latency: '—',
-          contextWindow: '—',
-          description: m.description || '',
-          costMultiplier: 1,
-        });
-      }
-    } catch {
-      /* one provider failing must not kill the catalog */
-    }
-  }
-  return out;
-}

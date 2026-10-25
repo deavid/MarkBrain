@@ -252,8 +252,3 @@ export function directTts(
   });
 }
 
-/* ----------------------------------------------------------------- catalog */
-
-export function directListModels(key: ResolvedKey): Promise<Response> {
-  return adapterFor(key).listModels(key.apiKey);
-}

@@ -10,7 +10,6 @@
  * differ only in which `apiKey` arrives in the params.
  */
 import type {
-  CatalogEntry,
   EmbedParams,
   GenerateParams,
   ProviderAdapter,
@@ -238,26 +237,4 @@ export const geminiAdapter: ProviderAdapter = {
     }
   },
 
-  async listModels(apiKey: string): Promise<Response> {
-    try {
-      const res = await fetch(`${BASE}/models?pageSize=200`, { headers: headers(apiKey) });
-      if (!res.ok) return toError(res);
-      const payload = await res.json();
-      const models: CatalogEntry[] = (payload?.models ?? [])
-        .map((m: any): CatalogEntry | null => {
-          const id = String(m?.name || '').replace(/^models\//, '');
-          if (!id) return null;
-          return {
-            id,
-            name: id,
-            description: m?.description,
-            provider: 'gemini',
-          };
-        })
-        .filter((m: CatalogEntry | null): m is CatalogEntry => m !== null);
-      return jsonResponse({ models });
-    } catch (err: unknown) {
-      return errorResponse(`Gemini: ${err instanceof Error ? err.message : 'network error'}`);
-    }
-  },
 };

@@ -38,13 +38,6 @@ export interface TtsParams {
   voice: string;
 }
 
-export interface CatalogEntry {
-  id: string;
-  name: string;
-  description?: string;
-  provider: string;
-}
-
 export interface ProviderAdapter {
   id: 'gemini' | 'openrouter';
   /** Blocking text generation. Body: `{ text, usage? }`. */
@@ -55,8 +48,6 @@ export interface ProviderAdapter {
   embed(params: EmbedParams): Promise<Response>;
   /** Body: `{ audioData, mimeType, cleanSpokenText }` or `{ fallback: true, … }`. */
   tts(params: TtsParams): Promise<Response>;
-  /** Body: `{ models: CatalogEntry[] }`. */
-  listModels(apiKey: string): Promise<Response>;
 }
 
 /** JSON envelope helper — adapters answer with Response so call sites never branch. */

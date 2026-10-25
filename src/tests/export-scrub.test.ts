@@ -143,7 +143,7 @@ describe('exports never contain key material', () => {
     });
     const parsed = parseDatabaseExport(json);
     expectNoSecrets(JSON.stringify(parsed), 'parseDatabaseExport');
-    // The key STORAGE still exists — scrubbing exports must not nuke the vault.
+    // The key STORAGE still exists — scrubbing exports must not nuke the keys.
     expect(getKeySlot('gemini-free')).toBe(SECRET_FREE);
   });
 });

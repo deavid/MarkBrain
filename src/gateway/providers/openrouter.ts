@@ -9,7 +9,6 @@
  * providers/types.ts for why.
  */
 import type {
-  CatalogEntry,
   EmbedParams,
   GenerateParams,
   ProviderAdapter,
@@ -196,26 +195,4 @@ export const openrouterAdapter: ProviderAdapter = {
     });
   },
 
-  async listModels(apiKey: string): Promise<Response> {
-    try {
-      const res = await fetch(`${BASE}/models`, { headers: headers(apiKey) });
-      if (!res.ok) return toError(res);
-      const payload = await res.json();
-      const models: CatalogEntry[] = (payload?.data ?? [])
-        .map((m: any): CatalogEntry | null => {
-          const id = String(m?.id || '');
-          if (!id) return null;
-          return {
-            id,
-            name: m?.name || id,
-            description: m?.description,
-            provider: 'openrouter',
-          };
-        })
-        .filter((m: CatalogEntry | null): m is CatalogEntry => m !== null);
-      return jsonResponse({ models });
-    } catch (err: unknown) {
-      return errorResponse(`OpenRouter: ${err instanceof Error ? err.message : 'network error'}`);
-    }
-  },
 };

@@ -12,7 +12,7 @@
  * reads the mailbox blob learns nothing without the QR. Pairing codes are
  * single-use and expire; a replay at best re-delivers ciphertext.
  *
- * WebCrypto only, same rule as keyVault — no hand-rolled crypto.
+ * WebCrypto only — no hand-rolled crypto.
  */
 
 export interface PairingSecret {

@@ -58,6 +58,51 @@ export function textSimilarity(a: string, b: string): number {
   return (2 * shared) / (A.size + B.size);
 }
 
+/** Levenshtein distance over the normalized text (small strings only — the
+ *  inputs here are queries, not documents). */
+export function editDistance(a: string, b: string): number {
+  const s = normalize(a);
+  const t = normalize(b);
+  if (s === t) return 0;
+  const m = s.length;
+  const n = t.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (s[i - 1] === t[j - 1] ? 0 : 1)
+      );
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+/**
+ * The same query, typed differently.
+ *
+ * Two shapes qualify, because one threshold cannot cover both:
+ *  - ONE character of difference is always the same query (a typo, a letter
+ *    you added, a stray dot). This is the case a percentage misses on short
+ *    queries: 1 char in 12 is an 8% change — Dice ~0.8, which is exactly why
+ *    short queries kept re-embedding.
+ *  - OR ≥95% similar (trigram Dice): catches whitespace/casing noise and the
+ *    odd stray word on longer queries.
+ */
+export function isNearDuplicate(a: string, b: string): boolean {
+  const na = normalize(a);
+  const nb = normalize(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (editDistance(na, nb) <= 1) return true;
+  return textSimilarity(a, b) >= NEAR_MATCH_THRESHOLD;
+}
+
 export interface QueryCacheHit {
   vectors: Float32Array[];
   /** 'exact' = same text. 'near' = close enough to reuse on purpose. */
@@ -102,8 +147,9 @@ export class QueryVectorCache {
 
     let best: { entry: QueryCacheEntry; score: number } | null = null;
     for (const e of this.entries) {
+      if (!isNearDuplicate(text, e.text)) continue;
       const score = textSimilarity(text, e.text);
-      if (score >= this.threshold && (!best || score > best.score)) best = { entry: e, score };
+      if (!best || score > best.score) best = { entry: e, score };
     }
     if (best) {
       best.entry.reuses += 1;

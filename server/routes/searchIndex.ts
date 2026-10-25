@@ -11,7 +11,7 @@ import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import type { GeneratedQaPair } from '../../src/services/searchIndexStore';
-import { resolveModelId } from '../lib/models';
+import { tryRequireModelId } from '../lib/models';
 
 /** gemini-embedding-001 accepts 2,048 input tokens; 6,000 chars ≈ 1,600. */
 const EMBED_TEXT_CHAR_CAP = 6000;
@@ -204,12 +204,11 @@ function fallbackEmbedding(text: string): number[] {
 
 export function registerSearchIndexRoutes(app: Express): void {
   app.post('/api/search-index/generate-qa', async (req: Request, res: Response) => {
-    // Outside the try on purpose: the quota error below names the model, and a
-    // binding declared inside try is invisible to catch.
-    const { id: qaModel, fellBackFrom: qaFellBack } = resolveModelId(req.body?.model, 'qaGen');
-    if (qaFellBack) {
-      logServer('warn', 'API:SEARCH_QA', `Requested model "${qaFellBack}" rejected for lane=qaGen — using ${qaModel}`);
-    }
+    // Resolved before the main try so its catch can name the model — but a
+    // bad model is a 400 payload here, never a throw that kills the process.
+    const qaResolved = tryRequireModelId(req.body?.model, 'qaGen');
+    if ('error' in qaResolved) return res.status(400).json({ error: qaResolved.error });
+    const qaModel = qaResolved.id;
     try {
       const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
       const subtitle =
@@ -278,11 +277,10 @@ export function registerSearchIndexRoutes(app: Express): void {
   });
 
   app.post('/api/search-index/embed', async (req: Request, res: Response) => {
-    // Outside the try on purpose: the quota error below names the model.
-    const { id: embedModel, fellBackFrom: embedFellBack } = resolveModelId(req.body?.model, 'embed');
-    if (embedFellBack) {
-      logServer('warn', 'API:SEARCH_EMBED', `Requested model "${embedFellBack}" rejected for lane=embed — using ${embedModel}`);
-    }
+    // Same contract as generate-qa: 400 payload, never a process-killing throw.
+    const embedResolved = tryRequireModelId(req.body?.model, 'embed');
+    if ('error' in embedResolved) return res.status(400).json({ error: embedResolved.error });
+    const embedModel = embedResolved.id;
     try {
       // Annotate as string[]: the ternary collapses to `any` (`any | never[]`),
       // which leaves `.map((t) => …)` below with no contextual type — TS7006.

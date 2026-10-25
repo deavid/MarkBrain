@@ -3,7 +3,7 @@ import { ai, streamFromModel } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import { estimateTokens } from '../lib/tokens';
 import { DEFAULT_SYSTEM_INSTRUCTION, buildCompiledPrompt } from '../lib/prompt';
-import { DEFAULT_MODEL_ID, resolveModelId } from '../lib/models';
+import { DEFAULT_MODEL_ID, requireModelId } from '../lib/models';
 
 export function registerChatRoutes(app: Express): void {
 app.post('/api/chat/cancel', (req: Request, res: Response) => {
@@ -49,19 +49,10 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     const systemInstruction = clientSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
     const compiledPrompt = buildCompiledPrompt(req.body);
 
-    // Allowlist derives from the server-owned catalog so the two cannot diverge.
-    // Unknown model → lane default, and the user is TOLD (never a quiet swap).
-    const resolution = resolveModelId(model, 'chat');
-    const targetModel = resolution.id;
-    if (resolution.fellBackFrom) {
-      sendSSE('status', {
-        state: 'connecting',
-        message: `Requested model "${resolution.fellBackFrom}" is not available — using ${targetModel} instead.`,
-        timestamp: Date.now(),
-        model: targetModel,
-        downgradedFrom: resolution.fellBackFrom,
-      });
-    }
+    // Model errors are FINAL (David 2026-10-25): no substitution, no watchdog
+    // swap. An unknown model or a provider failure is the real error — the
+    // client's draft shows it as-is.
+    const targetModel = requireModelId(model, 'chat');
 
     logServer('info', 'STREAM:INIT', `#${reqId} Initiating stream for project="${projectTitle}", model=${targetModel}, promptChars=${compiledPrompt.length}`);
 
@@ -80,37 +71,10 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
         model: targetModel,
       });
 
-      let responseStream: any = null;
-      let usedModel = targetModel;
-      let downgradedFrom: string | null = null;
-
-      // Watchdog: a non-default model gets 9s to produce its first chunk. When
-      // it doesn't, the reply is written by the lane default — and the user is
-      // TOLD, in plain words and with `downgradedFrom` for the UI banner. The
-      // old message ("Optimizing latency: routed to…") dressed a downgrade up
-      // as a feature; that was a lie (design-docs/16 §2).
-      if (targetModel !== DEFAULT_MODEL_ID) {
-        try {
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('FIRST_CHUNK_TIMEOUT_9S')), 9000)
-          );
-          responseStream = await Promise.race([streamFromModel(targetModel, compiledPrompt, systemInstruction, reqId), timeoutPromise]);
-        } catch (streamErr: any) {
-          logServer('warn', 'STREAM:WATCHDOG', `#${reqId} Upstream model ${targetModel} delayed (${streamErr?.message || 'timeout'}). Downgrading to ${DEFAULT_MODEL_ID}.`);
-          sendSSE('status', {
-            state: 'thinking',
-            message: `Model ${targetModel} did not respond in 9s — this reply is from ${DEFAULT_MODEL_ID} instead.`,
-            timestamp: Date.now(),
-            model: DEFAULT_MODEL_ID,
-            downgradedFrom: targetModel,
-          });
-          usedModel = DEFAULT_MODEL_ID;
-          downgradedFrom = targetModel;
-          responseStream = await streamFromModel(DEFAULT_MODEL_ID, compiledPrompt, systemInstruction, reqId);
-        }
-      } else {
-        responseStream = await streamFromModel(targetModel, compiledPrompt, systemInstruction, reqId);
-      }
+      // The requested model answers, or the request fails with the real
+      // reason. There is no second stream waiting behind a timer.
+      const responseStream = await streamFromModel(targetModel, compiledPrompt, systemInstruction, reqId);
+      const usedModel = targetModel;
 
       let fullText = '';
       let chunkCount = 0;
@@ -203,8 +167,6 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
         latencyMs,
         timeToFirstChunkMs: timeToFirstChunkMs ?? latencyMs,
         isFallback: false,
-        // Honest downgrade trail: which model the user asked for and didn't get.
-        downgradedFrom: downgradedFrom ?? resolution.fellBackFrom ?? undefined,
       };
 
       sendSSE('complete', {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ModelOption } from './types';
 import { FALLBACK_MODEL } from './data/models';
-import { loadModelConfig, saveModelConfig, getModelForSlot } from './data/modelConfig';
+import { loadModelConfig, saveModelConfig, getModelForSlot, resolveChatModelOption } from './data/modelConfig';
 import { Sidebar, ActiveView } from './ui/workspace/Sidebar';
 import { ChatView } from './ui/chat/ChatView';
 import { ChatErrorBoundary } from './ui/workspace/ChatErrorBoundary';
@@ -132,7 +132,6 @@ export default function App() {
   // while it is in flight or if it fails. The sidebar lists CHAT-capable models only
   // (capability lanes live in the Model settings popup — design-docs/16 §3.1).
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([FALLBACK_MODEL]);
-  const [selectedModel, setSelectedModel] = useState<ModelOption>(FALLBACK_MODEL);
 
   useEffect(() => {
     let alive = true;
@@ -143,14 +142,6 @@ export default function App() {
         const chatModels = list.filter((m) => !m.capabilities || m.capabilities.includes('chat'));
         const usable = chatModels.length > 0 ? chatModels : list;
         setAvailableModels(usable);
-        // Chat slot wins over the previous in-flight pick: the settings popup is
-        // the source of truth for which model each lane uses (modelConfig).
-        const slotChat = loadModelConfig().chat;
-        setSelectedModel(
-          usable.find((m) => m.id === slotChat) ?? // configured chat slot
-            usable.find((m) => m.id === data.default) ?? // catalog default
-            usable[0]
-        );
       })
       .catch((e) => logger.warn('App', 'GET /api/models failed — keeping fallback model', e));
     return () => {
@@ -159,10 +150,11 @@ export default function App() {
   }, []);
 
   const handleSelectModel = (m: ModelOption) => {
-    setSelectedModel(m);
-    // Persist to the chat slot so a reload and the settings popup agree.
+    // The chat slot is the ONLY store (modelConfig) — sends and the sidebar
+    // both resolve through resolveChatModelOption on every read.
     saveModelConfig({ ...loadModelConfig(), chat: m.id });
     logger.action('App', `Chat slot model set to ${m.name} (${m.id})`);
+    triggerReRender();
   };
 
   const [activeView, setActiveView] = useState<ActiveView>('chat');
@@ -641,7 +633,7 @@ export default function App() {
     messages: Array<{ role: string; content: string }>,
     version: number
   ): Promise<string | null> =>
-    titleThread({ messages, version })
+    titleThread({ messages, version, model: getModelForSlot('title') })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: any) => data?.title ?? null);
 
@@ -665,7 +657,9 @@ export default function App() {
     postChatCancel,
     confirm: (message: string) => window.confirm(message),
     getContext: () => ({
-      model: selectedModel,
+      // Per-call slot resolution: choosing 3.8 in the popup means the NEXT
+      // request goes to 3.8 — no stale React snapshot (see resolveChatModelOption).
+      model: resolveChatModelOption(availableModels, FALLBACK_MODEL),
       projectId: activeProjectId,
       projectTitle: projectMeta.name,
       tokenCeiling: currentContainer?.tokenCeiling || MAX_CONTEXT_TOKENS,
@@ -739,7 +733,7 @@ export default function App() {
         activeProject={projectMeta}
         artifacts={domainArtifacts}
         onSelectProject={(p) => workspace.setActiveProject(p.id)}
-        selectedModel={selectedModel}
+        selectedModel={resolveChatModelOption(availableModels, FALLBACK_MODEL)}
         onSelectModel={handleSelectModel}
         onOpenModelSettings={() => setIsModelSettingsOpen(true)}
         chosenVoice={chosenVoice}

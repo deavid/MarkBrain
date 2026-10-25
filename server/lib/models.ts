@@ -9,7 +9,7 @@
 //
 // Every entry declares which capability lanes it may serve. An embeddings
 // model must never answer a chat request and vice versa — a typo in the client
-// surfaces as an honest fallback (see resolveModelId), never a quiet swap.
+// surfaces as a hard error (see requireModelId) — errors are final, no swap.
 
 export type ModelProvider = 'gemini';
 
@@ -32,10 +32,7 @@ export interface CatalogModel {
   available: boolean;
   /** Lanes this model may serve. */
   capabilities: ModelCapability[];
-  /**
-   * Quota/latency character shown in the picker. Free-tier reality lives
-   * here, not in a tooltip invented by the UI — see 06_GEMINI_3_8_FLASH_LATENCY.
-   */
+  /** Unused by the UI — we are not the source of truth for provider quotas. */
   quotaNote?: string;
   // Display metadata — mirrors ModelOption in src/types (which is
   // owned by the client; the server copy here is the source of truth).
@@ -55,40 +52,38 @@ const CATALOG_ENTRIES: ReadonlyArray<Omit<CatalogModel, 'available'>> = [
     id: 'gemini-3.5-flash-lite',
     provider: 'gemini',
     capabilities: [...GENERATE_LANES],
-    quotaNote: 'Free tier: high quota, consistently ~1s',
     name: 'Google: Gemini 3.5 Flash Lite',
-    badge: 'Quick',
+    badge: 'Lite',
     powerRating: 2,
-    latency: '~220ms',
-    contextWindow: '1M tokens',
-    description: 'Fast and cheap — quick replies and first drafts.',
+    latency: '—',
+    contextWindow: '—',
+    description: 'High-volume, low-cost extraction, parsing, and quick replies.',
     costMultiplier: 0.4,
-  },
-  {
-    id: 'gemini-3.8-flash-lite',
-    provider: 'gemini',
-    capabilities: [...GENERATE_LANES],
-    quotaNote: 'Free tier: large quota, usually ~1s',
-    name: 'Google: Gemini 3.8 Flash Lite',
-    badge: 'Snappy',
-    powerRating: 3,
-    latency: '~300ms',
-    contextWindow: '1M tokens',
-    description: 'Newer lite tier — a bit more capable than 3.5 for the same speed class.',
-    costMultiplier: 0.5,
   },
   {
     id: 'gemini-3.8-flash',
     provider: 'gemini',
     capabilities: [...GENERATE_LANES],
-    quotaNote: 'Free tier: 20 requests/day · latency swings 1.3s–2min under load',
     name: 'Google: Gemini 3.8 Flash',
-    badge: 'Big brain',
-    powerRating: 5,
-    latency: '1.3s–2min',
-    contextWindow: '1M tokens',
-    description: 'Reasoning power when a reply matters. Free quota is tiny — expect 429s.',
+    badge: 'Flash',
+    powerRating: 4,
+    latency: '—',
+    contextWindow: '—',
+    description: 'Default workhorse — coding, general reasoning, production workflows.',
     costMultiplier: 1.0,
+  },
+  {
+    id: 'gemini-4-argon',
+    provider: 'gemini',
+    capabilities: [...GENERATE_LANES],
+    name: 'Google: Gemini 4 Argon',
+    badge: 'Argon',
+    powerRating: 5,
+    latency: '—',
+    contextWindow: '—',
+    description:
+      'Flagship frontier reasoning and long-horizon tasks. Paid tier only on current keys — a free key will get a real error, not a swap.',
+    costMultiplier: 2.0,
   },
   {
     id: 'gemini-embedding-001',
@@ -97,8 +92,8 @@ const CATALOG_ENTRIES: ReadonlyArray<Omit<CatalogModel, 'available'>> = [
     name: 'Google: Gemini Embedding',
     badge: 'Vectors',
     powerRating: 1,
-    latency: '~120ms',
-    contextWindow: '2,048 tokens',
+    latency: '—',
+    contextWindow: '—',
     description: 'Section/Q&A vectors for the proximity search index.',
     costMultiplier: 0.1,
   },
@@ -109,7 +104,7 @@ const CATALOG_ENTRIES: ReadonlyArray<Omit<CatalogModel, 'available'>> = [
     name: 'Google: Gemini 3.8 Flash Lite TTS',
     badge: 'Voice',
     powerRating: 1,
-    latency: '~400ms',
+    latency: '—',
     contextWindow: '—',
     description: 'Read-aloud voice synthesis.',
     costMultiplier: 0.3,
@@ -154,31 +149,38 @@ export function defaultModelFor(capability: ModelCapability): string {
   return CAPABILITY_DEFAULTS[capability];
 }
 
-export interface ModelResolution {
-  /** The model the request will actually use. */
-  id: string;
-  /** What the client asked for, when that had to be rejected. */
-  fellBackFrom: string | null;
+/**
+ * The model this request will use — or the real reason it cannot run.
+ *
+ * David 2026-10-25: *"I don't want the smart downgrade — I want the actual
+ * error … remove the downgrade and make errors final."* No substitution
+ * exists anymore. "No preference" (missing/empty) gets the lane default; an
+ * unknown id or a wrong-capability model is a HARD error, surfaced as-is.
+ */
+export function requireModelId(
+  requested: unknown,
+  capability: ModelCapability = 'chat'
+): string {
+  const laneDefault = defaultModelFor(capability);
+  if (requested === undefined || requested === null || requested === '') return laneDefault;
+  if (typeof requested === 'string' && listValidModelIds(capability).includes(requested)) {
+    return requested;
+  }
+  throw new Error(`Model "${String(requested)}" is not available for ${capability} on this server.`);
 }
 
 /**
- * Resolve a client-requested model id for one capability lane.
- *
- * Never a quiet swap (design-docs/16 §2): when the request is rejected the
- * caller receives `fellBackFrom` and is expected to TELL THE USER. An unknown
- * id or a wrong-capability model (embedding asked to chat) falls back to the
- * lane default with the evidence attached.
+ * Route-safe variant: an unavailable model is an ERROR PAYLOAD, never a throw
+ * that could escape a handler and kill the process (that happened once — the
+ * whole node process died on a stale gemini-3.8-flash-lite slot).
  */
-export function resolveModelId(
+export function tryRequireModelId(
   requested: unknown,
   capability: ModelCapability = 'chat'
-): ModelResolution {
-  const laneDefault = defaultModelFor(capability);
-  if (typeof requested === 'string' && listValidModelIds(capability).includes(requested)) {
-    return { id: requested, fellBackFrom: null };
+): { id: string } | { error: string } {
+  try {
+    return { id: requireModelId(requested, capability) };
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : 'Model not available.' };
   }
-  return {
-    id: laneDefault,
-    fellBackFrom: typeof requested === 'string' && requested.length > 0 ? requested : null,
-  };
 }

@@ -128,3 +128,27 @@ describe('QueryVectorCache', () => {
     expect(c.get('the flashlight evidence')?.vectors.length).toBe(2);
   });
 });
+
+describe('one character is always the same query (the short-query cliff)', () => {
+  it('a letter added to a SHORT query reuses — the 0.95 Dice cliff must not fire', () => {
+    const q = new QueryVectorCache();
+    const short = 'red torch light';
+    q.set(short, [new Float32Array([1, 0])]);
+    const hit = q.get('red torch lights');
+    expect(hit).not.toBeNull();
+    expect(hit!.match).toBe('near');
+  });
+
+  it('a letter added to a long query still reuses', () => {
+    const q = new QueryVectorCache();
+    const long = 'the flashlight and the evidence for the red torch light in the corridor';
+    q.set(long, [new Float32Array([1, 0])]);
+    expect(q.get(long + 's')).not.toBeNull();
+  });
+
+  it('a genuinely different question still pays', () => {
+    const q = new QueryVectorCache();
+    q.set('red torch light', [new Float32Array([1, 0])]);
+    expect(q.get('how do I migrate the storage provider')).toBeNull();
+  });
+});

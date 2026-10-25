@@ -1355,18 +1355,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
 
 
-                          {message.meta?.downgradedFrom && (
-                            <div
-                              data-testid="model-downgrade-banner"
-                              className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 text-[10px] font-mono"
-                              title={`You asked for ${message.meta.downgradedFrom}; this reply was written by ${message.meta.model || 'the fallback model'}.`}
-                            >
-                              <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                              <span className="font-semibold tracking-wider uppercase text-[10px]">
-                                Downgraded from {message.meta.downgradedFrom}
-                              </span>
-                            </div>
-                          )}
                         </div>
 
                         {/* Attachments welded to THIS turn — where the artifact

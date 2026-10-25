@@ -87,3 +87,23 @@ export function saveModelConfig(config: ModelSlotConfig): void {
 export function getModelForSlot(slot: ModelSlot): string {
   return loadModelConfig()[slot];
 }
+
+/**
+ * The chat lane's model, resolved per call from the chat slot — the slot is
+ * the source of truth (design-docs/16), NOT any React state snapshot. This is
+ * the fix for "settings show 3.8 but sends use 3.5": the popup writes the slot
+ * and the next request must see it.
+ *
+ * Never silently swaps to a different model: an id the catalog does not know
+ * is sent AS-IS (surfacing a config problem) rather than quietly substituted.
+ */
+export function resolveChatModelOption<T extends { id: string; name: string }>(
+  catalog: T[],
+  fallback: T
+): T {
+  const slotId = getModelForSlot('chat');
+  const known = catalog.find((m) => m.id === slotId);
+  if (known) return known;
+  if (slotId) return { ...fallback, id: slotId, name: slotId };
+  return fallback;
+}

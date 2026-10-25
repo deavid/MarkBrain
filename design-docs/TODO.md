@@ -11,6 +11,102 @@
 
 ---
 
+# FOLLOW-UP REGISTER (2026-10-25 evening) — do not lose this
+
+> David: *"recap on where are we … please write down everything to follow up
+> because we're doing a lot and we're going to forget."* This is the single
+> list. Newest status on top of each section.
+
+## Where we are
+
+Branch `dev-vega` on `MarkBrain-dev-vega`, server **13032** (running with
+**VITE_BYOK=1**), tsc clean, **424/424 tests**. Today shipped, in order:
+CSP Google sign-in fix → UI feedback block (row opens popup, badges deleted,
+click-outside, compact workhorse, Models|Keys tabs) → vault **removed** →
+BYOK behind the flag + flag-off reads stored keys as EMPTY → live provider
+catalog fetching **removed** (external-stress rule) → **pairs/queue rebuild**
+(failures are drafts, never turns — 17/18) → **Regenerate last reply**
+(queue-gated, replaces reply only on success) → **chat slot is the single
+source of truth** (3.8 bug) + title lane honors its slot.
+
+## TESTING ROUND 2026-10-25 evening — DONE
+
+- [x] T1 chat slot: 3.8 means 3.8 ✅ · [x] T2 pairs law ✅ · [x] T4 regenerate ✅
+- [x] T3 Stop/Store-as-is: David could not click-test it — emulated through
+      the real SendQueue instead (5 tests, draft-stop-store-as-is.test.ts) ✅
+- [x] T5 flag-off leftovers: unit-tested (key-slots.test.ts, 3 laws) ✅
+- [x] T7 near-match: David found the short-query cliff (Dice 0.95 fails
+      +1 letter on short text); fixed with edit-distance ≤ 1 rule ✅
+- [x] T8 ?slowsave=1 banner ✅
+- **T6 (Sirius manual plan) SHELVED forever for now** — with the rest of the
+  BYOK discussion. Do not run it, do not nag.
+- Also fixed this round: model errors are final (no watchdog downgrade,
+  a00c401); catalog = the three REAL text models (ed22294); a bad model
+  can never kill the server (130cf16 — it once did).
+
+## PENDING DEEP-DIVE DISCUSSION (David teaches Vega — do NOT build, do NOT decide)
+
+David 2026-10-25: *"you'll need to learn from me what's the deal here overall.
+Cause you don't know what are we really trying to optimize for."* The
+discussion starts from what we optimize FOR — the architecture follows.
+
+- **D5. FOSS + hosting — "probably this is the core of the discussion."**
+  Apache-2, free as in beer, users bring their own keys, toy fits free quota,
+  demo-space vs VPS, "I don't want to pay for them and I don't want to be
+  responsible for them."
+- **D1. Where does data live — reframed by David as a clean slate:**
+  Firestore (yay/nay) vs VPS storage (yay/nay) vs both vs neither vs a third
+  option. Known constraints on the table: 20k writes/day burn from
+  whole-snapshot saves, 1MiB doc cap, user-verified Firestore pricing, the
+  phone↔PC sync requirement, data always safe locally. Also on the table:
+  Google's serverless suite ("the firexyz thingies" — Cloud Functions & co) —
+  David is NOT clear on what it is; Vega to explain it plainly when relevant.
+- **D2. Sync/provider architecture** — pending D1 (previous partial decisions
+  recorded in 09/17 stay as-is until then).
+- **D3. BYOK as a model / keys-before-login / whose Firebase key** — pending
+  D1, shelved together with T6.
+- **D4. RESOLVED (David):** BYOK leftovers stay INERT — "don't touch it, just
+  don't consume them." No wipe. Shipped as such (9552dfc).
+
+## PENDING FROM SIRIUS (`artifacts/sirius/2026-10-25-byok-model-routing/`)
+
+- [ ] **S1. (04-A) PWA install + mobile pass** — unbuilt. READ
+      `MOBILE_UX_SPEC.md` before quoting effort. Android only (David:
+      "iOS users can go and buy themselves an Android"). Ask: mobile first,
+      or deploy first and polish after real use?
+- [ ] **S2. (04-B) QR image for "Send to phone"** — decision: ~2kB dep vs
+      hand-rolled encoder vs link-is-enough. David approves deps.
+- [ ] **S3. (04-C) VPS deployment posture** — public VPS allowed to run
+      proxy mode (`MARKBRAIN_PROXY=1`) or shell-mode forever?
+- [ ] **S4. auth/internal-error is opaque** — should surface the real cause
+      (the Google sign-in failure was a CSP block shown as "internal-error").
+
+## DRAWER (explicitly parked — do not design prematurely)
+
+- Comments anchored to artifact paragraphs (David: "I'd leave this in the drawer")
+- Store-visibility / cleanup screen (how storage is used — law in 14)
+- Anything feature-shaped that is not fully fleshed out (design drawer rule)
+
+## Standing constraints (memorized rules — full text in memory)
+
+No git writes outside my own worktree+branch · never push · never git tags ·
+don't fix Sirius's breakage (report and stop) · never stress external systems
+(no provider calls from tests or UI open/close) · never commit secrets, ask
+before secrets-policy changes · SO WHAT copy rule (no AI-speak, no invented
+jargon, no provider quota claims) · design drawer for un-designed features.
+
+---
+
+## Done — 2026-10-25: errors are final — downgrade removed (`dev-vega`)
+
+David asked for 3.8; the server's 9s watchdog silently re-streamed from 3.5
+with a "DOWNGRADED FROM…" chip. *"I don't want the smart downgrade - I want
+the actual error … make errors final."* `requireModelId` now hard-errors on an
+unknown/wrong-capability model (all six routes); the watchdog and its second
+stream are deleted; `downgradedFrom` is gone from telemetry, TurnMeta and the
+UI. Pins: `errors-are-final.test.ts` (a00c401).
+
+---
 ## Done — 2026-10-25: failures are drafts, not turns (`dev-vega`)
 
 Built per `18_CHAT_PAIRS_AND_QUEUE.md` (commit e95682a). Stripped the whole
@@ -21,7 +117,7 @@ in-flight streaming in the draft area, transport treats a stream without a
 complete event as failure even with partial text. 412/412.
 
 ---
-## ~~PENDING~~ Done — strip failed-request handling (`dev-vega`)
+## Done — strip failed-request handling (`dev-vega`, superseded by the entry above)
 
 David 2026-10-25, third rejection: the error is stored **as an assistant turn**
 (`<turn role="assistant">Gemini: API key not valid…</turn>`) — it pollutes the

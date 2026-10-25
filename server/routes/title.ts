@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
-import { resolveModelId } from '../lib/models';
+import { requireModelId } from '../lib/models';
 
 export function registerTitleRoutes(app: Express): void {
 // API: Thread title generation (best-effort meta call for the staged titling
@@ -17,10 +17,7 @@ app.post('/api/title-thread', async (req: Request, res: Response) => {
     if (!ai) {
       return res.json({ title: null });
     }
-    const { id: titleModel, fellBackFrom } = resolveModelId(model, 'title');
-    if (fellBackFrom) {
-      logServer('warn', 'API:TITLE', `Requested model "${fellBackFrom}" rejected for lane=title — using ${titleModel}`);
-    }
+    const titleModel = requireModelId(model, 'title');
 
     const transcript = messages
       .map((m: { role: string; content: string }) => `${m.role}: ${String(m.content || '').slice(0, 400)}`)

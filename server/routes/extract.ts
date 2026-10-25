@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { ai } from '../providers/gemini';
 import { logServer } from '../lib/log';
 import { EXTRACT_READ_CHAR_CAP, buildExtractPrompt, readSentinelArtifact } from '../lib/prompt';
-import { resolveModelId } from '../lib/models';
+import { requireModelId } from '../lib/models';
 
 export function registerExtractRoutes(app: Express): void {
 app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) => {
@@ -20,10 +20,7 @@ app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) 
       return res.status(400).json({ error: 'Content is required' });
     }
 
-    const { id: extractModel, fellBackFrom } = resolveModelId(model, 'extract');
-    if (fellBackFrom) {
-      logServer('warn', 'API:EXTRACT', `Requested model "${fellBackFrom}" rejected for lane=extract — using ${extractModel}`);
-    }
+    const extractModel = requireModelId(model, 'extract');
 
     if (ai) {
       if (content.length > EXTRACT_READ_CHAR_CAP) {

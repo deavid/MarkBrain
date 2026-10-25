@@ -4,16 +4,13 @@ import { logServer } from '../lib/log';
 import { estimateTokens } from '../lib/tokens';
 import { buildSummarizePrompt } from '../lib/prompt';
 import { parseSentinelBlocks } from '../../src/utils/sentinelParser';
-import { resolveModelId } from '../lib/models';
+import { requireModelId } from '../lib/models';
 
 export function registerSummarizeRoutes(app: Express): void {
 app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
   try {
     const { title, messages = [], steeringPrompt, model } = req.body;
-    const { id: summarizeModel, fellBackFrom } = resolveModelId(model, 'summarize');
-    if (fellBackFrom) {
-      logServer('warn', 'API:SUMMARIZE', `Requested model "${fellBackFrom}" rejected for lane=summarize — using ${summarizeModel}`);
-    }
+    const summarizeModel = requireModelId(model, 'summarize');
 
     if (!messages || messages.length === 0) {
       return res.json({

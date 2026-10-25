@@ -21,6 +21,8 @@
  * - Empty slot = key absent = the app works without it (D9). Slots that were
  *   never filled store NOTHING (no empty-string keys sitting in storage).
  */
+import { byokEnabled } from './byokFlag';
+
 export type KeySlotId = 'gemini-free' | 'gemini-paid' | 'openrouter';
 
 export type KeyProvider = 'gemini' | 'openrouter';
@@ -74,6 +76,8 @@ function isKeySlotId(v: unknown): v is KeySlotId {
 
 /** Trimmed non-empty key, or null. A whitespace-only paste counts as unfilled. */
 export function getKeySlot(id: KeySlotId): string | null {
+  // Flag off = BYOK does not exist: leftovers read as empty (see byokFlag).
+  if (!byokEnabled()) return null;
   const raw = storage()?.getItem(KEY_PREFIX + id) ?? null;
   if (raw === null) return null;
   const trimmed = raw.trim();
@@ -82,6 +86,7 @@ export function getKeySlot(id: KeySlotId): string | null {
 
 /** Store a key, or clear the slot with null/empty. Cleared slots store nothing. */
 export function setKeySlot(id: KeySlotId, value: string | null): void {
+  if (!byokEnabled()) return;
   const trimmed = (value ?? '').trim();
   const s = storage();
   if (!s) return;
@@ -112,6 +117,7 @@ const isLaneKeyChoice = (v: unknown): v is LaneKeyChoice => v === 'auto' || isKe
 
 export function loadLaneKeys(): Record<string, LaneKeyChoice> {
   const out: Record<string, LaneKeyChoice> = {};
+  if (!byokEnabled()) return out;
   try {
     const raw = storage()?.getItem(LANE_KEYS_KEY);
     if (raw) {
@@ -129,6 +135,7 @@ export function loadLaneKeys(): Record<string, LaneKeyChoice> {
 }
 
 export function setLaneKey(lane: string, choice: LaneKeyChoice): void {
+  if (!byokEnabled()) return;
   const s = storage();
   if (!s) return;
   const all = loadLaneKeys();

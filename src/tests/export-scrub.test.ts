@@ -4,10 +4,11 @@
  * anything export-shaped. These tests feed a storage seeded with keys through
  * the real export serializers and assert the key material is absent.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { serializeDatabase, parseDatabaseExport } from '../services/persistenceService';
 import { exportToJSON, exportToMarkdown, exportToYAML } from '../utils/tokenCalculator';
 import { setKeySlot, getKeySlot } from '../data/keySlots';
+import { setByokEnabledForTests } from '../data/byokFlag';
 
 const SECRET_FREE = 'AIza-SECRET-FREE-KEY-123';
 const SECRET_PAID = 'AIza-SECRET-PAID-KEY-456';
@@ -30,7 +31,12 @@ function stubWindowWithKeys() {
   return storage;
 }
 
+beforeEach(() => {
+  setByokEnabledForTests(true); // this suite exercises real key storage
+});
+
 afterEach(() => {
+  setByokEnabledForTests(false);
   vi.unstubAllGlobals();
 });
 

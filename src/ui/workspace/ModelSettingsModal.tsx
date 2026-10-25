@@ -19,6 +19,7 @@ import {
   setLaneKey,
 } from '../../data/keySlots';
 import type { KeySlotId, LaneKeyChoice } from '../../data/keySlots';
+import { byokEnabled as byokEnabledFlag } from '../../data/byokFlag';
 
 /**
  * ModelSettingsModal — the capability-slot picker (design-docs/16 §3.1, D2/D7).
@@ -88,8 +89,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
   const [laneKeys, setLaneKeys] = useState<Record<string, LaneKeyChoice>>({});
   // NOT VERIFIED — see design-docs/16. Hidden unless VITE_BYOK=1, because the
   // bring-your-own-key model is unsettled and David will not ship something he
-  // cannot validate.
-  const byokEnabled = import.meta.env.VITE_BYOK === '1';
+  // cannot validate. Same flag gates the key SLOTS themselves (byokFlag) —
+  // flag off, stored leftovers read as empty.
+  const byokEnabled = byokEnabledFlag();
   const [tab, setTab] = useState<'models' | 'keys'>('models');
 
   useEffect(() => {

@@ -456,8 +456,6 @@ export class SendQueue {
         latencyMs: result.telemetry?.latencyMs,
         timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
         isFallback: result.telemetry?.isFallback ?? true,
-        // Honest downgrade trail — the UI banner reads this (design-docs/16 §2).
-        downgradedFrom: result.telemetry?.downgradedFrom,
         isStreaming: false,
         streamState: 'completed',
       });
@@ -623,7 +621,6 @@ export class SendQueue {
         latencyMs: result.telemetry?.latencyMs,
         timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
         isFallback: result.telemetry?.isFallback ?? true,
-        downgradedFrom: result.telemetry?.downgradedFrom,
         isStreaming: false,
         streamState: 'completed',
       });

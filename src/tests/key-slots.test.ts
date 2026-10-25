@@ -4,7 +4,8 @@
  * providers (a gemini model never signs with the OpenRouter key), and keys
  * never leak into anything export-shaped.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { setByokEnabledForTests } from '../data/byokFlag';
 import {
   KEY_SLOTS,
   anyKeyConfigured,
@@ -33,7 +34,12 @@ function stubWindow(seed: Record<string, string> = {}) {
   return storage;
 }
 
+beforeEach(() => {
+  setByokEnabledForTests(true); // the behavioral suite runs with BYOK on
+});
+
 afterEach(() => {
+  setByokEnabledForTests(false);
   vi.unstubAllGlobals();
 });
 
@@ -128,5 +134,48 @@ describe('lane binding persistence', () => {
 describe('key slot inventory', () => {
   it('declares exactly the three slots of D8', () => {
     expect([...KEY_SLOTS]).toEqual(['gemini-free', 'gemini-paid', 'openrouter']);
+  });
+});
+
+describe('flag off = BYOK does not exist (David 2026-10-25)', () => {
+  afterEach(() => {
+    setByokEnabledForTests(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('stored leftovers act as EMPTY — a hidden key must not keep signing requests', () => {
+    setByokEnabledForTests(false);
+    stubWindow({
+      'markbrain:keys:gemini-free': 'AIzaLEFTOVER-JUNK',
+      'markbrain:keys:openrouter': 'sk-or-LEFTOVER',
+      'markbrain:laneKeys': JSON.stringify({ chat: 'gemini-free' }),
+    });
+    expect(getKeySlot('gemini-free')).toBeNull();
+    expect(getKeySlot('openrouter')).toBeNull();
+    expect(listFilledKeySlots()).toEqual([]);
+    expect(anyKeyConfigured()).toBe(false);
+    // ...and nothing resolves to a signing key: everything goes through the
+    // server, exactly as the UI says ("the server owner's key").
+    expect(resolveLaneKey('chat', 'gemini-3.5-flash-lite')).toBeNull();
+    expect(resolveLaneKey('chat', 'openrouter/auto')).toBeNull();
+    expect(loadLaneKeys()).toEqual({});
+  });
+
+  it('writes are ignored while the flag is off — no silent storage', () => {
+    setByokEnabledForTests(false);
+    const store = stubWindow();
+    setKeySlot('gemini-free', 'AIzaNEW');
+    setLaneKey('chat', 'gemini-paid');
+    expect(store.get('markbrain:keys:gemini-free')).toBeUndefined();
+    expect(store.get('markbrain:laneKeys')).toBeUndefined();
+    expect(store.size).toBe(0);
+  });
+
+  it('the leftovers are still there when the flag comes back on (inert, not destroyed)', () => {
+    stubWindow({ 'markbrain:keys:gemini-free': 'AIzaLEFTOVER-JUNK' });
+    setByokEnabledForTests(false);
+    expect(getKeySlot('gemini-free')).toBeNull();
+    setByokEnabledForTests(true);
+    expect(getKeySlot('gemini-free')).toBe('AIzaLEFTOVER-JUNK');
   });
 });

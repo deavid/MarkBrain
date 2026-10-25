@@ -5,6 +5,8 @@ import type { ChapterPartition } from '../domains/02-chapter-segmentation/types'
 import { GRANULARITY_LAW } from '../domains/granularity';
 import { withDeadline } from '../utils/deadline';
 import { localStore } from './stores/localStore';
+import { vpsStore } from './stores/vpsStore';
+import { getWorkspaceMode } from './workspaceSession';
 import { hydrateSnapshot } from './stores/hydrate';
 import type { ProjectStore, ProjectSnapshot } from './stores/projectStore';
 
@@ -22,7 +24,7 @@ export type { ProjectSnapshot } from './stores/projectStore';
  * meta-key in localStorage (`markbrain:backend`) — meta-use of localStorage,
  * not a data mirror. Data itself lives in exactly one place per session.
  */
-export type StorageBackend = 'local';
+export type StorageBackend = 'local' | 'vps';
 
 const BACKEND_KEY = 'markbrain:backend';
 export const LOCAL_UID = 'local';
@@ -46,10 +48,13 @@ export const SAVE_ACK_DEADLINE_MS = 15_000;
 export const LOAD_DEADLINE_MS = 30_000;
 
 export function getBackend(): StorageBackend {
-  // Phase 1: only 'local' exists. Phase 21D re-reads this meta-key to pick 'vps'.
+  // 21D: the workspace mode IS the backend choice. The legacy meta-key stays
+  // as a write-through mirror for older code paths, but mode wins.
+  const mode = getWorkspaceMode();
+  if (mode === 'vps' || mode === 'local') return mode;
   try {
     const stored = window.localStorage.getItem(BACKEND_KEY);
-    if (stored === 'vps') return 'vps' as StorageBackend; // reserved for 21D
+    if (stored === 'vps') return 'vps';
     return 'local';
   } catch {
     logger.warn('Persistence', 'localStorage unavailable — defaulting to local backend');
@@ -73,8 +78,8 @@ export function setBackend(backend: StorageBackend): void {
  * store would go stale; never memoize the result.
  */
 function getStore(): ProjectStore {
-  // Phase 1: local only. Phase 21D branches 'vps' → vpsStore here.
-  return localStore;
+  // Read per call — mode can flip at runtime (Sign in / Switch to Local).
+  return getBackend() === 'vps' ? vpsStore : localStore;
 }
 
 /**

@@ -24,6 +24,7 @@ import {
 import { persistProjectSnapshot, attachPersistWorker } from '../application/persistWorker';
 import { useSessionMachine } from '../application/sessionMachine';
 import { loadProjectSnapshotIntoDomains, loadNewWorkspace } from '../application/snapshotLoader';
+import { useVpsDeltaSync } from '../application/useVpsDeltaSync';
 import type { WorkspaceUser } from '../types';
 
 export interface DomainContextValue {
@@ -133,6 +134,18 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     graph,
     threadRegistry,
   ]);
+
+  // 21D §4.5: Connected-mode delta poller (focus wake + 10s while visible).
+  const lastRevisionRef = useRef(0);
+  useVpsDeltaSync({
+    activeProjectId: activeProjectId ?? null,
+    lastRevisionRef,
+    timeline,
+    segmentation,
+    artifacts,
+    graph,
+    threadRegistry,
+  });
 
   const persistState = useCallback(
     () =>

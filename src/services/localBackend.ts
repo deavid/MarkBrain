@@ -1,7 +1,9 @@
 /**
  * localBackend — IndexedDB adapter for the Local branch.
  *
- * PRIVATE to stores/localStore: no other module may import this file.
+ * Shared by stores/localStore (local mode) and stores/vpsStore (21D: the
+ * isolated markbrain-vps:<origin>:<email> mirror) — both parameterized by
+ * getActiveIdbName(), so this file itself stays mode-agnostic.
  * The branching knowledge lives in persistenceService (one dispatch through
  * the ProjectStore port); this is just the IndexedDB half behind the same
  * canonical ProjectSnapshot model.

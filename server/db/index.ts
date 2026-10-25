@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS threads (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   revision INTEGER NOT NULL,
+  doc_json TEXT NOT NULL DEFAULT '{}',
   PRIMARY KEY (user_id, project_id, thread_id),
   FOREIGN KEY (user_id, project_id) REFERENCES projects(user_id, project_id) ON DELETE CASCADE
 );
@@ -95,6 +96,7 @@ CREATE TABLE IF NOT EXISTS turns (
   content TEXT NOT NULL,
   timestamp INTEGER NOT NULL,
   meta_json TEXT NOT NULL DEFAULT '{}',
+  doc_json TEXT NOT NULL DEFAULT '{}',
   revision INTEGER NOT NULL,
   PRIMARY KEY (user_id, project_id, turn_id),
   FOREIGN KEY (user_id, project_id) REFERENCES projects(user_id, project_id) ON DELETE CASCADE
@@ -112,6 +114,8 @@ CREATE TABLE IF NOT EXISTS chapters (
   summary TEXT,
   granularity TEXT NOT NULL DEFAULT 'full',
   order_index INTEGER NOT NULL DEFAULT 0,
+  doc_json TEXT NOT NULL DEFAULT '{}',
+  chapter_thread_id TEXT NOT NULL DEFAULT '',
   revision INTEGER NOT NULL,
   PRIMARY KEY (user_id, project_id, chapter_id),
   FOREIGN KEY (user_id, project_id) REFERENCES projects(user_id, project_id) ON DELETE CASCADE
@@ -213,6 +217,19 @@ export function initDb(location?: string): Database.Database {
   next.pragma('journal_mode = WAL');
   next.pragma('foreign_keys = ON');
   next.exec(SCHEMA);
+  // 21D: full-entity JSON columns for domain objects whose table shape is
+  // thinner than the client type (threads/chapters/turns). Guarded ALTERs so
+  // databases created before Phase 4 upgrade in place; fresh DBs get them
+  // via the CREATE path below (columns must exist there too).
+  const ensureColumn = (table: string, column: string, ddl: string) => {
+    const cols = next.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === column)) next.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  };
+  ensureColumn('threads', 'doc_json', `doc_json TEXT NOT NULL DEFAULT '{}'`);
+  ensureColumn('chapters', 'doc_json', `doc_json TEXT NOT NULL DEFAULT '{}'`);
+  ensureColumn('turns', 'doc_json', `doc_json TEXT NOT NULL DEFAULT '{}'`);
+  // CHAPTER thread scoping for delta assembly (chapter rows carry threadId in doc, column helps queries)
+  ensureColumn('chapters', 'chapter_thread_id', `chapter_thread_id TEXT NOT NULL DEFAULT ''`);
   if (db) {
     try {
       db.close();

@@ -28,7 +28,10 @@ export type ModelSlotConfig = Record<ModelSlot, string>;
 export const MODEL_CONFIG_KEY = 'markbrain:modelConfig';
 
 /** Mode-scoped: a model setting in Local never bleeds into VPS and vice versa (21C §1). */
-import { getScopedStorageKey } from '../services/workspaceSession';
+import { getScopedStorageKey, getWorkspaceMode } from '../services/workspaceSession';
+// gateway/api is imported DYNAMICALLY inside the vps push/hydrate helpers:
+// a static import would cycle modelConfig → api → … → modelConfig and leave
+// DEFAULT_MODEL_SLOTS undefined at module-eval time for draftSearchEngine.
 
 /** Mirrors server/lib/models.ts CAPABILITY_DEFAULTS — same lane defaults. */
 export const DEFAULT_MODEL_SLOTS: ModelSlotConfig = {
@@ -79,8 +82,41 @@ export function saveModelConfig(config: ModelSlotConfig): void {
     const scoped = getScopedStorageKey(MODEL_CONFIG_KEY);
     if (isDefault) window.localStorage.removeItem(scoped);
     else window.localStorage.setItem(scoped, JSON.stringify(normalized));
+    // 21D §5: Connected VPS mode pushes to the account so PC + phone agree.
+    if (getWorkspaceMode() === 'vps') {
+      void import('../gateway/api')
+        .then(({ putAccountSettings }) => putAccountSettings({ modelSlots: normalized }))
+        .catch(() => {
+          /* offline — local scoped copy still applied; next save/hydrate reconciles */
+        });
+    }
   } catch {
     // Private-mode storage failure must not break the settings modal.
+  }
+}
+
+/**
+ * 21D §5: pull the account's model slots into this device's scoped storage.
+ * Called on VPS login/boot; also available after settings tab loads.
+ */
+export async function hydrateAccountSettingsFromVps(): Promise<void> {
+  if (getWorkspaceMode() !== 'vps') return;
+  try {
+    const { getAccountSettings } = await import('../gateway/api');
+    const res = await getAccountSettings();
+    if (!res.ok) return;
+    const body = (await res.json()) as { modelSlots?: Record<string, string> };
+    if (body?.modelSlots && typeof body.modelSlots === 'object') {
+      const normalized = normalizeModelConfig(body.modelSlots);
+      if (typeof window !== 'undefined') {
+        const scoped = getScopedStorageKey(MODEL_CONFIG_KEY);
+        const isDefault = MODEL_SLOTS.every((s) => normalized[s] === DEFAULT_MODEL_SLOTS[s]);
+        if (isDefault) window.localStorage.removeItem(scoped);
+        else window.localStorage.setItem(scoped, JSON.stringify(normalized));
+      }
+    }
+  } catch {
+    /* offline boot — scoped local copy stands in */
   }
 }
 

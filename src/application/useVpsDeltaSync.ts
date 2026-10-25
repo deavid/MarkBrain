@@ -1,0 +1,167 @@
+/**
+ * VPS delta sync poller (design-docs/21D §4.5).
+ *
+ * Connected mode only: whenever the tab regains focus (phone screen wake /
+ * window focus) or every 10s while visible, ask the server for rows newer
+ * than `lastRevisionRef.current`. A non-empty delta is merged straight into
+ * the live domains and the cursor advances — sub-100-byte polls when nothing
+ * changed (`since === revision` → empty arrays).
+ *
+ * No provider calls, no save triggered by the merge itself: the persist
+ * worker only fires on real domain mutations, and the merged rows are
+ * byte-identical to what the server holds, so the next debounced save
+ * upserts nothing changed (hash compare keeps row revisions stable).
+ */
+import { useEffect, useRef } from 'react';
+import type { RefObject } from 'react';
+import type { IDialogueTimelineDomain } from '../domains/01-dialogue-timeline';
+import type { IArtifactDocumentDomain } from '../domains/01-artifact-document';
+import type { IChapterSegmentationDomain } from '../domains/02-chapter-segmentation';
+import type { ITopologicalGraphDomain } from '../domains/02-topological-graph';
+import type { ThreadRegistry } from '../domains/06-chat-threads';
+import { apiFetch } from '../gateway/api';
+import { getWorkspaceMode } from '../services/workspaceSession';
+import type { ProjectDeltaResponse } from '../../server/db/projectRepo';
+import { logger } from '../utils/logger';
+
+const POLL_MS = 10_000;
+
+export interface VpsDeltaSyncDeps {
+  activeProjectId: string | null;
+  lastRevisionRef: RefObject<number>;
+  timeline: IDialogueTimelineDomain;
+  artifacts: IArtifactDocumentDomain;
+  segmentation: IChapterSegmentationDomain;
+  graph: ITopologicalGraphDomain;
+  threadRegistry: ThreadRegistry;
+}
+
+function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDeltaSyncDeps): void {
+  const { timeline, artifacts, segmentation, graph, threadRegistry } = deps;
+
+  // Tombstones first — deletions win over same-batch upserts.
+  for (const t of delta.tombstones) {
+    if (t.entityType === 'artifact') artifacts.deleteArtifact(t.entityId);
+    if (t.entityType === 'chapter') segmentation.loadChapters(segmentation.listChapters().filter((c) => c.id !== t.entityId));
+    if (t.entityType === 'edge') graph.loadEdges(graph.listEdges().filter((e) => e.id !== t.entityId));
+    if (t.entityType === 'thread') threadRegistry.deleteThread(t.entityId);
+    if (t.entityType === 'folder') threadRegistry.deleteFolder(t.entityId);
+  }
+
+  // Artifacts: upsert by id.
+  if (delta.artifacts.length > 0) {
+    const merged = artifacts.listArtifacts();
+    for (const incoming of delta.artifacts) {
+      const idx = merged.findIndex((a) => a.id === incoming.id);
+      if (idx >= 0) merged[idx] = incoming;
+      else merged.push(incoming);
+    }
+    artifacts.loadArtifacts(merged);
+  }
+
+  // Chapters: upsert by id (delta rows are the server's current state).
+  if (delta.chapters.length > 0) {
+    const merged = [...segmentation.listChapters()];
+    for (const incoming of delta.chapters) {
+      const idx = merged.findIndex((c) => c.id === incoming.id);
+      if (idx >= 0) merged[idx] = incoming;
+      else merged.push(incoming);
+    }
+    merged.sort((a, b) => a.startIndex - b.startIndex);
+    segmentation.loadChapters(merged);
+  }
+
+  // Edges: upsert by id.
+  if (delta.edges.length > 0) {
+    const merged = [...graph.listEdges()];
+    for (const incoming of delta.edges) {
+      const idx = merged.findIndex((e) => e.id === incoming.id);
+      if (idx >= 0) merged[idx] = incoming;
+      else merged.push(incoming);
+    }
+    graph.loadEdges(merged);
+  }
+
+  // Turns: merge the active thread's list by id, preserving local order and
+  // appending genuinely-new rows (server seq order arrives sorted).
+  if (delta.turns.length > 0) {
+    const activeThreadId = threadRegistry.getActiveThreadId();
+    const local = timeline.getTurns();
+    const merged = [...local];
+    const additions = [];
+    for (const incoming of delta.turns) {
+      if ((incoming.threadId ?? activeThreadId) !== activeThreadId) continue; // other lane → registry cache on next hydrate
+      const idx = merged.findIndex((t) => t.id === incoming.id);
+      if (idx >= 0) merged[idx] = incoming;
+      else additions.push(incoming);
+    }
+    additions.sort((a, b) => a.timestamp - b.timestamp);
+    timeline.loadTurns([...merged, ...additions]);
+  }
+
+  // Threads / folders: patch existing rows, create missing ones.
+  for (const incoming of delta.threads) {
+    if (threadRegistry.getThread(incoming.id)) threadRegistry.patch(incoming.id, incoming);
+    else threadRegistry.createThread(incoming);
+  }
+  const knownFolders = new Set(threadRegistry.getFolders().map((f) => f.id));
+  for (const incoming of delta.folders) {
+    if (!knownFolders.has(incoming.id)) threadRegistry.createFolder(incoming.name);
+  }
+}
+
+export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
+  const { activeProjectId, lastRevisionRef } = deps;
+  const depsRef = useRef(deps);
+  depsRef.current = deps;
+  const inFlight = useRef(false);
+
+  useEffect(() => {
+    if (getWorkspaceMode() !== 'vps' || !activeProjectId) return;
+
+    // New project → start the cursor at 0 so the first pull is a full catch-up.
+    lastRevisionRef.current = 0;
+    let cancelled = false;
+
+    const pull = async () => {
+      if (cancelled || inFlight.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      inFlight.current = true;
+      try {
+        const since = lastRevisionRef.current;
+        const res = await apiFetch(
+          `/api/projects/${encodeURIComponent(activeProjectId)}/delta?since=${since}`
+        );
+        if (!res.ok) return; // 401/404 etc. — next tick retries; boot load owns first hydration
+        const delta = (await res.json()) as ProjectDeltaResponse;
+        if (cancelled) return;
+        if (delta.revision > lastRevisionRef.current) {
+          mergeDeltaIntoDomains(delta, depsRef.current);
+          lastRevisionRef.current = delta.revision;
+          logger.info('VpsDeltaSync', `Merged delta → revision ${delta.revision}`);
+        }
+      } catch {
+        /* offline — mirror + next wake retry */
+      } finally {
+        inFlight.current = false;
+      }
+    };
+
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') void pull();
+    };
+    const onFocus = () => void pull();
+
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
+    if (typeof window !== 'undefined') window.addEventListener('focus', onFocus);
+    const timer = setInterval(() => void pull(), POLL_MS);
+    void pull(); // immediate catch-up on project open
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
+      if (typeof window !== 'undefined') window.removeEventListener('focus', onFocus);
+    };
+  }, [activeProjectId, lastRevisionRef]);
+}

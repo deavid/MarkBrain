@@ -27,6 +27,7 @@ import {
   clearVpsSession,
 } from '../services/workspaceSession';
 import { authLogin, authLogout, type LoginResponse } from '../gateway/api';
+import { hydrateAccountSettingsFromVps } from '../data/modelConfig';
 import { logger } from '../utils/logger';
 
 export interface SessionDeps {
@@ -101,7 +102,7 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
         if (user) {
           setCurrentUser(user);
           setAuthInitialized(true);
-          await loadUserCloudData();
+          await Promise.all([loadUserCloudData(), hydrateAccountSettingsFromVps()]);
           return;
         }
         // Session unreadable — fall through to the gate.
@@ -157,7 +158,7 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
       };
       setCurrentUser(user);
       setAuthInitialized(true);
-      await loadUserCloudData();
+      await Promise.all([loadUserCloudData(), hydrateAccountSettingsFromVps()]);
       logger.action('Session', `Signed in to server workspace: ${data.user.email}`);
       return user;
     },

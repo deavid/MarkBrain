@@ -17,6 +17,7 @@ import { registerTitleRoutes } from './routes/title';
 import { registerTtsRoutes } from './routes/tts';
 import { registerExtractRoutes } from './routes/extract';
 import { registerSearchIndexRoutes } from './routes/searchIndex';
+import { registerProjectRoutes } from './routes/projects';
 
 
 // Project root, not server/. This file lives one level down, so __dirname is
@@ -86,6 +87,7 @@ const GATED_PATHS = [
   '/api/extract-artifact-from-file',
   '/api/search-index',
   '/api/server-logs',
+  '/api/projects',
 ];
 for (const p of GATED_PATHS) {
   app.use(p, requireAuth);
@@ -98,6 +100,7 @@ registerTitleRoutes(app);
 registerTtsRoutes(app);
 registerExtractRoutes(app);
 registerSearchIndexRoutes(app);
+registerProjectRoutes(app); // 21D: normalized atomic project sync + delta
 logServer('success', 'SERVER', 'Content routes mounted behind requireAuth (per-user vault keys)');
 
 export async function startServer() {

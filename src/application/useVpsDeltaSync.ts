@@ -128,21 +128,37 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
   // on the turn (they read the registry, not the turn meta).
   const weldProvenance = () => {
     for (const incoming of delta.turns) {
-      const atts = (incoming as { meta?: { attachments?: unknown } }).meta?.attachments;
-      if (!Array.isArray(atts)) continue;
       const threadId = incoming.threadId ?? threadRegistry.getActiveThreadId();
-      for (const att of atts as Array<{ artifactId?: unknown; turnIndex?: unknown; turnId?: unknown }>) {
-        if (typeof att.artifactId !== 'string' || !att.artifactId) continue;
-        const turnIndex =
-          typeof att.turnIndex === 'number' && Number.isFinite(att.turnIndex) && att.turnIndex >= 0
-            ? att.turnIndex
-            : null;
-        threadRegistry.commitAttachment(
-          threadId,
-          att.artifactId,
-          turnIndex,
-          typeof att.turnId === 'string' ? att.turnId : null
-        );
+      const atts = (incoming as { meta?: { attachments?: unknown } }).meta?.attachments;
+      if (Array.isArray(atts)) {
+        for (const att of atts as Array<{ artifactId?: unknown; turnIndex?: unknown; turnId?: unknown }>) {
+          if (typeof att.artifactId !== 'string' || !att.artifactId) continue;
+          const turnIndex =
+            typeof att.turnIndex === 'number' && Number.isFinite(att.turnIndex) && att.turnIndex >= 0
+              ? att.turnIndex
+              : null;
+          threadRegistry.commitAttachment(
+            threadId,
+            att.artifactId,
+            turnIndex,
+            typeof att.turnId === 'string' ? att.turnId : null
+          );
+        }
+      }
+      // AI-attachment law (2026-10-25): the reply's extracted artifacts are
+      // attachments on the reply — committed, Full, steerable, compiled into
+      // the next context calls, never re-staged. The server stamps turnIndex
+      // on each extracted entry; the turn supplies the turnId.
+      const extracted = (incoming as { extractedArtifacts?: unknown }).extractedArtifacts;
+      if (Array.isArray(extracted)) {
+        for (const ea of extracted as Array<{ id?: unknown; turnIndex?: unknown }>) {
+          if (typeof ea.id !== 'string' || !ea.id) continue;
+          const turnIndex =
+            typeof ea.turnIndex === 'number' && Number.isFinite(ea.turnIndex) && ea.turnIndex >= 0
+              ? ea.turnIndex
+              : null;
+          threadRegistry.ensureAttached(threadId, ea.id, turnIndex, incoming.id);
+        }
       }
     }
   };

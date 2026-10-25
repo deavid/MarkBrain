@@ -771,6 +771,13 @@ export class SendQueue {
     // Artifacts land with the pair (discarding a draft drops them too).
     this.applyBufferedArtifacts(chain, threadId, bufferedArtifacts, userTurnIndex + 1, assistantTurn.id);
 
+    // AI-attachment law: the reply's extracted artifacts are ATTACHMENTS on
+    // the reply — committed, Full by default, steerable, compiled into every
+    // next context call, never re-staged (2026-10-25).
+    for (const art of extractedList) {
+      if (art.id) deps.threadRegistry.ensureAttached(threadId, art.id, userTurnIndex + 1, assistantTurn.id);
+    }
+
     // Topic shifts land after the pair: the new chapter starts after it.
     this.applyBufferedShifts(chain, threadId, bufferedShifts, userTurnIndex);
 
@@ -1153,6 +1160,18 @@ export class SendQueue {
       targetIndex >= 0 ? targetIndex : turns.length - 1,
       targetTurnId
     );
+    // AI-attachment law on regenerate too: new extractions attach to the
+    // replaced reply (existing entries keep the user's granularity).
+    for (const art of extractedList) {
+      if (art.id) {
+        deps.threadRegistry.ensureAttached(
+          threadId,
+          art.id,
+          targetIndex >= 0 ? targetIndex : turns.length - 1,
+          targetTurnId
+        );
+      }
+    }
     // The regenerated pair is the thread's last two turns — the cut applies
     // at its ask, exactly as a fresh send's would.
     this.applyBufferedShifts(chain, threadId, bufferedShifts, Math.max(0, this.turnsOf(deps, threadId).length - 2));

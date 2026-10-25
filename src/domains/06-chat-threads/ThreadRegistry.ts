@@ -267,6 +267,42 @@ export class ThreadRegistry {
     return true;
   }
 
+  /**
+   * The AI-attachment law (David 2026-10-25: "it is an attachment. It is the
+   * same thing"): artifacts the model extracted during its reply are attached
+   * to that reply's turn — committed provenance, Full granularity by default,
+   * steerable afterwards, compiled into every next context call, and NEVER
+   * re-staged (already attached). Idempotent: an entry that already exists
+   * keeps the user's granularity choices; a STAGED entry (user armed it
+   * before the reply landed) is welded to the turn instead of duplicated.
+   */
+  ensureAttached(
+    threadId: string,
+    artifactId: string,
+    turnIndex: number | null,
+    turnId: string | null = null,
+    granularity: Granularity = 'full'
+  ): boolean {
+    const idx = this.threads.findIndex((t) => t.id === threadId);
+    if (idx === -1 || !artifactId) return false;
+    const thread = this.threads[idx];
+    const existing = thread.attachments.find((a) => a.artifactId === artifactId);
+    if (existing) {
+      if (!isAttachmentStaged(existing)) return false; // committed — nothing to do
+      return this.commitAttachment(threadId, artifactId, turnIndex, turnId);
+    }
+    this.threads[idx] = {
+      ...thread,
+      attachments: [
+        ...thread.attachments,
+        { artifactId, granularity, addedAt: Date.now(), turnIndex, turnId },
+      ],
+      updatedAt: Date.now(),
+    };
+    this.emit();
+    return true;
+  }
+
   setAttachmentGranularity(
     threadId: string,
     artifactId: string,
@@ -367,6 +403,55 @@ export class ThreadRegistry {
           changed = true;
           return { ...a, turnIndex: prov.turnIndex, turnId: prov.turnId };
         });
+        return changed ? { ...t, attachments } : t;
+      });
+    }
+
+    // AI-attachment law on hydrate (David 2026-10-25: "it is an attachment.
+    // It is the same thing"): the reply's extracted artifacts are attachments
+    // welded to the reply's turn — committed, Full by default, steerable,
+    // compiled into every next context call, never re-staged. Derived from the
+    // turns (server truth), not the thread doc's stale attachment list.
+    // NOTE: derived from the RAW input turns, BEFORE tagging — unknown thread
+    // ids get coerced to the fallback thread by tag(), which would weld a
+    // foreign thread's extraction onto the active thread.
+    const aiAttached = new Map<string, { turnIndex: number; turnId: string | null; threadId: string }>();
+    const perThreadSeq = new Map<string, number>();
+    for (const turn of input.turns || []) {
+      const tid = (turn as { threadId?: string }).threadId ?? '';
+      const n = perThreadSeq.get(tid) ?? 0;
+      perThreadSeq.set(tid, n + 1);
+      const extracted = (turn as { extractedArtifacts?: unknown }).extractedArtifacts;
+      if (!Array.isArray(extracted)) continue;
+      for (const ea of extracted as Array<{ id?: unknown; turnIndex?: unknown }>) {
+        if (typeof ea.id !== 'string' || !ea.id || aiAttached.has(ea.id)) continue;
+        const idx =
+          typeof ea.turnIndex === 'number' && Number.isFinite(ea.turnIndex) && ea.turnIndex >= 0
+            ? ea.turnIndex
+            : n;
+        aiAttached.set(ea.id, { turnIndex: idx, turnId: (turn as { id?: string }).id ?? null, threadId: tid });
+      }
+    }
+    if (aiAttached.size > 0) {
+      this.threads = this.threads.map((t) => {
+        let changed = false;
+        let attachments = t.attachments.map((a) => {
+          if (!isAttachmentStaged(a)) return a;
+          const prov = aiAttached.get(a.artifactId);
+          if (!prov || prov.threadId !== t.id) return a;
+          changed = true;
+          return { ...a, turnIndex: prov.turnIndex, turnId: prov.turnId };
+        });
+        // Missing entries → attach (the registry list is a client-side cache;
+        // the turns are the truth about what the AI attached — own thread only).
+        for (const [artifactId, prov] of aiAttached) {
+          if (prov.threadId !== t.id || attachments.some((a) => a.artifactId === artifactId)) continue;
+          changed = true;
+          attachments = [
+            ...attachments,
+            { artifactId, granularity: 'full' as const, addedAt: Date.now(), turnIndex: prov.turnIndex, turnId: prov.turnId },
+          ];
+        }
         return changed ? { ...t, attachments } : t;
       });
     }

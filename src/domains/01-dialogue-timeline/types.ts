@@ -30,10 +30,13 @@ export interface ExtractedArtifact {
   type: string;
   code?: string;
   category?: string;
+  subtitle?: string;
   description?: string;
   summary?: string;
   content?: string;
   isHighConcept?: boolean;
+  /** Thread-scoped index of the turn the AI attached it to (server-stamped). */
+  turnIndex?: number;
 }
 
 export interface Turn {

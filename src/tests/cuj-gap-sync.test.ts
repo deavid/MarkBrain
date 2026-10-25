@@ -160,6 +160,7 @@ function makeStubs(seed: {
     createdThreads: [] as unknown[],
     mergedInactiveChapters: [] as Array<{ threadId: string; chapters: Array<Record<string, unknown>> }>,
     committedAttachments: [] as Array<{ threadId: string; artifactId: string; turnIndex: number | null; turnId: string | null }>,
+    aiAttached: [] as Array<{ threadId: string; artifactId: string; turnIndex: number | null; turnId: string | null }>,
     patchedThreads: [] as Array<{ id: string; patch: unknown }>,
     createdFolders: [] as string[],
   };
@@ -217,6 +218,15 @@ function makeStubs(seed: {
       getFolders: () => state.folders,
       mergeInactiveChapters: (threadId: string, chapters: Array<Record<string, unknown>>) => {
         state.mergedInactiveChapters.push({ threadId, chapters });
+      },
+      ensureAttached: (
+        threadId: string,
+        artifactId: string,
+        turnIndex: number | null,
+        turnId: string | null
+      ) => {
+        state.aiAttached.push({ threadId, artifactId, turnIndex, turnId });
+        return true;
       },
       commitAttachment: (
         threadId: string,
@@ -424,6 +434,37 @@ describe('G6 — useVpsDeltaSync mergeDeltaIntoDomains', () => {
     const uniqueArts = new Set(state.committedAttachments.map((c) => c.artifactId));
     expect([...uniqueArts].sort()).toEqual(['art-1', 'art-2']);
     expect(state.committedAttachments.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('AI-extracted artifacts on a delta turn are ATTACHED to the reply (never staged)', () => {
+    // Live 2026-10-25 (David): "it is an attachment. It is the same thing" —
+    // the reply's extractions weld into the registry as committed attachments
+    // with the turn's id, so they render in the same strip, are steerable,
+    // ride every next context call, and can never be re-attached.
+    const { state, deps } = makeStubs({ activeThreadId: 'thread-active' });
+    mergeDeltaIntoDomains(
+      makeDelta({
+        revision: 13,
+        turns: [
+          {
+            id: 't-ai-1',
+            threadId: 'thread-active',
+            role: 'assistant',
+            content: 'reply',
+            timestamp: 1,
+            extractedArtifacts: [
+              { id: 'art-ai-1', title: 'From AI', type: 'document', turnIndex: 1 },
+              { id: '', title: 'junk', type: 'document' }, // junk ignored
+            ],
+          },
+        ] as never,
+      }),
+      deps
+    );
+    const ai = state.aiAttached.filter((c) => c.artifactId === 'art-ai-1');
+    expect(ai.length).toBeGreaterThanOrEqual(1);
+    expect(ai[0]).toEqual({ threadId: 'thread-active', artifactId: 'art-ai-1', turnIndex: 1, turnId: 't-ai-1' });
+    expect(state.aiAttached.some((c) => c.artifactId === '')).toBe(false);
   });
 
   it('a delta thread row NEVER downgrades welded provenance to staged (live 2026-10-25)', () => {

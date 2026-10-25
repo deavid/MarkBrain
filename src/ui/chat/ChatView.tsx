@@ -11,7 +11,6 @@ import {
   Sparkles,
   Send,
   Loader2,
-  FileCode,
   Volume2,
   VolumeX,
   ChevronDown,
@@ -1375,83 +1374,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             </div>
                           )}
 
-                          {message.extractedArtifacts && message.extractedArtifacts.length > 0 && (
-                            <div className="mt-3 pt-2.5 space-y-2">
-                              <div className="text-[10px] font-semibold text-[#8ab1e0] flex items-center justify-between font-mono">
-                                <div className="flex items-center gap-1.5">
-                                  <FileCode className="w-3.5 h-3.5 text-[#8ab1e0]" />
-                                  <span>Extracted notes</span>
-                                </div>
-                                <span className="text-[9px] text-[#6fd3dd] bg-veil-3 px-1.5 py-0.2 rounded">
-                                  Collected
-                                </span>
-                              </div>
-
-                              {message.extractedArtifacts.map((art: ExtractedArtifact, idx) => (
-                                <div
-                                  key={art.id || idx}
-                                  className="bg-veil-2 shadow-lift p-2.5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                                >
-                                  <div className="min-w-0">
-                                    <div className="font-semibold text-xs text-ink flex items-center gap-1.5 truncate">
-                                      <span>{art.title}</span>
-                                      <span className="text-[9px] font-mono text-[#8ab1e0] bg-veil-3 px-1.5 py-0.2 rounded">
-                                        {art.code}
-                                      </span>
-                                    </div>
-                                    <div className="text-[11px] text-[#869ab8] line-clamp-1 mt-0.5">
-                                      {art.description || art.summary}
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    {onSelectArtifact && (
-                                      <button
-                                        onClick={() => onSelectArtifact(art)}
-                                        className="px-2 py-1 rounded-lg bg-veil-3 hover:bg-veil-4 text-[11px] font-mono text-[#7eb4ed] transition-colors cursor-pointer"
-                                        title="Inspect fields and details full-screen"
-                                      >
-                                        Inspect
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => {
-                                        const now = Date.now();
-                                        const title = art.title || 'Extracted note';
-                                        const desc = art.description || '';
-                                        const summ = art.summary || '';
-                                        const body = art.content || `# ${title}\n\nExtracted note.`;
-                                        const fullArtifact: Artifact = {
-                                          id: `art-${now}-${idx}`,
-                                          workspaceId: project.id,
-                                          type: 'document',
-                                          color: '#5d87b8',
-                                          current: {
-                                            description: desc,
-                                            summary: summ,
-                                            body: body,
-                                          },
-                                          code:
-                                            art.code ||
-                                            title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-                                          title,
-                                          category: art.category || 'note',
-                                          isHighConcept: Boolean(art.isHighConcept),
-                                          tags: ['chat-extracted'],
-                                          createdAt: now,
-                                          updatedAt: now,
-                                        };
-                                        onAddArtifactToProject(fullArtifact);
-                                      }}
-                                      className="px-2.5 py-1 rounded-lg bg-veil-3 hover:bg-veil-4 text-xs font-mono text-ink-dim transition-colors cursor-pointer"
-                                    >
-                                      Save as Artifact
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
 
                           {message.meta && !isUser && (
                             <div className="mt-2.5 pt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-[#637894]">
@@ -1514,7 +1436,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         {attachmentsOfTurn(message, globalTurnIndex).length > 0 && (
                           <div className="max-w-[92%] sm:max-w-[85%] w-full mt-1.5 flex flex-wrap gap-1.5">
                             <div className="w-full shrink-0 text-[9px] font-mono uppercase tracking-wider text-[#556985] px-0.5">
-                              Attached on this turn
+                              {isUser ? 'Attached on this turn' : 'Attached by the AI'}
                             </div>
                             {attachmentsOfTurn(message, globalTurnIndex).map((att) => (
                               <AttachmentRow

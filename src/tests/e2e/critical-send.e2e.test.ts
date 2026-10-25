@@ -54,7 +54,17 @@ function fakeLlmResponse(init?: RequestInit): Response {
       headers: { 'content-type': 'application/json' },
     });
   }
-  const chunks = ['Reply ', 'from the ', 'fake LLM.'];
+  const chunks = [
+        'Reply ',
+        'from the ',
+        'fake LLM. ',
+        '<artifact file="e2e-fake-note.md" title="E2E Fake Note">' +
+          '<subtitle>From the wire</subtitle>' +
+          '<description>An artifact emitted by the fake LLM</description>' +
+          '<summary>Fake note summary</summary>' +
+          '<content># E2E Fake Note\nbody text</content>' +
+          '</artifact>',
+      ];
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -372,6 +382,23 @@ describe('C1 — send → stream → pair commits atomically', () => {
     expect(turns.map((t) => t.role)).toEqual(['user', 'assistant']);
     expect(turns[0].content).toBe('hello upstream');
     expect(turns[1].content).toBe('Reply from the fake LLM.');
+
+    // EXTRACTED ARTIFACTS: the sentinel block is demuxed out of the reply and
+    // both lands in the artifact set AND rides the assistant turn — the chat
+    // renders the cards under the reply (live 2026-10-25: table yes, chat no).
+    const aiRow = (delta.body.turns as Array<{ id: string; extractedArtifacts?: Array<Record<string, unknown>> }>).find(
+      (t) => t.id === turns[1].id
+    );
+    expect(aiRow?.extractedArtifacts?.length).toBe(1);
+    expect(aiRow!.extractedArtifacts![0]).toMatchObject({
+      title: 'E2E Fake Note',
+      category: 'note',
+      content: '# E2E Fake Note\nbody text',
+    });
+    const artRow = (delta.body.artifacts as Array<{ id: string; title?: string }>).find(
+      (a) => a.title === 'E2E Fake Note'
+    );
+    expect(artRow).toBeTruthy();
 
     // PROVENANCE: the staged attachment rides the user turn with turnId +
     // turnIndex — the chips must render, not vanish into provenance -1.

@@ -189,6 +189,85 @@ describe('attachment timeline (staged → committed)', () => {
     expect(registry.getAttachments(a)[0].turnIndex).toBe(1);
   });
 
+  it('ensureAttached: the AI-attachment law — committed, idempotent, never re-staged', () => {
+    const { registry, a } = registryWithTwoChats();
+    // Fresh attach: Full by default, welded to the reply's turn.
+    expect(registry.ensureAttached(a, 'art-ai-1', 3, 'turn-3')).toBe(true);
+    const att = registry.getAttachments(a).find((x) => x.artifactId === 'art-ai-1')!;
+    expect(att.turnIndex).toBe(3);
+    expect(att.turnId).toBe('turn-3');
+    expect(att.granularity).toBe('full');
+    expect(registry.getStagedAttachments(a)).toHaveLength(0);
+
+    // Idempotent: re-weld (delta re-delivery, regenerate) is a no-op and
+    // keeps the user's granularity choice.
+    registry.setAttachmentGranularity(a, 'art-ai-1', 'summary');
+    expect(registry.ensureAttached(a, 'art-ai-1', 3, 'turn-3')).toBe(false);
+    expect(registry.getAttachments(a).find((x) => x.artifactId === 'art-ai-1')!.granularity).toBe('summary');
+
+    // A STAGED entry (user armed it before the reply landed) is welded, not duplicated.
+    registry.stageArtifact(a, 'art-user-armed');
+    expect(registry.ensureAttached(a, 'art-user-armed', 4, 'turn-4')).toBe(true);
+    const welded = registry.getAttachments(a).find((x) => x.artifactId === 'art-user-armed')!;
+    expect(welded.turnIndex).toBe(4);
+    expect(welded.turnId).toBe('turn-4');
+    expect(registry.getStagedAttachments(a)).toHaveLength(0);
+
+    // Granularity stays steerable after the weld (same code as user attachments).
+    registry.setAttachmentGranularity(a, 'art-user-armed', 'title');
+    expect(registry.getAttachments(a).find((x) => x.artifactId === 'art-user-armed')!.granularity).toBe('title');
+  });
+
+  it('hydrate attaches AI-extracted artifacts from the turns (refresh never drops the AI attachment)', () => {
+    const registry = new ThreadRegistry();
+    registry.hydrate({
+      projectId: 'p',
+      threads: [
+        {
+          id: 'thread-ai',
+          folderId: null,
+          title: 'AI',
+          titleState: 'auto',
+          titleVersion: 1,
+          createdAt: 0,
+          updatedAt: 0,
+          lastActivityAt: 0,
+          lifecycle: 'active' as const,
+          lastOutcome: 'ok' as const,
+          preview: '',
+          attachments: [], // registry cache lost it — the turns are the truth
+        },
+      ],
+      turns: [
+        { id: 't0', role: 'user' as const, content: 'ask', timestamp: 1, threadId: 'thread-ai' },
+        {
+          id: 't1',
+          role: 'assistant' as const,
+          content: 'reply',
+          timestamp: 2,
+          threadId: 'thread-ai',
+          extractedArtifacts: [{ id: 'art-from-ai', title: 'From AI', type: 'document', turnIndex: 1 }],
+        },
+        // Another thread's extraction must NOT attach here.
+        {
+          id: 't9',
+          role: 'assistant' as const,
+          content: 'other',
+          timestamp: 3,
+          threadId: 'thread-other',
+          extractedArtifacts: [{ id: 'art-foreign', title: 'Foreign', type: 'document', turnIndex: 1 }],
+        },
+      ],
+    });
+    const att = registry.getAttachments('thread-ai').find((x) => x.artifactId === 'art-from-ai')!;
+    expect(att).toBeTruthy();
+    expect(att.turnIndex).toBe(1);
+    expect(att.turnId).toBe('t1');
+    expect(att.granularity).toBe('full');
+    expect(registry.getStagedAttachments('thread-ai')).toHaveLength(0);
+    expect(registry.getAttachments('thread-ai').some((x) => x.artifactId === 'art-foreign')).toBe(false);
+  });
+
   it('committing with no staged items is a zero-cost no-op', () => {
     const { registry, a } = registryWithTwoChats();
     registry.attachArtifact(a, 'art-1', 'full', 0, 'turn-0');

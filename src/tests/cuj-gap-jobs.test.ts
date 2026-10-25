@@ -552,6 +552,25 @@ describe('G5 — job commit applies buffered artifacts + topic shifts', () => {
     const hook = artifacts.find((a) => a.title === 'The Hook');
     expect(hook).toBeTruthy();
 
+    // The assistant turn carries the extracted artifacts so the CHAT renders
+    // them under the reply (live 2026-10-25: they landed in the table but the
+    // message showed nothing — the client's cards read the turn).
+    const delta = await api(`/api/projects/${PROJECT_ID}/delta?since=0`);
+    const aiTurn = (delta.body.turns as Array<{ id: string; extractedArtifacts?: Array<Record<string, unknown>> }>).find(
+      (t) => t.id === `turn-ai-${jobId}`
+    );
+    expect(aiTurn).toBeTruthy();
+    expect(aiTurn!.extractedArtifacts?.length).toBe(1);
+    expect(aiTurn!.extractedArtifacts![0]).toMatchObject({
+      title: 'The Hook',
+      category: 'note',
+      content: '# The Hook',
+    });
+    expect(aiTurn!.extractedArtifacts![0].code).toBeTruthy();
+    // AI-attachment law: the server stamps the reply turn's thread index so
+    // clients weld the extraction as a COMMITTED attachment of that turn.
+    expect(aiTurn!.extractedArtifacts![0].turnIndex).toBe(3); // pair at thread indices 2+3
+
     // The previous chapter is sealed (completed + endIndex) …
     const chapters = project.body.project.chapters as Array<{
       id: string;

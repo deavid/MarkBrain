@@ -720,8 +720,33 @@ export function commitJobPairTransaction(input: CommitJobInput): {
           ...turnDoc,
           content: input.replyText,
           timestamp: now,
+          extractedArtifacts: input.artifacts.map((u) => ({
+            id: u.id,
+            title: u.title,
+            type: u.type,
+            code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
+            category: u.type === 'chapter' ? 'chapter' : 'note',
+            subtitle: u.content.subtitle,
+            description: u.content.description,
+            summary: u.content.summary,
+            content: u.content.body,
+            isHighConcept: false,
+          })),
           meta: { ...(turnDoc.meta ?? {}), ...(input.telemetry ?? {}) },
         };
+      }
+      // The replaced turn's index WITHIN its thread (AI-attachment law) —
+      // count the thread's turns that precede it by seq.
+      const seqBefore = row?.seq ?? 0;
+      const regenIndex = (db
+        .prepare(
+          'SELECT COUNT(*) AS n FROM turns WHERE user_id = ? AND project_id = ? AND thread_id = ? AND seq < ?'
+        )
+        .get(input.userId, input.projectId, input.threadId, seqBefore) as { n: number }).n;
+      if (Array.isArray(turnDoc.extractedArtifacts)) {
+        for (const ea of turnDoc.extractedArtifacts) {
+          (ea as { turnIndex?: number }).turnIndex = regenIndex;
+        }
       }
       upsertTurn(db, input.userId, input.projectId, turnDoc, row?.seq ?? 0, newRev);
       userTurnId = ''; // regenerate replaces the reply; the ask turn already exists
@@ -775,6 +800,27 @@ export function commitJobPairTransaction(input: CommitJobInput): {
           content: input.replyText,
           timestamp: now + 1,
           threadId: input.threadId,
+          // Mirror of the client's local commitPair: the extracted artifacts
+          // ride the turn so the chat renders them under the reply (live
+          // 2026-10-25: the artifacts landed in the table but the message
+          // showed nothing — the client's cards read the turn, not the table).
+          // turnIndex = the assistant turn's index WITHIN the thread — the
+          // AI-attachment law: clients weld these into the registry as
+          // committed attachments (steerable granularity, compiled into the
+          // next context calls, never re-staged).
+          extractedArtifacts: input.artifacts.map((u) => ({
+            id: u.id,
+            title: u.title,
+            type: u.type,
+            code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
+            category: u.type === 'chapter' ? 'chapter' : 'note',
+            subtitle: u.content.subtitle,
+            description: u.content.description,
+            summary: u.content.summary,
+            content: u.content.body,
+            isHighConcept: false,
+            turnIndex: userTurnIndex + 1,
+          })),
           meta: {
             model: input.model,
             isFallback: Boolean(input.isFallbackPartial),

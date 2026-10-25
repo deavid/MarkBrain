@@ -18,6 +18,7 @@ import { registerTtsRoutes } from './routes/tts';
 import { registerExtractRoutes } from './routes/extract';
 import { registerSearchIndexRoutes } from './routes/searchIndex';
 import { registerProjectRoutes } from './routes/projects';
+import { registerJobRoutes } from './routes/jobs';
 
 
 // Project root, not server/. This file lives one level down, so __dirname is
@@ -88,6 +89,7 @@ const GATED_PATHS = [
   '/api/search-index',
   '/api/server-logs',
   '/api/projects',
+  '/api/jobs',
 ];
 for (const p of GATED_PATHS) {
   app.use(p, requireAuth);
@@ -101,6 +103,7 @@ registerTtsRoutes(app);
 registerExtractRoutes(app);
 registerSearchIndexRoutes(app);
 registerProjectRoutes(app); // 21D: normalized atomic project sync + delta
+registerJobRoutes(app); // 21E: send-and-forget chat jobs + SSE watch
 logServer('success', 'SERVER', 'Content routes mounted behind requireAuth (per-user vault keys)');
 
 export async function startServer() {

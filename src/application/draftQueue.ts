@@ -25,6 +25,8 @@
 export type DraftState = 'queued' | 'sending' | 'failed' | 'stopped';
 
 export interface DraftItem {
+  /** Connected-mode only (21E §4): the VPS job this draft is watching. */
+  serverJobId?: string;
   id: string;
   threadId: string;
   /** The ask — exactly what the user sent. */

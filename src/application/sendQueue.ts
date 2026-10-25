@@ -30,6 +30,8 @@ import { serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 import { logger } from '../utils/logger';
 import { placeholderTitle, sampleTurnsForTitle, titlePipelineStep } from '../domains/06-chat-threads';
 import { DraftQueue, type DraftItem, regenerateAllowed } from './draftQueue';
+import { apiFetch } from '../gateway/api';
+import { getWorkspaceMode } from '../services/workspaceSession';
 import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../domains/03-stream-protocol';
 
 /** App render values, snapshotted once when an attempt starts (see the header). */
@@ -141,6 +143,10 @@ export class SendQueue {
   /** Discard the would-be pair — ask, partial, buffers, gone with no trace. */
   discardDraft(id: string): void {
     logger.action('App', 'Discard draft', { draftId: id });
+    const existing = this.drafts.getItem(id);
+    if (getWorkspaceMode() === 'vps' && existing?.serverJobId) {
+      void apiFetch(`/api/jobs/${encodeURIComponent(existing.serverJobId)}`, { method: 'DELETE' }).catch(() => {});
+    }
     this.drafts.discard(id);
     this.getDeps().triggerReRender();
     this.kick();
@@ -155,6 +161,19 @@ export class SendQueue {
     const item = this.drafts.getItem(id);
     if (!item || !item.partial) return;
     logger.action('App', 'Store draft as-is', { draftId: id });
+    if (getWorkspaceMode() === 'vps' && item.serverJobId) {
+      // Server commits the partial pair to SQLite; delta brings it home.
+      void apiFetch(`/api/jobs/${encodeURIComponent(item.serverJobId)}/store-as-is`, { method: 'POST' })
+        .catch((err) => logger.warn('App', 'store-as-is failed', err))
+        .finally(() => {
+          this.drafts.resolve(item.id);
+          // Wake the delta poller so the pair lands now, not on the next tick.
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event('focus'));
+          this.getDeps().triggerReRender();
+          this.kick();
+        });
+      return;
+    }
     const deps = this.getDeps();
     const ctx = deps.getContext();
     const chain: QueueChain = { deps, ctx };
@@ -234,6 +253,16 @@ export class SendQueue {
     const deps = this.getDeps();
     logger.action('App', 'Stop generation');
     const item = this.activeDraft;
+    if (getWorkspaceMode() === 'vps' && item?.serverJobId) {
+      // Explicit stop is the ONLY cancel (21E §1): server aborts upstream and
+      // keeps the partial for Retry / Store-as-is / Discard.
+      void apiFetch(`/api/jobs/${encodeURIComponent(item.serverJobId)}/stop`, { method: 'POST' }).catch(() => {});
+      this.drafts.stop(item.id, item.partial);
+      deps.setStreamingStatus(null);
+      deps.setStreamPhase(null);
+      deps.triggerReRender();
+      return;
+    }
     if (item && this.jobAbort) {
       this.jobAbort.abort();
       deps.postChatCancel('Stop button pressed by user');
@@ -343,8 +372,15 @@ export class SendQueue {
     const deps = this.getDeps();
     const chain: QueueChain = { deps, ctx: deps.getContext() };
     try {
-      if (item.kind === 'regenerate') await this.executeRegenerateAttempt(chain, item);
-      else await this.executeAttempt(chain, item);
+      // Connected VPS mode (21E §4): the SERVER owns the attempt — send-and-
+      // forget. Local mode keeps today's in-browser stream untouched.
+      if (getWorkspaceMode() === 'vps') {
+        await this.executeVpsAttempt(chain, item);
+      } else if (item.kind === 'regenerate') {
+        await this.executeRegenerateAttempt(chain, item);
+      } else {
+        await this.executeAttempt(chain, item);
+      }
     } catch (err) {
       logger.error('App', 'Draft attempt failed unexpectedly', err);
       this.drafts.fail(
@@ -534,6 +570,156 @@ export class SendQueue {
       artifacts: extractedList.length,
       topicShifts: bufferedShifts.length,
     });
+  }
+
+  /**
+   * Connected-mode attempt (21E §4): enqueue (or re-attach to) a VPS job and
+   * WATCH it over SSE. Disconnects never fail the draft — the watcher
+   * re-attaches until a terminal event or a 404 (job completed & committed).
+   */
+  private async executeVpsAttempt(chain: QueueChain, item: DraftItem): Promise<void> {
+    const deps = chain.deps;
+    const ctx = chain.ctx;
+    const threadId = item.threadId;
+    deps.setStreamingStatus(`Connecting to ${ctx.model.name}...`);
+    deps.setStreamPhase('waiting');
+
+    const virtualAsk = { id: `virtual-${item.id}`, role: 'user' as const, content: item.text, timestamp: Date.now() };
+    const compiled = deps.compiler.compile({
+      attachments: deps.threadRegistry.getAttachments(threadId),
+      tokenCeiling: ctx.tokenCeiling,
+      log: true,
+      historyTurns: [...this.turnsOf(deps, threadId), virtualAsk],
+      historyChapters: this.chaptersOf(deps, threadId),
+    });
+
+    let jobId = item.serverJobId;
+    if (jobId) {
+      // Re-entry: is the job still live, failed/stopped (retry), or gone?
+      const listRes = await apiFetch(`/api/projects/${encodeURIComponent(ctx.projectId)}/jobs`);
+      const list = listRes.ok ? ((await listRes.json()) as { jobs: Array<{ jobId: string; state: string }> }) : { jobs: [] };
+      const known = list.jobs.find((j) => j.jobId === jobId);
+      if (!known) {
+        // Completed and deleted server-side — the pair arrives via delta.
+        this.drafts.resolve(item.id);
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('focus'));
+        return;
+      }
+      if (known.state === 'failed' || known.state === 'stopped') {
+        // Only reachable via an explicit user Retry (failed heads never auto-kick).
+        const retryRes = await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
+        if (!retryRes.ok) throw new Error(`Retry failed (HTTP ${retryRes.status})`);
+      }
+    } else {
+      const createRes = await apiFetch(
+        `/api/projects/${encodeURIComponent(ctx.projectId)}/jobs/send`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            threadId,
+            kind: item.kind ?? 'send',
+            askText: item.text,
+            compiledPrompt: compiled.compiledPrompt,
+            systemInstruction: compiled.systemInstruction,
+            model: ctx.model.id,
+            stagedAttachments: deps.threadRegistry.getStagedAttachments(threadId),
+            targetTurnId: item.targetTurnId ?? null,
+          }),
+        }
+      );
+      if (!createRes.ok) {
+        const body = await createRes.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || `Job enqueue failed (HTTP ${createRes.status})`);
+      }
+      const body = (await createRes.json()) as { job: { jobId: string } };
+      jobId = body.job.jobId;
+      item.serverJobId = jobId;
+    }
+
+    await this.watchVpsJob(jobId, item, deps);
+  }
+
+  /** SSE watch with re-attach on disconnect — never fails the draft (21E §4.3). */
+  private async watchVpsJob(jobId: string, item: DraftItem, deps: SendQueueDeps): Promise<void> {
+    for (;;) {
+      // Another action (stop/discard) may have taken over the draft.
+      if (this.activeDraft !== item) return;
+      try {
+        const res = await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/stream`);
+        if (res.status === 404) {
+          // Completed & deleted — commit is already in SQLite.
+          this.drafts.resolve(item.id);
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event('focus'));
+          deps.triggerReRender();
+          return;
+        }
+        if (!res.ok || !res.body) throw new Error(`stream HTTP ${res.status}`);
+
+        const terminal = await this.readVpsSse(res, item, deps);
+        if (terminal) return;
+        // Clean close without terminal → re-attach.
+      } catch {
+        // Screen locked / network blip: WAIT and re-attach. Never fail here.
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }
+
+  /** Reads SSE frames; returns true on a terminal event. */
+  private async readVpsSse(res: Response, item: DraftItem, deps: SendQueueDeps): Promise<boolean> {
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return false; // disconnect → caller re-attaches
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const eventMatch = frame.match(/^event: (.+)$/m);
+        const dataMatch = frame.match(/^data: (.+)$/m);
+        if (!eventMatch || !dataMatch) continue;
+        const event = eventMatch[1].trim();
+        let data: any = {};
+        try {
+          data = JSON.parse(dataMatch[1]);
+        } catch {
+          continue;
+        }
+        if (event === 'snapshot' && data.state === 'sending' && typeof data.partialText === 'string' && data.partialText) {
+          this.drafts.updatePartial(item.id, data.partialText);
+          deps.triggerReRender();
+        } else if (event === 'chunk') {
+          deps.setStreamPhase('streaming');
+          deps.setStreamingStatus(null);
+          this.drafts.updatePartial(item.id, data.partialText ?? '');
+          deps.triggerReRender();
+        } else if (event === 'complete') {
+          this.drafts.resolve(item.id);
+          deps.markThreadUnread(item.threadId);
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event('focus')); // delta pull NOW
+          deps.triggerReRender();
+          return true;
+        } else if (event === 'error') {
+          // Terminal server failure: land the draft failed with the server's
+          // reason (retry re-attaches to the same job id).
+          this.drafts.fail(
+            item.id,
+            String(data.message || 'The request failed — no reply came back.'),
+            item.partial
+          );
+          deps.triggerReRender();
+          return true;
+        } else if (event === 'stopped') {
+          this.drafts.stop(item.id, data.partialText || item.partial);
+          deps.triggerReRender();
+          return true;
+        }
+      }
+    }
   }
 
   /**

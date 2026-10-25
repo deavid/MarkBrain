@@ -531,6 +531,309 @@ export function applyAtomicMutation(
   return tx();
 }
 
+/* ── chat jobs (21E) ──────────────────────────────────────────────────────── */
+
+export interface ChatJobSummary {
+  jobId: string;
+  threadId: string;
+  kind: 'send' | 'regenerate';
+  state: string;
+  askText: string;
+  partialText: string;
+  errorReason: string | null;
+  model: string;
+}
+
+/** Non-completed jobs for a project — what delta/GET /jobs expose (21E §3). */
+export function getJobSummaryRows(userId: number, projectId: string): ChatJobSummary[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT job_id, thread_id, kind, state, ask_text, partial_text, error_reason, model
+       FROM chat_jobs WHERE user_id = ? AND project_id = ? AND state != 'completed'
+       ORDER BY created_at ASC`
+    )
+    .all(userId, projectId) as Array<{
+    job_id: string;
+    thread_id: string;
+    kind: string;
+    state: string;
+    ask_text: string;
+    partial_text: string;
+    error_reason: string | null;
+    model: string;
+  }>;
+  return rows.map((r) => ({
+    jobId: r.job_id,
+    threadId: r.thread_id,
+    kind: r.kind as 'send' | 'regenerate',
+    state: r.state,
+    askText: r.ask_text,
+    partialText: r.partial_text,
+    errorReason: r.error_reason,
+    model: r.model,
+  }));
+}
+
+/** Bare revision bump (job failure/stop, chores) — creates the shell row if needed. */
+export function bumpProjectRevision(userId: number, projectId: string): number {
+  const db = getDb();
+  const tx = db.transaction((): number => {
+    const cur = db.prepare(SELECT_PROJECT).get(userId, projectId) as ProjectRow | undefined;
+    if (!cur) {
+      upsertProjectMeta(
+        db,
+        userId,
+        { projectId, name: 'Untitled Project', turns: [], chapters: [], artifacts: [], edges: [], updatedAt: Date.now() } as ProjectSnapshot,
+        1
+      );
+      return 1;
+    }
+    const next = cur.revision + 1;
+    db.prepare('UPDATE projects SET revision = ?, updated_at = ? WHERE user_id = ? AND project_id = ?').run(
+      next,
+      Date.now(),
+      userId,
+      projectId
+    );
+    return next;
+  });
+  return tx();
+}
+
+export interface CommitJobInput {
+  userId: number;
+  projectId: string;
+  threadId: string;
+  kind: 'send' | 'regenerate';
+  targetTurnId: string | null;
+  askText: string;
+  replyText: string;
+  model: string;
+  stagedAttachments: unknown[];
+  artifacts: Array<{
+    id: string;
+    title: string;
+    type: 'document' | 'chapter';
+    content: { subtitle: string; description: string; summary: string; body: string };
+  }>;
+  shifts: Array<{ title: string; subtitle?: string; description?: string; summary?: string }>;
+  pairKey: string;
+  isFallbackPartial?: boolean;
+}
+
+/**
+ * ONE transaction commits the job's result (21E §2.3.5): pair (or regenerate
+ * replacement), buffered artifacts, topic-shift chapters, thread touch, and
+ * a revision bump — then the chat_jobs row is deleted by the caller.
+ */
+export function commitJobPairTransaction(input: CommitJobInput): {
+  revision: number;
+  userTurnId: string;
+  assistantTurnId: string;
+} {
+  const db = getDb();
+  const tx = db.transaction(() => {
+    const cur = db.prepare(SELECT_PROJECT).get(input.userId, input.projectId) as ProjectRow | undefined;
+    if (!cur) {
+      upsertProjectMeta(
+        db,
+        input.userId,
+        {
+          projectId: input.projectId,
+          name: 'Untitled Project',
+          turns: [],
+          chapters: [],
+          artifacts: [],
+          edges: [],
+          updatedAt: Date.now(),
+        } as ProjectSnapshot,
+        0
+      );
+    }
+    const newRev = (cur?.revision ?? 0) + 1;
+    db.prepare('UPDATE projects SET revision = ?, updated_at = ? WHERE user_id = ? AND project_id = ?').run(
+      newRev,
+      Date.now(),
+      input.userId,
+      input.projectId
+    );
+
+    let userTurnId = '';
+    let assistantTurnId = '';
+    const now = Date.now();
+
+    if (input.kind === 'regenerate' && input.targetTurnId) {
+      assistantTurnId = input.targetTurnId;
+      const row = db
+        .prepare('SELECT doc_json, seq FROM turns WHERE user_id = ? AND project_id = ? AND turn_id = ?')
+        .get(input.userId, input.projectId, input.targetTurnId) as { doc_json: string; seq: number } | undefined;
+      let turnDoc: Turn;
+      try {
+        turnDoc = JSON.parse(row?.doc_json ?? 'null');
+      } catch {
+        turnDoc = null as unknown as Turn;
+      }
+      if (!turnDoc) {
+        turnDoc = {
+          id: input.targetTurnId,
+          role: 'assistant',
+          content: input.replyText,
+          timestamp: now,
+          threadId: input.threadId,
+        };
+      } else {
+        turnDoc = { ...turnDoc, content: input.replyText, timestamp: now };
+      }
+      upsertTurn(db, input.userId, input.projectId, turnDoc, row?.seq ?? 0, newRev);
+      userTurnId = ''; // regenerate replaces the reply; the ask turn already exists
+    } else {
+      userTurnId = `turn-user-${input.pairKey}`;
+      assistantTurnId = `turn-ai-${input.pairKey}`;
+      const seqRow = db
+        .prepare('SELECT COALESCE(MAX(seq), -1) AS m FROM turns WHERE user_id = ? AND project_id = ?')
+        .get(input.userId, input.projectId) as { m: number };
+      const base = seqRow.m + 1;
+      const attachments = input.stagedAttachments;
+      upsertTurn(
+        db,
+        input.userId,
+        input.projectId,
+        {
+          id: userTurnId,
+          role: 'user',
+          content: input.askText,
+          timestamp: now,
+          threadId: input.threadId,
+          meta: attachments.length ? ({ attachments } as Turn['meta']) : undefined,
+        },
+        base,
+        newRev
+      );
+      upsertTurn(
+        db,
+        input.userId,
+        input.projectId,
+        {
+          id: assistantTurnId,
+          role: 'assistant',
+          content: input.replyText,
+          timestamp: now + 1,
+          threadId: input.threadId,
+          meta: {
+            model: input.model,
+            isFallback: Boolean(input.isFallbackPartial),
+            isStreaming: false,
+            streamState: 'completed',
+          } as Turn['meta'],
+        },
+        base + 1,
+        newRev
+      );
+    }
+
+    // Buffered artifacts → artifacts table (mirror of sendQueue.applyBufferedArtifacts).
+    const turnCount =
+      (db.prepare('SELECT COUNT(*) AS n FROM turns WHERE user_id = ? AND project_id = ? AND thread_id = ?').get(
+        input.userId,
+        input.projectId,
+        input.threadId
+      ) as { n: number }).n;
+    for (const u of input.artifacts) {
+      const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
+      const now2 = Date.now();
+      const doc = {
+        id: u.id || `art-${now2}`,
+        workspaceId: input.projectId,
+        code,
+        title: u.title || 'Extracted note',
+        type: u.type === 'chapter' ? 'chapter' : 'document',
+        category: u.type === 'chapter' ? 'chapter' : 'note',
+        color: '#e05a66',
+        isHighConcept: false,
+        current: {
+          subtitle: u.content.subtitle || '',
+          description: u.content.description || '',
+          summary: u.content.summary || '',
+          body: u.content.body || `# ${u.title}`,
+        },
+        tags: ['chat-extracted', u.type || 'note'],
+        createdAt: now2,
+        updatedAt: now2,
+        graph: { is_high_concept: false, x: 300, y: 200 },
+      };
+      upsertArtifact(db, input.userId, input.projectId, doc as unknown as UniversalArtifactDocument, newRev);
+    }
+
+    // Topic shifts → seal current chapter (if active) and open the new one.
+    for (const shift of input.shifts) {
+      const activeRows = db
+        .prepare(
+          'SELECT chapter_id, doc_json, order_index FROM chapters WHERE user_id = ? AND project_id = ? AND chapter_thread_id = ? ORDER BY order_index ASC'
+        )
+        .all(input.userId, input.projectId, input.threadId) as Array<{
+        chapter_id: string;
+        doc_json: string;
+        order_index: number;
+      }>;
+      const last = activeRows[activeRows.length - 1];
+      if (last) {
+        try {
+          const doc = JSON.parse(last.doc_json) as ChapterPartition;
+          if (doc.status === 'active') {
+            doc.status = 'completed';
+            doc.endIndex = turnCount;
+            upsertChapter(db, input.userId, input.projectId, doc, last.order_index, newRev);
+          }
+        } catch {
+          /* thin row — skip */
+        }
+      }
+      const chId = `ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      upsertChapter(
+        db,
+        input.userId,
+        input.projectId,
+        {
+          id: chId,
+          workspaceId: input.projectId,
+          threadId: input.threadId,
+          title: shift.title,
+          subtitle: shift.subtitle,
+          description: shift.description,
+          summary: shift.summary,
+          status: 'active',
+          startIndex: turnCount,
+          createdAt: Date.now(),
+        } as ChapterPartition,
+        activeRows.length,
+        newRev
+      );
+    }
+
+    // Touch the thread (preview + lastOutcome) so the sidebar reflects the pair.
+    const threadRow = db
+      .prepare('SELECT doc_json FROM threads WHERE user_id = ? AND project_id = ? AND thread_id = ?')
+      .get(input.userId, input.projectId, input.threadId) as { doc_json: string } | undefined;
+    if (threadRow?.doc_json && threadRow.doc_json !== '{}') {
+      try {
+        const threadDoc = JSON.parse(threadRow.doc_json) as Record<string, unknown>;
+        threadDoc.lastOutcome = 'ok';
+        threadDoc.lastActivityAt = now;
+        threadDoc.preview = input.askText.slice(0, 100);
+        db.prepare(
+          'UPDATE threads SET doc_json = ?, updated_at = ?, revision = ? WHERE user_id = ? AND project_id = ? AND thread_id = ?'
+        ).run(JSON.stringify(threadDoc), now, newRev, input.userId, input.projectId, input.threadId);
+      } catch {
+        /* leave thin row */
+      }
+    }
+
+    return { revision: newRev, userTurnId, assistantTurnId };
+  });
+  return tx();
+}
+
 /** Only rows with revision > sinceRevision (21D §2.5). */
 export function getProjectDelta(userId: number, projectId: string, sinceRevision: number): ProjectDeltaResponse | null {
   const db = getDb();
@@ -547,7 +850,7 @@ export function getProjectDelta(userId: number, projectId: string, sinceRevision
     artifacts: [],
     edges: [],
     tombstones: [],
-    activeJobs: [],
+    activeJobs: getJobSummaryRows(userId, projectId),
   };
   if (row.revision > sinceRevision) {
     base.projectMeta = {

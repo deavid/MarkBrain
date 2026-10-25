@@ -168,6 +168,11 @@ export class DraftQueue {
           createdAt: Number(i.createdAt) || Date.now(),
           ...(i.kind === 'regenerate' ? { kind: 'regenerate' as const } : {}),
           ...(typeof i.targetTurnId === 'string' ? { targetTurnId: i.targetTurnId } : {}),
+          // The SERVER-JOB BINDING is identity, not session state (design 23
+          // §4): a reload must keep it, or reconcile materializes a SECOND
+          // draft for the same job and Retry creates a duplicate send behind
+          // the dead head. Bug found live 2026-10-25.
+          ...(typeof i.serverJobId === 'string' ? { serverJobId: i.serverJobId } : {}),
         }));
     } catch {
       /* junk storage → empty queue */

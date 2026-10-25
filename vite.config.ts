@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import dotenv from 'dotenv';
 import {defineConfig} from 'vite';
+import {configDefaults} from 'vitest/config';
 
 export default defineConfig(() => {
   // Same env layering as server.ts (see there for the precedence rules):
@@ -20,6 +21,12 @@ export default defineConfig(() => {
 
   return {
     plugins: [react(), tailwindcss()],
+    test: {
+      // Two-speed suite (David 2026-10-25): the everyday gate stays fast.
+      // The real-server E2E journeys live in src/tests/e2e/ and run via
+      // `npm run test:e2e` (vitest.e2e.config.ts) — explicitly, not always.
+      exclude: [...configDefaults.exclude, 'src/tests/e2e/**'],
+    },
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, '.'),

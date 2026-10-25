@@ -89,6 +89,27 @@ chat was exactly that: one vault-locked job as head, three sends queued behind
 it forever, nothing on screen. A queued draft behind a blocked head says so:
 *"Queued — blocked by the failed draft above."*
 
+## 2.5 — Topic-shift chapter law (David 2026-10-25, live-found)
+
+A model reply may carry several `<topic_shift>` sentinels; chapter cuts obey:
+
+1. **LAST shift wins** — the chapter that opens is the one the reply ENDED on
+   (demuxFullTurn parses every sentinel, keeps the last, fires once).
+2. **The cut applies at the message that CAUSED the change** — the human ask of
+   the pair (thread index `turnCount - 2`), not after the reply.
+3. **A cut that already exists at that index is RETITLED** — client-declared
+   genesis, a previous commit's cut, a re-emitted sentinel on regenerate — the
+   shift replaces that chapter's title/metadata; it never opens a duplicate.
+4. Delta-synced chapters route **per thread**: only the active thread's
+   chapters live in the segmentation domain; other threads' chapters go to the
+   registry cache (a strip that renders foreign chapters against this timeline
+   showed "Genesis Chapter" twice with duplicated contents).
+
+Pinned by: `topic-shift-law.test.ts` (demux), `send-and-forget-jobs` §5.4
+(server law incl. regenerate-replace), `cuj-gap-jobs` G5 (seal+open vs
+retitle-in-place), `cuj-gap-sync` G6 (per-thread routing), `send-model`
+(client law).
+
 ## 3. Implementation notes
 - `sendQueue.executeAttempt` / `executeVpsAttempt` compile from
   `item.attachments ?? getAttachments(threadId)` (fallback keeps old drafts

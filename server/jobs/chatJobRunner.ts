@@ -20,6 +20,7 @@ import type { LaneAiClient } from '../lib/accountVault';
 import { requireModelId } from '../lib/models';
 import { logServer } from '../lib/log';
 import { buildSummarizePrompt, DEFAULT_SYSTEM_INSTRUCTION } from '../lib/prompt';
+import { estimateTokens } from '../lib/tokens';
 import { buildTitlePrompt, cleanupTitle } from '../../src/prompts/lanes';
 import { StreamProtocolDomain } from '../../src/domains/03-stream-protocol';
 import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../../src/domains/03-stream-protocol/types';
@@ -58,6 +59,14 @@ interface ActiveJobContext {
   subscribers: Set<Response>;
   /** clean text accumulated so far (partial persisted periodically) */
   cleanText: string;
+  /**
+   * True for the context attachSubscriber stands in while the job is still
+   * queued — runJob ADOPTS it so a watcher that attached early keeps
+   * receiving events (a replaced context orphans the socket silently).
+   */
+  placeholder?: boolean;
+  /** The provider accepted the stream (the ACK before first token). */
+  connected?: boolean;
 }
 
 const activeJobs = new Map<string, ActiveJobContext>();
@@ -225,19 +234,27 @@ export async function runJob(jobId: string): Promise<void> {
   }
 
   const abortController = new AbortController();
-  const ctx: ActiveJobContext = {
-    jobId,
-    userId: job.user_id,
-    projectId: job.project_id,
-    threadId: job.thread_id,
-    abortController,
-    subscribers: new Set(),
-    cleanText: '',
-  };
+  // Adopt a placeholder left by attachSubscriber (watcher attached while the
+  // job was queued) — its subscribers must keep receiving this attempt.
+  const existing = activeJobs.get(jobId);
+  const ctx: ActiveJobContext =
+    existing && existing.placeholder
+      ? { ...existing, abortController, placeholder: false }
+      : {
+          jobId,
+          userId: job.user_id,
+          projectId: job.project_id,
+          threadId: job.thread_id,
+          abortController,
+          subscribers: new Set(),
+          cleanText: '',
+        };
   activeJobs.set(jobId, ctx);
 
   setJobState(jobId, 'sending');
-  broadcast(ctx, 'status', { type: 'status', state: 'streaming' });
+  // Honest ladder (design 23 §2.2): the RPC is going out — no ACK yet, so
+  // this is CONNECTING, never "the model is thinking".
+  broadcast(ctx, 'status', { type: 'status', state: 'connecting' });
 
   try {
     const model = requireModelId(job.model, 'chat');
@@ -251,9 +268,21 @@ export async function runJob(jobId: string): Promise<void> {
       config: { systemInstruction: job.system_instruction || DEFAULT_SYSTEM_INSTRUCTION, temperature: 0.7 },
     });
 
+    // THE ACK BEFORE FIRST TOKEN (David 2026-10-25): the provider accepted
+    // the stream — from here on "the model is thinking" is true. Zero bytes
+    // before this point is CONNECTING, not thinking. Recorded on the context
+    // so a watcher that attaches LATE still learns it via its snapshot.
+    ctx.connected = true;
+    broadcast(ctx, 'status', { type: 'status', state: 'connected' });
+
     const domain = new StreamProtocolDomain();
     let seenArtifacts = 0;
     let lastCleanLen = 0;
+    // Token telemetry (mirror of the client stream path): real provider usage
+    // when it arrives, honest estimates otherwise. Zero-token turns are a lie.
+    let usage: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } | null = null;
+    let timeToFirstChunkMs: number | null = null;
+    const jobStart = Date.now();
     // Accumulate RAW provider text and re-demux from raw each flush — demuxing
     // from previously-cleaned text eats the spaces at chunk boundaries.
     let raw = '';
@@ -262,6 +291,8 @@ export async function runJob(jobId: string): Promise<void> {
       if (abortController.signal.aborted) break;
       const text = chunk.text || '';
       if (!text) continue;
+      if (timeToFirstChunkMs === null) timeToFirstChunkMs = Date.now() - jobStart;
+      if (chunk.usageMetadata) usage = chunk.usageMetadata;
       raw += text;
       const demuxed = domain.demuxFullTurn(raw);
       // Live partial = prose without sentinel blocks; buffers ride alongside.
@@ -295,6 +326,8 @@ export async function runJob(jobId: string): Promise<void> {
     }
 
     const reply = clean || `Extracted ${artifacts.length} note${artifacts.length === 1 ? '' : 's'}.`;
+    const inputTokens = usage?.promptTokenCount ?? estimateTokens(job.compiled_prompt);
+    const outputTokens = usage?.candidatesTokenCount ?? estimateTokens(reply);
     const { revision, userTurnId, assistantTurnId } = commitJobPairTransaction({
       userId: job.user_id,
       projectId: job.project_id,
@@ -308,6 +341,14 @@ export async function runJob(jobId: string): Promise<void> {
       artifacts,
       shifts: finalDemux.topicShift ? [finalDemux.topicShift] : [],
       pairKey: jobId,
+      // Real provider usage when the wire carried it, estimates otherwise.
+      telemetry: {
+        inputTokens,
+        outputTokens,
+        totalTokens: usage?.totalTokenCount ?? inputTokens + outputTokens,
+        latencyMs: Date.now() - jobStart,
+        timeToFirstChunkMs: timeToFirstChunkMs ?? Date.now() - jobStart,
+      },
     });
 
     getDb().prepare('DELETE FROM chat_jobs WHERE job_id = ?').run(jobId);
@@ -355,8 +396,17 @@ export function attachSubscriber(jobId: string, res: Response): 'snapshot' | 'go
   const job = getJobRow(jobId);
   if (!job) return 'gone';
 
-  // Immediate snapshot (21E §3).
-  res.write(`event: snapshot\ndata: ${JSON.stringify({ type: 'snapshot', partialText: job.partial_text, state: job.state })}\n\n`);
+  // Immediate snapshot (21E §3) — including whether the provider ACK already
+  // happened (a late watcher must not sit in CONNECTING through slow TTFT).
+  const liveCtx = activeJobs.get(jobId);
+  res.write(
+    `event: snapshot\ndata: ${JSON.stringify({
+      type: 'snapshot',
+      partialText: job.partial_text,
+      state: job.state,
+      ...(job.state === 'sending' && liveCtx?.connected ? { connected: true } : {}),
+    })}\n\n`
+  );
 
   if (job.state === 'completed') {
     res.write(`event: complete\ndata: ${JSON.stringify({ type: 'complete' })}\n\n`);
@@ -386,7 +436,8 @@ export function attachSubscriber(jobId: string, res: Response): 'snapshot' | 'go
 
   let ctx = activeJobs.get(jobId);
   if (!ctx) {
-    // queued-but-not-yet-running (or runner restarted): show queued, kick once.
+    // queued-but-not-yet-running (or runner restarted): stand in with a
+    // placeholder the real runJob will adopt, kick once.
     ctx = {
       jobId,
       userId: job.user_id,
@@ -395,6 +446,7 @@ export function attachSubscriber(jobId: string, res: Response): 'snapshot' | 'go
       abortController: new AbortController(),
       subscribers: new Set(),
       cleanText: job.partial_text,
+      placeholder: true,
     };
     activeJobs.set(jobId, ctx);
     if (job.state === 'queued') void runJob(jobId);
@@ -426,6 +478,9 @@ export function stopJob(jobId: string): boolean {
 export function retryJob(jobId: string): boolean {
   const job = getJobRow(jobId);
   if (!job || (job.state !== 'failed' && job.state !== 'stopped')) return false;
+  // FIFO integrity (21E §2.2): only the thread's HEAD may be retried — a
+  // retry that would land BEHIND a live/dead head just stacks duplicate work.
+  if (threadHeadJobId(job.thread_id, job.project_id, job.user_id) !== jobId) return false;
   getDb()
     .prepare(
       `UPDATE chat_jobs SET state = 'queued', partial_text = '', error_reason = NULL,
@@ -455,6 +510,11 @@ export function storeJobAsIs(jobId: string): { revision: number } | null {
     shifts: [],
     pairKey: jobId,
     isFallbackPartial: true,
+    telemetry: {
+      inputTokens: estimateTokens(job.compiled_prompt),
+      outputTokens: estimateTokens(partial),
+      totalTokens: estimateTokens(job.compiled_prompt) + estimateTokens(partial),
+    },
   });
   getDb().prepare('DELETE FROM chat_jobs WHERE job_id = ?').run(jobId);
   kickNextQueuedOnThread(job.thread_id, job.project_id, job.user_id);

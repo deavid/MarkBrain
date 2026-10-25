@@ -63,6 +63,29 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
     return newChapter;
   }
 
+  /** Topic-shift law: replace the cut that exists, never duplicate it. */
+  upsertChapterAtBoundary(
+    title: string,
+    startIndex: number,
+    subtitle?: string,
+    description?: string,
+    summary?: string
+  ): ChapterPartition {
+    const existing = this.chapters.find((c) => c.startIndex === startIndex);
+    if (existing) {
+      logger.info('Segmentation', `Topic shift retitles chapter at turn #${startIndex} → "${title}"`);
+      existing.title = title;
+      existing.subtitle = subtitle || existing.subtitle || '';
+      existing.description = description || existing.description || '';
+      existing.summary = summary || existing.summary || '';
+      existing.status = 'active';
+      existing.endIndex = undefined;
+      this.emit({ type: 'chapterDeclared', chapter: existing });
+      return existing;
+    }
+    return this.declareNewChapter(title, startIndex, subtitle, description, summary);
+  }
+
   splitChapter(
     chapterId: string,
     splitIndex: number,

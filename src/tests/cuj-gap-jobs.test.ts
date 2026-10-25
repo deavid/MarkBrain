@@ -479,6 +479,15 @@ describe('G5 — job commit applies buffered artifacts + topic shifts', () => {
     const threadId = 'thread-g5-sentinels';
     seedThread(threadId);
     const now = Date.now();
+    // Two pre-existing turns → the pair lands at thread indices 2 and 3, so the
+    // shift's cut (the human ask, index 2) is BEYOND the active chapter's start
+    // (0): seal + open is the correct law here.
+    const ins = getDb().prepare(
+      `INSERT INTO turns (user_id, project_id, thread_id, turn_id, seq, role, content, timestamp, meta_json, doc_json, revision)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, '{}', ?, 1)`
+    );
+    ins.run(PROJECT_ID, threadId, 't-g5-1', 0, 'user', 'pre turn 1', now, JSON.stringify({ id: 't-g5-1', role: 'user', content: 'pre turn 1' }));
+    ins.run(PROJECT_ID, threadId, 't-g5-2', 1, 'assistant', 'pre turn 2', now, JSON.stringify({ id: 't-g5-2', role: 'assistant', content: 'pre turn 2' }));
     // An ACTIVE chapter on this thread — the shift must seal it and open a new one.
     const activeChapter = {
       id: 'ch-g5-active',
@@ -527,6 +536,45 @@ describe('G5 — job commit applies buffered artifacts + topic shifts', () => {
     expect(opened).toBeTruthy();
     expect(opened!.status).toBe('active');
     expect(opened!.id).not.toBe('ch-g5-active');
+  });
+  it('a chapter cut that ALREADY exists at the ask is RETITLED in place — never a duplicate', async () => {
+    const threadId = 'thread-g5b';
+    seedThread(threadId);
+    const now = Date.now();
+    // No pre-existing turns: the pair lands at 0 and 1, the ask is index 0 —
+    // exactly where the active chapter already starts.
+    const activeChapter = {
+      id: 'ch-g5b-active',
+      workspaceId: PROJECT_ID,
+      threadId,
+      title: 'Active Chapter',
+      status: 'active',
+      startIndex: 0,
+      createdAt: now - 5000,
+    };
+    getDb()
+      .prepare(
+        `INSERT INTO chapters (user_id, project_id, thread_id, chapter_id, start_turn_id, end_turn_id, title,
+           description, summary, granularity, order_index, doc_json, chapter_thread_id, revision)
+         VALUES (1, ?, ?, 'ch-g5b-active', '0', NULL, 'Active Chapter', NULL, NULL, 'full', 0, ?, ?, 1)`
+      )
+      .run(PROJECT_ID, threadId, JSON.stringify(activeChapter), threadId);
+
+    behavior.current = 'ok-with-sentinels';
+    behavior.calls = 0;
+    const jobId = await enqueueSend(threadId, 'extract the hook and shift topic');
+    await waitFor(() => (jobState(jobId) === undefined ? true : null));
+    behavior.current = 'ok';
+
+    const project = await api(`/api/projects/${PROJECT_ID}`);
+    const allChapters = project.body.project.chapters as Array<{ id: string; title: string; status: string; threadId?: string }>;
+    const chapters = allChapters.filter((c) => c.threadId === threadId);
+    // The SAME chapter got the shift's title — no second chapter opened.
+    expect(chapters.filter((c) => c.title === 'Chapter Two').length).toBe(1);
+    const retitled = chapters.find((c) => c.id === 'ch-g5b-active');
+    expect(retitled).toBeTruthy();
+    expect(retitled!.title).toBe('Chapter Two');
+    expect(retitled!.status).toBe('active');
   });
 });
 

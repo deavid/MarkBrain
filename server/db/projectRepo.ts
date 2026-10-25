@@ -640,6 +640,19 @@ export interface CommitJobInput {
   shifts: Array<{ title: string; subtitle?: string; description?: string; summary?: string }>;
   pairKey: string;
   isFallbackPartial?: boolean;
+  /**
+   * Token telemetry for the assistant turn (mirror of the client commitPair's
+   * TurnMeta). Server jobs used to commit turns with NO tokens — the mirror
+   * showed "0 in · 0 out · 0 total tok" for every send-and-forget reply
+   * (found live 2026-10-25).
+   */
+  telemetry?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    latencyMs?: number;
+    timeToFirstChunkMs?: number;
+  };
 }
 
 /**
@@ -703,7 +716,12 @@ export function commitJobPairTransaction(input: CommitJobInput): {
           threadId: input.threadId,
         };
       } else {
-        turnDoc = { ...turnDoc, content: input.replyText, timestamp: now };
+        turnDoc = {
+          ...turnDoc,
+          content: input.replyText,
+          timestamp: now,
+          meta: { ...(turnDoc.meta ?? {}), ...(input.telemetry ?? {}) },
+        };
       }
       upsertTurn(db, input.userId, input.projectId, turnDoc, row?.seq ?? 0, newRev);
       userTurnId = ''; // regenerate replaces the reply; the ask turn already exists
@@ -715,6 +733,15 @@ export function commitJobPairTransaction(input: CommitJobInput): {
         .get(input.userId, input.projectId) as { m: number };
       const base = seqRow.m + 1;
       const attachments = input.stagedAttachments;
+      // Attachment provenance — mirror of ThreadRegistry.commitStagedAttachments:
+      // the index WITHIN the thread + the user turn id. Without these the
+      // client hydrates the staged set at provenance -1 ("unknown") and the
+      // message renders with NO attachment chips while the LLM clearly got
+      // the context (found live 2026-10-25).
+      const threadTurnCount = db
+        .prepare('SELECT COUNT(*) AS n FROM turns WHERE user_id = ? AND project_id = ? AND thread_id = ?')
+        .get(input.userId, input.projectId, input.threadId) as { n: number };
+      const userTurnIndex = threadTurnCount.n;
       upsertTurn(
         db,
         input.userId,
@@ -725,7 +752,15 @@ export function commitJobPairTransaction(input: CommitJobInput): {
           content: input.askText,
           timestamp: now,
           threadId: input.threadId,
-          meta: attachments.length ? ({ attachments } as Turn['meta']) : undefined,
+          meta: attachments.length
+            ? ({
+                attachments: attachments.map((a) => ({
+                  ...(a as Record<string, unknown>),
+                  turnIndex: userTurnIndex,
+                  turnId: userTurnId,
+                })),
+              } as Turn['meta'])
+            : undefined,
         },
         base,
         newRev
@@ -745,6 +780,7 @@ export function commitJobPairTransaction(input: CommitJobInput): {
             isFallback: Boolean(input.isFallbackPartial),
             isStreaming: false,
             streamState: 'completed',
+            ...(input.telemetry ?? {}),
           } as Turn['meta'],
         },
         base + 1,
@@ -785,9 +821,19 @@ export function commitJobPairTransaction(input: CommitJobInput): {
       upsertArtifact(db, input.userId, input.projectId, doc as unknown as UniversalArtifactDocument, newRev);
     }
 
-    // Topic shifts → seal current chapter (if active) and open the new one.
-    for (const shift of input.shifts) {
-      const activeRows = db
+    // Topic-shift chapter law (David 2026-10-25):
+    //   1. LAST shift wins — a reply that walks through sub-topics opens the
+    //      chapter it ENDED on, not the first one it mentioned.
+    //   2. The cut applies at the message that CAUSED it: the human ask of
+    //      this pair (thread index turnCount - 2), not after the reply.
+    //   3. If a chapter boundary already exists at that index (client-declared
+    //      genesis, a previous commit's cut, a re-emitted sentinel on
+    //      regenerate), REPLACE that chapter's title/metadata — never open a
+    //      duplicate with the same start.
+    if (input.shifts.length > 0) {
+      const shift = input.shifts[input.shifts.length - 1];
+      const askIndex = Math.max(0, turnCount - 2);
+      const rows = db
         .prepare(
           'SELECT chapter_id, doc_json, order_index FROM chapters WHERE user_id = ? AND project_id = ? AND chapter_thread_id = ? ORDER BY order_index ASC'
         )
@@ -796,39 +842,48 @@ export function commitJobPairTransaction(input: CommitJobInput): {
         doc_json: string;
         order_index: number;
       }>;
-      const last = activeRows[activeRows.length - 1];
-      if (last) {
-        try {
-          const doc = JSON.parse(last.doc_json) as ChapterPartition;
-          if (doc.status === 'active') {
-            doc.status = 'completed';
-            doc.endIndex = turnCount;
-            upsertChapter(db, input.userId, input.projectId, doc, last.order_index, newRev);
-          }
-        } catch {
-          /* thin row — skip */
+      const parsed = rows
+        .map((r) => ({ row: r, doc: parseJson<ChapterPartition | null>(r.doc_json, null) }))
+        .filter((r): r is { row: typeof rows[number]; doc: ChapterPartition } => Boolean(r.doc));
+
+      const boundary = parsed.find((r) => r.doc.startIndex === askIndex);
+      if (boundary) {
+        // A cut already exists here — the shift retitles it, nothing opens.
+        boundary.doc.title = shift.title;
+        boundary.doc.subtitle = shift.subtitle ?? boundary.doc.subtitle ?? '';
+        boundary.doc.description = shift.description ?? boundary.doc.description ?? '';
+        boundary.doc.summary = shift.summary ?? boundary.doc.summary ?? '';
+        boundary.doc.status = 'active';
+        boundary.doc.endIndex = undefined;
+        upsertChapter(db, input.userId, input.projectId, boundary.doc, boundary.row.order_index, newRev);
+      } else {
+        const last = parsed[parsed.length - 1];
+        if (last && last.doc.status === 'active' && (last.doc.endIndex ?? Infinity) > askIndex) {
+          last.doc.status = 'completed';
+          last.doc.endIndex = askIndex;
+          upsertChapter(db, input.userId, input.projectId, last.doc, last.row.order_index, newRev);
         }
+        const chId = `ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+        upsertChapter(
+          db,
+          input.userId,
+          input.projectId,
+          {
+            id: chId,
+            workspaceId: input.projectId,
+            threadId: input.threadId,
+            title: shift.title,
+            subtitle: shift.subtitle,
+            description: shift.description,
+            summary: shift.summary,
+            status: 'active',
+            startIndex: askIndex,
+            createdAt: Date.now(),
+          } as ChapterPartition,
+          parsed.length,
+          newRev
+        );
       }
-      const chId = `ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-      upsertChapter(
-        db,
-        input.userId,
-        input.projectId,
-        {
-          id: chId,
-          workspaceId: input.projectId,
-          threadId: input.threadId,
-          title: shift.title,
-          subtitle: shift.subtitle,
-          description: shift.description,
-          summary: shift.summary,
-          status: 'active',
-          startIndex: turnCount,
-          createdAt: Date.now(),
-        } as ChapterPartition,
-        activeRows.length,
-        newRev
-      );
     }
 
     // Touch the thread (preview + lastOutcome) so the sidebar reflects the pair.

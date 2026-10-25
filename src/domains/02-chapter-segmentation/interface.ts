@@ -14,6 +14,18 @@ export interface IChapterSegmentationDomain {
     description?: string,
     summary?: string
   ): ChapterPartition;
+  /**
+   * Topic-shift law (David 2026-10-25): a chapter cut that ALREADY exists at
+   * startIndex is retitled by the shift — never a duplicate chapter with the
+   * same start. No cut there → behaves exactly like declareNewChapter.
+   */
+  upsertChapterAtBoundary(
+    title: string,
+    startIndex: number,
+    subtitle?: string,
+    description?: string,
+    summary?: string
+  ): ChapterPartition;
   splitChapter(
     chapterId: string,
     splitIndex: number,

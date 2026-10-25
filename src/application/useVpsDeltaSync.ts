@@ -60,16 +60,35 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
     artifacts.loadArtifacts(merged);
   }
 
-  // Chapters: upsert by id (delta rows are the server's current state).
+  // Chapters: upsert by id (delta rows are the server's current state) —
+  // routed PER THREAD. Found live 2026-10-25: every thread's chapters were
+  // loaded into the active thread's segmentation, so the strip rendered other
+  // threads' windows against this timeline ("Genesis Chapter" twice with the
+  // same contents — the second copy was another thread's chapter).
   if (delta.chapters.length > 0) {
-    const merged = [...segmentation.listChapters()];
-    for (const incoming of delta.chapters) {
-      const idx = merged.findIndex((c) => c.id === incoming.id);
-      if (idx >= 0) merged[idx] = incoming;
-      else merged.push(incoming);
+    const activeThreadId = threadRegistry.getActiveThreadId();
+    const own = delta.chapters.filter((c) => !c.threadId || c.threadId === activeThreadId);
+    const others = new Map<string, Array<(typeof delta.chapters)[number]>>();
+    for (const ch of delta.chapters) {
+      if (ch.threadId && ch.threadId !== activeThreadId) {
+        const list = others.get(ch.threadId) ?? [];
+        list.push(ch);
+        others.set(ch.threadId, list);
+      }
     }
-    merged.sort((a, b) => a.startIndex - b.startIndex);
-    segmentation.loadChapters(merged);
+    if (own.length > 0) {
+      const merged = [...segmentation.listChapters()];
+      for (const incoming of own) {
+        const idx = merged.findIndex((c) => c.id === incoming.id);
+        if (idx >= 0) merged[idx] = incoming;
+        else merged.push(incoming);
+      }
+      merged.sort((a, b) => a.startIndex - b.startIndex);
+      segmentation.loadChapters(merged);
+    }
+    for (const [threadId, list] of others) {
+      threadRegistry.mergeInactiveChapters(threadId, list);
+    }
   }
 
   // Edges: upsert by id.

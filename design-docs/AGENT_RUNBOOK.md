@@ -240,6 +240,13 @@ loader rather than the gate. For anything deterministic, use the script (it
 
 ## 7. Navigating the app headlessly — selectors that work
 
+**Two-speed test gate (2026-10-25):** `npm run lint && npm test` is the fast
+everyday gate (515 tests, ~2.5s). The real-server E2E journeys run explicitly:
+`npm run test:e2e` (`src/tests/e2e/`, ~3s) — real app on a real socket, fake
+LLM at the fetch boundary, zero external calls. Run the E2E lane whenever a
+change touches send/queue/server lifecycle/reconcile, and always in the full
+verification pack.
+
 The acceptance scripts (`scripts/roundtrip-test.cjs`, `scripts/delete-test.cjs`)
 encode this, but the map matters when you write new interactions:
 

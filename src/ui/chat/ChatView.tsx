@@ -864,31 +864,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </span>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={!inputText.trim() || isLoading}
-                  className="px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-ink font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>
-                        {activeDraftForPhase?.progress?.phase === 'queued'
-                          ? 'Queued…'
-                          : activeDraftForPhase?.progress?.phase === 'connecting'
-                            ? 'Connecting…'
-                            : activeDraftForPhase?.progress?.phase === 'awaiting-first-token'
-                              ? 'Waiting for first token…'
-                              : 'Writing reply…'}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Start Dialogue</span>
-                      <Send className="w-3.5 h-3.5" />
-                    </>
-                  )}
-                </button>
+                {/* Stop is ALWAYS reachable while a stream runs (design 23 §2.4):
+                    a spinner that eats the only button is a trap — found live. */}
+                {isLoading && onStopGeneration ? (
+                  <button
+                    type="button"
+                    onClick={onStopGeneration}
+                    className="px-4 py-2 rounded-xl bg-[#dc2626] hover:bg-[#b91c1c] text-ink font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-red-900/30 cursor-pointer shrink-0"
+                    title="Stop generation"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <span>Stop</span>
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!inputText.trim() || isLoading}
+                    className="px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-ink font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                  >
+                    <span>Start Dialogue</span>
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </form>
           </div>

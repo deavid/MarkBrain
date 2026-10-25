@@ -80,17 +80,19 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     });
 
     {
-      sendSSE('status', {
-        state: 'thinking',
-        message: `Thinking with ${targetModel}...`,
-        timestamp: Date.now(),
-        model: targetModel,
-      });
-
       // The requested model answers, or the request fails with the real
       // reason. There is no second stream waiting behind a timer.
       const responseStream = await streamFromModel(ai, targetModel, compiledPrompt, systemInstruction, reqId);
       const usedModel = targetModel;
+
+      // THE ACK BEFORE FIRST TOKEN: the provider accepted the stream. Only
+      // now is "the model is thinking" true — before this it was CONNECTING.
+      sendSSE('status', {
+        state: 'connected',
+        message: `Connected to ${usedModel} — awaiting first token`,
+        timestamp: Date.now(),
+        model: usedModel,
+      });
 
       let fullText = '';
       let chunkCount = 0;

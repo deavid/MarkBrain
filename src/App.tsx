@@ -105,7 +105,11 @@ export default function App() {
     const projectId = workspace.getActiveProjectId();
     if (!projectId) return;
     void sendQueueRef.current?.reconcileServerJobs(projectId);
-  }, [authInitialized, currentUser, workspace, tick]);
+    // NO `tick` here: reconcile ends in triggerReRender() → a tick dep would
+    // re-run the effect → fetch /jobs → re-render → forever (a ~100 req/s
+    // hot loop, found live 2026-10-25). Session/auth/project changes only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authInitialized, currentUser, workspace]);
 
   useEffect(() => {
     const unsubWorkspace = workspace.subscribe(() => triggerReRender());

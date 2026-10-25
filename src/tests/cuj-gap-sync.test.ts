@@ -158,6 +158,7 @@ function makeStubs(seed: {
     deletedThreads: [] as string[],
     deletedFolders: [] as string[],
     createdThreads: [] as unknown[],
+    mergedInactiveChapters: [] as Array<{ threadId: string; chapters: Array<Record<string, unknown>> }>,
     patchedThreads: [] as Array<{ id: string; patch: unknown }>,
     createdFolders: [] as string[],
   };
@@ -213,6 +214,9 @@ function makeStubs(seed: {
         state.folders = state.folders.filter((f) => f.id !== id);
       },
       getFolders: () => state.folders,
+      mergeInactiveChapters: (threadId: string, chapters: Array<Record<string, unknown>>) => {
+        state.mergedInactiveChapters.push({ threadId, chapters });
+      },
       createFolder: (name: string) => {
         state.createdFolders.push(name);
         const f = { id: `fold-${name}`, name };
@@ -269,6 +273,38 @@ describe('G6 — useVpsDeltaSync mergeDeltaIntoDomains', () => {
     expect(state.edges).toEqual([]);
     expect(state.deletedThreads).toEqual(['thread-1']);
     expect(state.deletedFolders).toEqual(['fold-1']);
+  });
+
+  it('chapters route PER THREAD: other threads go to the registry cache, never the active strip', () => {
+    // Live bug 2026-10-25: every thread's chapters were loaded into the active
+    // segmentation → the strip rendered other threads' windows against this
+    // timeline ("Genesis Chapter" twice with duplicated contents).
+    const { state, deps } = makeStubs({
+      chapters: [{ id: 'ch-own', startIndex: 0, threadId: 'thread-active' }],
+      threads: [{ id: 'thread-other' }],
+      activeThreadId: 'thread-active',
+    });
+    mergeDeltaIntoDomains(
+      makeDelta({
+        chapters: [
+          { id: 'ch-own', startIndex: 0, threadId: 'thread-active', workspaceId: 'p1', title: 'Own', status: 'active', createdAt: 1 },
+          { id: 'ch-own', startIndex: 0, workspaceId: 'p1', title: 'Own v2', status: 'active', createdAt: 2 }, // same id → upserted
+          { id: 'ch-foreign', startIndex: 0, threadId: 'thread-other', workspaceId: 'p1', title: 'Foreign', status: 'active', createdAt: 3 },
+          { id: 'ch-legacy', startIndex: 3, workspaceId: 'p1', title: 'Legacy', status: 'active', createdAt: 4 }, // no threadId → active thread
+        ],
+      }),
+      deps
+    );
+    expect(state.chapters.map((c) => c.id)).toEqual(['ch-own', 'ch-legacy']);
+    expect(state.chapters.some((c) => c.id === 'ch-foreign')).toBe(false);
+    expect(state.mergedInactiveChapters).toEqual([
+      {
+        threadId: 'thread-other',
+        chapters: [
+          { id: 'ch-foreign', startIndex: 0, threadId: 'thread-other', workspaceId: 'p1', title: 'Foreign', status: 'active', createdAt: 3 },
+        ],
+      },
+    ]);
   });
 
   it('artifacts, chapters and edges upsert by id; chapters sort by startIndex', () => {

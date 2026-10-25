@@ -526,6 +526,52 @@ export class ThreadRegistry {
     this.emit();
   }
 
+  /**
+   * Topic-shift law for inactive threads (mirror of the segmentation domain's
+   * upsertChapterAtBoundary): a cut that already exists at startIndex is
+   * retitled, never duplicated.
+   */
+  upsertChapterAtBoundaryInactive(
+    threadId: string,
+    title: string,
+    startIndex: number,
+    subtitle?: string,
+    description?: string,
+    summary?: string
+  ): ChapterPartition | null {
+    if (threadId === this.activeId) return null;
+    const target = this.getInactiveContent(threadId);
+    if (!target) return null;
+    const existing = target.chapters.find((c) => c.startIndex === startIndex);
+    if (existing) {
+      existing.title = title;
+      existing.subtitle = subtitle || existing.subtitle || '';
+      existing.description = description || existing.description || '';
+      existing.summary = summary || existing.summary || '';
+      existing.status = 'active';
+      existing.endIndex = undefined;
+      this.emit();
+      return existing;
+    }
+    return this.declareChapterInactive(threadId, title, startIndex, subtitle, description, summary);
+  }
+
+  /** Server delta merge: chapters of an INACTIVE thread land in its cache (by id). */
+  mergeInactiveChapters(threadId: string, incoming: ChapterPartition[]): void {
+    if (threadId === this.activeId || incoming.length === 0) return;
+    const target = this.getInactiveContent(threadId);
+    if (!target) return; // unknown thread — hydration owns it on first switch
+    const merged = [...target.chapters];
+    for (const ch of incoming) {
+      const idx = merged.findIndex((c) => c.id === ch.id);
+      if (idx >= 0) merged[idx] = ch;
+      else merged.push(ch);
+    }
+    merged.sort((a, b) => a.startIndex - b.startIndex);
+    target.chapters = merged;
+    this.emit();
+  }
+
   declareChapterInactive(
     threadId: string,
     title: string,

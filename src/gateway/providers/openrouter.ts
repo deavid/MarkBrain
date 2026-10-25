@@ -71,9 +71,11 @@ export const openrouterAdapter: ProviderAdapter = {
 
   async streamChat(params: StreamChatParams): Promise<Response> {
     return sseStreamResponse(async (emit) => {
+      // Honest ladder (design 23 §2.2): before the RPC answers it is
+      // CONNECTING; the provider ACK comes after the fetch resolves.
       emit('status', {
-        state: 'thinking',
-        message: `Thinking with ${params.model}...`,
+        state: 'connecting',
+        message: `Sending to ${params.model}...`,
         timestamp: Date.now(),
         model: params.model,
       });
@@ -103,6 +105,15 @@ export const openrouterAdapter: ProviderAdapter = {
         }
         throw new Error(`OpenRouter: ${detail}`);
       }
+
+      // THE ACK BEFORE FIRST TOKEN: the provider accepted the stream — from
+      // here on "the model is thinking" is true.
+      emit('status', {
+        state: 'connected',
+        message: `Connected to ${params.model} — awaiting first token`,
+        timestamp: Date.now(),
+        model: params.model,
+      });
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

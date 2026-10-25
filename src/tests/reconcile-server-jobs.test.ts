@@ -147,6 +147,87 @@ describe('reconcileServerJobs (design 23 §4)', () => {
     expect(queue.getQueue().length).toBe(1);
   });
 
+  it('a reload keeps the serverJobId binding — reconcile rebinds the persisted draft instead of duplicating it', async () => {
+    // THE LIVE BUG (2026-10-25): draftQueue.load() dropped serverJobId, so
+    // after a reload reconcile materialized a SECOND draft for the same job
+    // ("the second also has retry"), and Retry of the unbound copy created a
+    // fresh send behind the dead failed head — blocked forever, while the
+    // card lied "AWAITING FIRST TOKEN · THE MODEL IS THINKING".
+    const storage = stubWindow();
+    const { getScopedStorageKey } = await import('../services/workspaceSession');
+    const { DraftQueue } = await import('../application/draftQueue');
+    storage.set(
+      getScopedStorageKey('markbrain:draftQueue'),
+      JSON.stringify([
+        {
+          id: 'draft-persisted',
+          threadId: 'thread-1',
+          text: 'the ask',
+          state: 'failed',
+          reason: 'locked',
+          errorCode: 'VAULT_LOCKED',
+          serverJobId: 'job-failed-1',
+          createdAt: 1,
+        },
+      ])
+    );
+    const reloaded = new DraftQueue();
+    expect(reloaded.getItems()[0]?.serverJobId).toBe('job-failed-1'); // binding survives reload
+
+    stubJobsFetch([
+      {
+        jobId: 'job-failed-1',
+        threadId: 'thread-1',
+        kind: 'send',
+        state: 'failed',
+        askText: 'the ask',
+        partialText: '',
+        errorReason: 'locked',
+        model: 'gemini-3.5-flash-lite',
+      },
+    ]);
+    const queue = makeQueue(); // its DraftQueue loads the persisted draft
+    await queue.reconcileServerJobs('proj-1');
+    expect(queue.getQueue().length).toBe(1); // rebound, NOT duplicated
+    expect(queue.getQueue()[0].id).toBe('draft-persisted');
+    expect(queue.getQueue()[0].serverJobId).toBe('job-failed-1');
+  });
+
+  it('a hard cooldown caps reconcile frequency — no caller can storm /jobs', async () => {
+    stubJobsFetch([
+      {
+        jobId: 'job-failed-1',
+        threadId: 'thread-1',
+        kind: 'send',
+        state: 'failed',
+        askText: 'the ask',
+        partialText: '',
+        errorReason: 'boom',
+        model: 'gemini-3.5-flash-lite',
+      },
+    ]);
+    const calls = stubJobsFetch([
+      {
+        jobId: 'job-failed-1',
+        threadId: 'thread-1',
+        kind: 'send',
+        state: 'failed',
+        askText: 'the ask',
+        partialText: '',
+        errorReason: 'boom',
+        model: 'gemini-3.5-flash-lite',
+      },
+    ]);
+    const queue = makeQueue();
+    await queue.reconcileServerJobs('proj-1');
+    await queue.reconcileServerJobs('proj-1'); // immediate second call — inside the cooldown
+    await queue.reconcileServerJobs('proj-1');
+    expect(queue.getQueue().length).toBe(1);
+    // The live storm (60k requests in minutes) is structurally dead: three
+    // back-to-back calls reach the network exactly once per cooldown window.
+    expect(calls.length).toBe(1);
+  });
+
   it('stays silent outside vps mode', async () => {
     clearWorkspaceMode(); // absent mode = local semantics
     stubWindow({ 'markbrain:workspaceMode': 'local' });

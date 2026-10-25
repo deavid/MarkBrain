@@ -68,9 +68,13 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
     const links: ExtractedLink[] = [];
     let topicShift: ExtractedTopicShift | undefined;
 
+    // LAST SHIFT WINS (David 2026-10-25): a reply may carry several
+    // <topic_shift> sentinels while it walks through sub-topics; the chapter
+    // that opens is the one the reply ENDED on. Parse every match, keep the
+    // last, fire the handler once.
     const topicShiftRegex = /<topic_shift\s+([^>]*?)\/?>/gi;
-    let match = topicShiftRegex.exec(clean);
-    if (match) {
+    let match: RegExpExecArray | null;
+    while ((match = topicShiftRegex.exec(clean)) !== null) {
       const attrsStr = match[1];
       const titleMatch = /title=["']([^"']+)["']/i.exec(attrsStr);
       // `description` is the settled word; `abstract` is the legacy attribute
@@ -87,8 +91,10 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
           description: descriptionMatch ? descriptionMatch[1] : undefined,
           summary: summaryMatch ? summaryMatch[1] : undefined,
         };
-        this.handlers.onTopicShiftDetected?.forEach((fn) => fn(topicShift!));
       }
+    }
+    if (topicShift) {
+      this.handlers.onTopicShiftDetected?.forEach((fn) => fn(topicShift!));
     }
 
     const legacyTopicShift = /```topic_shift\s*(\{[\s\S]*?\})\s*```/gi;

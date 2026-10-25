@@ -26,7 +26,7 @@ export interface ExtractedLink {
 }
 
 export interface StreamStatusPayload {
-  state: 'connecting' | 'thinking' | 'writing' | 'completed' | 'error';
+  state: 'connecting' | 'connected' | 'thinking' | 'writing' | 'completed' | 'error';
   message: string;
   timestamp: number;
   model?: string;

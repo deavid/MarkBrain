@@ -33,6 +33,28 @@ import { isAttachmentStaged, type ChatAttachment } from '../domains/06-chat-thre
 import { DraftQueue, type DraftItem, regenerateAllowed } from './draftQueue';
 import { apiFetch } from '../gateway/api';
 import { getWorkspaceMode } from '../services/workspaceSession';
+
+/**
+ * Honest phase mapping from a SERVER job state / status event (design 23 §2.2):
+ * `queued` = accepted, not started (may be FIFO-blocked behind a dead head —
+ * the card must NEVER say "thinking"); `sending`/`connecting` = the provider
+ * RPC is in flight, no ACK yet; `connected` = the provider ACKed the stream
+ * (zero text yet — only NOW may the card say the model is thinking).
+ */
+export function vpsPhaseFor(serverState: string): 'queued' | 'connecting' | 'awaiting-first-token' | 'writing' {
+  switch (serverState) {
+    case 'queued':
+      return 'queued';
+    case 'connected':
+      return 'awaiting-first-token';
+    case 'writing':
+      return 'writing';
+    default:
+      // 'sending', 'connecting', legacy 'streaming': job started, nothing
+      // received — connecting is the honest word for all of them.
+      return 'connecting';
+  }
+}
 import { isLocalVaultLockedError, resolveLaneKey } from '../data/keySlots';
 import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../domains/03-stream-protocol';
 
@@ -176,8 +198,17 @@ export class SendQueue {
    * FIFO-blocks every later send behind an invisible head — "chat never sends".
    * No kick() here: user actions (exit the head, next send) drive watchers.
    */
+  private reconcileInFlight = false;
+  private lastReconcileAt = 0;
+  /** Hard rate cap (David 2026-10-25): no caller may drive /jobs into a storm. */
+  private static RECONCILE_COOLDOWN_MS = 2000;
+
   async reconcileServerJobs(projectId: string): Promise<void> {
     if (getWorkspaceMode() !== 'vps') return;
+    if (this.reconcileInFlight) return; // never overlap: each run re-renders
+    if (Date.now() - this.lastReconcileAt < SendQueue.RECONCILE_COOLDOWN_MS) return;
+    this.lastReconcileAt = Date.now();
+    this.reconcileInFlight = true;
     const deps = this.getDeps();
     try {
       const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/jobs`);
@@ -213,6 +244,8 @@ export class SendQueue {
       deps.triggerReRender();
     } catch (err) {
       logger.warn('App', 'reconcileServerJobs failed', err);
+    } finally {
+      this.reconcileInFlight = false;
     }
   }
 
@@ -587,8 +620,8 @@ export class SendQueue {
         historyTurns: [...this.turnsOf(deps, threadId), virtualAsk],
         historyChapters: this.chaptersOf(deps, threadId),
       });
-      // Connected enough to ask; zero bytes back is its own observable phase.
-      this.drafts.setProgress(item.id, { phase: 'awaiting-first-token' });
+      // The phase moves on the provider's real ACK ('connected' status, or
+      // legacy 'thinking') — never on optimism before the RPC is even sent.
 
       const result = await deps.stream.executeStreamingTurn(
         {
@@ -602,7 +635,7 @@ export class SendQueue {
           onStatus: (status) => {
             deps.setStreamingStatus(status.message);
             deps.setStreamPhase(status.state === 'writing' ? 'streaming' : 'waiting');
-            if (status.state === 'thinking') {
+            if (status.state === 'thinking' || status.state === 'connected') {
               this.drafts.setProgress(item.id, { phase: 'awaiting-first-token' });
             } else if (status.state === 'writing' && !sawFirstChunk) {
               this.drafts.setProgress(item.id, {
@@ -739,7 +772,7 @@ export class SendQueue {
     this.applyBufferedArtifacts(chain, threadId, bufferedArtifacts, userTurnIndex + 1, assistantTurn.id);
 
     // Topic shifts land after the pair: the new chapter starts after it.
-    this.applyBufferedShifts(chain, threadId, bufferedShifts);
+    this.applyBufferedShifts(chain, threadId, bufferedShifts, userTurnIndex);
 
     deps.threadRegistry.patch(threadId, { lastOutcome: 'ok', lastActivityAt: Date.now() });
     deps.triggerReRender();
@@ -839,8 +872,10 @@ export class SendQueue {
           return;
         }
         if (!res.ok || !res.body) throw new Error(`stream HTTP ${res.status}`);
-        // Watch attached — connected, zero bytes back (design 23 §2.2).
-        this.drafts.setProgress(item.id, { phase: 'awaiting-first-token' });
+        // Watch attached. The snapshot's state is the truth: a job can be
+        // attached AND queued (FIFO-blocked behind a dead head) — claiming
+        // "the model is thinking" here was a live-found lie (2026-10-25).
+        // The phase moves when the server SAYS so (snapshot + status events).
 
         const terminal = await this.readVpsSse(res, item, deps);
         if (terminal) return;
@@ -875,8 +910,27 @@ export class SendQueue {
         } catch {
           continue;
         }
-        if (event === 'snapshot' && data.state === 'sending' && typeof data.partialText === 'string' && data.partialText) {
-          this.drafts.updatePartial(item.id, data.partialText);
+        if (event === 'snapshot') {
+          const snapState = String(data.state ?? 'queued');
+          // A late watcher learns the provider ACK via the snapshot — otherwise
+          // it would sit in CONNECTING through a slow time-to-first-token.
+          const phase =
+            snapState === 'sending' && data.connected
+              ? 'awaiting-first-token'
+              : vpsPhaseFor(snapState);
+          this.drafts.setProgress(item.id, { phase });
+          if (data.state === 'sending' && typeof data.partialText === 'string' && data.partialText) {
+            this.drafts.updatePartial(item.id, data.partialText);
+          }
+          deps.triggerReRender();
+        } else if (event === 'status') {
+          // Server-side lifecycle ACKs (design 23 §2.2): connecting →
+          // connected (provider ACK) → chunks. Writing never downgrades.
+          const phase = vpsPhaseFor(String(data.state ?? ''));
+          const current = this.drafts.getItem(item.id);
+          if (phase !== 'writing' && current?.progress?.phase !== 'writing') {
+            this.drafts.setProgress(item.id, { phase });
+          }
           deps.triggerReRender();
         } else if (event === 'chunk') {
           deps.setStreamPhase('streaming');
@@ -955,7 +1009,8 @@ export class SendQueue {
         historyTurns,
         historyChapters: this.chaptersOf(deps, threadId),
       });
-      this.drafts.setProgress(item.id, { phase: 'awaiting-first-token' });
+      // ACK-driven phase ladder (same as executeAttempt) — no optimistic
+      // "thinking" before the provider has even accepted the connection.
 
       const result = await deps.stream.executeStreamingTurn(
         {
@@ -969,6 +1024,12 @@ export class SendQueue {
           onStatus: (status) => {
             deps.setStreamingStatus(status.message);
             deps.setStreamPhase(status.state === 'writing' ? 'streaming' : 'waiting');
+            if (status.state === 'thinking' || status.state === 'connected') {
+              const current = this.drafts.getItem(item.id);
+              if (current?.progress?.phase !== 'writing') {
+                this.drafts.setProgress(item.id, { phase: 'awaiting-first-token' });
+              }
+            }
             deps.triggerReRender();
           },
           onChunk: (_d, acc) => {
@@ -1080,7 +1141,9 @@ export class SendQueue {
       targetIndex >= 0 ? targetIndex : turns.length - 1,
       targetTurnId
     );
-    this.applyBufferedShifts(chain, threadId, bufferedShifts);
+    // The regenerated pair is the thread's last two turns — the cut applies
+    // at its ask, exactly as a fresh send's would.
+    this.applyBufferedShifts(chain, threadId, bufferedShifts, Math.max(0, this.turnsOf(deps, threadId).length - 2));
     deps.threadRegistry.patch(threadId, { lastOutcome: 'ok', lastActivityAt: Date.now() });
     deps.triggerReRender();
     logger.info('App', 'Pair reply replaced (regenerate)', {
@@ -1144,31 +1207,39 @@ export class SendQueue {
   }
 
   /** Topic shifts land after the committed work — never mid-attempt. */
+  /**
+   * Topic-shift chapter law (David 2026-10-25):
+   *   1. LAST shift wins — one reply may carry several sentinels.
+   *   2. The cut applies at the human ask that caused the change (askIndex),
+   *      not after the reply.
+   *   3. A cut that already exists at that index is RETITLED, never duplicated.
+   */
   private applyBufferedShifts(
     chain: QueueChain,
     threadId: string,
-    bufferedShifts: ExtractedTopicShift[]
+    bufferedShifts: ExtractedTopicShift[],
+    askIndex: number
   ): void {
     const deps = chain.deps;
-    for (const shift of bufferedShifts) {
-      if (this.isActiveThread(deps, threadId)) {
-        deps.segmentation.declareNewChapter(
-          shift.title,
-          deps.timeline.count(),
-          shift.subtitle,
-          shift.description,
-          shift.summary
-        );
-      } else {
-        deps.threadRegistry.declareChapterInactive(
-          threadId,
-          shift.title,
-          this.turnsOf(deps, threadId).length,
-          shift.subtitle,
-          shift.description,
-          shift.summary
-        );
-      }
+    const shift = bufferedShifts[bufferedShifts.length - 1];
+    if (!shift) return;
+    if (this.isActiveThread(deps, threadId)) {
+      deps.segmentation.upsertChapterAtBoundary(
+        shift.title,
+        askIndex,
+        shift.subtitle,
+        shift.description,
+        shift.summary
+      );
+    } else {
+      deps.threadRegistry.upsertChapterAtBoundaryInactive(
+        threadId,
+        shift.title,
+        askIndex,
+        shift.subtitle,
+        shift.description,
+        shift.summary
+      );
     }
   }
 }

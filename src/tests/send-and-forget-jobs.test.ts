@@ -20,7 +20,7 @@ process.env.MARKBRAIN_OWNER_PASSWORD = 'owner-pass-123456';
 
 /* ── provider mock (no network, deterministic pacing) ─────────────────────── */
 
-type StreamBehavior = 'slow-ok' | 'fail-500' | 'slow-partial';
+type StreamBehavior = 'slow-ok' | 'fail-500' | 'slow-partial' | 'topic-shift';
 
 const behavior: { current: StreamBehavior; chunkDelayMs: number } = {
   current: 'slow-ok',
@@ -38,7 +38,15 @@ vi.mock('@google/genai', () => {
           err.status = 500;
           throw err;
         }
-        const chunks = ['Hello from ', 'the mocked ', 'model reply.'];
+        const chunks =
+          behavior.current === 'topic-shift'
+            ? [
+                'Opening prose. ',
+                '<topic_shift title="Alpha" description="first topic"/> ',
+                '<topic_shift title="Beta" description="second topic"/> ',
+                'Closing prose.',
+              ]
+            : ['Hello from ', 'the mocked ', 'model reply.'];
         for (const c of chunks) {
           await new Promise((r) => setTimeout(r, behavior.chunkDelayMs));
           yield { text: c };
@@ -257,13 +265,16 @@ describe('21E §5.1 — the phone screen-lock scenario', () => {
     expect(delta.body.activeJobs).toEqual([]);
 
     // Both turns committed with the full reply content.
-    const turns = delta.body.turns as Array<{ id: string; role: string; content: string }>;
+    const turns = delta.body.turns as Array<{ id: string; role: string; content: string; meta?: { inputTokens?: number; totalTokens?: number } }>;
     const userTurn = turns.find((t) => t.id.startsWith('turn-user-job-'));
     const aiTurn = turns.find((t) => t.id.startsWith('turn-ai-job-'));
     expect(userTurn).toBeTruthy();
     expect(userTurn!.content).toBe('send and lock the screen');
     expect(aiTurn).toBeTruthy();
     expect(aiTurn!.content).toBe('Hello from the mocked model reply.');
+    // Token telemetry: a server-committed reply must never read 0/0/0.
+    expect(aiTurn!.meta?.inputTokens).toBeGreaterThan(0);
+    expect(aiTurn!.meta?.totalTokens).toBeGreaterThan(0);
 
     // Chores: thread auto-titled + sealed chapter filled (persisted in SQLite).
     await waitFor(async () => {
@@ -281,6 +292,82 @@ describe('21E §5.1 — the phone screen-lock scenario', () => {
     }, 8000);
     expect(captured.titleCalls).toBeGreaterThanOrEqual(1);
     expect(captured.summarizeCalls).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('21E §5.2b — honest ladder for a watcher that attached while queued', () => {
+  it('snapshot says queued; when the head clears the SAME socket gets connecting → connected (ACK) → chunks → complete', async () => {
+    behavior.current = 'slow-ok';
+    behavior.chunkDelayMs = 300; // keep the head busy long enough to attach behind it
+    try {
+      const headId = await enqueueSend('head that blocks the lane');
+      const queuedId = await enqueueSend('queued behind the head');
+
+      // Attach to the QUEUED job while the head is still running. The
+      // snapshot must say queued — never a fake "thinking".
+      const controller = new AbortController();
+      const res = await fetch(`${base}/api/jobs/${queuedId}/stream`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      expect(res.status).toBe(200);
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      const events: Array<{ event: string; data: any }> = [];
+      let buffer = '';
+      const readLoop = (async () => {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) return;
+          buffer += decoder.decode(value, { stream: true });
+          while (buffer.includes('\n\n')) {
+            const idx = buffer.indexOf('\n\n');
+            const frame = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            const ev = frame.match(/^event: (.+)$/m)?.[1]?.trim() ?? '';
+            const dataLine = frame.match(/^data: (.+)$/m)?.[1]?.trim() ?? '{}';
+            events.push({ event: ev, data: JSON.parse(dataLine) });
+          }
+        }
+      })();
+
+      // The head completes → the queue kicks the queued job → the SAME
+      // watcher socket must ride the whole honest ladder to complete.
+      await waitFor(() => {
+        const head = getDb().prepare('SELECT state FROM chat_jobs WHERE job_id = ?').get(headId);
+        return head === undefined ? true : null; // completed → deleted
+      }, 15000);
+      await waitFor(() => {
+        const frame = events.find((e) => e.event === 'complete');
+        return frame ? true : null;
+      }, 15000);
+      controller.abort();
+      await readLoop.catch(() => {});
+
+      const kinds = events.map((e) => e.event);
+      expect(kinds[0]).toBe('snapshot');
+      expect(events[0].data.state).toBe('queued'); // the honest queued snapshot
+
+      const statuses = events.filter((e) => e.event === 'status').map((e) => e.data.state);
+      expect(statuses).toContain('connecting'); // RPC going out — no ACK yet
+      expect(statuses).toContain('connected'); // THE ACK BEFORE FIRST TOKEN
+      expect(statuses.indexOf('connecting')).toBeLessThan(statuses.indexOf('connected'));
+      expect(kinds).toContain('chunk');
+      expect(kinds[kinds.length - 1]).toBe('complete');
+
+      // And the queued ask really committed as a pair.
+      const delta = await api(`/api/projects/${PROJECT_ID}/delta?since=0`, { token });
+      const aiTurn = (delta.body.turns as Array<{ id: string; content: string }>).find(
+        (t) => t.id.startsWith('turn-ai-job-') && t.content.includes('queued behind the head') === false
+      );
+      void aiTurn;
+      const asks = (delta.body.turns as Array<{ id: string; role: string; content: string }>)
+        .filter((t) => t.role === 'user')
+        .map((t) => t.content);
+      expect(asks).toContain('queued behind the head');
+    } finally {
+      behavior.chunkDelayMs = 25;
+    }
   });
 });
 
@@ -314,6 +401,85 @@ describe('21E §5.2 — server job failure law', () => {
     expect(failedJob!.errorReason).toBeTruthy();
     expect(typeof failedJob!.partialText).toBe('string');
   });
+});
+
+describe('§5.4 — topic-shift chapter law (David 2026-10-25)', () => {
+  const SHIFT_THREAD = 'thread-shift-1';
+  const seedShiftThread = (): void => {
+    const db = getDb();
+    const now = Date.now();
+    db.prepare(
+      `INSERT INTO threads (user_id, project_id, thread_id, title, title_version, folder_id, created_at, updated_at, doc_json, revision)
+       VALUES (1, ?, ?, 'Shift Thread', 0, NULL, ?, ?, ?, 1)`
+    ).run(PROJECT_ID, SHIFT_THREAD, now, now, JSON.stringify({ id: SHIFT_THREAD, title: 'Shift Thread' }));
+    const ins = db.prepare(
+      `INSERT INTO turns (user_id, project_id, thread_id, turn_id, seq, role, content, timestamp, meta_json, doc_json, revision)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, '{}', ?, 1)`
+    );
+    ins.run(PROJECT_ID, SHIFT_THREAD, `t-pre-1`, 0, 'user', 'pre-existing turn 1', now, JSON.stringify({ id: 't-pre-1', role: 'user', content: 'pre-existing turn 1' }));
+    ins.run(PROJECT_ID, SHIFT_THREAD, `t-pre-2`, 1, 'assistant', 'pre-existing turn 2', now, JSON.stringify({ id: 't-pre-2', role: 'assistant', content: 'pre-existing turn 2' }));
+  };
+
+  const chapterTitles = (): Array<{ title: string; startIndex: number; endIndex: number | null }> => {
+    const rows = getDb()
+      .prepare(`SELECT doc_json FROM chapters WHERE user_id = 1 AND chapter_thread_id = ? ORDER BY order_index ASC`)
+      .all(SHIFT_THREAD) as Array<{ doc_json: string }>;
+    return rows.map((r) => {
+      const d = JSON.parse(r.doc_json);
+      return { title: d.title, startIndex: d.startIndex, endIndex: d.endIndex ?? null };
+    });
+  };
+
+  const enqueueOnShiftThread = (ask: string, extra: Record<string, unknown> = {}): Promise<string> =>
+    api(`/api/projects/${PROJECT_ID}/jobs/send`, {
+      method: 'POST',
+      token,
+      body: { threadId: SHIFT_THREAD, kind: 'send', askText: ask, compiledPrompt: `compiled:${ask}`, model: 'gemini-3.5-flash-lite', ...extra },
+    }).then((r) => {
+      expect(r.status).toBe(201);
+      return r.body.job.jobId as string;
+    });
+
+  it('last shift wins; the cut lands at the human ask; a repeated shift REPLACES the cut, never duplicates', async () => {
+    behavior.current = 'topic-shift';
+    seedShiftThread();
+
+    const jobId = await enqueueOnShiftThread('the ask that changes the topic');
+    await waitFor(() => {
+      const row = getDb().prepare('SELECT 1 FROM chat_jobs WHERE job_id = ?').get(jobId);
+      return row === undefined ? true : null;
+    }, 10000);
+
+    // LAST shift wins — exactly one chapter opened, titled 'Beta', never 'Alpha'.
+    const after = chapterTitles();
+    expect(after.length).toBe(1);
+    const opened = after[0];
+    expect(opened.title).toBe('Beta');
+    // The cut applies at the HUMAN ask: the thread had 2 turns before the
+    // pair, so the new chapter starts at index 2 (the ask), NOT after the
+    // reply (4).
+    expect(opened.startIndex).toBe(2);
+
+    // A regenerate whose reply re-emits the SAME shift replaces the cut —
+    // the chapter count must not grow.
+    const delta = await api(`/api/projects/${PROJECT_ID}/delta?since=0`, { token });
+    const aiTurn = (delta.body.turns as Array<{ id: string; threadId: string }>).find(
+      (t) => t.threadId === SHIFT_THREAD && t.id.startsWith('turn-ai-job-')
+    );
+    expect(aiTurn).toBeTruthy();
+    const regen = await enqueueOnShiftThread('regenerate the reply', {
+      kind: 'regenerate',
+      targetTurnId: aiTurn!.id,
+    });
+    await waitFor(() => {
+      const row = getDb().prepare('SELECT 1 FROM chat_jobs WHERE job_id = ?').get(regen);
+      return row === undefined ? true : null;
+    }, 10000);
+
+    const final = chapterTitles();
+    expect(final.length).toBe(1); // replaced, not duplicated
+    expect(final[0].title).toBe('Beta');
+  }, 20000);
 });
 
 describe('21E §5.3 — explicit stop vs disconnect', () => {

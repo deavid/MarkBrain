@@ -22,7 +22,7 @@ import {
   SendQueue,
   type SendQueueDeps,
 } from '../application/sendQueue';
-import { looksLikeVaultLocked, VAULT_LOCKED_REASON } from '../application/sendQueue';
+import { looksLikeVaultLocked, VAULT_LOCKED_REASON, vpsPhaseFor } from '../application/sendQueue';
 import type { ChatAttachment } from '../domains/06-chat-threads/types';
 
 const att = (id: string, turnIndex: number | null = null): ChatAttachment => ({
@@ -76,7 +76,11 @@ function makeDeps() {
       updateTurn: vi.fn(),
       count: () => turns.length,
     } as never,
-    segmentation: { listChapters: () => [], declareNewChapter: vi.fn() } as never,
+    segmentation: {
+      listChapters: () => [],
+      declareNewChapter: vi.fn(),
+      upsertChapterAtBoundary: vi.fn(),
+    } as never,
     artifacts: { getArtifact: () => null, upsertArtifact: vi.fn((a: unknown) => a) } as never,
     versioning: { recordRevision: vi.fn() } as never,
     compiler: {
@@ -164,7 +168,39 @@ describe('the draft owns its payload (design 23 §2.1)', () => {
   });
 });
 
+describe('topic-shift chapter law on the client (David 2026-10-25)', () => {
+  it('LAST shift wins; the cut lands at the human ask; an existing cut is retitled, not duplicated', async () => {
+    const { deps, streamMock } = makeDeps();
+    streamMock.mockImplementation((_p: unknown, cbs: any) => {
+      cbs.onTopicShift?.({ title: 'Alpha', description: 'first' });
+      cbs.onTopicShift?.({ title: 'Beta', description: 'second' });
+      return { cleanReply: 'the reply', telemetry: undefined };
+    });
+    const q = new SendQueue(() => deps);
+    q.handleSendMessage('the ask that changes the topic');
+    await flush();
+
+    const seg = deps.segmentation as unknown as {
+      declareNewChapter: ReturnType<typeof vi.fn>;
+      upsertChapterAtBoundary: ReturnType<typeof vi.fn>;
+    };
+    expect(seg.upsertChapterAtBoundary).toHaveBeenCalledTimes(1);
+    expect(seg.upsertChapterAtBoundary).toHaveBeenCalledWith('Beta', 0, undefined, 'second', undefined);
+    expect(seg.declareNewChapter).not.toHaveBeenCalled();
+  });
+});
+
 describe('honest progress phases (design 23 §2.2)', () => {
+  it('vpsPhaseFor: server truth → card phase — queued never claims thinking', () => {
+    expect(vpsPhaseFor('queued')).toBe('queued'); // accepted / FIFO-blocked — NOT thinking
+    expect(vpsPhaseFor('sending')).toBe('connecting'); // RPC in flight, no ACK
+    expect(vpsPhaseFor('streaming')).toBe('connecting'); // legacy event → connecting
+    expect(vpsPhaseFor('connected')).toBe('awaiting-first-token'); // provider ACK, zero text
+    expect(vpsPhaseFor('writing')).toBe('writing');
+    expect(vpsPhaseFor('anything-else')).toBe('connecting'); // unknown → honest default
+  });
+
+
   it('ladder: queued → connecting → awaiting-first-token → writing', () => {
     const q = new DraftQueue();
     const d = q.enqueue('T', 'ask');

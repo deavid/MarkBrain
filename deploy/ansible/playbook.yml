@@ -6,6 +6,7 @@
     app_dir: /srv/markbrain
     data_dir: /var/lib/markbrain
     config_dir: /etc/markbrain
+    rotate_owner_password: false
 
   tasks:
     - name: 1. Run local production build + secret guard on dev machine
@@ -70,27 +71,67 @@
           - "--include=/src/***"
           - "--include=/scripts/***"
           - "--include=/package.json"
-          - "--include=/package-lock.json"
           - "--include=/server.ts"
           - "--include=/tsconfig.json"
           - "--exclude=*"
 
-    - name: 7. Install production Node dependencies on VPS
-      command: npm ci
+    - name: 7. Install Node dependencies on VPS (dev deps included — tsx runs the
+        #    server at runtime; there is no package-lock.json in the repo, bun.lock
+        #    is canonical on dev machines, so `npm ci` cannot be used)
+      command: npm install --no-audit --no-fund
       args:
         chdir: "{{ app_dir }}"
 
-    - name: 8. Seed Owner Account #1 if markbrain_owner_password was supplied
+    - name: 8a. Ensure secrets directory exists (owner password lives here, never
+        #    on the command line or in inventory)
+      file:
+        path: "{{ config_dir }}/secrets"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: 8b. Write owner password to the server-side secrets file when supplied
       when: markbrain_owner_password | length > 0
+      copy:
+        dest: "{{ config_dir }}/secrets/owner-password"
+        owner: root
+        group: root
+        mode: "0600"
+        content: "{{ markbrain_owner_password }}\n"
+      no_log: true
+
+    - name: 8c. Check for a server-side owner password file
+      stat:
+        path: "{{ config_dir }}/secrets/owner-password"
+      register: owner_password_file
+
+    - name: 8d. Seed Owner Account #1 from the secrets file (idempotent — skipped
+        #    if the user already exists)
+      when: owner_password_file.stat.exists
       command: >
         npx tsx scripts/user-admin.ts create {{ markbrain_owner_email }}
-        --password {{ markbrain_owner_password | quote }} --owner
+        --password-file {{ config_dir }}/secrets/owner-password --owner
       args:
         chdir: "{{ app_dir }}"
       environment:
         MARKBRAIN_DB_PATH: "{{ data_dir }}/markbrain.sqlite"
       register: seed_owner
       failed_when: seed_owner.rc != 0 and ('already exists' not in seed_owner.stderr)
+      no_log: true
+
+    - name: 8e. Rotate owner password when rotate_owner_password=true (requires a
+        #    refreshed markbrain_owner_password to have been written by 8b)
+      when:
+        - rotate_owner_password | bool
+        - markbrain_owner_password | length > 0
+      command: >
+        npx tsx scripts/user-admin.ts passwd {{ markbrain_owner_email }}
+        --password-file {{ config_dir }}/secrets/owner-password
+      args:
+        chdir: "{{ app_dir }}"
+      environment:
+        MARKBRAIN_DB_PATH: "{{ data_dir }}/markbrain.sqlite"
       no_log: true
 
     - name: 9. Fix ownership of application and SQLite files

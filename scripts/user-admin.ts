@@ -7,11 +7,14 @@
  *   npm run user -- enable <email>
  *   npm run user -- disable <email>
  *   npm run user -- passwd <email> --password <newPassword>
+ *   (create/passwd also accept --password-file <path>, preferred over
+ *    --password so the secret never lands on the command line)
  *
  * Talks to the same SQLite file the server uses (MARKBRAIN_DB_PATH or
  * <cwd>/data/markbrain.sqlite). Never prints hashes, salts, or keys.
  */
 import '../server/lib/env';
+import { readFileSync } from 'node:fs';
 import { getDb } from '../server/db';
 import {
   createUser,
@@ -27,6 +30,22 @@ function flagValue(args: string[], flag: string): string | null {
   return args[i + 1];
 }
 
+/**
+ * Resolves the password for create/passwd without putting it on the command
+ * line: --password-file <path> (0600 file under /etc/markbrain/secrets/) wins
+ * over --password <password>. A password on argv is visible in shell history
+ * and in `ps` while the command runs — prefer the file.
+ */
+function passwordFrom(args: string[]): string | null {
+  const file = flagValue(args, '--password-file');
+  if (file) {
+    const trimmed = readFileSync(file, 'utf8').replace(/\r?\n$/, '');
+    if (trimmed.length === 0) fail(`password file is empty: ${file}`);
+    return trimmed;
+  }
+  return flagValue(args, '--password');
+}
+
 function fail(msg: string): never {
   console.error(`error: ${msg}`);
   process.exit(1);
@@ -38,7 +57,9 @@ function usage(): never {
   npm run user -- list
   npm run user -- enable <email>
   npm run user -- disable <email>
-  npm run user -- passwd <email> --password <newPassword>`);
+  npm run user -- passwd <email> --password <newPassword>
+  (create/passwd also accept --password-file <path> — preferred over
+   --password so the secret never lands on the command line)`);
   process.exit(1);
 }
 
@@ -51,7 +72,7 @@ function main(): void {
     switch (cmd) {
       case 'create': {
         const email = args[0];
-        const password = flagValue(args, '--password');
+        const password = passwordFrom(args);
         if (!email || !password) usage();
         const isOwner = args.includes('--owner');
         const user = createUser(email, password, { isOwner });
@@ -83,7 +104,7 @@ function main(): void {
       }
       case 'passwd': {
         const email = args[0];
-        const password = flagValue(args, '--password');
+        const password = passwordFrom(args);
         if (!email || !password) usage();
         const user = findUserByEmail(email);
         if (!user) fail(`user not found: ${email}`);

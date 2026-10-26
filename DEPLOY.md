@@ -78,7 +78,7 @@ and owner email:
 
 ```ini
 [markbrain_vps]
-markbrain.yourdomain.com ansible_user=root
+markbrain.yourdomain.com ansible_user=debian
 
 [markbrain_vps:vars]
 markbrain_domain=markbrain.yourdomain.com

@@ -1,6 +1,7 @@
 ---
 - name: Build and verify clean static bundle locally, then deploy to VPS
   hosts: markbrain_vps
+  become: true
   gather_facts: true
   vars:
     app_dir: /srv/markbrain
@@ -25,6 +26,21 @@
           - rsync
         state: present
         update_cache: true
+
+    - name: 2b. Ensure Node.js and npm exist on the VPS (unhaunter boxes are
+        #    Rust-only; the markbrain service runs `npx tsx server.ts`)
+      apt:
+        name:
+          - nodejs
+          - npm
+        state: present
+
+    - name: 2c. Assert the VPS Node is >= 22.12 (vitest/vite floor; Debian forky
+        #    ships 24.x — fails loudly here instead of at service start)
+      command: node -v
+      changed_when: false
+      register: node_version
+      failed_when: (node_version.stdout | regex_replace('^v', '')) is not version('22.12.0', '>=')
 
     - name: 3. Ensure dedicated markbrain system user exists
       user:
@@ -66,7 +82,9 @@
         src: "{{ playbook_dir }}/../../"
         dest: "{{ app_dir }}/"
         delete: true
+        rsync_path: "sudo rsync"
         rsync_opts:
+          - "--chown=markbrain:markbrain"
           - "--include=/dist/***"
           - "--include=/server/***"
           - "--include=/src/***"
@@ -75,6 +93,8 @@
           - "--include=/server.ts"
           - "--include=/tsconfig.json"
           - "--exclude=*"
+      delegate_to: localhost
+      become: false
 
     - name: 7. Install Node dependencies on VPS (dev deps included — tsx runs the
         #    server at runtime; there is no package-lock.json in the repo, bun.lock

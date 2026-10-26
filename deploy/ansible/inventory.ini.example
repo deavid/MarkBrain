@@ -1,5 +1,5 @@
 [markbrain_vps]
-markbrain.unhaunter.com ansible_user=root
+markbrain.unhaunter.com ansible_user=debian
 
 [markbrain_vps:vars]
 markbrain_domain=markbrain.unhaunter.com

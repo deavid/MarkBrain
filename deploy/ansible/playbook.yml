@@ -27,15 +27,15 @@
         state: present
         update_cache: true
 
-    - name: 2b. Ensure Node.js and npm exist on the VPS (unhaunter boxes are
-        #    Rust-only; the markbrain service runs `npx tsx server.ts`)
+    - name: 2b. Ensure Node.js and npm exist on the VPS
+        #    (the markbrain service runs `npx tsx server.ts`)
       apt:
         name:
           - nodejs
           - npm
         state: present
 
-    - name: 2c. Assert the VPS Node is >= 22.12 (vitest/vite floor; Debian forky
+    - name: 2c. Assert the VPS Node is >= 22.12 (vitest/vite floor; recent Debian
         #    ships 24.x — fails loudly here instead of at service start)
       command: node -v
       changed_when: false

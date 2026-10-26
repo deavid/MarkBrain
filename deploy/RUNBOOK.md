@@ -2,7 +2,7 @@
 
 Status: active runbook for the current single-server deployment.
 
-Borrowed from the unhaunter hosting model where it made sense; MarkBrain is a
+MarkBrain is a
 single-user, single-compatible-client app, so there is deliberately **no**
 versioned-release library, no channels, no protocol-hash dance. One app
 directory, one SQLite database, one systemd unit, Caddy in front.

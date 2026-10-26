@@ -79,7 +79,7 @@
     - name: 7. Install Node dependencies on VPS (dev deps included — tsx runs the
         #    server at runtime; there is no package-lock.json in the repo, bun.lock
         #    is canonical on dev machines, so `npm ci` cannot be used)
-      command: npm install --no-audit --no-fund
+      command: npm install --legacy-peer-deps --no-audit --no-fund
       args:
         chdir: "{{ app_dir }}"
 

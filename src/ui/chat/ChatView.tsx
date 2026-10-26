@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import {
   Artifact,
   ChapterTurns,
@@ -10,6 +10,7 @@ import type { ProjectMetadata } from '../../domains/00-workspace/types';
 import {
   Sparkles,
   Send,
+  Lock,
   Loader2,
   Volume2,
   VolumeX,
@@ -51,7 +52,15 @@ import {
   formatTokens,
 } from '../context/AttachmentControls';
 import { tts, authUnlock } from '../../gateway/api';
-import { unlockLocalVault } from '../../data/localKeyVault';
+import { unlockLocalVault, hasSavedLocalVault, isLocalVaultUnlocked } from '../../data/localKeyVault';
+import {
+  isVaultLocked,
+  setVaultLocked,
+  subscribeVaultLock,
+  getReArmKey,
+  rememberReArmKey,
+  tryReArmVault,
+} from '../../data/vaultReArm';
 import { getWorkspaceMode } from '../../services/workspaceSession';
 import type { DraftProgress } from '../../application/draftQueue';
 import { getModelForSlot } from '../../data/modelConfig';
@@ -525,6 +534,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // design 25: locked keys never fail a send after the fact — the padlock
+    // opens the unlock row (or re-arms silently) before anything is sent.
+    if (vaultLocked) {
+      void handlePadlockClick();
+      return;
+    }
     if (!inputText.trim()) {
       logger.warn('ChatView', 'Ignored empty submission attempt');
       return;
@@ -539,6 +554,128 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setShowPrompts(false);
     onSendMessage(msg);
   };
+
+  /* ── design 25: proactive vault padlock ─────────────────────────────────── */
+  // The send button IS the lock indicator: locked keys show a padlock, and a
+  // locked send opens the unlock row instead of failing after the fact.
+  const vaultLocked = useSyncExternalStore(subscribeVaultLock, isVaultLocked);
+  const [composerUnlockOpen, setComposerUnlockOpen] = useState(false);
+  const [composerPw, setComposerPw] = useState('');
+  const [composerUnlockErr, setComposerUnlockErr] = useState('');
+  const [composerUnlockBusy, setComposerUnlockBusy] = useState(false);
+
+  // Local mode: derive the initial state from the browser vault (the bus has
+  // no history across mounts; the VPS bus is fed by login + the delta poll).
+  useEffect(() => {
+    if (getWorkspaceMode() !== 'local') return;
+    setVaultLocked(hasSavedLocalVault() ? !isLocalVaultUnlocked() : false);
+  }, []);
+
+  const handlePadlockClick = async () => {
+    // A tab holding a derived key re-arms silently — no password needed.
+    if (getWorkspaceMode() === 'vps' && getReArmKey()) {
+      if (await tryReArmVault()) return;
+    }
+    setComposerUnlockErr('');
+    setComposerUnlockOpen(true);
+  };
+
+  const handleComposerUnlock = async () => {
+    const pw = composerPw;
+    if (!pw) {
+      setComposerUnlockErr('Enter your password.');
+      return;
+    }
+    setComposerUnlockBusy(true);
+    setComposerUnlockErr('');
+    try {
+      if (getWorkspaceMode() === 'vps') {
+        const res = await authUnlock(pw);
+        if (!res.ok) {
+          setComposerUnlockErr('Wrong password — try again.');
+          return;
+        }
+        const body = (await res.json().catch(() => null)) as { rearmKey?: string } | null;
+        rememberReArmKey(body?.rearmKey);
+        setVaultLocked(false);
+      } else {
+        const ok = await unlockLocalVault(pw);
+        if (!ok) {
+          setComposerUnlockErr('Wrong passphrase — try again.');
+          return;
+        }
+        setVaultLocked(false);
+      }
+      setComposerPw('');
+      setComposerUnlockOpen(false);
+    } catch {
+      setComposerUnlockErr('Unlock failed — try again.');
+    } finally {
+      setComposerUnlockBusy(false);
+    }
+  };
+
+  /** The shared unlock POPUP — opened by the padlock (design 25 §1). */
+  const composerUnlockRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (composerUnlockOpen) {
+      setComposerPw('');
+      setComposerUnlockErr('');
+      // Focus lands AFTER the overlay paints — a rAF keeps it reliable.
+      const id = requestAnimationFrame(() => composerUnlockRef.current?.focus());
+      return () => cancelAnimationFrame(id);
+    }
+  }, [composerUnlockOpen]);
+
+  const composerUnlockModal = vaultLocked && composerUnlockOpen ? (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      data-testid="composer-vault-unlock-row"
+      onClick={() => setComposerUnlockOpen(false)}
+    >
+      <div
+        className="rounded-2xl bg-surface-1 shadow-pop p-4 w-[320px] space-y-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2">
+          <Lock className="w-4 h-4 text-amber-400" />
+          <span className="text-xs font-semibold text-ink">Keys are locked</span>
+        </div>
+        <p className="text-[11px] text-ink-faint">
+          Enter your password to unlock. Sends are held until then.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            ref={composerUnlockRef}
+            type="password"
+            data-testid="composer-vault-unlock-password"
+            value={composerPw}
+            onChange={(e) => setComposerPw(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void handleComposerUnlock();
+              }
+              if (e.key === 'Escape') setComposerUnlockOpen(false);
+            }}
+            placeholder="Password"
+            aria-label="Password to unlock your keys"
+            className="flex-1 rounded-lg bg-recess-1 shadow-well px-2.5 py-1.5 text-xs text-ink placeholder:text-ink-faint focus:outline-none"
+          />
+          <button
+            type="button"
+            data-testid="composer-vault-unlock"
+            onClick={() => void handleComposerUnlock()}
+            disabled={composerUnlockBusy}
+            className="rounded-lg bg-amber-500 hover:bg-amber-400 px-3 py-1.5 text-xs font-semibold text-[#231a02] disabled:opacity-50 cursor-pointer"
+          >
+            Unlock
+          </button>
+        </div>
+        {composerUnlockErr && <span className="text-[11px] text-red-400">{composerUnlockErr}</span>}
+      </div>
+    </div>
+  ) : null;
 
   /**
    * One keyboard contract for both composers. Shift+Enter and Ctrl/Cmd+Enter
@@ -889,7 +1026,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     className="px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-ink font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
                   >
                     <span>Start Dialogue</span>
-                    <Send className="w-3.5 h-3.5" />
+                    {vaultLocked ? <Lock className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
                   </button>
                 )}
               </div>
@@ -1810,12 +1947,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 className="px-4 py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 disabled:hover:bg-[#2563eb] text-ink transition-all shadow-md shadow-blue-900/25 flex items-center justify-center cursor-pointer shrink-0"
                 title="Send message"
               >
-                <Send className="w-4 h-4" />
+                {vaultLocked ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
               </button>
             )}
           </form>
-        </div>
+         </div>
       )}
+
+      {composerUnlockModal}
     </div>
   );
 };

@@ -14,8 +14,10 @@ test-domains.ts
 # Evidence packs (scripts/evidence.cjs — machine-gathered, LLM-screened)
 evidence/
 
-# VPS SQLite & runtime data
-data/
+# VPS SQLite & runtime data (root-anchored — a bare `data/` also matched
+# src/data/ and silently swallowed new source files there; found by Orion
+# after dev-vega's tip broke other branches on localKeyVault.ts)
+/data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

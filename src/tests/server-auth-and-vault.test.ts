@@ -236,12 +236,82 @@ describe('21B §8.6 — restart locks the vault; unlock restores the keys', () =
       body: { password: OWNER_PASSWORD },
     });
     expect(ok.status).toBe(200);
-    expect(ok.body).toEqual({ ok: true, vaultUnlocked: true });
+    expect(ok.body).toEqual(expect.objectContaining({ ok: true, vaultUnlocked: true, rearmKey: expect.any(String) }));
 
     const settings = await api('/api/account/settings', { token: ownerToken });
     expect(settings.body.vaultUnlocked).toBe(true);
     expect(settings.body.keys['gemini-free']).toEqual({ configured: true, hint: '…0000' });
     expect(JSON.stringify(settings.body)).not.toContain(FAKE_GEMINI_KEY);
+  });
+});
+
+/* ── design 25: vault re-arm ────────────────────────────────────────────── */
+
+describe('design 25 — silent re-arm after a server restart', () => {
+  it('unlock returns a rearm key; unlock-key re-arms WITHOUT the password after a restart', async () => {
+    // Fresh unlock → the tab gets the derived key.
+    clearUnlockedVaultKeysForTests();
+    const unlock = await api('/api/auth/unlock', {
+      method: 'POST',
+      token: ownerToken,
+      body: { password: OWNER_PASSWORD },
+    });
+    expect(unlock.status).toBe(200);
+    const rearmKey = unlock.body.rearmKey as string;
+    expect(rearmKey).toMatch(/^[0-9a-f]{64}$/);
+
+    // Restart sim #1: RAM wiped, DB verifier survives → re-arm works, no password.
+    clearUnlockedVaultKeysForTests();
+    const rearm = await api('/api/auth/unlock-key', {
+      method: 'POST',
+      token: ownerToken,
+      body: { rearmKey },
+    });
+    expect(rearm.status).toBe(200);
+    expect(rearm.body).toEqual({ ok: true, vaultUnlocked: true });
+    const settings = await api('/api/account/settings', { token: ownerToken });
+    expect(settings.body.vaultUnlocked).toBe(true);
+
+    // A wrong or malformed key is rejected and the vault stays locked.
+    clearUnlockedVaultKeysForTests();
+    const bad = await api('/api/auth/unlock-key', {
+      method: 'POST',
+      token: ownerToken,
+      body: { rearmKey: 'f'.repeat(64) },
+    });
+    expect(bad.status).toBe(401);
+    expect(isVaultUnlocked(1)).toBe(false);
+
+    // Restart sim #2 with the GOOD key still re-arms (verifier untouched).
+    const good = await api('/api/auth/unlock-key', { method: 'POST', token: ownerToken, body: { rearmKey } });
+    expect(good.status).toBe(200);
+  });
+
+  it('a MANUAL lock kills re-arm: the verifier is cleared, unlock-key is dead', async () => {
+    const { lockVault, reArmVaultWithKey } = await import('../../server/lib/accountVault');
+
+    // Fresh unlock → tab holds a valid rearm key.
+    const unlock = await api('/api/auth/unlock', {
+      method: 'POST',
+      token: ownerToken,
+      body: { password: OWNER_PASSWORD },
+    });
+    const rearmKey = unlock.body.rearmKey as string;
+    expect(rearmKey).toMatch(/^[0-9a-f]{64}$/);
+    clearUnlockedVaultKeysForTests(); // restart sim — verifier survives
+    expect(reArmVaultWithKey(1, rearmKey)).toBe(true);
+
+    // MANUAL lock (logout / disable / password change all funnel here):
+    // RAM wiped AND the verifier cleared → no tab can silently re-arm.
+    lockVault(1);
+    expect(reArmVaultWithKey(1, rearmKey)).toBe(false);
+
+    // The password path still works, and refreshes the verifier.
+    const pw = await api('/api/auth/unlock', { method: 'POST', token: ownerToken, body: { password: OWNER_PASSWORD } });
+    expect(pw.status).toBe(200);
+    expect(pw.body.rearmKey).toMatch(/^[0-9a-f]{64}$/);
+    const again = await api('/api/auth/unlock-key', { method: 'POST', token: ownerToken, body: { rearmKey: pw.body.rearmKey } });
+    expect(again.status).toBe(200);
   });
 });
 

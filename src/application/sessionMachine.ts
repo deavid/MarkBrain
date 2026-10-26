@@ -27,6 +27,7 @@ import {
   clearVpsSession,
 } from '../services/workspaceSession';
 import { authLogin, authLogout, type LoginResponse } from '../gateway/api';
+import { rememberReArmKey, setVaultLocked, forgetReArmKey } from '../data/vaultReArm';
 import { hydrateAccountSettingsFromVps } from '../data/modelConfig';
 import { logger } from '../utils/logger';
 
@@ -147,6 +148,8 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
         isOwner: data.user.isOwner,
         vaultUnlocked: data.user.vaultUnlocked,
       });
+      rememberReArmKey((data as LoginResponse & { rearmKey?: string }).rearmKey);
+      setVaultLocked(!data.user.vaultUnlocked);
       setWorkspaceMode('vps');
       const user: WorkspaceUser = {
         uid: String(data.user.id),
@@ -183,6 +186,8 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
       }
       clearVpsSession();
     }
+    forgetReArmKey();
+    setVaultLocked(true);
     clearWorkspaceMode();
     setCurrentUser(null);
     setCloudProjectsCount(null);

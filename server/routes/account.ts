@@ -17,6 +17,8 @@ import { getDb } from '../db';
 import {
   isVaultUnlocked,
   lockVault,
+  reArmKeyFor,
+  reArmVaultWithKey,
   unlockVaultWithPassword,
   readKeysPayload,
   writeKeysPayload,
@@ -174,6 +176,7 @@ export function registerAccountRoutes(app: Express): void {
     res.json({
       token,
       user: { id: user.id, email: user.email, isOwner: user.isOwner, vaultUnlocked: true },
+      rearmKey: reArmKeyFor(user.id),
     });
   });
 
@@ -206,9 +209,27 @@ export function registerAccountRoutes(app: Express): void {
     }
     try {
       unlockVaultWithPassword(req.user!.id, password);
-      res.json({ ok: true, vaultUnlocked: true });
+      // design 25: the derived key rides the response so THIS tab can re-arm
+      // after a server restart without the password (TLS transit; tab RAM only).
+      res.json({ ok: true, vaultUnlocked: true, rearmKey: reArmKeyFor(req.user!.id) });
     } catch {
       res.status(401).json({ error: 'Invalid password.' });
+    }
+  });
+
+  // ── POST /api/auth/unlock-key (requireAuth; design 25 §2) ────────────────
+  // Silent re-arm after a server restart: the tab proves knowledge of the
+  // derived vault key against the DB verifier. Dead after a manual lock.
+  app.post('/api/auth/unlock-key', requireAuth, (req: Request, res: Response) => {
+    const { rearmKey } = req.body ?? {};
+    if (typeof rearmKey !== 'string') {
+      res.status(400).json({ error: 'rearmKey is required.' });
+      return;
+    }
+    if (reArmVaultWithKey(req.user!.id, rearmKey)) {
+      res.json({ ok: true, vaultUnlocked: true });
+    } else {
+      res.status(401).json({ error: 'Re-arm key rejected — unlock with your password.' });
     }
   });
 

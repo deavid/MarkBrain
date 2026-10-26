@@ -56,6 +56,7 @@ export function vpsPhaseFor(serverState: string): 'queued' | 'connecting' | 'awa
   }
 }
 import { isLocalVaultLockedError, resolveLaneKey } from '../data/keySlots';
+import { isVaultLocked, getReArmKey, tryReArmVault } from '../data/vaultReArm';
 import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../domains/03-stream-protocol';
 
 /** App render values, snapshotted once when an attempt starts (see the header). */
@@ -247,6 +248,23 @@ export class SendQueue {
     } finally {
       this.reconcileInFlight = false;
     }
+  }
+
+  /**
+   * design 25: silent re-arm + one bounded retry after a VAULT_LOCKED send
+   * failure. Bounded so a genuinely rejected key can't loop sends.
+   */
+  private reArmAttempts = new Map<string, number>();
+  private reArmAndRetry(draftId: string): void {
+    const tries = this.reArmAttempts.get(draftId) ?? 0;
+    if (tries >= 2 || !getReArmKey()) return;
+    this.reArmAttempts.set(draftId, tries + 1);
+    void tryReArmVault().then((ok) => {
+      if (ok) {
+        logger.action('App', 'Vault re-armed from tab key — resending the failed draft');
+        this.retryDraft(draftId);
+      }
+    });
   }
 
   /**
@@ -600,6 +618,11 @@ export class SendQueue {
     let sawFirstChunk = false;
 
     try {
+      // design 25: a restart locked the vault while we were idle — re-arm from
+      // the tab-held derived key BEFORE the send, so it just works.
+      if (getWorkspaceMode() === 'vps' && isVaultLocked() && getReArmKey()) {
+        await tryReArmVault();
+      }
       // Design 23 §2.3: a locked local vault with no signable key is a
       // VAULT_LOCKED exit — code it so the card can unlock + auto-retry.
       if (localVaultLocked(ctx.model.id)) {
@@ -975,13 +998,18 @@ export class SendQueue {
         } else if (event === 'error') {
           // Terminal server failure: land the draft failed with the server's
           // reason + machine code (retry re-attaches to the same job id).
+          const failCode =
+            typeof data.code === 'string' && data.code ? data.code : errorCodeFor(String(data.message || ''));
           this.drafts.fail(
             item.id,
             String(data.message || 'The request failed — no reply came back.'),
             item.partial,
-            typeof data.code === 'string' && data.code ? data.code : errorCodeFor(String(data.message || ''))
+            failCode
           );
           deps.triggerReRender();
+          // design 25: a restart locked the vault mid-session — re-arm from the
+          // tab-held derived key and resend, so the user never sees this.
+          if (failCode === 'VAULT_LOCKED') this.reArmAndRetry(item.id);
           return true;
         } else if (event === 'stopped') {
           this.drafts.stop(item.id, data.partialText || item.partial);

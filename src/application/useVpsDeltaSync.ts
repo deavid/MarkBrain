@@ -21,6 +21,7 @@ import type { ITopologicalGraphDomain } from '../domains/02-topological-graph';
 import type { ThreadRegistry } from '../domains/06-chat-threads';
 import { reconcileThreadAttachments } from '../domains/06-chat-threads';
 import { flushServerMutations } from './serverMutationQueue';
+import { setVaultLocked } from '../data/vaultReArm';
 import { apiFetch } from '../gateway/api';
 import { getWorkspaceMode } from '../services/workspaceSession';
 import type { ProjectDeltaResponse } from '../../server/db/projectRepo';
@@ -221,6 +222,20 @@ export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
           mergeDeltaIntoDomains(delta, depsRef.current);
           lastRevisionRef.current = delta.revision;
           logger.info('VpsDeltaSync', `Merged delta → revision ${delta.revision}`);
+        }
+        // design 25: piggyback the lock-state check onto this poll — no new
+        // poller, one cheap GET per tick. Catches a server restart's vault
+        // lock BEFORE the user finds out through a failed send.
+        try {
+          const sess = await apiFetch('/api/auth/session');
+          if (sess.ok) {
+            const body = (await sess.json()) as { user?: { vaultUnlocked?: boolean } };
+            setVaultLocked(body.user?.vaultUnlocked === false);
+          } else if (sess.status === 401) {
+            setVaultLocked(true); // session gone — nothing will send anyway
+          }
+        } catch {
+          /* offline — padlock state stays as-is */
         }
       } catch {
         /* offline — mirror + next wake retry */

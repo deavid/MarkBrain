@@ -40,6 +40,7 @@ import {
   getVaultChatTier,
   setVaultChatTier,
 } from '../../data/localKeyVault';
+import { rememberReArmKey, setVaultLocked } from '../../data/vaultReArm';
 import { getWorkspaceMode, getVpsSession, patchVpsSession } from '../../services/workspaceSession';
 
 /**
@@ -260,6 +261,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
       setLocalVaultError('Wrong passphrase — vault stays locked.');
       return;
     }
+    setVaultLocked(false);
     setLocalPassphrase('');
     refreshLocalVaultState();
     refreshKeyValues();
@@ -278,6 +280,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
 
   const handleLockVault = () => {
     lockLocalVault();
+    setVaultLocked(true);
     refreshLocalVaultState();
     refreshKeyValues();
     logger.action('ModelSettings', 'Local key vault locked');
@@ -298,6 +301,13 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
       setVpsKeysError('Wrong password — vault stays locked.');
       return;
     }
+    try {
+      const body = (await res.json()) as { rearmKey?: string };
+      rememberReArmKey(body.rearmKey);
+    } catch {
+      /* body already consumed elsewhere — re-arm just won't be available */
+    }
+    setVaultLocked(false);
     setVpsUnlockPw('');
     loadVpsSettings();
     logger.action('ModelSettings', 'VPS vault unlocked');

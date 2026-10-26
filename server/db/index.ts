@@ -230,6 +230,10 @@ export function initDb(location?: string): Database.Database {
   ensureColumn('turns', 'doc_json', `doc_json TEXT NOT NULL DEFAULT '{}'`);
   // CHAPTER thread scoping for delta assembly (chapter rows carry threadId in doc, column helps queries)
   ensureColumn('chapters', 'chapter_thread_id', `chapter_thread_id TEXT NOT NULL DEFAULT ''`);
+  // design 25: SHA-256 verifier of the derived vault key (a verifier, NOT the
+  // key). Present → the authed tab may re-arm the vault without the password
+  // after a server restart. Cleared by every manual lock.
+  ensureColumn('users', 'vault_rearm_hash', `vault_rearm_hash TEXT NOT NULL DEFAULT ''`);
   if (db) {
     try {
       db.close();

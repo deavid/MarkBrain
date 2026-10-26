@@ -11,6 +11,9 @@
  *   VAULT_LOCKED until POST /api/auth/unlock (or a fresh login).
  * - Raw API key strings NEVER leave this process toward the browser —
  *   only `{ configured, hint: '…last4' }`.
+ * - Vault re-arm (design-docs/25): the DERIVED key itself rides the unlock
+ *   response (TLS) so the authed tab can re-arm after a restart; the DB holds
+ *   only its SHA-256 as a verifier. Every manual lock clears the verifier.
  */
 import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
@@ -140,11 +143,53 @@ export function unlockVaultWithPassword(userId: number, password: string): void 
     .get(userId) as UserRow | undefined;
   if (!row || row.enabled !== 1) throw new Error('Invalid credentials.');
   if (!verifyPassword(password, row.password_hash)) throw new Error('Invalid credentials.');
-  unlockedVaultKeys.set(userId, deriveVaultKey(password, Buffer.from(row.kdf_salt)));
+  const vaultKey = deriveVaultKey(password, Buffer.from(row.kdf_salt));
+  unlockedVaultKeys.set(userId, vaultKey);
+  storeReArmHash(userId, vaultKey);
 }
 
 export function lockVault(userId: number): void {
   unlockedVaultKeys.delete(userId);
+  // design 25: EVERY lock is deliberate (logout / disable / password change) —
+  // kill the re-arm verifier so no tab can silently re-arm over the user's
+  // explicit lock. A restart never calls this: RAM dies, the verifier lives.
+  getDb().prepare('UPDATE users SET vault_rearm_hash = ? WHERE id = ?').run('', userId);
+}
+
+// ── Vault re-arm (design-docs/25) ───────────────────────────────────────────
+// A manual lock clears the verifier so no tab can silently re-arm; a server
+// restart only wipes RAM, so the verifier in the DB survives and the authed
+// tab may re-arm without the password.
+
+const REARM_HASH_SQL = 'UPDATE users SET vault_rearm_hash = ? WHERE id = ?';
+
+function storeReArmHash(userId: number, vaultKey: Buffer): void {
+  getDb().prepare(REARM_HASH_SQL).run(sha256Hex(vaultKey), userId);
+}
+
+export function sha256Hex(buf: Buffer): string {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+/** Hex vault key to hand the authed tab at unlock (design 25 §2). */
+export function reArmKeyFor(userId: number): string | null {
+  const key = unlockedVaultKeys.get(userId);
+  return key ? key.toString('hex') : null;
+}
+
+/** Verifies a client-held re-arm key against the DB verifier and re-arms. */
+export function reArmVaultWithKey(userId: number, rearmKeyHex: string): boolean {
+  if (!/^[0-9a-f]{64}$/.test(rearmKeyHex)) return false;
+  const row = getDb()
+    .prepare('SELECT vault_rearm_hash, enabled FROM users WHERE id = ?')
+    .get(userId) as { vault_rearm_hash: string; enabled: number } | undefined;
+  if (!row || row.enabled !== 1) return false;
+  if (!row.vault_rearm_hash) return false; // manual lock — re-arm is dead
+  const candidate = Buffer.from(rearmKeyHex, 'hex');
+  if (candidate.length !== 32) return false;
+  if (sha256Hex(candidate) !== row.vault_rearm_hash) return false;
+  unlockedVaultKeys.set(userId, candidate);
+  return true;
 }
 
 // ── user_secrets encryption ─────────────────────────────────────────────────

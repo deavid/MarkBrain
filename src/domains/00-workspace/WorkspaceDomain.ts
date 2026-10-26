@@ -71,6 +71,9 @@ export class WorkspaceDomain implements IWorkspaceDomain {
     const container = this.projects.get(id);
     if (!container) return;
     container.metadata = { ...container.metadata, ...partial, updatedAt: Date.now() };
+    // Emit so the persist worker saves the change — without this a rename
+    // sat in RAM until some unrelated mutation triggered a save.
+    this.emit({ type: 'projectMetaChanged', projectId: id });
   }
 
   saveContainer(container: WorkspaceContainer): void {

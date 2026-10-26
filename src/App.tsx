@@ -363,7 +363,12 @@ export default function App() {
   }, [projectMeta.id]);
 
   const attachedArtifactIds = useMemo(
-    () => new Set(activeAttachments.map((a) => a.artifactId)),
+    // "Already attached" means COMMITTED (design 15, live 2026-10-26): staged
+    // rows are not attached yet — David clicked attach-next and the row
+    // teleported to the ALREADY ATTACHED bucket. A staged row keeps its
+    // position in the suggested list (it wears the 'next send' badge) and
+    // only descends when the send commits it.
+    () => new Set(activeAttachments.filter((a) => !isAttachmentStaged(a)).map((a) => a.artifactId)),
     [activeAttachments]
   );
 
@@ -1065,6 +1070,11 @@ export default function App() {
           onSelectProjectAndLaunchChat={handleSelectProjectAndLaunchChat}
           onCreateProject={handleCreateProject}
           onDeleteProject={deleteWorkspace}
+          onEditProject={(projectId, patch) => {
+            workspace.updateMetadata(projectId, patch);
+            triggerReRender();
+            logger.action('App', 'Project metadata updated', { projectId });
+          }}
           onClose={() => setIsProjectLauncherOpen(false)}
           isDismissable={true}
         />

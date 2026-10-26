@@ -15,6 +15,7 @@ import {
   X,
   Trash2,
   AlertTriangle,
+  Pencil,
 } from 'lucide-react';
 
 interface ProjectLauncherProps {
@@ -24,9 +25,20 @@ interface ProjectLauncherProps {
   onCreateProject: (name: string, description: string, codeName: string, color: string) => void;
   /** Permanent delete — routed through the persistence port (any backend). */
   onDeleteProject?: (projectId: string) => Promise<void>;
+  /** design 26: edit a project's metadata (name / codeName / description / color). */
+  onEditProject?: (projectId: string, patch: { name: string; description: string; color: string; codeName: string }) => void;
   onClose?: () => void;
   isDismissable?: boolean;
 }
+
+const PALETTE = [
+  '#3b82f6',
+  '#10b981',
+  '#8b5cf6',
+  '#f59e0b',
+  '#e05a66',
+  '#06b6d4',
+];
 
 export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
   projects,
@@ -34,6 +46,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
   onSelectProjectAndLaunchChat,
   onCreateProject,
   onDeleteProject,
+  onEditProject,
   onClose,
   isDismissable = false,
 }) => {
@@ -44,6 +57,13 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
   const [selectedColor, setSelectedColor] = useState('#be3a49');
   // Delete flow: pendingDelete holds the target until the user confirms.
   const [pendingDelete, setPendingDelete] = useState<ProjectMetadata | null>(null);
+  // Edit flow: the project whose metadata is being edited (design 26).
+  const [editing, setEditing] = useState<ProjectMetadata | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editCodeName, setEditCodeName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editColor, setEditColor] = useState('#be3a49');
+  const [editError, setEditError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -294,6 +314,26 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                   </div>
 
                   <div className="sm:self-center shrink-0 flex items-center justify-end gap-2">
+                    {onEditProject && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditError(null);
+                          setEditing(proj);
+                          setEditName(proj.name);
+                          setEditCodeName(proj.codeName || '');
+                          setEditDescription(proj.description || '');
+                          setEditColor(proj.color || PALETTE[0]);
+                        }}
+                        className="p-2 rounded-xl bg-surface-3 text-[#6c82a1] hover:bg-surface-2 hover:text-[#8ab1e0] transition-colors cursor-pointer"
+                        title={`Edit details of "${proj.name}"`}
+                        aria-label={`Edit project ${proj.name}`}
+                        data-testid={`edit-project-${proj.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -325,6 +365,104 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
           </div>
         </div>
       </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-surface-1 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">
+            <h2 className="text-sm font-bold text-[#f2eaf7] font-mono">Edit project details</h2>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+                  Name
+                </label>
+                <input
+                  type="text"
+                  data-testid="edit-project-name"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full bg-recess-1 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink focus:outline-none transition-colors shadow-well"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+                    Code Identifier
+                  </label>
+                  <input
+                    type="text"
+                    data-testid="edit-project-codename"
+                    value={editCodeName}
+                    onChange={(e) => setEditCodeName(e.target.value.toUpperCase())}
+                    maxLength={12}
+                    className="w-full bg-recess-1 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono text-ink focus:outline-none transition-colors shadow-well"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+                    Accent Nuance
+                  </label>
+                  <div className="flex items-center gap-2 pt-1.5 flex-wrap">
+                    {PALETTE.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setEditColor(c)}
+                        aria-label={`Color ${c}`}
+                        className={`w-6 h-6 rounded-full transition-transform cursor-pointer ${
+                          editColor === c ? 'ring-2 ring-offset-2 ring-offset-surface-1 ring-[#8ab1e0] scale-110' : ''
+                        }`}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+                  Description
+                </label>
+                <textarea
+                  data-testid="edit-project-description"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={2}
+                  className="w-full bg-recess-1 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink focus:outline-none transition-colors shadow-well resize-none"
+                />
+              </div>
+              {editError && <p className="text-[11px] text-[#f28894] font-mono">{editError}</p>}
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setEditing(null)}
+                className="px-3.5 py-2 rounded-xl bg-surface-3 hover:bg-surface-4 text-[#8ab1e0] text-xs font-mono transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="edit-project-save"
+                onClick={() => {
+                  if (!editName.trim()) {
+                    setEditError('Name cannot be empty.');
+                    return;
+                  }
+                  onEditProject?.(editing.id, {
+                    name: editName.trim(),
+                    description: editDescription.trim(),
+                    color: editColor,
+                    codeName: editCodeName.trim().toUpperCase(),
+                  });
+                  setEditing(null);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-[#e05a66] hover:bg-[#c94b56] text-ink text-xs font-bold font-mono transition-colors cursor-pointer"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pendingDelete && (
         <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">

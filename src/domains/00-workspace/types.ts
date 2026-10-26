@@ -19,4 +19,5 @@ export type WorkspaceEvent =
   | { type: 'workspaceLoaded'; activeProjectId: string }
   | { type: 'activeProjectChanged'; previousId: string; nextId: string }
   | { type: 'projectCreated'; project: ProjectMetadata }
-  | { type: 'projectDeleted'; projectId: string };
+  | { type: 'projectDeleted'; projectId: string }
+  | { type: 'projectMetaChanged'; projectId: string };

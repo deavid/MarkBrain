@@ -143,7 +143,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
                 value={codeName}
                 onChange={(e) => setCodeName(e.target.value.toUpperCase())}
                 placeholder="e.g. SIDE-IDEAS"
-                maxLength={8}
+                maxLength={12}
                 className="w-full bg-recess-1 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono text-ink placeholder-[#455770] focus:outline-none transition-colors shadow-well"
               />
             </div>

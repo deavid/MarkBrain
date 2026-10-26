@@ -1071,7 +1071,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       ) : (
         /* Unified Vertical Chat Feed with Episodic Chapters - ZERO TOP BAR */
         <div
-          className="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4 space-y-4"
+          className="flex-1 overflow-y-auto px-3 pb-3 sm:px-6 sm:pb-4 space-y-4"
           onScroll={(e) => {
             const next = e.currentTarget.scrollTop > 24;
             if (next !== feedScrolled) setFeedScrolled(next);
@@ -1085,14 +1085,34 @@ export const ChatView: React.FC<ChatViewProps> = ({
               auto-title sparkle once the sm:pl-6 kicked in), and the token orb
               floats at the top-right. Centering keeps the identity out of both
               corners; the gutters keep the two buttons clear of the text. */}
+          {/* design 26 (live note): the pinned band is NOT full width — it
+              shrinks to a centered pill (~60% max) so it stops reading as a
+              toolbar, and it is smaller overall. On short viewports (phone
+              landscape) the whole row hides: every vertical pixel matters
+              there, and a pinned title band is pure overhead. */}
           {!threadArchived && (
             <div
               data-testid="thread-title-row"
               data-scrolled={feedScrolled ? 'true' : 'false'}
-              className={`sticky top-0 z-20 flex items-center gap-2 min-w-0 pl-16 pr-24 -mx-3 sm:-mx-6 transition-colors ${
-                feedScrolled ? 'py-1.5 bg-surface-0/95 backdrop-blur-md' : 'py-0'
+              className={`sticky top-0 z-20 flex justify-center gap-2 min-w-0 pl-16 pr-24 -mx-3 sm:-mx-6 transition-colors [@media(max-height:520px)]:hidden ${
+                // The scroller has NO top padding on purpose: a sticky box is
+                // clamped to its containing block, which starts below that
+                // padding — that WAS the gap. The in-flow (unscrolled) hero
+                // carries its own top padding instead, so the pinned pill's
+                // square shoulders sit truly flush at the window top.
+                feedScrolled ? '' : 'pt-3 sm:pt-4'
               }`}
             >
+              <div
+                className={`flex items-center gap-2 min-w-0 ${
+                  feedScrolled
+                    ? // Flush + SHORT: square shoulders hug the window top
+                      // (no gap possible — the top edge is a straight line),
+                      // the pill is as tall as its text plus a whisper.
+                      'max-w-[60%] rounded-t-none rounded-b-xl bg-surface-0/95 backdrop-blur-md px-2.5 pt-1 pb-1.5 shadow-sm'
+                    : 'flex-1 justify-center'
+                }`}
+              >
               <button
                 type="button"
                 onClick={handleAutoTitle}
@@ -1123,7 +1143,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   placeholder="Name this conversation…"
                   aria-label="Conversation title"
                   className={`flex-1 min-w-0 bg-transparent font-semibold tracking-tight text-ink font-mono placeholder:text-ink-faint focus:outline-none border-b border-line pb-0.5 text-center ${
-                    feedScrolled ? 'text-sm' : 'text-xl sm:text-2xl'
+                    feedScrolled ? 'text-xs' : 'text-xl sm:text-2xl'
                   }`}
                 />
               ) : (
@@ -1139,14 +1159,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       the middle of the row, far from both floating corners. */}
                   <span
                     aria-hidden="true"
-                    className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                    className={`rounded-lg flex items-center justify-center shrink-0 ${
+                      feedScrolled ? 'w-5 h-5' : 'w-7 h-7'
+                    }`}
                     style={{ backgroundColor: `${project.color || '#3b82f6'}22` }}
                   >
-                    <Brain className="w-4 h-4" style={{ color: project.color || '#3b82f6' }} />
+                    <Brain
+                      className={feedScrolled ? 'w-3.5 h-3.5' : 'w-4 h-4'}
+                      style={{ color: project.color || '#3b82f6' }}
+                    />
                   </span>
                   <h1
                     className={`truncate font-semibold tracking-tight font-mono ${
-                      feedScrolled ? 'text-sm' : 'text-xl sm:text-2xl'
+                      feedScrolled ? 'text-xs' : 'text-xl sm:text-2xl'
                     } ${
                       threadTitleState === 'placeholder' || threadTitle === 'New thread'
                         ? 'italic text-ink-mute'
@@ -1169,6 +1194,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {titleFlash === 'ok' ? 'Titled' : 'Needs a reply first'}
                 </span>
               )}
+              </div>
             </div>
           )}
 

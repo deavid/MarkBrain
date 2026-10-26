@@ -23,7 +23,7 @@ export const ReadAloudControls: React.FC = () => {
   return (
     <div className="px-2.5 pb-1.5 space-y-1.5" data-testid="tts-transport">
       <div className="flex items-center gap-2">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute shrink-0">
+        <span className="text-10 font-mono uppercase tracking-wider text-ink-mute shrink-0">
           Volume
         </span>
         <input
@@ -35,10 +35,10 @@ export const ReadAloudControls: React.FC = () => {
           onChange={(e) => ttsTransport.setVolumeGain(sliderToGain(Number(e.target.value)))}
           aria-label="Volume"
           aria-valuetext={formatGainDb(state.volume)}
-          className="flex-1 h-6 min-h-[24px] accent-[#5ad49b] cursor-pointer"
+          className="flex-1 min-w-14 h-6 min-h-[24px] accent-[#5ad49b] cursor-pointer"
         />
         <span
-          className="text-[10px] font-mono text-ink-mute tabular-nums w-14 text-right shrink-0"
+          className="text-10 font-mono text-ink-mute tabular-nums shrink-0 whitespace-nowrap"
           data-testid="tts-volume-db"
         >
           {formatGainDb(state.volume)}
@@ -46,7 +46,7 @@ export const ReadAloudControls: React.FC = () => {
       </div>
 
       {state.phase === 'loading' && (
-        <div className="flex items-center gap-1.5 text-[10px] font-mono text-ink-mute">
+        <div className="flex items-center gap-1.5 text-10 font-mono text-ink-mute">
           <Loader2 className="w-3 h-3 animate-spin" />
           Preparing audio…
         </div>
@@ -54,7 +54,7 @@ export const ReadAloudControls: React.FC = () => {
 
       {state.phase === 'playing' && state.seekable && state.duration > 0 && (
         <div className="flex items-center gap-2" data-testid="tts-seek">
-          <span className="text-[10px] font-mono text-[#7dd3fc] tabular-nums shrink-0">
+          <span className="text-10 font-mono text-[#7dd3fc] tabular-nums shrink-0">
             {formatTtsTime(state.currentTime)}
           </span>
           <input
@@ -66,16 +66,16 @@ export const ReadAloudControls: React.FC = () => {
             onChange={(e) => ttsTransport.seek(Number(e.target.value))}
             aria-label="Play position"
             title="Drag to fast-forward"
-            className="flex-1 h-6 min-h-[24px] accent-[#38bdf8] cursor-pointer"
+            className="flex-1 min-w-14 h-6 min-h-[24px] accent-[#38bdf8] cursor-pointer"
           />
-          <span className="text-[10px] font-mono text-ink-mute tabular-nums shrink-0">
+          <span className="text-10 font-mono text-ink-mute tabular-nums shrink-0">
             {formatTtsTime(state.duration)}
           </span>
         </div>
       )}
 
       {state.phase === 'playing' && !state.seekable && (
-        <div className="text-[10px] font-mono text-ink-mute">
+        <div className="text-10 font-mono text-ink-mute">
           Live · browser speech has no timeline to seek
         </div>
       )}

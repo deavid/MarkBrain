@@ -92,7 +92,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
           <button
             type="button"
             onClick={onSignOut}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-wash-danger hover:bg-[#3a1a20] text-[11px] font-mono text-[#f28894] transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-wash-danger hover:bg-[#3a1a20] text-11 font-mono text-[#f28894] transition-colors cursor-pointer"
             title="Sign out of Google"
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -120,7 +120,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+            <label className="text-11 font-mono uppercase tracking-wider text-[#7a93b5] block">
               Project Name *
             </label>
             <input
@@ -135,7 +135,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+              <label className="text-11 font-mono uppercase tracking-wider text-[#7a93b5] block">
                 Code Identifier
               </label>
               <input
@@ -149,7 +149,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+              <label className="text-11 font-mono uppercase tracking-wider text-[#7a93b5] block">
                 Accent Nuance
               </label>
               <div className="flex items-center gap-2 pt-1.5">
@@ -169,7 +169,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+            <label className="text-11 font-mono uppercase tracking-wider text-[#7a93b5] block">
               Description
             </label>
             <textarea
@@ -204,7 +204,7 @@ export const ProjectGenesis: React.FC<ProjectGenesisProps> = ({
           <button
             type="button"
             onClick={onImportDatabase}
-            className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-transparent hover:bg-surface-1 text-[#6e88a8] hover:text-[#8ab1e0] text-[11px] font-mono transition-colors cursor-pointer border-transparent "
+            className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-transparent hover:bg-surface-1 text-[#6e88a8] hover:text-[#8ab1e0] text-11 font-mono transition-colors cursor-pointer border-transparent "
             title="Restore a MarkBrain database backup file (JSON) into this browser"
           >
             <RotateCcw className="w-3.5 h-3.5" />

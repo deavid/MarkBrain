@@ -206,7 +206,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
         <div className="px-4 py-3 flex items-center justify-between shrink-0 bg-surface-3 rounded-t-2xl">
           <div>
             <h2 className="text-sm font-bold font-mono">What the LLM will see</h2>
-            <p className="text-[10px] text-[#6b82a3] font-mono mt-0.5">Mirror · same order, same contents</p>
+            <p className="text-10 text-[#6b82a3] font-mono mt-0.5">Mirror · same order, same contents</p>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <button
@@ -225,7 +225,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
         {/* 1 · Payload — always on screen, whatever tab you are reading. */}
         <div className="px-4 pt-3 shrink-0 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-[#6b82a3]">1 · Payload</span>
+            <span className="text-10 uppercase tracking-wider text-[#6b82a3]">1 · Payload</span>
             <span style={{ color: ambient.hex }}>
               <span className="text-[#556985]">est.</span> {tb.totalTokens.toLocaleString()} / {ceiling.toLocaleString()} tok
             </span>
@@ -237,13 +237,13 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
               style={{ width: `${colorRatio * 100}%`, backgroundColor: ambient.hex }}
             />
           </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#8297b5]">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-10 text-[#8297b5]">
             <span>system {tb.systemTokens}</span>
             <span>artifacts {tb.substrateTokens}</span>
             <span>chapters {tb.historyTokens}</span>
           </div>
           {dist && (
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#556985]">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-10 text-[#556985]">
               <span style={{ color: ATTACHMENT_STATE_PALETTE.full.hex }}>■ full {dist.full}</span>
               <span style={{ color: ATTACHMENT_STATE_PALETTE.summary.hex }}>■ summary {dist.summary}</span>
               <span style={{ color: ATTACHMENT_STATE_PALETTE.description.hex }}>■ description {dist.description}</span>
@@ -258,12 +258,12 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               data-testid={`mirror-tab-${tab.id}`}
-              className={`flex items-center gap-1 min-h-[28px] px-2.5 rounded-lg text-[10px] font-mono transition-colors cursor-pointer ${
+              className={`flex items-center gap-1 min-h-[28px] px-2.5 rounded-lg text-10 font-mono transition-colors cursor-pointer ${
                 activeTab === tab.id ? 'bg-veil-2 shadow-lift text-ink' : 'text-[#5d7394] hover:text-ink-dim'
               }`}
             >
               {tab.label}
-              <span className="text-[9px] text-[#556985]">{tabCount(tab.id)}</span>
+              <span className="text-9 text-[#556985]">{tabCount(tab.id)}</span>
             </button>
           ))}
         </div>
@@ -272,12 +272,12 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
           {activeTab === 'artifacts' && (
             <section className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider text-[#6b82a3]">Attached artifacts</span>
+                <span className="text-10 uppercase tracking-wider text-[#6b82a3]">Attached artifacts</span>
                 <button
                   onClick={onOpenArtifacts}
                   title="Open the library to attach artifacts"
                   data-testid="mirror-attach"
-                  className="flex items-center gap-1 min-h-[24px] px-2 rounded-md text-[10px] text-ink-dim hover:text-ink hover:bg-surface-3 transition-colors cursor-pointer"
+                  className="flex items-center gap-1 min-h-[24px] px-2 rounded-md text-10 text-ink-dim hover:text-ink hover:bg-surface-3 transition-colors cursor-pointer"
                 >
                   <Plus className="w-3 h-3" /> Attach
                 </button>
@@ -287,7 +287,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
               )}
               {stagedRows.length > 0 && (
                 <div className="space-y-1.5">
-                  <div className="text-[9px] uppercase tracking-wider text-[#67e8f9]">
+                  <div className="text-9 uppercase tracking-wider text-[#67e8f9]">
                     Next send — removable until you hit Send
                   </div>
                   {stagedRows.map(({ entry, artifact }) => (
@@ -309,7 +309,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
               )}
               {committedRows.length > 0 && (
                 <div className="space-y-1.5">
-                  <div className="text-[9px] uppercase tracking-wider text-[#6b82a3]">
+                  <div className="text-9 uppercase tracking-wider text-[#6b82a3]">
                     In the chat — no detach, granularity only
                   </div>
                   {committedRows.map(({ entry, artifact }) => (
@@ -333,22 +333,22 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
 
           {activeTab === 'chapters' && (
             <section className="space-y-1.5">
-              <div className="text-[10px] uppercase tracking-wider text-[#6b82a3]">Chapters, in send order</div>
+              <div className="text-10 uppercase tracking-wider text-[#6b82a3]">Chapters, in send order</div>
               {chapterRows.length === 0 && <p className="text-[#4f5f78]">This chat has no chapters yet.</p>}
               {chapterRows.map((c, i) => (
                 <div key={c.chapter.id} className="py-1.5 space-y-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <span className="text-[10px] text-[#4f5f78] mr-1.5">{i + 1}.</span>
+                      <span className="text-10 text-[#4f5f78] mr-1.5">{i + 1}.</span>
                       <span className="text-[#cad8eb]">{c.chapter.title}</span>
-                      <div className="text-[10px] text-[#556985] ml-5">{cutSummary(c.granularity, c.turnCount)}</div>
+                      <div className="text-10 text-[#556985] ml-5">{cutSummary(c.granularity, c.turnCount)}</div>
                     </div>
-                    <span className="text-[10px] text-[#8297b5] shrink-0 mt-0.5">{c.tokens} tok</span>
+                    <span className="text-10 text-[#8297b5] shrink-0 mt-0.5">{c.tokens} tok</span>
                   </div>
                   {c.inProgress ? (
                     <div
                       data-testid="chapter-in-progress"
-                      className="inline-flex items-center min-h-[24px] px-2 rounded-lg bg-recess-1 shadow-well text-[10px] font-mono text-ink-mute"
+                      className="inline-flex items-center min-h-[24px] px-2 rounded-lg bg-recess-1 shadow-well text-10 font-mono text-ink-mute"
                       title="Still in progress — always sends Full, nothing to cut yet"
                     >
                       In progress · Full
@@ -368,19 +368,19 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
           {activeTab === 'system' && (
             <section className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider text-[#6b82a3]">
+                <span className="text-10 uppercase tracking-wider text-[#6b82a3]">
                   System message ({tb.systemTokens} tok)
                 </span>
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => setSystemRaw(!systemRaw)}
-                    className="min-h-[24px] px-2 rounded text-[10px] text-ink-dim hover:text-ink hover:bg-surface-3 cursor-pointer"
+                    className="min-h-[24px] px-2 rounded text-10 text-ink-dim hover:text-ink hover:bg-surface-3 cursor-pointer"
                   >
                     {systemRaw ? 'Rendered' : 'Raw'}
                   </button>
                   <button
                     onClick={() => copy('system', compiled.systemInstruction)}
-                    className="min-h-[24px] px-2 rounded text-[10px] text-ink-dim hover:text-ink hover:bg-surface-3 inline-flex items-center gap-1 cursor-pointer"
+                    className="min-h-[24px] px-2 rounded text-10 text-ink-dim hover:text-ink hover:bg-surface-3 inline-flex items-center gap-1 cursor-pointer"
                   >
                     {copied === 'system' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                     {copied === 'system' ? 'Copied' : 'Copy'}
@@ -388,7 +388,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
                 </div>
               </div>
               {systemRaw ? (
-                <pre className="bg-surface-0 p-3 rounded-lg text-[12px] text-[#86a2c9] overflow-x-auto whitespace-pre-wrap break-words">
+                <pre className="bg-surface-0 p-3 rounded-lg text-12 text-[#86a2c9] overflow-x-auto whitespace-pre-wrap break-words">
 {compiled.systemInstruction}
                 </pre>
               ) : (
@@ -403,18 +403,18 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
           {activeTab === 'payload' && (
             <section className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider text-[#6b82a3]">
+                <span className="text-10 uppercase tracking-wider text-[#6b82a3]">
                   Raw payload (compiled prompt · {(tb.substrateTokens + tb.historyTokens).toLocaleString()} tok)
                 </span>
                 <button
                   onClick={() => copy('payload', compiled.compiledPrompt)}
-                  className="min-h-[24px] px-2 rounded text-[10px] text-ink-dim hover:text-ink hover:bg-surface-3 inline-flex items-center gap-1 cursor-pointer"
+                  className="min-h-[24px] px-2 rounded text-10 text-ink-dim hover:text-ink hover:bg-surface-3 inline-flex items-center gap-1 cursor-pointer"
                 >
                   {copied === 'payload' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                   {copied === 'payload' ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <pre className="bg-surface-0 p-3 rounded-lg text-[12px] text-[#86a2c9] overflow-x-auto whitespace-pre-wrap break-words">
+              <pre className="bg-surface-0 p-3 rounded-lg text-12 text-[#86a2c9] overflow-x-auto whitespace-pre-wrap break-words">
 {compiled.compiledPrompt}
               </pre>
             </section>

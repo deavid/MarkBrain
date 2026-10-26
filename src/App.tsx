@@ -22,6 +22,8 @@ import { CleanupModal } from './ui/cleanup/CleanupModal';
 import { ThreadSwitcher } from './ui/chat/ThreadSwitcher';
 import { loadChatRenderMode, saveChatRenderMode } from './ui/chat/chatRenderMode';
 import type { ChatRenderMode } from './ui/chat/chatRenderMode';
+import { applyUiFontScale, loadUiFontScale, saveUiFontScale } from './ui/uiFontScale';
+import type { UiFontScale } from './ui/uiFontScale';
 import { loadEnterSendMode, saveEnterSendMode } from './ui/chat/sendOnEnter';
 import type { EnterSendMode } from './ui/chat/sendOnEnter';
 import { SaturationOrb } from './ui/context/SaturationOrb';
@@ -185,6 +187,19 @@ export default function App() {
     setChatRender(mode);
     saveChatRenderMode(mode);
   };
+
+  // How big the interface text is. A reading preference in this browser,
+  // restored on load and saved on every flip (see uiFontScale.ts) — and the
+  // only zoom a phone gets, since the viewport pins user-scalable.
+  const [fontScale, setFontScale] = useState<UiFontScale>(() => loadUiFontScale());
+  const handleSelectFontScale = (scale: UiFontScale) => {
+    logger.action('App', `Text size set to ${scale}`);
+    setFontScale(scale);
+    saveUiFontScale(scale);
+  };
+  useEffect(() => {
+    applyUiFontScale(fontScale);
+  }, [fontScale]);
 
   // Whether a bare Enter sends or makes a new line. A typing preference in this
   // browser, restored on load and saved on every flip (see sendOnEnter.ts).
@@ -801,6 +816,8 @@ export default function App() {
         onSelectChatRender={handleSelectChatRender}
         enterSend={enterSend}
         onSelectEnterSend={handleSelectEnterSend}
+        fontScale={fontScale}
+        onSelectFontScale={handleSelectFontScale}
         activeView={activeView}
         onChangeView={(v) => setActiveView(v)}
         onOpenExport={() => setIsExportOpen(true)}
@@ -965,7 +982,7 @@ export default function App() {
               type="button"
               onClick={() => setIsImportOpen(true)}
               title="Open the import session"
-              className="fixed bottom-4 left-4 z-30 px-3 py-1.5 rounded-full bg-surface-3/95 backdrop-blur-md shadow-lg text-[10px] font-mono text-ink-dim hover:text-ink hover:bg-surface-4 transition-colors cursor-pointer flex items-center gap-2"
+              className="fixed bottom-4 left-4 z-30 px-3 py-1.5 rounded-full bg-surface-3/95 backdrop-blur-md shadow-lg text-10 font-mono text-ink-dim hover:text-ink hover:bg-surface-4 transition-colors cursor-pointer flex items-center gap-2"
             >
               <span className="w-2 h-2 rounded-full bg-[#8ab1e0] animate-pulse" />
               <span>

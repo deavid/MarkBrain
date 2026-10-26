@@ -62,10 +62,10 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
           <div className="w-14 h-14 rounded-2xl bg-surface-2 flex items-center justify-center shadow-step">
             <Brain className="w-7 h-7 text-brand" />
           </div>
-          <h1 className="text-[26px] leading-none font-semibold tracking-tight text-ink">
+          <h1 className="text-26 leading-none font-semibold tracking-tight text-ink">
             MarkBrain
           </h1>
-          <p className="text-[13px] leading-relaxed text-ink-dim max-w-[280px]">
+          <p className="text-13 leading-relaxed text-ink-dim max-w-[280px]">
             A thinking workbench for overflowing brains.
           </p>
         </div>
@@ -76,7 +76,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
           data-testid="vps-login-form"
           className="w-full flex flex-col gap-3 rounded-2xl bg-surface-2 shadow-step p-4"
         >
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
+          <div className="flex items-center gap-2 text-11 font-semibold uppercase tracking-wider text-ink-dim">
             <Server className="w-3.5 h-3.5 text-brand" />
             Sign in to Server
           </div>
@@ -88,7 +88,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full h-10 rounded-xl bg-surface-0 border border-line px-3 text-[13px] text-ink placeholder:text-ink-mute focus:outline-none focus:border-brand"
+            className="w-full h-10 rounded-xl bg-surface-0 border border-line px-3 text-13 text-ink placeholder:text-ink-mute focus:outline-none focus:border-brand"
           />
           <input
             type="password"
@@ -97,14 +97,14 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full h-10 rounded-xl bg-surface-0 border border-line px-3 text-[13px] text-ink placeholder:text-ink-mute focus:outline-none focus:border-brand"
+            className="w-full h-10 rounded-xl bg-surface-0 border border-line px-3 text-13 text-ink placeholder:text-ink-mute focus:outline-none focus:border-brand"
           />
 
           <button
             type="button"
             data-testid="vps-login-url-toggle"
             onClick={() => setShowUrl((v) => !v)}
-            className="flex items-center gap-1 text-[10px] font-mono text-ink-mute hover:text-ink-dim transition-colors cursor-pointer self-start"
+            className="flex items-center gap-1 text-10 font-mono text-ink-mute hover:text-ink-dim transition-colors cursor-pointer self-start"
           >
             <ChevronDown className={`w-3 h-3 transition-transform ${showUrl ? 'rotate-180' : ''}`} />
             Server URL
@@ -116,7 +116,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
               placeholder={typeof window !== 'undefined' ? window.location.origin : ''}
               value={serverUrl}
               onChange={(e) => setServerUrl(e.target.value)}
-              className="w-full h-9 rounded-xl bg-surface-0 border border-line px-3 text-[11px] font-mono text-ink placeholder:text-ink-mute focus:outline-none focus:border-brand"
+              className="w-full h-9 rounded-xl bg-surface-0 border border-line px-3 text-11 font-mono text-ink placeholder:text-ink-mute focus:outline-none focus:border-brand"
             />
           )}
 
@@ -124,7 +124,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
             type="submit"
             data-testid="vps-login-submit"
             disabled={isLoading}
-            className="w-full h-10 rounded-xl bg-brand hover:bg-brand/90 text-white text-[13px] font-semibold shadow-step transition-colors cursor-pointer disabled:opacity-60"
+            className="w-full h-10 rounded-xl bg-brand hover:bg-brand/90 text-white text-13 font-semibold shadow-step transition-colors cursor-pointer disabled:opacity-60"
           >
             {isLoading ? 'Signing in…' : 'Sign In'}
           </button>
@@ -137,12 +137,12 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
             onClick={handleContinueLocal}
             disabled={isLoading}
             data-testid="continue-local"
-            className="w-full flex items-center justify-center gap-2.5 h-11 rounded-xl bg-surface-2 hover:bg-surface-3 active:bg-surface-4 text-ink text-[13px] font-medium shadow-step transition-colors cursor-pointer disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2.5 h-11 rounded-xl bg-surface-2 hover:bg-surface-3 active:bg-surface-4 text-ink text-13 font-medium shadow-step transition-colors cursor-pointer disabled:opacity-60"
           >
             <HardDrive className="w-4 h-4 text-ink-dim" />
             <span>Use Local Workspace</span>
           </button>
-          <p className="text-[11px] leading-relaxed text-ink-mute text-center max-w-[300px]">
+          <p className="text-11 leading-relaxed text-ink-mute text-center max-w-[300px]">
             Stays in this browser only. Bring your own API key.
           </p>
         </div>
@@ -153,7 +153,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
               <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
               <div className="space-y-1">
                 <span className="font-semibold text-red-200 block">Sign-in failed</span>
-                <p className="text-[11px] text-red-300/90 leading-normal">{errorMessage}</p>
+                <p className="text-11 text-red-300/90 leading-normal">{errorMessage}</p>
               </div>
             </div>
 
@@ -161,7 +161,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
               <button
                 type="button"
                 onClick={handleVpsLogin}
-                className="px-2.5 py-1 rounded-lg bg-veil-3 hover:bg-veil-4 text-red-200 text-[11px] font-mono transition-colors cursor-pointer"
+                className="px-2.5 py-1 rounded-lg bg-veil-3 hover:bg-veil-4 text-red-200 text-11 font-mono transition-colors cursor-pointer"
               >
                 <RefreshCw className="w-3 h-3 inline mr-1" />
                 Try again
@@ -171,7 +171,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
                 <button
                   type="button"
                   onClick={onOpenServerLogs}
-                  className="px-2.5 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-[11px] font-mono text-[#8ab1e0] transition-colors cursor-pointer flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-11 font-mono text-[#8ab1e0] transition-colors cursor-pointer flex items-center gap-1"
                 >
                   <Terminal className="w-3 h-3 text-[#38bdf8]" />
                   <span>Inspect logs</span>

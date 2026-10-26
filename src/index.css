@@ -87,6 +87,52 @@
   --shadow-pop: 0 2px 8px -2px rgb(0 0 0 / 0.6), 0 22px 55px -18px rgb(0 0 0 / 0.85);
 }
 
+/* Text-size tokens (sidebar → Text size). Font sizes scale, spacing does not:
+   every text utility reads a variable below, so the Text size steps can lift
+   the small sizes hardest and the big ones barely at all, while paddings,
+   margins and icon boxes stay at their design size (the root font is never
+   touched — Tailwind's rem spacing would follow it, which we do not want). */
+@theme {
+  --text-9: var(--fs-9, 9px);
+  --text-10: var(--fs-10, 10px);
+  --text-11: var(--fs-11, 11px);
+  --text-12: var(--fs-12, 12px);
+  --text-13: var(--fs-13, 13px);
+  --text-15: var(--fs-15, 15px);
+  --text-26: var(--fs-26, 26px);
+}
+
+:root {
+  --fs-9: 9px;
+  --fs-10: 10px;
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-15: 15px;
+  --fs-26: 26px;
+}
+
+/* Compressive ladder: each step is hand-set, small sizes move most.
+   Large (≈115%) / Larger (≈130%) / Largest (≈150%) on the small end. */
+:root[data-font-scale='115'] {
+  --fs-9: 10.5px;  --fs-10: 11.5px; --fs-11: 12.5px; --fs-12: 13.5px;
+  --fs-13: 14.5px; --fs-15: 16.5px; --fs-26: 28px;
+  --text-xs: 13.5px;  --text-sm: 15.5px; --text-base: 17.5px;
+  --text-lg: 19.5px;  --text-xl: 21.5px; --text-2xl: 26px;
+}
+:root[data-font-scale='130'] {
+  --fs-9: 12px;    --fs-10: 13px;   --fs-11: 14.5px; --fs-12: 15.5px;
+  --fs-13: 16.5px; --fs-15: 18px;   --fs-26: 30px;
+  --text-xs: 15.5px;  --text-sm: 17.5px; --text-base: 19.5px;
+  --text-lg: 21.5px;  --text-xl: 23.5px; --text-2xl: 28px;
+}
+:root[data-font-scale='150'] {
+  --fs-9: 13.5px;  --fs-10: 14.5px; --fs-11: 16px;   --fs-12: 17.5px;
+  --fs-13: 18.5px; --fs-15: 20px;   --fs-26: 32px;
+  --text-xs: 17.5px;  --text-sm: 19.5px; --text-base: 21.5px;
+  --text-lg: 23.5px;  --text-xl: 25.5px; --text-2xl: 30px;
+}
+
 @layer base {
   :root {
     /* Legacy aliases — kept so anything still reading them resolves.
@@ -137,10 +183,16 @@
   }
 }
 
+/* Interface text scale (sidebar → Text size). Carries the step number to the
+   px-sized rules below; the rem token table is driven by data-font-scale. */
+:root {
+  --ui-scale: 1;
+}
+
 /* Rendered markdown (artifact detail modal + chapter prose) */
 .md-body {
   color: #c3cde4;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--ui-scale));
   line-height: 1.65;
   overflow-wrap: break-word;
 }
@@ -205,13 +257,13 @@
   background: transparent;
   padding: 0;
   color: #bccbe6;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--ui-scale));
 }
 .md-body table {
   border-collapse: collapse;
   width: 100%;
   margin: 0.7em 0;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--ui-scale));
   display: block;
   overflow-x: auto;
 }

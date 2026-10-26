@@ -35,9 +35,11 @@ import {
   MoreHorizontal,
   Trash2,
   Settings2,
+  ALargeSmall,
 } from 'lucide-react';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 import type { ChatRenderMode } from '../chat/chatRenderMode';
+import type { UiFontScale } from '../uiFontScale';
 import type { EnterSendMode } from '../chat/sendOnEnter';
 
 /** Read-aloud voices supported by the Gemini TTS endpoint (/api/tts). */
@@ -55,6 +57,18 @@ const CHAT_RENDER_CHOICES: { mode: ChatRenderMode; label: string; hint: string }
     label: 'Raw',
     hint: 'Show the untouched markdown source of every message',
   },
+];
+
+/**
+ * How big the interface text is. Phones cannot pinch-zoom (the viewport pins
+ * user-scalable), so this is the only way to read at arm's length. The default
+ * keeps the browser's own font-size preference; the steps scale everything.
+ */
+const UI_FONT_SCALE_CHOICES: { scale: UiFontScale; label: string; hint: string }[] = [
+  { scale: 1, label: 'Default', hint: 'Design size — the browser font preference applies' },
+  { scale: 1.15, label: 'Large', hint: '115% — a gentle step up everywhere' },
+  { scale: 1.3, label: 'Larger', hint: '130% — comfortable on a phone' },
+  { scale: 1.5, label: 'Largest', hint: '150% — arm\u2019s length reading' },
 ];
 
 /**
@@ -97,6 +111,9 @@ interface SidebarProps {
   onSelectChatRender?: (mode: ChatRenderMode) => void;
   /** What a bare Enter does in the composer: send, or insert a new line. */
   enterSend?: EnterSendMode;
+  /** Interface text scale (see uiFontScale.ts). */
+  fontScale?: UiFontScale;
+  onSelectFontScale?: (scale: UiFontScale) => void;
   onSelectEnterSend?: (mode: EnterSendMode) => void;
   activeView: ActiveView;
   onChangeView: (view: ActiveView) => void;
@@ -151,6 +168,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   chatRender = 'markdown',
   onSelectChatRender,
   enterSend = 'send',
+  fontScale = 1,
+  onSelectFontScale,
   onSelectEnterSend,
   activeView,
   onChangeView,
@@ -346,7 +365,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {t.title}
             </span>
             {runtime?.position > 0 && (
-              <span className="text-[9px] font-mono text-[#e0b96c] shrink-0 tabular-nums">
+              <span className="text-9 font-mono text-[#e0b96c] shrink-0 tabular-nums">
                 #{runtime.position}
               </span>
             )}
@@ -459,7 +478,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       ? currentUser.email || 'Connected workspace'
                       : 'Local Workspace'}
                   </span>
-                  <span className="text-[10px] font-mono text-ink-mute block truncate">
+                  <span className="text-10 font-mono text-ink-mute block truncate">
                     {currentUser?.mode === 'vps'
                       ? 'connected · synced to server'
                       : currentUser?.email || 'this device only'}
@@ -556,7 +575,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   style={{ backgroundColor: activeProject.color || '#5d87b8' }}
                 />
                 <div className="min-w-0">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
+                  <span className="text-10 font-mono uppercase tracking-wider text-ink-mute block">
                     Active Project
                   </span>
                   <span className="text-xs font-semibold text-ink truncate block">
@@ -565,7 +584,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </div>
               <div className="flex items-center gap-1.5 text-[#556985]">
-                <span className="text-[10px] font-mono">{projects.length} proj</span>
+                <span className="text-10 font-mono">{projects.length} proj</span>
                 {projectAccordionOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </div>
             </button>
@@ -629,10 +648,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 className="flex items-center gap-2 min-w-0 flex-1 pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-3 cursor-pointer"
               >
-                <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute">
+                <span className="text-10 font-mono uppercase tracking-wider text-ink-mute">
                   Threads
                 </span>
-                <span className="text-[10px] font-mono text-ink-faint/70 tabular-nums">
+                <span className="text-10 font-mono text-ink-faint/70 tabular-nums">
                   {activeThreads.length}
                 </span>
               </button>
@@ -716,14 +735,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       dragOverTarget === 'inbox' ? 'ring-1 ring-[#38bdf8]/70 bg-surface-2' : ''
                     }`}
                   >
-                    <span className="text-[9px] font-mono uppercase tracking-wider text-ink-mute">
+                    <span className="text-9 font-mono uppercase tracking-wider text-ink-mute">
                       Inbox
                     </span>
-                    <span className="text-[9px] font-mono text-[#455770]">({inboxThreads.length})</span>
+                    <span className="text-9 font-mono text-[#455770]">({inboxThreads.length})</span>
                   </div>
                   {inboxThreads.map((t) => renderThreadRow(t))}
                   {inboxThreads.length === 0 && !folderNameBox && (
-                    <p className="text-[9px] font-mono text-[#455770] px-2 py-1">Drop threads here</p>
+                    <p className="text-9 font-mono text-[#455770] px-2 py-1">Drop threads here</p>
                   )}
 
                   {foldersSorted.map((f) => {
@@ -800,7 +819,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           ) : (
                             <span className="flex-1 min-w-0 truncate font-semibold">{f.name}</span>
                           )}
-                          <span className="text-[9px] font-mono text-[#526682]">({fThreads.length})</span>
+                          <span className="text-9 font-mono text-[#526682]">({fThreads.length})</span>
                         </div>
                         {open && (
                           <div className="pl-2 space-y-0.5 mt-0.5">
@@ -845,7 +864,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         )}
                         <Database className="w-3.5 h-3.5 text-[#556985] shrink-0" />
                         <span className="flex-1 text-left">Archived</span>
-                        <span className="text-[9px] font-mono text-[#526682]">
+                        <span className="text-9 font-mono text-[#526682]">
                           ({archivedThreads.length})
                         </span>
                       </button>
@@ -858,7 +877,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
 
                   {threads.length === 0 && (
-                    <p className="text-[10px] font-mono text-[#526682] p-2">No threads yet.</p>
+                    <p className="text-10 font-mono text-[#526682] p-2">No threads yet.</p>
                   )}
 
                 </div>
@@ -912,7 +931,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             setThreadMenu(null);
                             setMenuMoveOpen(false);
                           }}
-                          className={`w-full px-2 py-1 rounded text-left text-[11px] font-mono transition-colors cursor-pointer ${
+                          className={`w-full px-2 py-1 rounded text-left text-11 font-mono transition-colors cursor-pointer ${
                             !t.folderId ? 'text-[#38bdf8]' : 'text-[#9bb0d1] hover:bg-surface-3 hover:text-ink'
                           }`}
                         >
@@ -926,7 +945,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               setThreadMenu(null);
                               setMenuMoveOpen(false);
                             }}
-                            className={`w-full px-2 py-1 rounded text-left text-[11px] font-mono transition-colors cursor-pointer truncate ${
+                            className={`w-full px-2 py-1 rounded text-left text-11 font-mono transition-colors cursor-pointer truncate ${
                               t.folderId === f.id
                                 ? 'text-[#38bdf8]'
                                 : 'text-[#9bb0d1] hover:bg-surface-3 hover:text-ink'
@@ -936,7 +955,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           </button>
                         ))}
                         {foldersSorted.length === 0 && (
-                          <p className="text-[10px] text-[#455770] px-2 py-0.5">No folders yet</p>
+                          <p className="text-10 text-[#455770] px-2 py-0.5">No folders yet</p>
                         )}
                       </div>
                     )}
@@ -1038,7 +1057,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Cpu className="w-4 h-4 text-[#e05a66]" />
               </div>
               <div className="min-w-0 flex-1">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
+                <span className="text-10 font-mono uppercase tracking-wider text-ink-mute block">
                   Inference Model
                 </span>
                 <span className="text-xs font-semibold text-ink truncate block">
@@ -1059,7 +1078,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Type className="w-4 h-4 text-[#38bdf8]" />
               </div>
               <div className="min-w-0">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
+                <span className="text-10 font-mono uppercase tracking-wider text-ink-mute block">
                   Chat text
                 </span>
                 <span className="text-xs font-semibold text-ink truncate block">
@@ -1081,7 +1100,53 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onSelectChatRender?.(choice.mode);
                     }}
                     title={choice.hint}
-                    className={`flex-1 min-h-[26px] px-2.5 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+                    className={`flex-1 min-h-[26px] px-2.5 rounded-full text-10 font-mono transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-veil-3 shadow-lift text-ink font-semibold'
+                        : 'text-ink-faint hover:bg-veil-1 hover:text-ink-dim'
+                    }`}
+                  >
+                    {choice.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Text size. A reading preference like the two above; on a phone
+              it is the only zoom there is, since the viewport pins
+              user-scalable. The steps move every rem-sized text class through
+              the root font size, plus the few px rules via --ui-scale. */}
+          <div className="rounded-xl bg-surface-2 p-1.5">
+            <div className="flex items-center gap-2.5 p-2.5 pb-1.5">
+              <div className="w-7 h-7 rounded-lg bg-recess-1 shadow-well flex items-center justify-center shrink-0">
+                <ALargeSmall className="w-4 h-4 text-[#9be07c]" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-10 font-mono uppercase tracking-wider text-ink-mute block">
+                  Text size
+                </span>
+                <span className="text-xs font-semibold text-ink truncate block">
+                  {UI_FONT_SCALE_CHOICES.find((c) => c.scale === fontScale)?.label ?? 'Default'}
+                </span>
+              </div>
+            </div>
+            <div className="px-1.5 pb-1.5 flex items-center gap-1">
+              {UI_FONT_SCALE_CHOICES.map((choice) => {
+                const isSelected = choice.scale === fontScale;
+                return (
+                  <button
+                    key={choice.scale}
+                    type="button"
+                    aria-pressed={isSelected}
+                    aria-label={`Text size: ${choice.label}`}
+                    data-testid={`font-scale-${choice.scale}`}
+                    onClick={() => {
+                      logger.action('Sidebar', `Text size: ${choice.scale}`);
+                      onSelectFontScale?.(choice.scale);
+                    }}
+                    title={choice.hint}
+                    className={`flex-1 min-h-[26px] px-2 rounded-full text-10 font-mono transition-colors cursor-pointer ${
                       isSelected
                         ? 'bg-veil-3 shadow-lift text-ink font-semibold'
                         : 'text-ink-faint hover:bg-veil-1 hover:text-ink-dim'
@@ -1105,7 +1170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <CornerDownLeft className="w-4 h-4 text-[#e0b96c]" />
               </div>
               <div className="min-w-0">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
+                <span className="text-10 font-mono uppercase tracking-wider text-ink-mute block">
                   Send on Enter
                 </span>
                 <span className="text-xs font-semibold text-ink truncate block">
@@ -1128,7 +1193,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onSelectEnterSend?.(choice.mode);
                     }}
                     title={choice.hint}
-                    className={`flex-1 min-h-[26px] px-2.5 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+                    className={`flex-1 min-h-[26px] px-2.5 rounded-full text-10 font-mono transition-colors cursor-pointer ${
                       isSelected
                         ? 'bg-veil-3 shadow-lift text-ink font-semibold'
                         : 'text-ink-faint hover:bg-veil-1 hover:text-ink-dim'
@@ -1150,7 +1215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <Volume2 className="w-4 h-4 text-[#5ad49b]" />
                 </div>
                 <div className="min-w-0">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute block">
+                  <span className="text-10 font-mono uppercase tracking-wider text-ink-mute block">
                     Read-aloud voice
                   </span>
                   <span className="text-xs font-semibold text-ink truncate block">{chosenVoice}</span>
@@ -1171,7 +1236,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       logger.action('Sidebar', `Selected TTS voice: ${v}`);
                       onSelectVoice?.(v);
                     }}
-                    className={`min-h-[26px] px-2.5 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+                    className={`min-h-[26px] px-2.5 rounded-full text-10 font-mono transition-colors cursor-pointer ${
                       isSelected
                         ? 'bg-veil-3 shadow-lift text-ink font-semibold'
                         : 'text-ink-faint hover:bg-veil-1 hover:text-ink-dim'
@@ -1204,7 +1269,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {ioToolsOpen && (
               <div className="mt-0.5 pb-1.5 space-y-2 animate-in fade-in duration-100">
-                <p className="text-[10px] text-[#6b82a3] leading-relaxed">
+                <p className="text-10 text-[#6b82a3] leading-relaxed">
                   Backup or restore project state, artifacts, chapters, and topological graphs.
                 </p>
                 <div className="grid grid-cols-2 gap-2 pt-1">
@@ -1270,7 +1335,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Cleanup
                 </span>
               </div>
-              <span className="text-[10px] font-mono text-[#6b82a3] px-1.5 py-0.5 rounded bg-surface-0">
+              <span className="text-10 font-mono text-[#6b82a3] px-1.5 py-0.5 rounded bg-surface-0">
                 archive → delete
               </span>
             </button>
@@ -1292,7 +1357,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Server Telemetry & Logs
                 </span>
               </div>
-              <span className="text-[10px] font-mono text-[#52749e] px-1.5 py-0.5 rounded bg-surface-0">
+              <span className="text-10 font-mono text-[#52749e] px-1.5 py-0.5 rounded bg-surface-0">
                 LIVE
               </span>
             </button>

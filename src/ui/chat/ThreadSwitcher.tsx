@@ -103,7 +103,7 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
             placeholder="Search threads & folders…"
             className="flex-1 bg-transparent text-sm text-ink placeholder-[#50637f] focus:outline-none"
           />
-          <span className="text-[9px] font-mono text-[#455770] rounded px-1.5 py-0.5">
+          <span className="text-9 font-mono text-[#455770] rounded px-1.5 py-0.5">
             esc
           </span>
         </div>
@@ -141,13 +141,13 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
                   <span className="text-xs text-ink truncate block font-medium">
                     {t.title}
                     {t.id === activeThreadId && (
-                      <span className="ml-2 text-[9px] font-mono text-[#38bdf8]">current</span>
+                      <span className="ml-2 text-9 font-mono text-[#38bdf8]">current</span>
                     )}
                     {archived && (
-                      <span className="ml-2 text-[9px] font-mono text-[#7d93b3]">archived</span>
+                      <span className="ml-2 text-9 font-mono text-[#7d93b3]">archived</span>
                     )}
                   </span>
-                  <span className="text-[10px] font-mono text-[#556985] truncate block">
+                  <span className="text-10 font-mono text-[#556985] truncate block">
                     {folderName(t.folderId)}
                     {t.preview ? ` · ${t.preview}` : ''}
                   </span>
@@ -160,7 +160,7 @@ export const ThreadSwitcher: React.FC<ThreadSwitcherProps> = ({
           })}
         </div>
 
-        <div className="px-3.5 py-2 flex items-center gap-3 text-[9px] font-mono text-[#455770]">
+        <div className="px-3.5 py-2 flex items-center gap-3 text-9 font-mono text-[#455770]">
           <span>↑↓ navigate</span>
           <span>↵ open</span>
           <span>esc close</span>

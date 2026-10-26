@@ -183,11 +183,11 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             <div>
               <h2 className="text-sm font-bold text-ink font-mono flex items-center gap-2">
                 <span>Import Markdown & Text Files</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-4 text-ink-dim font-normal">
+                <span className="text-10 px-1.5 py-0.5 rounded bg-surface-4 text-ink-dim font-normal">
                   Markdown → YAML
                 </span>
               </h2>
-              <p className="text-[11px] text-[#7d93b3]">
+              <p className="text-11 text-[#7d93b3]">
                 Drop local .md / .txt files into the multi-file session queue below.
               </p>
             </div>
@@ -208,10 +208,10 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                   Precedence: row override > frontmatter parent > batch default. */}
               <div className="bg-surface-1 rounded-xl p-2.5 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono text-[#e05a66] uppercase font-bold">
+                  <span className="text-10 font-mono text-[#e05a66] uppercase font-bold">
                     Batch rules (optional)
                   </span>
-                  <span className="text-[9px] font-mono text-[#5f7491]">
+                  <span className="text-9 font-mono text-[#5f7491]">
                     applied to every file as it lands
                   </span>
                 </div>
@@ -223,7 +223,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     placeholder="Parent (slug — pick an existing code or type)"
                     value={session.rules.parent}
                     onChange={(e) => session.setRules((r) => ({ ...r, parent: e.target.value }))}
-                    className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none focus:bg-recess-2 shadow-well"
+                    className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-11 font-mono text-[#8ab1e0] focus:outline-none focus:bg-recess-2 shadow-well"
                   />
                   <datalist id="batch-parent-codes">
                     {artifacts.map((a) => (
@@ -244,16 +244,16 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                           .filter(Boolean),
                       }))
                     }
-                    className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-[#8ab1e0] focus:outline-none focus:bg-recess-2 shadow-well"
+                    className="w-full bg-recess-1 rounded-lg px-2.5 py-1.5 text-11 font-mono text-[#8ab1e0] focus:outline-none focus:bg-recess-2 shadow-well"
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-                  <span className="text-[#788fa8] text-[10px]">Relate all →</span>
+                <div className="flex flex-wrap items-center gap-2 text-11 font-mono">
+                  <span className="text-[#788fa8] text-10">Relate all →</span>
                   <select
                     id="batch-rel-type"
                     value={session.rules.relType}
                     onChange={(e) => session.setRules((r) => ({ ...r, relType: e.target.value }))}
-                    className="bg-recess-1 rounded-lg px-2 py-1.5 text-[11px] text-[#c2d1e0] focus:outline-none cursor-pointer shadow-well"
+                    className="bg-recess-1 rounded-lg px-2 py-1.5 text-11 text-[#c2d1e0] focus:outline-none cursor-pointer shadow-well"
                   >
                     <option value="">(no relationship)</option>
                     <option value="cites">cites</option>
@@ -267,7 +267,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     value={session.rules.relTargetId}
                     onChange={(e) => session.setRules((r) => ({ ...r, relTargetId: e.target.value }))}
                     disabled={!session.rules.relType || artifacts.length === 0}
-                    className="bg-recess-1 rounded-lg px-2 py-1.5 text-[11px] text-[#c2d1e0] focus:outline-none cursor-pointer disabled:opacity-40 max-w-[220px] shadow-well"
+                    className="bg-recess-1 rounded-lg px-2 py-1.5 text-11 text-[#c2d1e0] focus:outline-none cursor-pointer disabled:opacity-40 max-w-[220px] shadow-well"
                   >
                     <option value="">
                       {artifacts.length === 0 ? '(no artifacts yet)' : '(pick target)'}
@@ -290,7 +290,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                 <span className="text-xs text-[#c2d1e0] font-medium">
                   Select or drop multiple Markdown / Plain Text files
                 </span>
-                <span className="text-[10px] text-[#627794]">
+                <span className="text-10 text-[#627794]">
                   Accepts .md, .markdown, .txt (up to 5MB each) — they process as a queue, one by one
                 </span>
                 <input
@@ -327,7 +327,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
 
           {(
 
-            <span className="text-[10px] font-mono text-[#627794]">
+            <span className="text-10 font-mono text-[#627794]">
               {session.rows.length > 0
                 ? `${session.rows.filter((r) => r.status === 'landed').length}/${session.rows.length} landed`
                 : 'Rows land automatically — close anytime, the queue keeps running'}

@@ -97,7 +97,7 @@ export const GranularityChips: React.FC<GranularityChipsProps> = ({
           aria-label={`${label}: ${GRANULARITY_LABEL[g]}`}
           aria-pressed={active}
           data-granularity={g}
-          className={`flex items-center gap-1 min-h-[24px] ${compact ? 'px-1.5' : 'px-2'} py-0.5 rounded-md text-[10px] font-mono cursor-pointer transition-colors ${cls}`}
+          className={`flex items-center gap-1 min-h-[24px] ${compact ? 'px-1.5' : 'px-2'} py-0.5 rounded-md text-10 font-mono cursor-pointer transition-colors ${cls}`}
         >
           <span
             className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -234,7 +234,7 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
           {/* Title and subtitle flow as one sentence and clamp at two lines: a
               bare four-word title tells a reader nothing, and the row has the
               space anyway. */}
-          <div className="text-[11px] leading-snug line-clamp-2" title={title}>
+          <div className="text-11 leading-snug line-clamp-2" title={title}>
             <span className={`font-mono font-semibold ${palette.titleTextClass}`}>{title}</span>
             {subtitle && (
               <span className={`font-normal italic ml-1.5 ${palette.subTextClass}`}>
@@ -242,13 +242,13 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
               </span>
             )}
             {flagged && (
-              <span className={`text-[9px] font-mono px-1 py-0.2 rounded ml-1.5 ${palette.tagClass}`}>
+              <span className={`text-9 font-mono px-1 py-0.2 rounded ml-1.5 ${palette.tagClass}`}>
                 review
               </span>
             )}
             {archived && (
               <span
-                className="text-[9px] font-mono px-1 py-0.2 rounded bg-recess-2 text-[#c8a05a]"
+                className="text-9 font-mono px-1 py-0.2 rounded bg-recess-2 text-[#c8a05a]"
                 title="Parked — nothing hides it, but only archived artifacts can be deleted for good"
               >
                 archived
@@ -256,14 +256,14 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
             )}
             {badge && (
               <span
-                className={`text-[9px] font-mono px-1.5 py-0.2 rounded ml-1.5 ${palette.tagClass}`}
+                className={`text-9 font-mono px-1.5 py-0.2 rounded ml-1.5 ${palette.tagClass}`}
                 title={state === 'staged' ? 'Rides the next send' : undefined}
               >
                 {badge}
               </span>
             )}
           </div>
-          <div className={`text-[9px] font-mono tabular-nums ${palette.subTextClass}`}>
+          <div className={`text-9 font-mono tabular-nums ${palette.subTextClass}`}>
             {formatTokens(tokens)} tok
           </div>
         </div>
@@ -278,7 +278,7 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
               }}
               aria-label={`Unstage "${title}"`}
               data-testid="unstage-attachment"
-              className={`min-w-[28px] min-h-[28px] px-1.5 rounded-md text-[10px] font-mono cursor-pointer ${palette.inactiveChipClass}`}
+              className={`min-w-[28px] min-h-[28px] px-1.5 rounded-md text-10 font-mono cursor-pointer ${palette.inactiveChipClass}`}
             >
               ✕
             </button>
@@ -315,7 +315,7 @@ export const AttachmentRow: React.FC<AttachmentRowProps> = ({
       {tags && tags.length > 0 && (
         <div className="pl-7 flex items-center gap-1 flex-wrap">
           {tags.slice(0, 4).map((t) => (
-            <span key={t} className={`text-[9px] font-mono ${palette.subTextClass}`}>
+            <span key={t} className={`text-9 font-mono ${palette.subTextClass}`}>
               {t}
             </span>
           ))}
@@ -367,24 +367,24 @@ export const StagedTray: React.FC<StagedTrayProps> = ({
           type="button"
           onClick={() => setExpanded(!expanded)}
           title={expanded ? 'Fold the staged list' : 'Show the staged list'}
-          className="flex items-center gap-1 min-h-[24px] text-[9px] font-mono uppercase tracking-wider text-[#38bdf8] cursor-pointer hover:text-[#7dd3fc]"
+          className="flex items-center gap-1 min-h-[24px] text-9 font-mono uppercase tracking-wider text-[#38bdf8] cursor-pointer hover:text-[#7dd3fc]"
         >
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           Staged for this message ({items.length}) · {formatTokens(totalTokens)} tok
         </button>
-        <span className="text-[9px] font-mono text-[#7dd3fc]/70">{caption}</span>
+        <span className="text-9 font-mono text-[#7dd3fc]/70">{caption}</span>
       </div>
 
       {expanded && items.length > 1 && (
         <div className="flex items-center gap-1 flex-wrap px-0.5">
-          <span className="text-[9px] font-mono text-[#556985]">Set all to:</span>
+          <span className="text-9 font-mono text-[#556985]">Set all to:</span>
           {GRANULARITY_ORDER.map((g) => (
             <button
               key={g}
               type="button"
               onClick={() => items.forEach((item) => onSetGranularity(item.artifactId, g))}
               title={`Set every staged file to ${GRANULARITY_LABEL[g]}`}
-              className="min-h-[24px] px-2 rounded bg-recess-1 shadow-well hover:bg-recess-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer"
+              className="min-h-[24px] px-2 rounded bg-recess-1 shadow-well hover:bg-recess-2 text-10 font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer"
             >
               {GRANULARITY_LABEL[g]}
             </button>

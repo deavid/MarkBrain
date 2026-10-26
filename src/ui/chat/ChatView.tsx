@@ -661,7 +661,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <Lock className="w-4 h-4 text-amber-400" />
           <span className="text-xs font-semibold text-ink">Keys are locked</span>
         </div>
-        <p className="text-[11px] text-ink-faint">
+        <p className="text-11 text-ink-faint">
           Enter your password to unlock. Sends are held until then.
         </p>
         <div className="flex items-center gap-2">
@@ -692,7 +692,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             Unlock
           </button>
         </div>
-        {composerUnlockErr && <span className="text-[11px] text-red-400">{composerUnlockErr}</span>}
+        {composerUnlockErr && <span className="text-11 text-red-400">{composerUnlockErr}</span>}
       </div>
     </div>
   ) : null;
@@ -907,7 +907,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     <div className="relative flex-1 flex flex-col min-h-0 min-w-0 w-full h-full bg-surface-0 text-ink select-text overflow-hidden pt-0 mt-0">
       {/* Archived thread: readable, one click to continue */}
       {threadArchived && (
-        <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-1.5 bg-surface-2 text-[10px] font-mono text-ink-mute shrink-0 animate-in fade-in duration-150">
+        <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-1.5 bg-surface-2 text-10 font-mono text-ink-mute shrink-0 animate-in fade-in duration-150">
           <span className="truncate">
             Archived — you can read it. Typing asks to unarchive first.
           </span>
@@ -1006,7 +1006,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       }
                     }}
                     data-testid="open-artifacts"
-                    className="relative min-h-[30px] px-2.5 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-[11px] shrink-0"
+                    className="relative min-h-[30px] px-2.5 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-11 shrink-0"
                     title="Attach artifacts from the library"
                     aria-label="Attach artifacts"
                   >
@@ -1015,14 +1015,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     {missingMatchCount > 0 && (
                       <span
                         data-testid="attach-match-badge"
-                        className="min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-[9px] font-mono font-bold flex items-center justify-center"
+                        className="min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-9 font-mono font-bold flex items-center justify-center"
                         title={`${missingMatchCount} unattached artifact${missingMatchCount === 1 ? '' : 's'} match this draft`}
                       >
                         {missingMatchCount}
                       </span>
                     )}
                   </button>
-                  <span className="text-[11px] font-mono text-[#5b7394] hidden sm:inline">
+                  <span className="text-11 font-mono text-[#5b7394] hidden sm:inline">
                     {enterSend === 'send' ? 'Enter sends' : 'Ctrl+Enter sends'}
                   </span>
                 </div>
@@ -1187,7 +1187,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               {titleFlash && (
                 <span
                   data-testid="title-flash"
-                  className={`text-[10px] font-mono shrink-0 animate-in fade-in duration-150 ${
+                  className={`text-10 font-mono shrink-0 animate-in fade-in duration-150 ${
                     titleFlash === 'ok' ? 'text-brand-green' : 'text-[#f28894]'
                   }`}
                 >
@@ -1236,7 +1236,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                     <span
                       style={{ color: chapColor }}
-                      className="text-[10px] font-mono uppercase tracking-wider shrink-0 font-semibold"
+                      className="text-10 font-mono uppercase tracking-wider shrink-0 font-semibold"
                     >
                       Chapter {chapterIndex + 1}
                     </span>
@@ -1252,7 +1252,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[10px] font-mono text-[#758ca8] tabular-nums">
+                    <span className="text-10 font-mono text-[#758ca8] tabular-nums">
                       {turns.length} msg{turns.length !== 1 ? 's' : ''}
                       {chapterTokens[chapter.id] !== undefined && (
                         <>
@@ -1280,7 +1280,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         }}
                         disabled={summarizingIds[chapter.id]}
                         title="Re-run the chapter summary — replaces the description and summary with fresh ones"
-                        className="min-h-[24px] px-2 rounded-lg text-[10px] font-mono text-[#8ca3c7] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default shrink-0"
+                        className="min-h-[24px] px-2 rounded-lg text-10 font-mono text-[#8ca3c7] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default shrink-0"
                       >
                         {summarizingIds[chapter.id] ? 'Writing…' : 'Regenerate'}
                       </button>
@@ -1313,7 +1313,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <div
                       data-testid="chapter-in-progress"
                       data-chapter-id={chapter.id}
-                      className="inline-flex items-center min-h-[24px] px-2 rounded-lg bg-recess-1 shadow-well text-[10px] font-mono text-ink-mute select-none"
+                      className="inline-flex items-center min-h-[24px] px-2 rounded-lg bg-recess-1 shadow-well text-10 font-mono text-ink-mute select-none"
                       title="Still in progress — always sends Full, nothing to cut yet"
                     >
                       In progress · Full
@@ -1359,10 +1359,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         aria-expanded={!isLayerCollapsed(chapter.id, 'description')}
                         className="w-full flex items-center justify-between gap-2 cursor-pointer"
                       >
-                        <div className="font-semibold text-[10px] text-[#e2c328] mb-1 font-mono uppercase tracking-wider">
+                        <div className="font-semibold text-10 text-[#e2c328] mb-1 font-mono uppercase tracking-wider">
                           Description
                         </div>
-                        <span className="text-[9px] font-mono text-[#6b82a3] shrink-0">
+                        <span className="text-9 font-mono text-[#6b82a3] shrink-0">
                           {isLayerCollapsed(chapter.id, 'description') ? '+ show' : '− hide'}
                         </span>
                       </button>
@@ -1382,10 +1382,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         aria-expanded={!isLayerCollapsed(chapter.id, 'summary')}
                         className="w-full flex items-center justify-between gap-2 cursor-pointer"
                       >
-                        <div className="font-semibold text-[10px] text-[#f99014] mb-1 font-mono uppercase tracking-wider">
+                        <div className="font-semibold text-10 text-[#f99014] mb-1 font-mono uppercase tracking-wider">
                           Summary
                         </div>
-                        <span className="text-[9px] font-mono text-[#6b82a3] shrink-0">
+                        <span className="text-9 font-mono text-[#6b82a3] shrink-0">
                           {isLayerCollapsed(chapter.id, 'summary') ? '+ show' : '− hide'}
                         </span>
                       </button>
@@ -1400,7 +1400,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {granularity !== 'full' &&
                     ((cutIncludes(granularity, 'description') && !chapter.description) ||
                       (cutIncludes(granularity, 'summary') && !chapter.summary)) && (
-                      <div className="flex items-center justify-between gap-3 text-[11px] text-ink-mute p-2.5 bg-recess-1 rounded-lg">
+                      <div className="flex items-center justify-between gap-3 text-11 text-ink-mute p-2.5 bg-recess-1 rounded-lg">
                         <span className="font-mono">
                           {summarizingIds[chapter.id]
                             ? 'Writing summary…'
@@ -1417,7 +1417,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               // Fill the layer; never change the cut.
                               triggerChapterSummarize(chapter.id);
                             }}
-                            className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-surface-3 text-ink-dim hover:bg-surface-4 hover:text-ink font-medium transition-colors cursor-pointer shrink-0"
+                            className="text-10 font-mono px-2.5 py-1 rounded-lg bg-surface-3 text-ink-dim hover:bg-surface-4 hover:text-ink font-medium transition-colors cursor-pointer shrink-0"
                           >
                             {summarizeErrorIds[chapter.id] ? 'Retry' : 'Write it'}
                           </button>
@@ -1438,7 +1438,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 if (!turnsHidden || chapterAtts.length === 0) return null;
                 return (
                   <div className="px-3 sm:px-4 py-2 bg-veil-1 flex flex-wrap gap-1.5">
-                    <div className="w-full shrink-0 text-[9px] font-mono uppercase tracking-wider text-[#556985]">
+                    <div className="w-full shrink-0 text-9 font-mono uppercase tracking-wider text-[#556985]">
                       Attached in this chapter (independent of the cut)
                     </div>
                     {chapterAtts.map((att) => (
@@ -1486,7 +1486,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         key={message.id}
                         className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
                       >
-                        <div className="flex items-center gap-2 mb-1 text-[11px] font-mono text-[#627794]">
+                        <div className="flex items-center gap-2 mb-1 text-11 font-mono text-[#627794]">
                           <span className={isUser ? 'text-[#8ab1e0]' : 'text-[#e05a66] font-semibold'}>
                             {isUser ? 'You' : 'MarkBrain'}
                           </span>
@@ -1532,7 +1532,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               <button
                                 onClick={() => toggleMessageRaw(message)}
                                 aria-pressed={isRaw}
-                                className={`ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-[10px] font-mono transition-colors cursor-pointer ${
+                                className={`ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-10 font-mono transition-colors cursor-pointer ${
                                   isRaw
                                     ? 'bg-veil-2 text-ink shadow-lift font-semibold'
                                     : 'text-[#50637f] hover:bg-surface-2 hover:text-[#9bb0d1]'
@@ -1559,7 +1559,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                         {declaringMessageId === message.id && (
                           <div className="w-full max-w-lg my-2 p-3 bg-surface-4 rounded-xl shadow-pop space-y-2 animate-in fade-in duration-150">
-                            <div className="text-[10px] font-mono text-[#38bdf8] uppercase tracking-wider font-semibold">
+                            <div className="text-10 font-mono text-[#38bdf8] uppercase tracking-wider font-semibold">
                               Declare Chapter Split at this Message
                             </div>
                             <input
@@ -1605,7 +1605,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
 
                           {message.meta && !isUser && (
-                            <div className="mt-2.5 pt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-[#637894]">
+                            <div className="mt-2.5 pt-2 flex flex-wrap items-center justify-between gap-2 text-10 font-mono text-[#637894]">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="text-[#38bdf8] font-semibold">{message.meta.model || '—'}</span>
                                 <span>•</span>
@@ -1639,7 +1639,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                           ? 'Wait for the current reply'
                                           : 'Ask for a new reply — replaces this one only if the new reply completes'
                                     }
-                                    className="min-h-[22px] px-2 rounded-lg text-[10px] font-mono text-[#8ca3c7] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default shrink-0"
+                                    className="min-h-[22px] px-2 rounded-lg text-10 font-mono text-[#8ca3c7] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default shrink-0"
                                   >
                                     Regenerate
                                   </button>
@@ -1649,7 +1649,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           )}
 
                           {message.meta?.isStreaming && (
-                            <div className="mt-2 flex items-center gap-2 text-[11px] font-mono text-[#38bdf8] animate-pulse">
+                            <div className="mt-2 flex items-center gap-2 text-11 font-mono text-[#38bdf8] animate-pulse">
                               <Loader2 className="w-3 h-3 animate-spin text-[#38bdf8]" />
                               <span className="capitalize">{message.meta.streamState || 'writing'}...</span>
                             </div>
@@ -1664,7 +1664,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             happened; only the cut stays steerable. */}
                         {attachmentsOfTurn(message, globalTurnIndex).length > 0 && (
                           <div className="max-w-[92%] sm:max-w-[85%] w-full mt-1.5 flex flex-wrap gap-1.5">
-                            <div className="w-full shrink-0 text-[9px] font-mono uppercase tracking-wider text-[#556985] px-0.5">
+                            <div className="w-full shrink-0 text-9 font-mono uppercase tracking-wider text-[#556985] px-0.5">
                               {isUser ? 'Attached on this turn' : 'Attached by the AI'}
                             </div>
                             {attachmentsOfTurn(message, globalTurnIndex).map((att) => (
@@ -1712,7 +1712,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               {/* Design 23 §2.2: the bar leads with the phase chip + clock. */}
               <span
                 data-testid="stream-phase-chip"
-                className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-[#38bdf8]"
+                className="shrink-0 font-mono text-10 uppercase tracking-wider text-[#38bdf8]"
               >
                 <DraftPhaseChip
                   progress={activeDraftForPhase?.progress}
@@ -1728,7 +1728,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <button
                   type="button"
                   onClick={onOpenServerLogs}
-                  className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-[10px] text-ink-dim hover:text-ink transition-colors cursor-pointer"
+                  className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-10 text-ink-dim hover:text-ink transition-colors cursor-pointer"
                   title="View live server logs"
                 >
                   Logs
@@ -1738,7 +1738,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <button
                   type="button"
                   onClick={onStopGeneration}
-                  className="px-2.5 py-1 rounded-lg bg-wash-danger hover:bg-[#3a1a20] text-[#f87171] text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-wash-danger hover:bg-[#3a1a20] text-[#f87171] text-11 font-semibold transition-colors flex items-center gap-1 cursor-pointer"
                   title="Stop generating"
                 >
                   <Square className="w-3 h-3 fill-current" />
@@ -1787,7 +1787,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <div
                 key={d.id}
                 data-testid={`draft-${d.state}`}
-                className={`rounded-lg border px-3 py-2 text-[11px] font-mono ${
+                className={`rounded-lg border px-3 py-2 text-11 font-mono ${
                   isBlocked ? 'border-brand bg-red-500/[0.07]' : 'border-line bg-surface-2'
                 }`}
               >
@@ -1796,7 +1796,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     {isBlocked && <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
                     <span
                       data-testid="draft-phase-chip"
-                      className={`shrink-0 font-semibold uppercase tracking-wider text-[10px] ${
+                      className={`shrink-0 font-semibold uppercase tracking-wider text-10 ${
                         isBlocked
                           ? 'text-red-300'
                           : isBusy
@@ -1879,7 +1879,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 {/* Design 23 §2.1.3: the frozen payload, read-only — what this
                     send actually carries. */}
                 {d.attachments && d.attachments.length > 0 && (
-                  <div className="mt-1 flex items-center gap-1.5 flex-wrap text-[10px] font-mono text-ink-dim">
+                  <div className="mt-1 flex items-center gap-1.5 flex-wrap text-10 font-mono text-ink-dim">
                     <span data-testid="draft-payload">
                       {d.attachments.length} note{d.attachments.length === 1 ? '' : 's'} ·{' '}
                       {formatTokens(
@@ -1890,7 +1890,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     {d.attachments.map((a) => (
                       <span
                         key={a.artifactId}
-                        className="flex items-center gap-1 rounded bg-recess-1 px-1.5 py-0.5 text-[9px] text-ink-faint"
+                        className="flex items-center gap-1 rounded bg-recess-1 px-1.5 py-0.5 text-9 text-ink-faint"
                         title={titleFor(a.artifactId)}
                       >
                         <AttachmentDot
@@ -1919,7 +1919,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       }}
                       placeholder="Password"
                       aria-label="Password to unlock your keys"
-                      className="w-40 rounded-lg bg-recess-1 shadow-well px-2 py-1 text-[11px] text-ink placeholder:text-ink-faint focus:outline-none"
+                      className="w-40 rounded-lg bg-recess-1 shadow-well px-2 py-1 text-11 text-ink placeholder:text-ink-faint focus:outline-none"
                     />
                     <button
                       type="button"
@@ -1936,7 +1936,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 )}
                 {d.partial && (isBusy || isBlocked) && (
-                  <div className="mt-1.5 max-h-24 overflow-y-auto rounded bg-recess-1 px-2 py-1.5 text-[11px] text-ink-dim whitespace-pre-wrap">
+                  <div className="mt-1.5 max-h-24 overflow-y-auto rounded bg-recess-1 px-2 py-1.5 text-11 text-ink-dim whitespace-pre-wrap">
                     {d.partial}
                   </div>
                 )}
@@ -1964,7 +1964,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 }
               }}
               data-testid="open-artifacts"
-              className="relative h-full px-2.5 py-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-[10px] sm:text-xs shrink-0"
+              className="relative h-full px-2.5 py-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-10 sm:text-xs shrink-0"
               title="Attach artifacts from the library"
               aria-label="Attach artifacts"
             >
@@ -1972,7 +1972,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               {missingMatchCount > 0 && (
                 <span
                   data-testid="attach-match-badge"
-                  className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-[9px] font-mono font-bold flex items-center justify-center"
+                  className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-9 font-mono font-bold flex items-center justify-center"
                   title={`${missingMatchCount} unattached artifact${missingMatchCount === 1 ? '' : 's'} match this draft`}
                 >
                   {missingMatchCount}

@@ -37,7 +37,7 @@ export const CriticalNotifications: React.FC = () => {
           className="pointer-events-auto flex items-start gap-2 w-[min(92vw,520px)] rounded-xl px-3 py-2 bg-[#5b1414]/95 ring-1 ring-[#f45a56]/60 shadow-lift backdrop-blur-sm"
         >
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[#fca5a5]" aria-hidden="true" />
-          <span className="flex-1 text-[12px] leading-snug text-[#fee2e2]">{notice.message}</span>
+          <span className="flex-1 text-12 leading-snug text-[#fee2e2]">{notice.message}</span>
           <button
             type="button"
             onClick={() => dismissCritical(notice.id)}

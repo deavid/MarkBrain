@@ -121,7 +121,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
           <div>
             <h1 className="text-base sm:text-lg font-bold text-ink font-mono tracking-tight flex items-center gap-2">
               MarkBrain
-              <span className="text-[10px] font-mono font-normal px-2 py-0.5 rounded-full bg-surface-3 text-[#8ab1e0] ">
+              <span className="text-10 font-mono font-normal px-2 py-0.5 rounded-full bg-surface-3 text-[#8ab1e0] ">
                 Workspace Deck
               </span>
             </h1>
@@ -180,7 +180,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] font-mono text-[#869ab8] mb-1">
+                <label className="block text-11 font-mono text-[#869ab8] mb-1">
                   Project Title (e.g. Unhaunter Game, MarkBrain)
                 </label>
                 <input
@@ -194,7 +194,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-mono text-[#869ab8] mb-1">
+                <label className="block text-11 font-mono text-[#869ab8] mb-1">
                   Identifier / Handle (Slug)
                 </label>
                 <input
@@ -209,7 +209,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-mono text-[#869ab8] mb-1">
+              <label className="block text-11 font-mono text-[#869ab8] mb-1">
                 Description
               </label>
               <textarea
@@ -223,7 +223,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
               <div>
-                <span className="block text-[11px] font-mono text-[#869ab8] mb-1">Color Palette Accent:</span>
+                <span className="block text-11 font-mono text-[#869ab8] mb-1">Color Palette Accent:</span>
                 <div className="flex items-center gap-2">
                   {colorOptions.map((c) => (
                     <button
@@ -252,7 +252,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
         )}
 
         <div className="space-y-3">
-          <div className="text-[11px] font-mono text-[#6c82a1] uppercase tracking-wider flex items-center gap-1.5">
+          <div className="text-11 font-mono text-[#6c82a1] uppercase tracking-wider flex items-center gap-1.5">
             <FolderOpen className="w-3.5 h-3.5" />
             <span>Active Project Repositories ({projects.length})</span>
           </div>
@@ -288,11 +288,11 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                         <h3 className="font-bold text-sm text-ink group-hover:text-ink transition-colors truncate">
                           {proj.name}
                         </h3>
-                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-1 text-[#8ab1e0] ">
+                        <span className="text-10 font-mono px-1.5 py-0.2 rounded bg-surface-1 text-[#8ab1e0] ">
                           {proj.codeName || proj.id}
                         </span>
                         {isActive && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-wash-danger text-[#f28894] font-bold">
+                          <span className="text-9 font-mono px-1.5 py-0.2 rounded bg-wash-danger text-[#f28894] font-bold">
                             CURRENT
                           </span>
                         )}
@@ -304,7 +304,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
 
                       {/* Metadata Badges (counts live in each project's own
                           snapshot — this list is workspace metadata only) */}
-                      <div className="flex flex-wrap items-center gap-3 mt-2 text-[10px] font-mono text-[#6c82a1]">
+                      <div className="flex flex-wrap items-center gap-3 mt-2 text-10 font-mono text-[#6c82a1]">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3 text-[#64748b]" />
                           {new Date(proj.updatedAt).toLocaleDateString()}
@@ -372,7 +372,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
             <h2 className="text-sm font-bold text-[#f2eaf7] font-mono">Edit project details</h2>
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+                <label className="text-11 font-mono uppercase tracking-wider text-[#7a93b5] block">
                   Name
                 </label>
                 <input
@@ -385,7 +385,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+                  <label className="text-11 font-mono uppercase tracking-wider text-[#7a93b5] block">
                     Code Identifier
                   </label>
                   <input
@@ -398,7 +398,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+                  <label className="text-11 font-mono uppercase tracking-wider text-[#7a93b5] block">
                     Accent Nuance
                   </label>
                   <div className="flex items-center gap-2 pt-1.5 flex-wrap">
@@ -418,7 +418,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                 </div>
               </div>
               <div className="space-y-1.5">
-                <label className="text-[11px] font-mono uppercase tracking-wider text-[#7a93b5] block">
+                <label className="text-11 font-mono uppercase tracking-wider text-[#7a93b5] block">
                   Description
                 </label>
                 <textarea
@@ -429,7 +429,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                   className="w-full bg-recess-1 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink focus:outline-none transition-colors shadow-well resize-none"
                 />
               </div>
-              {editError && <p className="text-[11px] text-[#f28894] font-mono">{editError}</p>}
+              {editError && <p className="text-11 text-[#f28894] font-mono">{editError}</p>}
             </div>
             <div className="flex justify-end gap-2 pt-1">
               <button
@@ -481,13 +481,13 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                   It cannot be undone.
                 </p>
                 {pendingDelete.id === activeProjectId && (
-                  <p className="text-[11px] text-[#eab308] mt-2">
+                  <p className="text-11 text-[#eab308] mt-2">
                     This is your current project — the workspace will move to the next
                     project, or to project creation if it&apos;s the last one.
                   </p>
                 )}
                 {deleteError && (
-                  <p className="text-[11px] text-[#f28894] mt-2 font-mono">{deleteError}</p>
+                  <p className="text-11 text-[#f28894] mt-2 font-mono">{deleteError}</p>
                 )}
               </div>
             </div>

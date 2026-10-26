@@ -407,14 +407,14 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           data-testid={`slot-${row.slot}`}
           className="flex items-center justify-between gap-2"
         >
-          <span className="text-[10px] font-mono uppercase tracking-wider text-ink-mute shrink-0">
+          <span className="text-10 font-mono uppercase tracking-wider text-ink-mute shrink-0">
             {row.label}
           </span>
           <select
             data-testid={`select-${row.slot}`}
             value={slots[row.slot]}
             onChange={(e) => setSlot(row.slot, e.target.value)}
-            className="shrink-0 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1 shadow-well cursor-pointer min-w-[10rem]"
+            className="shrink-0 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1 shadow-well cursor-pointer min-w-[10rem]"
           >
             {options.length === 0 && (
               <option value={slots[row.slot]}>{slots[row.slot]} (not in catalog)</option>
@@ -440,7 +440,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
               <span className="font-mono uppercase tracking-wider text-xs font-semibold text-ink">
                 {row.label}
               </span>
-              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-veil-3 text-[#38bdf8]">
+              <span className="text-9 font-mono px-1.5 py-0.5 rounded bg-veil-3 text-[#38bdf8]">
                 main
               </span>
             </div>
@@ -449,7 +449,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
             data-testid={`select-${row.slot}`}
             value={slots[row.slot]}
             onChange={(e) => setSlot(row.slot, e.target.value)}
-            className="shrink-0 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 shadow-well cursor-pointer min-w-[13rem]"
+            className="shrink-0 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well cursor-pointer min-w-[13rem]"
           >
             {options.length === 0 && (
               <option value={slots[row.slot]}>{slots[row.slot]} (not in catalog)</option>
@@ -462,10 +462,10 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           </select>
         </div>
         <div className="flex items-center gap-2 mt-2">
-          <span className="text-[9px] font-mono uppercase tracking-wider text-[#556985]">
+          <span className="text-9 font-mono uppercase tracking-wider text-[#556985]">
             Signing key
           </span>
-          <span className="text-[10px] font-mono text-ink" data-testid="chat-key-choice">
+          <span className="text-10 font-mono text-ink" data-testid="chat-key-choice">
             {mode === 'vps'
               ? 'server vault'
               : chatKeyChoice === 'auto'
@@ -476,7 +476,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
             <button
               onClick={swapChatKey}
               data-testid="swap-chat-key"
-              className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-[10px] font-mono text-[#38bdf8] shadow-well cursor-pointer"
+              className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-10 font-mono text-[#38bdf8] shadow-well cursor-pointer"
             >
               {chatKeyChoice === 'gemini-paid' ? 'Use Free key' : 'Use Paid key'}
             </button>
@@ -495,11 +495,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
       if (!vpsSettings || !vpsSettings.vaultUnlocked) {
         return (
           <section className="rounded-xl bg-recess-1 p-3" data-testid="vps-vault-locked">
-            <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-ink-mute mb-2">
+            <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
               <Lock className="w-3.5 h-3.5 text-[#e0b96c]" />
               Server vault locked
             </div>
-            <p className="text-[11px] text-[#788fa8] leading-relaxed mb-3">
+            <p className="text-11 text-[#788fa8] leading-relaxed mb-3">
               Server session keys are locked after a restart. Enter your password to unlock.
             </p>
             <div className="flex items-center gap-2">
@@ -516,17 +516,17 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                     void handleVpsUnlock();
                   }
                 }}
-                className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 shadow-well"
+                className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
               />
               <button
                 onClick={handleVpsUnlock}
                 data-testid="vps-vault-unlock"
-                className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-[11px] font-mono cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
               >
                 Unlock
               </button>
             </div>
-            {vpsKeysError && <p className="text-[10px] text-red-400 mt-2">{vpsKeysError}</p>}
+            {vpsKeysError && <p className="text-10 text-red-400 mt-2">{vpsKeysError}</p>}
           </section>
         );
       }
@@ -534,11 +534,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
       const tier = vpsSettings.chatTier;
       return (
         <section className="rounded-xl bg-recess-1 p-3" data-testid="vps-keys-panel">
-          <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-ink-mute">
+          <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute">
             <KeyRound className="w-3.5 h-3.5 text-[#e0b96c]" />
             Keys
           </div>
-          <p className="text-[11px] text-[#788fa8] leading-relaxed mt-1.5 mb-3">
+          <p className="text-11 text-[#788fa8] leading-relaxed mt-1.5 mb-3">
             Synced across all devices signed into {getVpsSession()?.email ?? 'your account'}.
             Encrypted at rest on the server.
           </p>
@@ -548,11 +548,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
               const info = keys[id] ?? { configured: false, hint: null };
               return (
                 <div key={id} data-testid={`key-slot-${id}`} className="flex items-center gap-2">
-                  <span className="w-28 shrink-0 text-[10px] font-mono text-ink-mute">
+                  <span className="w-28 shrink-0 text-10 font-mono text-ink-mute">
                     {KEY_SLOT_INFO[id].label}
                   </span>
                   <span
-                    className="w-32 shrink-0 text-[10px] font-mono text-ink"
+                    className="w-32 shrink-0 text-10 font-mono text-ink"
                     data-testid={`vps-key-status-${id}`}
                   >
                     {info.configured ? `Configured (${info.hint})` : 'Not set'}
@@ -566,7 +566,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                     placeholder={keySlotPlaceholder(id)}
                     autoComplete="off"
                     spellCheck={false}
-                    className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 pr-8 shadow-well"
+                    className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 pr-8 shadow-well"
                   />
                   <button
                     onClick={() => toggleShown(id)}
@@ -578,7 +578,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                   <button
                     onClick={() => handleVpsSaveKey(id)}
                     data-testid={`vps-key-save-${id}`}
-                    className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-[10px] font-mono text-[#38bdf8] shadow-well cursor-pointer"
+                    className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-10 font-mono text-[#38bdf8] shadow-well cursor-pointer"
                   >
                     Save
                   </button>
@@ -586,7 +586,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                     <button
                       onClick={() => handleVpsClearKey(id)}
                       data-testid={`vps-key-clear-${id}`}
-                      className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-[10px] font-mono text-[#f28894] shadow-well cursor-pointer"
+                      className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-10 font-mono text-[#f28894] shadow-well cursor-pointer"
                     >
                       Clear
                     </button>
@@ -597,7 +597,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           </div>
 
           <div className="flex items-center gap-2 mt-3">
-            <span className="text-[9px] font-mono uppercase tracking-wider text-[#556985]">
+            <span className="text-9 font-mono uppercase tracking-wider text-[#556985]">
               Key tier
             </span>
             <div className="flex rounded-lg overflow-hidden shadow-well" data-testid="vps-chat-tier">
@@ -605,7 +605,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                 <button
                   key={t}
                   onClick={() => handleVpsTier(t)}
-                  className={`px-2.5 py-1 text-[10px] font-mono uppercase cursor-pointer ${
+                  className={`px-2.5 py-1 text-10 font-mono uppercase cursor-pointer ${
                     tier === t ? 'bg-brand/90 text-white' : 'bg-surface-3 text-ink-mute hover:text-ink'
                   }`}
                 >
@@ -614,10 +614,10 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
               ))}
             </div>
           </div>
-          <p className="text-[10px] text-[#788fa8] font-mono mt-1.5">
+          <p className="text-10 text-[#788fa8] font-mono mt-1.5">
             {HINT_VPS}
           </p>
-          {vpsKeysError && <p className="text-[10px] text-red-400 mt-2">{vpsKeysError}</p>}
+          {vpsKeysError && <p className="text-10 text-red-400 mt-2">{vpsKeysError}</p>}
         </section>
       );
     };
@@ -626,11 +626,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     if (localVaultState === 'none') {
       return (
         <section className="rounded-xl bg-recess-1 p-3" data-testid="local-vault-create">
-          <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-ink-mute mb-2">
+          <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
             <KeyRound className="w-3.5 h-3.5 text-[#e0b96c]" />
             Local key vault
           </div>
-          <p className="text-[11px] text-[#788fa8] leading-relaxed mb-3">
+          <p className="text-11 text-[#788fa8] leading-relaxed mb-3">
             Set a passphrase to encrypt your API keys on this device.
           </p>
           <div className="flex items-center gap-2">
@@ -641,17 +641,17 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
               placeholder="Passphrase"
               value={localPassphrase}
               onChange={(e) => setLocalPassphrase(e.target.value)}
-              className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 shadow-well"
+              className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
             />
             <button
               onClick={handleCreateVault}
               data-testid="local-vault-create-submit"
-              className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-[11px] font-mono cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
             >
               Create Vault
             </button>
           </div>
-          {localVaultError && <p className="text-[10px] text-red-400 mt-2">{localVaultError}</p>}
+          {localVaultError && <p className="text-10 text-red-400 mt-2">{localVaultError}</p>}
         </section>
       );
     }
@@ -659,7 +659,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     if (localVaultState === 'locked') {
       return (
         <section className="rounded-xl bg-recess-1 p-3" data-testid="local-vault-locked">
-          <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-ink-mute mb-2">
+          <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
             <Lock className="w-3.5 h-3.5 text-[#e0b96c]" />
             Your local key vault is locked
           </div>
@@ -674,12 +674,12 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void handleUnlockVault();
               }}
-              className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 shadow-well"
+              className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
             />
             <button
               onClick={handleUnlockVault}
               data-testid="local-vault-unlock"
-              className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-[11px] font-mono cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
             >
               Unlock
             </button>
@@ -687,11 +687,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           <button
             onClick={handleResetVault}
             data-testid="local-vault-reset"
-            className="text-[10px] font-mono text-[#f28894] hover:underline mt-2 cursor-pointer"
+            className="text-10 font-mono text-[#f28894] hover:underline mt-2 cursor-pointer"
           >
             Reset vault (forgotten passphrase — existing keys become unreadable)
           </button>
-          {localVaultError && <p className="text-[10px] text-red-400 mt-2">{localVaultError}</p>}
+          {localVaultError && <p className="text-10 text-red-400 mt-2">{localVaultError}</p>}
         </section>
       );
     }
@@ -699,7 +699,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     // unlocked
     return (
       <section className="rounded-xl bg-recess-1 p-3" data-testid="local-vault-unlocked">
-        <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-ink-mute">
+        <div className="flex items-center justify-between text-10 font-mono uppercase tracking-wider text-ink-mute">
           <span className="flex items-center gap-2">
             <Unlock className="w-3.5 h-3.5 text-emerald-400" />
             Keys — encrypted on this device
@@ -707,19 +707,19 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           <button
             onClick={handleLockVault}
             data-testid="local-vault-lock"
-            className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-[10px] font-mono text-ink normal-case cursor-pointer"
+            className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-10 font-mono text-ink normal-case cursor-pointer"
           >
             Lock now
           </button>
         </div>
-        <p className="text-[11px] text-[#788fa8] leading-relaxed mt-1.5 mb-3">
+        <p className="text-11 text-[#788fa8] leading-relaxed mt-1.5 mb-3">
           Stored in this browser only, encrypted with your passphrase — never plaintext.
           Empty slots are fine; those lanes will tell you a key is missing.
         </p>
         <div className="space-y-2">
           {KEY_SLOTS.map((id) => (
             <div key={id} data-testid={`key-slot-${id}`} className="flex items-center gap-2">
-              <span className="w-28 shrink-0 text-[10px] font-mono text-ink-mute">
+              <span className="w-28 shrink-0 text-10 font-mono text-ink-mute">
                 {KEY_SLOT_INFO[id].label}
               </span>
               <div className="flex-1 relative">
@@ -730,7 +730,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                   placeholder={keySlotPlaceholder(id)}
                   autoComplete="off"
                   spellCheck={false}
-                  className="w-full rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 pr-8 shadow-well"
+                  className="w-full rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 pr-8 shadow-well"
                 />
                 <button
                   onClick={() => toggleShown(id)}
@@ -749,7 +749,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           ))}
         </div>
         <div className="flex items-center gap-2 mt-3">
-          <span className="text-[9px] font-mono uppercase tracking-wider text-[#556985]">
+          <span className="text-9 font-mono uppercase tracking-wider text-[#556985]">
             Key tier
           </span>
           <div className="flex rounded-lg overflow-hidden shadow-well" data-testid="local-chat-tier">
@@ -757,7 +757,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
               <button
                 key={t}
                 onClick={() => void handleLocalTier(t)}
-                className={`px-2.5 py-1 text-[10px] font-mono uppercase cursor-pointer ${
+                className={`px-2.5 py-1 text-10 font-mono uppercase cursor-pointer ${
                   localChatTier === t
                     ? 'bg-brand/90 text-white'
                     : 'bg-surface-3 text-ink-mute hover:text-ink'
@@ -768,11 +768,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
             ))}
           </div>
         </div>
-        <p className="text-[10px] text-[#788fa8] font-mono mt-1.5">
+        <p className="text-10 text-[#788fa8] font-mono mt-1.5">
           {HINT_LOCAL}
         </p>
         {listFilledKeySlots().length === 0 && (
-          <p className="text-[10px] text-[#788fa8] font-mono mt-2">
+          <p className="text-10 text-[#788fa8] font-mono mt-2">
             No keys configured — add one to talk to a model from this device.
           </p>
         )}
@@ -782,7 +782,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
 
   const renderUsersTab = () => (
     <section className="rounded-xl bg-recess-1 p-3" data-testid="users-panel">
-      <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-ink-mute mb-3">
+      <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute mb-3">
         <Users className="w-3.5 h-3.5 text-[#38bdf8]" />
         Users
       </div>
@@ -793,7 +793,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           placeholder="Email"
           value={newUserEmail}
           onChange={(e) => setNewUserEmail(e.target.value)}
-          className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 shadow-well"
+          className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
         />
         <input
           type="password"
@@ -801,37 +801,37 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           autoComplete="new-password"
           value={newUserPassword}
           onChange={(e) => setNewUserPassword(e.target.value)}
-          className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 shadow-well"
+          className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
         />
         <button
           onClick={handleAddUser}
           data-testid="admin-add-user-submit"
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-[11px] font-mono cursor-pointer"
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
         >
           <Plus className="w-3 h-3" />
           Add User
         </button>
       </div>
 
-      {usersError && <p className="text-[10px] text-red-400 mb-2">{usersError}</p>}
+      {usersError && <p className="text-10 text-red-400 mb-2">{usersError}</p>}
 
       <div className="space-y-1.5">
-        {users === null && <p className="text-[11px] text-ink-mute">Loading users…</p>}
+        {users === null && <p className="text-11 text-ink-mute">Loading users…</p>}
         {users?.map((u) => (
           <div
             key={u.id}
             data-testid={`admin-user-row-${u.id}`}
             className="flex items-center gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5"
           >
-            <span className="flex-1 text-[11px] font-mono text-ink truncate">{u.email}</span>
+            <span className="flex-1 text-11 font-mono text-ink truncate">{u.email}</span>
             {u.isOwner && (
-              <span className="flex items-center gap-1 text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-veil-3 text-[#e0b96c]">
+              <span className="flex items-center gap-1 text-9 font-mono uppercase px-1.5 py-0.5 rounded bg-veil-3 text-[#e0b96c]">
                 <Shield className="w-3 h-3" />
                 Owner
               </span>
             )}
             <span
-              className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded ${
+              className={`text-9 font-mono uppercase px-1.5 py-0.5 rounded ${
                 u.enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'
               }`}
             >
@@ -842,7 +842,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                 <button
                   onClick={() => void handleToggleUser(u)}
                   data-testid={`admin-toggle-${u.id}`}
-                  className="px-2 py-0.5 rounded bg-veil-2 hover:bg-veil-3 text-[10px] font-mono text-ink cursor-pointer"
+                  className="px-2 py-0.5 rounded bg-veil-2 hover:bg-veil-3 text-10 font-mono text-ink cursor-pointer"
                 >
                   {u.enabled ? 'Disable' : 'Enable'}
                 </button>
@@ -852,7 +852,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                     setResetPwValue('');
                   }}
                   data-testid={`admin-reset-open-${u.id}`}
-                  className="px-2 py-0.5 rounded bg-veil-2 hover:bg-veil-3 text-[10px] font-mono text-[#8ab1e0] cursor-pointer"
+                  className="px-2 py-0.5 rounded bg-veil-2 hover:bg-veil-3 text-10 font-mono text-[#8ab1e0] cursor-pointer"
                 >
                   Reset Password
                 </button>
@@ -866,12 +866,12 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                   autoComplete="new-password"
                   value={resetPwValue}
                   onChange={(e) => setResetPwValue(e.target.value)}
-                  className="flex-1 rounded bg-surface-3 text-ink font-mono text-[10px] px-2 py-1 shadow-well"
+                  className="flex-1 rounded bg-surface-3 text-ink font-mono text-10 px-2 py-1 shadow-well"
                 />
                 <button
                   onClick={() => void handleResetPassword(u)}
                   data-testid={`admin-reset-submit-${u.id}`}
-                  className="px-2 py-1 rounded bg-brand/90 text-white text-[10px] font-mono cursor-pointer"
+                  className="px-2 py-1 rounded bg-brand/90 text-white text-10 font-mono cursor-pointer"
                 >
                   Save
                 </button>
@@ -900,7 +900,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
             </div>
             <div>
               <h2 className="text-sm font-semibold text-ink tracking-wide">Model Settings</h2>
-              <p className="text-[10px] text-[#6b82a3]">
+              <p className="text-10 text-[#6b82a3]">
                 One model per lane — changes apply to the next request.
               </p>
             </div>
@@ -923,7 +923,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                 aria-selected={tab === t}
                 data-testid={`settings-tab-${t}`}
                 onClick={() => setTab(t)}
-                className={`flex-1 min-h-[28px] rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors cursor-pointer ${
+                className={`flex-1 min-h-[28px] rounded-lg text-11 font-mono uppercase tracking-wider transition-colors cursor-pointer ${
                   tab === t
                     ? 'bg-surface-3 shadow-lift text-ink font-semibold'
                     : 'text-ink-faint hover:text-ink-dim'
@@ -937,21 +937,21 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           {tab === 'models' && (
             <>
               <section>
-                <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
+                <div className="text-9 font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
                   Chat
                 </div>
                 {SLOT_ROWS.filter((r) => r.group === 'chat').map(renderRow)}
               </section>
 
               <section>
-                <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
+                <div className="text-9 font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
                   Workhorse
                 </div>
                 <div className="space-y-1">{SLOT_ROWS.filter((r) => r.group === 'workhorse').map(renderRow)}</div>
               </section>
 
               <section>
-                <div className="text-[9px] font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
+                <div className="text-9 font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
                   Infrastructure
                 </div>
                 <div className="space-y-1">{SLOT_ROWS.filter((r) => r.group === 'infra').map(renderRow)}</div>

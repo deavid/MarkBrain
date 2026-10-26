@@ -25,7 +25,7 @@ export const MessageBody: React.FC<MessageBodyProps> = React.memo(({ content, ra
     return (
       <div
         data-testid="message-raw"
-        className="whitespace-pre-wrap break-words font-mono text-[11px] sm:text-xs leading-relaxed"
+        className="whitespace-pre-wrap break-words font-mono text-11 sm:text-xs leading-relaxed"
       >
         {content}
       </div>

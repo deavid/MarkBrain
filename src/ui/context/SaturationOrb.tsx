@@ -33,7 +33,7 @@ export const SaturationOrb: React.FC<SaturationOrbProps> = ({ telemetry, onClick
           boxShadow: `0 0 6px ${color.glow}`,
         }}
       />
-      <span className="text-[10px] font-mono text-[#8ab1e0]">{tokenLabel}</span>
+      <span className="text-10 font-mono text-[#8ab1e0]">{tokenLabel}</span>
     </button>
   );
 };

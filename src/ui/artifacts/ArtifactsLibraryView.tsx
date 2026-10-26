@@ -274,7 +274,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
         {renderRow(art, r)}
         <div
           data-testid="xray"
-          className="bg-recess-1 rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-ink-dim space-y-0.5"
+          className="bg-recess-1 rounded-lg px-2.5 py-1.5 text-10 font-mono text-ink-dim space-y-0.5"
         >
           <div>
             Score: {r.bestScore.toFixed(2)} [{methodBits}] · idx: {r.indexStatus}
@@ -312,12 +312,12 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
       {draftText.trim() && (
         <div className="bg-surface-2 rounded-xl p-3 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985]">
+            <span className="text-10 font-mono uppercase tracking-wider text-[#556985]">
               Chat draft — {searchQueryOverride.trim() ? 'ignored' : 'in use'}
             </span>
             <button
               onClick={() => onDraftTextChange('')}
-              className="text-[10px] font-mono text-[#5d7394] hover:text-ink transition-colors cursor-pointer"
+              className="text-10 font-mono text-[#5d7394] hover:text-ink transition-colors cursor-pointer"
               title="Clear the draft (also clears the chat composer)"
             >
               Clear
@@ -330,7 +330,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
       <div className="bg-surface-2 rounded-xl p-3 space-y-1.5">
         <label
           htmlFor="proximity-test-query"
-          className="block text-[10px] font-mono uppercase tracking-wider text-[#556985]"
+          className="block text-10 font-mono uppercase tracking-wider text-[#556985]"
         >
           {searchQueryOverride.trim() ? 'Query override' : 'Query — blank uses the chat draft'}
         </label>
@@ -344,12 +344,12 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
         />
         {searchQueryOverride.trim() && (
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-mono text-[#556985]">
+            <span className="text-10 font-mono text-[#556985]">
               Overriding the chat draft
             </span>
             <button
               onClick={() => onSearchQueryOverrideChange('')}
-              className="text-[10px] font-mono text-[#5d7394] hover:text-ink transition-colors cursor-pointer"
+              className="text-10 font-mono text-[#5d7394] hover:text-ink transition-colors cursor-pointer"
               title="Drop the override and query from the chat draft again"
             >
               Use chat draft
@@ -360,7 +360,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             "did that cost me one?" should never require the network tab. */}
         {queryEmbedNote && (
           <p
-            className="text-[10px] font-mono text-[#556985] truncate"
+            className="text-10 font-mono text-[#556985] truncate"
             data-testid="query-embed-note"
             title={
               queryEmbedNote.match === 'near' && queryEmbedNote.sourceText
@@ -389,7 +389,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             aria-pressed={searchConfig[flag]}
             data-testid={`method-${flag}`}
             onClick={() => toggleMethod(flag)}
-            className={`min-h-[28px] px-2.5 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+            className={`min-h-[28px] px-2.5 rounded-full text-10 font-mono transition-colors cursor-pointer ${
               searchConfig[flag]
                 ? 'bg-veil-2 shadow-lift text-[#8ab1e0]'
                 : 'bg-surface-2 text-[#5d7394] hover:text-ink-dim'
@@ -402,7 +402,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
 
       {/* 3. Threshold — live, and the count under it is the badge's twin. */}
       <div className="bg-surface-2 rounded-xl p-3 space-y-2">
-        <div className="flex items-center justify-between text-[11px] font-mono text-ink-dim">
+        <div className="flex items-center justify-between text-11 font-mono text-ink-dim">
           <span>Threshold</span>
           <span data-testid="threshold-readout">{searchConfig.threshold.toFixed(2)}</span>
         </div>
@@ -416,7 +416,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
           className="w-full accent-[#2563eb] cursor-pointer"
           aria-label="Score threshold"
         />
-        <p className="text-[10px] font-mono text-[#556985]" data-testid="suggested-count">
+        <p className="text-10 font-mono text-[#556985]" data-testid="suggested-count">
           {suggested.length} unattached note{suggested.length === 1 ? '' : 's'} above threshold
         </p>
       </div>
@@ -427,7 +427,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
       {semanticIndexingEnabled && (
       <div className="bg-surface-2 rounded-xl p-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-mono text-ink-dim" data-testid="index-status">
+          <span className="text-11 font-mono text-ink-dim" data-testid="index-status">
             Indexed: {indexedCount} / {artifacts.length} notes
           </span>
           <span className="flex-1" />
@@ -436,7 +436,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             disabled={Boolean(indexProgress)}
             onClick={() => onIndexAll(false)}
             data-testid="index-all-unindexed"
-            className="min-h-[28px] px-2.5 rounded-full bg-veil-1 shadow-lift hover:bg-veil-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+            className="min-h-[28px] px-2.5 rounded-full bg-veil-1 shadow-lift hover:bg-veil-2 text-10 font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
             title="Generate Q&A + embeddings for notes that have none or whose text changed"
           >
             Index All Unindexed
@@ -446,7 +446,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             disabled={Boolean(indexProgress)}
             onClick={() => onIndexAll(true)}
             data-testid="index-reindex-all"
-            className="min-h-[28px] px-2.5 rounded-full bg-veil-1 shadow-lift hover:bg-veil-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+            className="min-h-[28px] px-2.5 rounded-full bg-veil-1 shadow-lift hover:bg-veil-2 text-10 font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
             title="Rebuild every note's Q&A and embeddings from scratch"
           >
             Re-index All
@@ -456,7 +456,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
               type="button"
               onClick={onStopIndexing}
               data-testid="index-stop"
-              className="min-h-[28px] px-2.5 rounded-full bg-surface-4 text-[#e0b96c] text-[10px] font-mono transition-colors cursor-pointer"
+              className="min-h-[28px] px-2.5 rounded-full bg-surface-4 text-[#e0b96c] text-10 font-mono transition-colors cursor-pointer"
             >
               Stop
             </button>
@@ -473,7 +473,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
                 <span className="absolute inline-flex h-full w-full rounded-full bg-[#67e8f9] opacity-75 animate-ping" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-[#67e8f9]" />
               </span>
-              <p className="text-[10px] font-mono text-[#8ab1e0] flex-1 min-w-0 truncate">
+              <p className="text-10 font-mono text-[#8ab1e0] flex-1 min-w-0 truncate">
                 {indexProgress.total > 0
                   ? `Indexing ${Math.min(indexProgress.done + 1, indexProgress.total)}/${indexProgress.total}: ${indexProgress.stage}`
                   : indexProgress.stage}
@@ -507,18 +507,18 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             className="rounded-lg bg-[#3a1616] ring-1 ring-[#f45a56]/40 p-2.5 space-y-1"
             data-testid="index-failures"
           >
-            <p className="text-[10px] font-mono uppercase tracking-wider text-[#f28894]">
+            <p className="text-10 font-mono uppercase tracking-wider text-[#f28894]">
               {indexFailures.length} note{indexFailures.length === 1 ? '' : 's'} could not be
               indexed — nothing was saved for them
             </p>
             <ul className="space-y-0.5">
               {indexFailures.slice(0, 4).map((f) => (
-                <li key={f.title} className="text-[10px] font-mono text-[#c9a2a2] truncate">
+                <li key={f.title} className="text-10 font-mono text-[#c9a2a2] truncate">
                   {f.title} — {f.message}
                 </li>
               ))}
               {indexFailures.length > 4 && (
-                <li className="text-[10px] font-mono text-[#c9a2a2]">
+                <li className="text-10 font-mono text-[#c9a2a2]">
                   …and {indexFailures.length - 4} more
                 </li>
               )}
@@ -533,7 +533,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
         <div className="rounded-xl bg-surface-2 p-6 text-center space-y-2">
           <Crosshair className="w-6 h-6 text-[#4f5f78] mx-auto" />
           <p className="text-xs font-mono text-[#8297b5]">Nothing scored yet.</p>
-          <p className="text-[10px] font-mono text-[#4f5f78]">
+          <p className="text-10 font-mono text-[#4f5f78]">
             Type a draft in chat (or a test query above) to rank the library against it.
           </p>
         </div>
@@ -542,10 +542,10 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
       {suggested.length > 0 && (
         <section className="space-y-1.5" data-testid="proximity-suggested">
           <div className="flex items-center gap-2 px-1">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985]">
+            <span className="text-10 font-mono uppercase tracking-wider text-[#556985]">
               Suggested to Attach (Above Threshold)
             </span>
-            <span className="text-[10px] font-mono text-[#3f4d61]">{suggested.length}</span>
+            <span className="text-10 font-mono text-[#3f4d61]">{suggested.length}</span>
           </div>
           <div className="rounded-xl bg-surface-2 p-1 space-y-1">
             {suggested.map(renderProximityRow)}
@@ -556,10 +556,10 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
       {others.length > 0 && (
         <section className="space-y-1.5" data-testid="proximity-others">
           <div className="flex items-center gap-2 px-1">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985]">
+            <span className="text-10 font-mono uppercase tracking-wider text-[#556985]">
               Below Threshold / Already Attached
             </span>
-            <span className="text-[10px] font-mono text-[#3f4d61]">{others.length}</span>
+            <span className="text-10 font-mono text-[#3f4d61]">{others.length}</span>
           </div>
           <div className="rounded-xl bg-surface-2 p-1 space-y-1">
             {others.map(renderProximityRow)}
@@ -608,7 +608,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
               <button
                 onClick={() => setTagFilter(null)}
                 data-testid="tag-filter-clear"
-                className="flex items-center gap-1 min-h-[34px] px-2 rounded-xl bg-veil-2 shadow-lift text-[10px] font-mono text-[#8ab1e0] hover:text-ink transition-colors cursor-pointer shrink-0"
+                className="flex items-center gap-1 min-h-[34px] px-2 rounded-xl bg-veil-2 shadow-lift text-10 font-mono text-[#8ab1e0] hover:text-ink transition-colors cursor-pointer shrink-0"
                 title="Clear the tag filter"
               >
                 #{tagFilter} <X className="w-3 h-3" />
@@ -616,7 +616,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             )}
             <button
               onClick={onOpenImport}
-              className="flex items-center gap-1.5 min-h-[34px] px-2.5 rounded-xl bg-veil-1 shadow-lift hover:bg-veil-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer shrink-0"
+              className="flex items-center gap-1.5 min-h-[34px] px-2.5 rounded-xl bg-veil-1 shadow-lift hover:bg-veil-2 text-10 font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer shrink-0"
               title="Import documents into the library"
             >
               <Upload className="w-3.5 h-3.5" />
@@ -628,7 +628,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             <div className="rounded-xl bg-surface-2 p-6 text-center space-y-2">
               <FolderTree className="w-6 h-6 text-[#4f5f78] mx-auto" />
               <p className="text-xs font-mono text-[#8297b5]">The library is empty.</p>
-              <p className="text-[10px] font-mono text-[#4f5f78]">
+              <p className="text-10 font-mono text-[#4f5f78]">
                 Import a document, or extract something from a chat.
               </p>
             </div>
@@ -637,10 +637,10 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
           {groups.map(([category, list]) => (
             <section key={category} className="space-y-1.5">
               <div className="flex items-center gap-2 px-1">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985]">
+                <span className="text-10 font-mono uppercase tracking-wider text-[#556985]">
                   {category}
                 </span>
-                <span className="text-[10px] font-mono text-[#3f4d61]">{list.length}</span>
+                <span className="text-10 font-mono text-[#3f4d61]">{list.length}</span>
               </div>
               <div className="rounded-xl bg-surface-2 p-1 space-y-1">
                 {list.map((art) => renderRow(art, matchById.get(art.id)))}
@@ -660,7 +660,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
               logger.action('Artifacts', 'Library lens: folders');
               setLens('folders');
             }}
-            className={`flex items-center gap-1.5 min-h-[30px] px-3 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 min-h-[30px] px-3 rounded-full text-10 font-mono transition-colors cursor-pointer ${
               lens === 'folders' ? 'bg-veil-2 shadow-lift text-[#8ab1e0]' : 'text-[#5d7394] hover:text-ink-dim'
             }`}
           >
@@ -671,7 +671,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
               logger.action('Artifacts', 'Library lens: graph');
               setLens('graph');
             }}
-            className={`flex items-center gap-1.5 min-h-[30px] px-3 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 min-h-[30px] px-3 rounded-full text-10 font-mono transition-colors cursor-pointer ${
               lens === 'graph' ? 'bg-veil-2 shadow-lift text-[#8ab1e0]' : 'text-[#5d7394] hover:text-ink-dim'
             }`}
           >
@@ -684,7 +684,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             }}
             data-testid="lens-proximity"
             aria-pressed={lens === 'proximity'}
-            className={`flex items-center gap-1.5 min-h-[30px] px-3 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 min-h-[30px] px-3 rounded-full text-10 font-mono transition-colors cursor-pointer ${
               lens === 'proximity' ? 'bg-veil-2 shadow-lift text-[#8ab1e0]' : 'text-[#5d7394] hover:text-ink-dim'
             }`}
           >
@@ -702,7 +702,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
         >
           <MessageSquare className="w-4 h-4" />
           {stagedCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-[9px] font-mono font-bold flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-9 font-mono font-bold flex items-center justify-center">
               {stagedCount}
             </span>
           )}

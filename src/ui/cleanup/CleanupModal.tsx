@@ -38,7 +38,7 @@ const Chip: React.FC<{ lifecycle: Lifecycle; children?: React.ReactNode }> = ({
   children,
 }) => (
   <span
-    className={`shrink-0 px-1.5 py-0.5 rounded font-mono text-[9px] uppercase tracking-wide ${
+    className={`shrink-0 px-1.5 py-0.5 rounded font-mono text-9 uppercase tracking-wide ${
       lifecycle === 'archived' ? 'bg-recess-2 text-[#c8a05a]' : 'bg-recess-1 text-[#7d93b3]'
     }`}
   >
@@ -68,15 +68,15 @@ const Row: React.FC<{
     <span className="min-w-0 flex-1">
       <span className="flex items-center gap-2">
         <span
-          className={`text-[12px] truncate ${lifecycle === 'archived' ? 'text-ink-dim' : 'text-ink'}`}
+          className={`text-12 truncate ${lifecycle === 'archived' ? 'text-ink-dim' : 'text-ink'}`}
         >
           {title}
         </span>
         <Chip lifecycle={lifecycle} />
       </span>
-      <span className="block text-[10px] font-mono text-[#6b82a3] mt-0.5">{meta}</span>
+      <span className="block text-10 font-mono text-[#6b82a3] mt-0.5">{meta}</span>
       {warn && (
-        <span className="block text-[10px] font-mono text-[#d98a72] mt-0.5">{warn}</span>
+        <span className="block text-10 font-mono text-[#d98a72] mt-0.5">{warn}</span>
       )}
     </span>
   </label>
@@ -230,10 +230,10 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
       >
         <div className="flex items-start justify-between gap-3 p-4 pb-3">
           <div className="min-w-0">
-            <h2 className="text-[15px] font-semibold tracking-tight">
+            <h2 className="text-15 font-semibold tracking-tight">
               {phase === 'confirm' ? 'Delete permanently' : 'Cleanup'}
             </h2>
-            <p className="text-[11px] text-ink-mute mt-1 leading-relaxed">
+            <p className="text-11 text-ink-mute mt-1 leading-relaxed">
               {phase === 'confirm'
                 ? 'This removes data from the project for good. There is no undo.'
                 : 'Archive is the door: only archived items can be deleted. Nothing is removed from the project until you confirm.'}
@@ -260,7 +260,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
                     setTab(t);
                     setSelected(new Set());
                   }}
-                  className={`px-3 py-1.5 rounded-lg font-mono text-[11px] capitalize transition-colors cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg font-mono text-11 capitalize transition-colors cursor-pointer ${
                     tab === t ? 'bg-veil-3 text-ink' : 'bg-surface-2 text-ink-dim hover:bg-surface-3'
                   }`}
                 >
@@ -276,7 +276,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
                     key={f}
                     type="button"
                     onClick={() => setFilter(f)}
-                    className={`px-2 py-1 rounded font-mono text-[10px] transition-colors cursor-pointer ${
+                    className={`px-2 py-1 rounded font-mono text-10 transition-colors cursor-pointer ${
                       filter === f ? 'bg-recess-2 text-ink' : 'text-ink-mute hover:text-ink'
                     }`}
                   >
@@ -287,7 +287,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
               <button
                 type="button"
                 onClick={selectAllShown}
-                className="ml-auto font-mono text-[10px] text-[#8ab1e0] hover:text-ink transition-colors cursor-pointer"
+                className="ml-auto font-mono text-10 text-[#8ab1e0] hover:text-ink transition-colors cursor-pointer"
               >
                 {rows.length > 0 && rows.every((r) => selected.has(r.id))
                   ? 'clear all'
@@ -297,7 +297,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
 
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-3 space-y-1.5">
               {rows.length === 0 && (
-                <p className="text-[11px] font-mono text-[#6b82a3] p-3">
+                <p className="text-11 font-mono text-[#6b82a3] p-3">
                   Nothing {filter === 'all' ? '' : filter} in {tab}.
                 </p>
               )}
@@ -315,7 +315,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
             </div>
 
             <div className="border-t border-line-soft p-3 flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-[10px] text-ink-mute">
+              <span className="font-mono text-10 text-ink-mute">
                 {selectedIds.length} selected · {archivedSelectedCount} deletable
               </span>
               <div className="ml-auto flex items-center gap-1.5">
@@ -323,7 +323,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
                   type="button"
                   disabled={selectedIds.length === 0}
                   onClick={() => archiveSelection(selectedIds, 'archived')}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 disabled:opacity-40 disabled:hover:bg-recess-1 text-[11px] font-mono text-[#8ab1e0] transition-colors cursor-pointer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 disabled:opacity-40 disabled:hover:bg-recess-1 text-11 font-mono text-[#8ab1e0] transition-colors cursor-pointer"
                 >
                   <Archive className="w-3.5 h-3.5" />
                   <span>Archive</span>
@@ -332,7 +332,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
                   type="button"
                   disabled={selectedIds.length === 0}
                   onClick={() => archiveSelection(selectedIds, 'active')}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 disabled:opacity-40 disabled:hover:bg-recess-1 text-[11px] font-mono text-[#8ab1e0] transition-colors cursor-pointer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 disabled:opacity-40 disabled:hover:bg-recess-1 text-11 font-mono text-[#8ab1e0] transition-colors cursor-pointer"
                 >
                   <ArchiveRestore className="w-3.5 h-3.5" />
                   <span>Unarchive</span>
@@ -346,7 +346,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
                       ? 'Only archived items can be deleted — archive the selection first'
                       : 'Review, then confirm'
                   }
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-wash-danger shadow-well hover:bg-[#3a1c26] disabled:opacity-40 disabled:hover:bg-wash-danger text-[11px] font-mono text-[#e79a9a] transition-colors cursor-pointer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-wash-danger shadow-well hover:bg-[#3a1c26] disabled:opacity-40 disabled:hover:bg-wash-danger text-11 font-mono text-[#e79a9a] transition-colors cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Delete…</span>
@@ -358,22 +358,22 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
           <>
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-3 space-y-3">
               <div className="rounded-xl bg-surface-2 p-3 space-y-1.5">
-                <p className="text-[11px] font-mono text-[#c8a05a] uppercase tracking-wide">
+                <p className="text-11 font-mono text-[#c8a05a] uppercase tracking-wide">
                   About to be destroyed
                 </p>
                 {plan.threadsToDelete.length > 0 && (
-                  <p className="text-[12px]">
+                  <p className="text-12">
                     {plan.threadsToDelete.length} chat(s) with their messages and chapters
                   </p>
                 )}
                 {plan.artifactsToDelete.length > 0 && (
-                  <p className="text-[12px]">
+                  <p className="text-12">
                     {plan.artifactsToDelete.length} artifact(s) with their revision history, graph
                     edges and chat attachments
                   </p>
                 )}
                 {plan.cascadeThreads.length > 0 && (
-                  <p className="text-[12px] text-[#d98a72]">
+                  <p className="text-12 text-[#d98a72]">
                     + {plan.cascadeThreads.length} archived chat(s) that used them (your cascade
                     choice)
                   </p>
@@ -382,11 +382,11 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
 
               {plan.skipped.length > 0 && (
                 <div className="rounded-xl bg-wash-danger p-3 space-y-1.5">
-                  <p className="text-[11px] font-mono text-[#e79a9a] uppercase tracking-wide">
+                  <p className="text-11 font-mono text-[#e79a9a] uppercase tracking-wide">
                     Kept back
                   </p>
                   {plan.skipped.map((s) => (
-                    <p key={`${s.kind}-${s.id}`} className="text-[11px] text-[#e2b3b3] leading-relaxed">
+                    <p key={`${s.kind}-${s.id}`} className="text-11 text-[#e2b3b3] leading-relaxed">
                       {s.kind === 'thread' ? 'Chat' : 'Artifact'} “{s.title}”{' '}
                       {s.reason === 'not-archived'
                         ? 'is still active — archive it first.'
@@ -399,7 +399,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onSetThreadLifecycle(blockedChatIds, 'archived')}
-                      className="mt-1 px-2.5 py-1.5 rounded-lg bg-recess-2 hover:bg-veil-3 text-[11px] font-mono text-[#8ab1e0] transition-colors cursor-pointer"
+                      className="mt-1 px-2.5 py-1.5 rounded-lg bg-recess-2 hover:bg-veil-3 text-11 font-mono text-[#8ab1e0] transition-colors cursor-pointer"
                     >
                       Archive those {blockedChatIds.length} chat(s)
                     </button>
@@ -415,7 +415,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
                     onChange={() => setCascade((v) => !v)}
                     className="mt-0.5 w-3.5 h-3.5 shrink-0 accent-[#e05a66] cursor-pointer"
                   />
-                  <span className="text-[11px] text-ink-dim leading-relaxed">
+                  <span className="text-11 text-ink-dim leading-relaxed">
                     Also delete the {detachedChatCount} archived chat(s) that use these artifacts.
                     Unchecked, they survive and simply lose the attachment.
                   </span>
@@ -423,14 +423,14 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
               )}
 
               <div className="space-y-1.5">
-                <p className="text-[11px] text-ink-mute">
+                <p className="text-11 text-ink-mute">
                   Type <span className="font-mono text-[#e79a9a]">{CONFIRM_WORD}</span> to confirm.
                 </p>
                 <input
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}
                   placeholder={CONFIRM_WORD}
-                  className="w-full h-9 px-2.5 rounded-lg bg-surface-0 font-mono text-[12px] text-ink placeholder:text-[#3f4d61] outline-none focus:ring-1 focus:ring-[#e05a66]/60"
+                  className="w-full h-9 px-2.5 rounded-lg bg-surface-0 font-mono text-12 text-ink placeholder:text-[#3f4d61] outline-none focus:ring-1 focus:ring-[#e05a66]/60"
                 />
               </div>
             </div>
@@ -442,7 +442,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
                   setPhase('browse');
                   setTyped('');
                 }}
-                className="px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-[11px] font-mono text-ink-dim transition-colors cursor-pointer"
+                className="px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-11 font-mono text-ink-dim transition-colors cursor-pointer"
               >
                 Back
               </button>
@@ -450,7 +450,7 @@ export const CleanupModal: React.FC<CleanupModalProps> = ({
                 type="button"
                 disabled={typed.trim() !== CONFIRM_WORD || planIsEmpty(plan)}
                 onClick={apply}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#e05a66] hover:bg-[#c94b57] disabled:opacity-40 disabled:hover:bg-[#e05a66] text-[11px] font-mono text-[#1a0d12] font-semibold transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#e05a66] hover:bg-[#c94b57] disabled:opacity-40 disabled:hover:bg-[#e05a66] text-11 font-mono text-[#1a0d12] font-semibold transition-colors cursor-pointer"
               >
                 <AlertTriangle className="w-3.5 h-3.5" />
                 <span>Delete permanently</span>

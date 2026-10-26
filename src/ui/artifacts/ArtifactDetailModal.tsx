@@ -25,10 +25,10 @@ function CollapsibleField({
         className="w-full flex items-center justify-between gap-2 cursor-pointer"
         aria-expanded={open}
       >
-        <span className={`text-[10px] font-mono uppercase tracking-wider font-semibold block ${labelClass}`}>
+        <span className={`text-10 font-mono uppercase tracking-wider font-semibold block ${labelClass}`}>
           {label}
         </span>
-        <span className="text-[9px] font-mono text-[#6b82a3] shrink-0">{open ? '− hide' : '+ show'}</span>
+        <span className="text-9 font-mono text-[#6b82a3] shrink-0">{open ? '− hide' : '+ show'}</span>
       </button>
       {open && children}
     </div>
@@ -156,7 +156,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
               <h2 className="text-sm sm:text-base font-bold text-ink font-mono truncate">
                 {title}
               </h2>
-              <div className="flex items-center gap-2 text-[10px] font-mono text-[#6b82a3] mt-0.5">
+              <div className="flex items-center gap-2 text-10 font-mono text-[#6b82a3] mt-0.5">
                 <span className="px-1.5 py-0.2 rounded bg-surface-0 text-ink-dim">
                   {artifact.code || artifact.type}
                 </span>
@@ -203,7 +203,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                 <Plus className="w-3.5 h-3.5" />
                 <span>Stage for next message</span>
               </button>
-              <span className="text-[11px] font-mono text-[#556985]">
+              <span className="text-11 font-mono text-[#556985]">
                 Not in this chat&apos;s payload.
               </span>
             </div>
@@ -211,15 +211,15 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
             <>
               <div className="flex items-center gap-2 flex-wrap">
                 <span
-                  className={`text-[11px] font-mono ${attachmentStaged ? 'text-[#38bdf8]' : 'text-[#758ca8]'}`}
+                  className={`text-11 font-mono ${attachmentStaged ? 'text-[#38bdf8]' : 'text-[#758ca8]'}`}
                 >
                   {attachmentStaged ? 'Staged for next send ·' : 'In this chat at'}
                 </span>
-                <strong className="text-[11px] font-mono text-[#a4bddf]">
+                <strong className="text-11 font-mono text-[#a4bddf]">
                   {GRANULARITY_LABEL[attachmentGranularity]}
                 </strong>
                 {!attachmentStaged && provenance && (
-                  <span className="text-[11px] font-mono text-[#758ca8]" title={provenance.title}>
+                  <span className="text-11 font-mono text-[#758ca8]" title={provenance.title}>
                     · {provenance.badge}
                   </span>
                 )}
@@ -227,7 +227,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                   <button
                     onClick={() => onUnstage?.(artifact.id)}
                     data-testid="unstage-from-detail"
-                    className="min-h-[24px] px-2 rounded-lg text-[10px] font-mono bg-surface-3 text-[#67e8f9] hover:bg-[#0f3340] cursor-pointer"
+                    className="min-h-[24px] px-2 rounded-lg text-10 font-mono bg-surface-3 text-[#67e8f9] hover:bg-[#0f3340] cursor-pointer"
                     title="Remove from the next send (still staged, not sent)"
                   >
                     Unstage
@@ -235,7 +235,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                 )}
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-[10px] font-mono text-[#556985] mr-1">Send:</span>
+                <span className="text-10 font-mono text-[#556985] mr-1">Send:</span>
                 {GRANULARITY_ORDER.map((g) => {
                   const isActive = attachmentGranularity === g;
                   return (
@@ -243,7 +243,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                       key={g}
                       onClick={() => onSetAttachmentGranularity(artifact.id, g)}
                       data-granularity={g}
-                      className={`min-h-[24px] px-2 rounded-md text-[10px] font-mono transition-colors cursor-pointer ${getGranularityChipClass(g, isActive)}`}
+                      className={`min-h-[24px] px-2 rounded-md text-10 font-mono transition-colors cursor-pointer ${getGranularityChipClass(g, isActive)}`}
                     >
                       {GRANULARITY_LABEL[g]}
                     </button>
@@ -329,13 +329,13 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
 
               <div className="p-3.5 rounded-lg bg-surface-1 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#5ad49b] font-semibold">
+                  <span className="text-10 font-mono uppercase tracking-wider text-[#5ad49b] font-semibold">
                     Body
                   </span>
                   <div className="flex items-center gap-0.5 bg-surface-0 rounded-lg p-0.5 shrink-0">
                     <button
                       onClick={() => setBodyView('rendered')}
-                      className={`px-2 py-0.5 rounded-md text-[10px] font-mono transition-colors cursor-pointer ${
+                      className={`px-2 py-0.5 rounded-md text-10 font-mono transition-colors cursor-pointer ${
                         bodyView === 'rendered'
                           ? 'bg-surface-4 text-[#e0eeff] font-semibold'
                           : 'text-[#6b82a3] hover:text-[#9bb0d1]'
@@ -346,7 +346,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                     </button>
                     <button
                       onClick={() => setBodyView('raw')}
-                      className={`px-2 py-0.5 rounded-md text-[10px] font-mono transition-colors cursor-pointer ${
+                      className={`px-2 py-0.5 rounded-md text-10 font-mono transition-colors cursor-pointer ${
                         bodyView === 'raw'
                           ? 'bg-surface-4 text-[#e0eeff] font-semibold'
                           : 'text-[#6b82a3] hover:text-[#9bb0d1]'
@@ -364,12 +364,12 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                       dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }}
                     />
                   ) : (
-                    <div className="text-[11px] italic text-ink-faint bg-surface-0 p-3 rounded-lg">
+                    <div className="text-11 italic text-ink-faint bg-surface-0 p-3 rounded-lg">
                       No full body recorded.
                     </div>
                   )
                 ) : (
-                  <div className="font-mono text-[11px] whitespace-pre-wrap text-[#c4d6ed] bg-surface-0 p-3 rounded-lg max-h-80 overflow-y-auto">
+                  <div className="font-mono text-11 whitespace-pre-wrap text-[#c4d6ed] bg-surface-0 p-3 rounded-lg max-h-80 overflow-y-auto">
                     {body || '# No full body recorded.'}
                   </div>
                 )}
@@ -379,7 +379,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
 
           {activeTab === 'qa' && (
             <div className="space-y-3" data-testid="qa-index-body">
-              <div className="p-3 rounded-lg bg-surface-2 space-y-2 font-mono text-[11px]">
+              <div className="p-3 rounded-lg bg-surface-2 space-y-2 font-mono text-11">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span data-testid="qa-index-status" className="text-ink-dim">
                     {indexStatus === 'ready'
@@ -393,7 +393,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                     onClick={onIndexArtifact}
                     disabled={!onIndexArtifact || Boolean(indexArtifactProgress)}
                     data-testid="index-artifact"
-                    className="min-h-[26px] px-2.5 rounded-full bg-veil-1 shadow-lift hover:bg-veil-2 text-[10px] font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                    className="min-h-[26px] px-2.5 rounded-full bg-veil-1 shadow-lift hover:bg-veil-2 text-10 font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
                     title={
                       indexRecord
                         ? 'Rebuild this note’s Q&A and embeddings in the search index'
@@ -407,7 +407,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                         : 'Index'}
                   </button>
                 </div>
-                <p className="text-[10px] text-[#556985]">
+                <p className="text-10 text-[#556985]">
                   Lives in IndexedDB (markbrain-search-index), never in the project
                   snapshot — rebuildable at any time.
                 </p>
@@ -415,24 +415,24 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
 
               {qaGroups.length === 0 ? (
                 <div className="p-4 rounded-lg bg-surface-1 text-center space-y-1">
-                  <p className="text-[11px] font-mono text-ink-dim">No Q&A pairs yet.</p>
-                  <p className="text-[10px] font-mono text-[#556985]">
+                  <p className="text-11 font-mono text-ink-dim">No Q&A pairs yet.</p>
+                  <p className="text-10 font-mono text-[#556985]">
                     Press Index to generate them from this document’s sections.
                   </p>
                 </div>
               ) : (
                 qaGroups.map(([heading, list]) => (
                   <section key={heading} className="space-y-1.5">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-[#556985] block px-1">
+                    <span className="text-10 font-mono uppercase tracking-wider text-[#556985] block px-1">
                       {heading}
                     </span>
                     <div className="rounded-lg bg-surface-1 p-1 space-y-1">
                       {list.map((qa) => (
                         <div key={qa.id} className="p-2.5 rounded-md bg-surface-2 space-y-1">
-                          <div className="text-[11px] text-ink font-semibold">{qa.question}</div>
-                          <div className="text-[11px] text-[#a4bddf]">{qa.answer}</div>
+                          <div className="text-11 text-ink font-semibold">{qa.question}</div>
+                          <div className="text-11 text-[#a4bddf]">{qa.answer}</div>
                           {qa.keywords.length > 0 && (
-                            <div className="text-[10px] text-[#556985] font-mono">
+                            <div className="text-10 text-[#556985] font-mono">
                               {qa.keywords.join(' · ')}
                             </div>
                           )}
@@ -446,31 +446,31 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           )}
 
           {activeTab === 'metadata' && (
-            <div className="space-y-3 font-mono text-[11px]">
+            <div className="space-y-3 font-mono text-11">
               <div className="grid grid-cols-2 gap-2 bg-surface-1 p-3 rounded-lg">
                 <div>
-                  <span className="text-[10px] text-[#556985] block">Artifact ID:</span>
+                  <span className="text-10 text-[#556985] block">Artifact ID:</span>
                   <span className="text-[#8ab1e0]">{artifact.id}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-[#556985] block">Code Identifier:</span>
+                  <span className="text-10 text-[#556985] block">Code Identifier:</span>
                   <span className="text-[#8ab1e0]">{artifact.code || 'None'}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-[#556985] block">High Concept:</span>
+                  <span className="text-10 text-[#556985] block">High Concept:</span>
                   <span className={artifact.isHighConcept ? 'text-[#e05a66]' : 'text-[#6b82a3]'}>
                     {artifact.isHighConcept ? 'Yes (Core Anchor)' : 'No (Component)'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-[#556985] block">Category:</span>
+                  <span className="text-10 text-[#556985] block">Category:</span>
                   <span className="text-[#cad8eb]">{artifact.category || 'general'}</span>
                 </div>
               </div>
 
               {artifact.tags && artifact.tags.length > 0 && (
                 <div className="p-3 rounded-lg bg-surface-1 space-y-1.5">
-                  <span className="text-[10px] text-[#556985] block">Graph Tags:</span>
+                  <span className="text-10 text-[#556985] block">Graph Tags:</span>
                   <div className="flex flex-wrap gap-1">
                     {artifact.tags.map((t) => (
                       <button
@@ -479,7 +479,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                         onClick={() => onFilterByTag?.(t)}
                         disabled={!onFilterByTag}
                         title={`Filter the library by #${t}`}
-                        className="inline-flex items-center min-h-[24px] px-2 rounded bg-surface-3 hover:bg-veil-2 hover:text-ink text-ink-dim text-[10px] cursor-pointer disabled:cursor-default transition-colors"
+                        className="inline-flex items-center min-h-[24px] px-2 rounded bg-surface-3 hover:bg-veil-2 hover:text-ink text-ink-dim text-10 cursor-pointer disabled:cursor-default transition-colors"
                       >
                         #{t}
                       </button>
@@ -490,8 +490,8 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
 
               {artifact.yamlDocument && (
                 <div className="space-y-1">
-                  <span className="text-[10px] text-[#556985] block">Raw YAML Document:</span>
-                  <pre className="bg-surface-0 p-3 rounded-lg text-[10px] text-[#86a2c9] overflow-x-auto max-h-56">
+                  <span className="text-10 text-[#556985] block">Raw YAML Document:</span>
+                  <pre className="bg-surface-0 p-3 rounded-lg text-10 text-[#86a2c9] overflow-x-auto max-h-56">
                     {artifact.yamlDocument}
                   </pre>
                 </div>
@@ -504,11 +504,11 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
               {history.map((h, i) => (
                 <div
                   key={i}
-                  className="p-3 rounded-lg bg-surface-1 space-y-1 font-mono text-[11px]"
+                  className="p-3 rounded-lg bg-surface-1 space-y-1 font-mono text-11"
                 >
                   <div className="flex items-center justify-between text-[#8ab1e0]">
                     <span className="font-bold">v{h.version}</span>
-                    <span className="text-[10px] text-[#556985]">
+                    <span className="text-10 text-[#556985]">
                       {new Date(h.timestamp).toLocaleString()}
                     </span>
                   </div>
@@ -520,7 +520,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
         </div>
 
         <div className="p-3 bg-surface-2 flex items-center justify-between">
-          <span className="text-[10px] font-mono text-[#556985]">
+          <span className="text-10 font-mono text-[#556985]">
             Title · Description · Summary · Full
           </span>
           <button

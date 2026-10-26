@@ -594,13 +594,13 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                 isSelected ? 'ring-2 ring-[#e65a6c]' : ''
               }`}
             >
-              <div className="flex items-center justify-between text-[10px] font-mono mb-1.5 gap-1">
+              <div className="flex items-center justify-between text-10 font-mono mb-1.5 gap-1">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span
                     className="w-2 h-2 rounded-full shrink-0 shadow-xs"
                     style={{ backgroundColor: artColor }}
                   />
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-surface-3 text-[#8ab1e0] truncate">
+                  <span className="px-1.5 py-0.5 rounded text-9 font-semibold bg-surface-3 text-[#8ab1e0] truncate">
                     {node.type}
                   </span>
                 </div>
@@ -622,7 +622,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                         onFilterByTag?.(t);
                       }}
                       title={`Filter the folder tree by #${t}`}
-                      className="inline-flex items-center min-h-[30px] px-2 text-[9px] font-mono rounded bg-surface-2 hover:bg-surface-4 hover:text-ink text-[#7da0cf] cursor-pointer transition-colors"
+                      className="inline-flex items-center min-h-[30px] px-2 text-9 font-mono rounded bg-surface-2 hover:bg-surface-4 hover:text-ink text-[#7da0cf] cursor-pointer transition-colors"
                     >
                       #{t}
                     </button>
@@ -630,7 +630,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                 </div>
               )}
 
-              <div className="flex items-center justify-between text-[10px] text-[#869ab8] pt-1.5">
+              <div className="flex items-center justify-between text-10 text-[#869ab8] pt-1.5">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -650,7 +650,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                         e.stopPropagation();
                         if (art) onSelectArtifact(art);
                       }}
-                      className="px-2 py-0.5 flex items-center justify-center min-h-[30px] rounded bg-surface-4 hover:bg-surface-5 text-[#8ab1e0] text-[10px] font-medium transition-colors cursor-pointer"
+                      className="px-2 py-0.5 flex items-center justify-center min-h-[30px] rounded bg-surface-4 hover:bg-surface-5 text-[#8ab1e0] text-10 font-medium transition-colors cursor-pointer"
                       title="Inspect specification"
                     >
                       Spec
@@ -669,12 +669,12 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
             <span className="font-bold text-xs text-ink truncate">{selectedNode.title}</span>
             <button
               onClick={() => setSelectedNodeId(null)}
-              className="text-[11px] text-[#7185a3] hover:text-ink"
+              className="text-11 text-[#7185a3] hover:text-ink"
             >
               ✕
             </button>
           </div>
-          <div className="text-[11px] text-[#8ba0bf] mb-2.5">
+          <div className="text-11 text-[#8ba0bf] mb-2.5">
             Type: <span className="capitalize">{selectedNode.type}</span>
           </div>
 
@@ -689,7 +689,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                     type="button"
                     onClick={() => onFilterByTag?.(t)}
                     title={`Filter the folder tree by #${t}`}
-                    className="inline-flex items-center min-h-[30px] px-2 text-[9px] font-mono rounded bg-surface-2 hover:bg-surface-4 hover:text-ink text-[#8ab1e0] cursor-pointer transition-colors"
+                    className="inline-flex items-center min-h-[30px] px-2 text-9 font-mono rounded bg-surface-2 hover:bg-surface-4 hover:text-ink text-[#8ab1e0] cursor-pointer transition-colors"
                   >
                     #{t}
                   </button>
@@ -705,9 +705,9 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
             if (nodeTentatives.length === 0) return null;
             return (
               <div className="mb-2.5 pt-2 space-y-1.5">
-                <div className="text-[10px] font-mono text-[#d48a37] flex items-center justify-between">
+                <div className="text-10 font-mono text-[#d48a37] flex items-center justify-between">
                   <span>Tentative Cross-Links ({nodeTentatives.length})</span>
-                  <span className="text-[9px] text-[#869ab8]">Shared tags</span>
+                  <span className="text-9 text-[#869ab8]">Shared tags</span>
                 </div>
                 {nodeTentatives.map((tLink: TentativeLink) => {
                   const otherNode =
@@ -715,7 +715,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                   return (
                     <div
                       key={tLink.id}
-                      className="flex items-center justify-between p-1.5 rounded bg-surface-2 text-[10px]"
+                      className="flex items-center justify-between p-1.5 rounded bg-surface-2 text-10"
                     >
                       <div className="truncate mr-1">
                         <span className="text-ink font-medium">{otherNode.title}</span>
@@ -726,7 +726,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                           // Shared-tag intent maps to the domain kind 'relates_to'.
                           onAddEdge(selectedNode.id, otherNode.id, 'relates_to', 0.6);
                         }}
-                        className="px-2 py-0.5 rounded bg-surface-3 hover:bg-surface-4 text-[#f5c276] shrink-0 font-mono text-[9px] font-bold cursor-pointer"
+                        className="px-2 py-0.5 rounded bg-surface-3 hover:bg-surface-4 text-[#f5c276] shrink-0 font-mono text-9 font-bold cursor-pointer"
                       >
                         + Connect
                       </button>

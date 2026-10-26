@@ -75,7 +75,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               <h2 className="font-bold text-sm text-[#f2eaf7]">
                 Export project data
               </h2>
-              <p className="text-[11px] text-[#9386a3]">
+              <p className="text-11 text-[#9386a3]">
                 Export the spatial node graph, token counts, and chat chapters
               </p>
             </div>

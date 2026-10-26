@@ -132,7 +132,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
               </div>
-              <p className="text-[10px] text-[#6b82a3]">Real-time backend streaming logs from Express & Gemini API</p>
+              <p className="text-10 text-[#6b82a3]">Real-time backend streaming logs from Express & Gemini API</p>
             </div>
           </div>
 
@@ -182,7 +182,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
                 <button
                   key={lvl}
                   onClick={() => setSelectedLevel(lvl)}
-                  className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold transition-colors cursor-pointer ${
+                  className={`px-2 py-0.5 rounded text-10 uppercase font-semibold transition-colors cursor-pointer ${
                     selectedLevel === lvl
                       ? 'bg-surface-4 text-[#38bdf8]'
                       : 'text-[#506684] hover:text-[#9bb0d1]'
@@ -195,7 +195,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
 
             <button
               onClick={() => setAutoScroll((prev) => !prev)}
-              className={`px-2.5 py-1 rounded-lg  text-[11px] flex items-center gap-1 transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg  text-11 flex items-center gap-1 transition-colors cursor-pointer ${
                 autoScroll
                   ? 'bg-surface-3  text-[#38bdf8]'
                   : 'bg-surface-0  text-[#556c8c]'
@@ -207,12 +207,12 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-1.5 text-[11px] leading-relaxed selection:bg-[#203657]">
+        <div className="flex-1 overflow-y-auto p-4 space-y-1.5 text-11 leading-relaxed selection:bg-[#203657]">
           {filteredLogs.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-[#556985] space-y-2 py-16">
               <Terminal className="w-8 h-8 opacity-40" />
               <p>No server log events recorded yet matching your filter.</p>
-              <p className="text-[10px] text-[#3e5068]">Interact with chat or trigger an action to generate live backend events.</p>
+              <p className="text-10 text-[#3e5068]">Interact with chat or trigger an action to generate live backend events.</p>
             </div>
           ) : (
             filteredLogs.map((log) => {
@@ -224,7 +224,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
                 >
                   <span className="text-[#4f6480] tabular-nums shrink-0">{time}</span>
                   <span
-                    className={`px-1.5 py-0.2 rounded text-[9px] font-semibold uppercase tracking-wider shrink-0  ${getLevelStyle(
+                    className={`px-1.5 py-0.2 rounded text-9 font-semibold uppercase tracking-wider shrink-0  ${getLevelStyle(
                       log.level
                     )}`}
                   >
@@ -233,7 +233,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
                   <span className="flex-1 text-[#e1ebf7] break-all">
                     {log.message}
                     {log.meta && (
-                      <span className="text-[#7c9bc2] block text-[10px] mt-0.5 opacity-90">
+                      <span className="text-[#7c9bc2] block text-10 mt-0.5 opacity-90">
                         {JSON.stringify(log.meta)}
                       </span>
                     )}
@@ -245,7 +245,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
           <div ref={logsEndRef} />
         </div>
 
-        <div className="px-5 py-2 bg-surface-0 flex items-center justify-between text-[10px] text-[#556a88] shrink-0">
+        <div className="px-5 py-2 bg-surface-0 flex items-center justify-between text-10 text-[#556a88] shrink-0">
           <div>
             Showing <span className="text-[#a4bad6]">{filteredLogs.length}</span> of{' '}
             <span className="text-[#a4bad6]">{logs.length}</span> total entries

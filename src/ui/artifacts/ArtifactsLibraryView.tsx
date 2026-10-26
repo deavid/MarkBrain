@@ -5,7 +5,7 @@ import type { ChatAttachment } from '../../domains/06-chat-threads';
 import { isAttachmentStaged } from '../../domains/06-chat-threads';
 import type { Granularity, AttachmentVisualState } from '../../domains/granularity';
 import { SpatialGraph } from '../graph/SpatialGraph';
-import { Search, FolderTree, Network, Menu, Upload, MessageSquare, X, Crosshair } from 'lucide-react';
+import { Search, FolderTree, Network, Upload, MessageSquare, X, Crosshair } from 'lucide-react';
 import { isFlaggedArtifact } from '../../utils/importDetect';
 import { logger } from '../../utils/logger';
 import { AttachmentRow, formatAttachmentProvenance } from '../context/AttachmentControls';
@@ -32,7 +32,6 @@ interface ArtifactsLibraryViewProps {
   onAddEdge: (sourceId: string, targetId: string, kind: RelationKind, weight?: number) => void;
   onUpdateNodePosition: (artifactId: string, x: number, y: number) => void;
   onBatchUpdateNodePositions: (positions: Array<{ artifactId: string; x: number; y: number }>) => void;
-  onOpenSidebar: () => void;
   onOpenImport: () => void;
   onTriageArtifact: (artifactId: string) => void;
   attachments: ChatAttachment[];
@@ -116,7 +115,6 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
   onAddEdge,
   onUpdateNodePosition,
   onBatchUpdateNodePositions,
-  onOpenSidebar,
   onOpenImport,
   onTriageArtifact,
   attachments,
@@ -654,16 +652,9 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
 
       {/* Floating controls: sidebar trigger (mobile escape hatch) + lens switch +
           back-to-chat bubble. Deliberately NOT a top bar. */}
-      <div className="absolute bottom-4 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none">
-        <button
-          onClick={onOpenSidebar}
-          className="pointer-events-auto w-9 h-9 rounded-full bg-surface-3/95 backdrop-blur-md shadow-pop flex items-center justify-center text-ink-dim hover:text-ink hover:bg-surface-4 transition-colors cursor-pointer"
-          title="Open sidebar"
-        >
-          <Menu className="w-4 h-4" />
-        </button>
-
-        <div className="pointer-events-auto flex items-center gap-0.5 p-0.5 rounded-full bg-surface-3/95 backdrop-blur-md shadow-pop">
+      <div className="absolute bottom-4 left-3 right-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2 pointer-events-none">
+        <div />
+        <div className="pointer-events-auto flex items-center gap-0.5 p-0.5 rounded-full bg-surface-5 shadow-pop">
           <button
             onClick={() => {
               logger.action('Artifacts', 'Library lens: folders');
@@ -701,10 +692,11 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
           </button>
         </div>
 
-        <button
-          onClick={onReturnToChat}
-          data-testid="back-to-chat"
-          className="pointer-events-auto relative w-9 h-9 rounded-full bg-surface-3/95 backdrop-blur-md shadow-pop flex items-center justify-center text-ink-dim hover:text-ink hover:bg-surface-4 transition-colors cursor-pointer"
+        <div className="pointer-events-auto flex justify-end">
+          <button
+            onClick={onReturnToChat}
+            data-testid="back-to-chat"
+            className="pointer-events-auto relative w-9 h-9 rounded-full bg-surface-5 shadow-pop flex items-center justify-center text-ink hover:bg-surface-4 transition-colors cursor-pointer"
           title={stagedCount > 0 ? `Back to chat — ${stagedCount} staged` : 'Back to chat'}
           aria-label={stagedCount > 0 ? `Back to chat, ${stagedCount} staged` : 'Back to chat'}
         >
@@ -714,7 +706,8 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
               {stagedCount}
             </span>
           )}
-        </button>
+          </button>
+        </div>
       </div>
     </div>
   );

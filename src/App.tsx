@@ -861,7 +861,6 @@ export default function App() {
               onAddEdge={handleAddEdge}
               onUpdateNodePosition={handleUpdateNodePosition}
               onBatchUpdateNodePositions={handleBatchUpdateNodePositions}
-              onOpenSidebar={() => setIsSidebarOpen(true)}
               onOpenImport={() => setIsImportOpen(true)}
               onTriageArtifact={(id) => {
                 logger.action('App', `Open revision triage focused on ${id}`);

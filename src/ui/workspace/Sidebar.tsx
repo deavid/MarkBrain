@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ModelOption, Artifact } from '../../types';
 import type { ProjectMetadata } from '../../domains/00-workspace/types';
 import { logger } from '../../utils/logger';
@@ -208,7 +208,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   // Accordion toggles expand inline in document flow, which guarantees the panels can never be clipped.
   const [projectAccordionOpen, setProjectAccordionOpen] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(false);
+  // Sync-now spinner: spins for the whole refresh, minimum 200ms so a fast
+  // sync still reads as "something happened" (David: make it spin, stop on
+  // completion, at least 200ms).
+  const [syncSpinning, setSyncSpinning] = useState(false);
+  const syncNow = useCallback(async () => {
+    if (syncSpinning || !onRefreshSync) return;
+    setSyncSpinning(true);
+    const startedAt = Date.now();
+    try {
+      await onRefreshSync();
+    } finally {
+      const remaining = Math.max(0, 200 - (Date.now() - startedAt));
+      window.setTimeout(() => setSyncSpinning(false), remaining);
+    }
+  }, [syncSpinning, onRefreshSync]);  const [accountOpen, setAccountOpen] = useState(false);
   const [ioToolsOpen, setIoToolsOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(true);
 
@@ -598,14 +612,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  logger.action('Sidebar', 'Sync now (refresh from server)');
-                  onRefreshSync();
+                  void syncNow();
                 }}
                 title="Sync now — push offline edits, pull server changes"
                 aria-label="Sync now"
                 className="p-1.5 rounded-lg text-[#556985] hover:text-ink hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className={`w-3.5 h-3.5 ${syncSpinning ? 'animate-spin' : ''}`} />
               </button>
             )}
             </div>

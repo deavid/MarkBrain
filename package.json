@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && node scripts/verify-clean-dist.cjs",
+    "build": "vite build && node scripts/verify-clean-dist.cjs && node scripts/build-sw.mjs",
     "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

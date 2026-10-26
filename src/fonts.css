@@ -1,0 +1,22 @@
+/*
+ * Self-hosted fonts (PWA/offline — 2026-10-26).
+ * Replaces the fonts.googleapis.com <link> tags in index.html: with those,
+ * the app shell depended on the network every launch, which is exactly what
+ * airplane mode cannot have. These are the latin variable-font subsets
+ * downloaded from Google Fonts (same families/weights as the css2 URL that
+ * used to be in index.html).
+ */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 300 600;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/plus-jakarta-sans-var.woff2') format('woff2');
+}

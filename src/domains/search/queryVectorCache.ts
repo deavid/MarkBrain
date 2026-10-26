@@ -119,8 +119,15 @@ export interface QueryCacheEntry {
   at: number;
   /** How many times this entry has been reused instead of re-embedded. */
   reuses: number;
+  /** Embedding model the vectors were built with (model-aware cache). */
+  model?: string;
 }
 
+/**
+ * Model-aware: vectors from different embedding models are NOT comparable, so
+ * every entry is stamped with the model that built it. get/set without a model
+ * falls back to the legacy slot 'gemini-embedding-001' for old callers.
+ */
 export class QueryVectorCache {
   private entries: QueryCacheEntry[] = [];
 
@@ -134,12 +141,13 @@ export class QueryVectorCache {
    * near match. Never returns a hit below the threshold — better to spend one
    * embed than to score a query against someone else's vector.
    */
-  get(text: string): QueryCacheHit | null {
+  get(text: string, model?: string): QueryCacheHit | null {
     const key = normalize(text);
+    const m = model ?? 'gemini-embedding-001';
     if (!key) return null;
 
     for (const e of this.entries) {
-      if (normalize(e.text) === key) {
+      if (e.model === m && normalize(e.text) === key) {
         e.reuses += 1;
         return { vectors: e.vectors, match: 'exact', similarity: 1, sourceText: e.text };
       }
@@ -147,6 +155,7 @@ export class QueryVectorCache {
 
     let best: { entry: QueryCacheEntry; score: number } | null = null;
     for (const e of this.entries) {
+      if (e.model !== m) continue;
       if (!isNearDuplicate(text, e.text)) continue;
       const score = textSimilarity(text, e.text);
       if (!best || score > best.score) best = { entry: e, score };
@@ -163,12 +172,13 @@ export class QueryVectorCache {
     return null;
   }
 
-  set(text: string, vectors: Float32Array[]): void {
+  set(text: string, vectors: Float32Array[], model?: string): void {
     const key = normalize(text);
+    const m = model ?? 'gemini-embedding-001';
     if (!key || vectors.length === 0) return;
     // Replace rather than duplicate when the same text is embedded again.
     this.entries = this.entries.filter((e) => normalize(e.text) !== key);
-    this.entries.push({ text, vectors, at: Date.now(), reuses: 0 });
+    this.entries.push({ text, vectors, at: Date.now(), reuses: 0, model: m });
     // Newest last; evict from the front once over the cap.
     while (this.entries.length > this.cap) this.entries.shift();
   }

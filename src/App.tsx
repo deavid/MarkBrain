@@ -205,6 +205,7 @@ export default function App() {
   const [isMirrorOpen, setIsMirrorOpen] = useState(false);
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
+  const [modelSettingsTab, setModelSettingsTab] = useState<'models' | 'keys' | 'users'>('models');
   const [isCleanupOpen, setIsCleanupOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [libraryTagFilter, setLibraryTagFilter] = useState({ tag: '', seq: 0 });
@@ -425,7 +426,7 @@ export default function App() {
     if (clauses.length === 0) return;
     const key = clauses.join('\n');
     // 1. Exact, or 2. close enough to reuse on purpose. Only 3. costs a request.
-    const cached: QueryCacheHit | null = queryVecCacheRef.current.get(key);
+    const cached: QueryCacheHit | null = queryVecCacheRef.current.get(key, getModelForSlot('embed'));
     if (cached) {
       setQueryEmbedNote({
         match: cached.match,
@@ -448,7 +449,7 @@ export default function App() {
           const data = (await res.json()) as { embeddings?: number[][] };
           const vectors = (data.embeddings ?? []).map((v) => new Float32Array(l2Normalize(v)));
           if (cancelled || vectors.length === 0) return;
-          queryVecCacheRef.current.set(key, vectors);
+          queryVecCacheRef.current.set(key, vectors, getModelForSlot('embed'));
           setQueryVectors({ key, vectors });
         })
         .catch((e) => {
@@ -897,6 +898,10 @@ export default function App() {
                   project={projectMeta}
                   chapters={chapterGroups}
                   onSendMessage={handleSendMessage}
+                  onOpenKeySettings={() => {
+                    setModelSettingsTab('keys');
+                    setIsModelSettingsOpen(true);
+                  }}
                   isLoading={isChatLoading}
                   streamingStatus={isChatLoading ? streamingStatus : null}
                   streamPhase={isChatLoading ? streamPhase : null}
@@ -1029,6 +1034,7 @@ export default function App() {
       <ModelSettingsModal
         isOpen={isModelSettingsOpen}
         onClose={() => setIsModelSettingsOpen(false)}
+        initialTab={modelSettingsTab}
         catalog={availableModels}
       />
 

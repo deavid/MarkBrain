@@ -92,6 +92,13 @@ export function getRawUserById(id: number): RawUser | null {
  * are set, create Account #1 (id=1, is_owner=1).
  */
 export function ensureOwnerBootstrap(): UserRecord | null {
+  // POLICY (David, 2026-10-26): there is NO signup, self-registration or
+  // account-creation path for external users — not in the UI, not via the API.
+  // AuthGate.tsx only ever signs in; POST /api/admin/users is owner-only
+  // provisioning (requireOwner). DO NOT add a signup route or form.
+  // Accounts exist only because: (a) this bootstrap seeds the owner account #1
+  // from MARKBRAIN_OWNER_EMAIL / MARKBRAIN_OWNER_PASSWORD on an empty DB, or
+  // (b) the owner explicitly creates them via /api/admin/users.
   if (countUsers() > 0) return null;
   const email = process.env.MARKBRAIN_OWNER_EMAIL;
   const password = process.env.MARKBRAIN_OWNER_PASSWORD;

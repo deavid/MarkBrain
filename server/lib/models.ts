@@ -92,7 +92,7 @@ const CATALOG_ENTRIES: ReadonlyArray<Omit<CatalogModel, 'available'>> = [
     id: 'nvidia/nemotron-3.5-lightning:free',
     provider: 'openrouter',
     capabilities: [...GENERATE_LANES],
-    name: 'Nvidia: Nemotron 3.5 Lightning',
+    name: 'Nvidia: Nemotron 3.5 Lightning (free)',
     badge: 'Lightning',
     powerRating: 3,
     latency: 'Ultra-fast',
@@ -125,6 +125,18 @@ const CATALOG_ENTRIES: ReadonlyArray<Omit<CatalogModel, 'available'>> = [
     contextWindow: '—',
     description: 'Cheap paid-tier flash model — quick replies and extraction at a low cost per call.',
     costMultiplier: 0.3,
+  },
+  {
+    id: 'nvidia/nemotron-3-embed-1b:free',
+    provider: 'openrouter',
+    capabilities: ['embed'],
+    name: 'NVIDIA: Nemotron 3 Embed 1B (free)',
+    badge: 'Vectors',
+    powerRating: 1,
+    latency: '—',
+    contextWindow: '—',
+    description: 'Section/Q&A vectors for the proximity search index (OpenRouter).',
+    costMultiplier: 0,
   },
   {
     id: 'gemini-embedding-001',
@@ -161,7 +173,7 @@ const CAPABILITY_DEFAULTS: Record<ModelCapability, string> = {
   summarize: DEFAULT_MODEL_ID,
   qaGen: DEFAULT_MODEL_ID,
   title: DEFAULT_MODEL_ID,
-  embed: 'gemini-embedding-001',
+  embed: 'nvidia/nemotron-3-embed-1b:free',
   tts: 'gemini-3.8-flash-lite-tts',
 };
 

@@ -101,7 +101,7 @@ describe('the catalog is the three REAL Gemini text models + three OpenRouter la
   });
 
   it('infra lanes keep their own models', () => {
-    expect(listValidModelIds('embed')).toEqual(['gemini-embedding-001']);
+    expect(listValidModelIds('embed')).toEqual(['nvidia/nemotron-3-embed-1b:free', 'gemini-embedding-001']);
     expect(listValidModelIds('tts')).toEqual(['gemini-3.8-flash-lite-tts']);
   });
 });

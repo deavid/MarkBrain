@@ -9,16 +9,16 @@
  */
 import crypto from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
+import { OpenRouterClient, isOpenRouterModel } from '../providers/openrouter';
 import { getDb } from '../db/index';
 import { resolveServerLaneKey, isVaultUnlocked, VaultLockedError, NoKeyError } from '../lib/accountVault';
-import { requireModelId } from '../lib/models';
+import { requireModelId, defaultModelFor } from '../lib/models';
 import { logServer } from '../lib/log';
 import { splitArtifactIntoSections } from '../../src/utils/sectionChunker';
 import { buildQaPrompt, parseQaPairs, type QaSectionPayload } from '../../src/prompts/lanes';
 import type { UniversalArtifactDocument } from '../../src/domains/01-artifact-document/types';
 
 const EMBED_BATCH_LIMIT = 80;
-const EMBED_MODEL_ID = 'gemini-embedding-001';
 const QA_MODEL_ID = 'gemini-3.5-flash-lite';
 
 export interface IndexStatus {
@@ -102,16 +102,56 @@ function l2(v: number[]): number[] {
   return v.map((x) => x / norm);
 }
 
-async function embedTexts(client: GoogleGenAI, texts: string[], taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY'): Promise<number[][]> {
+/** The user's own embed slot (Model Settings), falling back to the lane default. */
+function userEmbedModel(userId: number): string {
+  try {
+    // Lazy require: routes/account imports this module at load time, a static
+    // import would cycle. Kept in try/catch — if settings are unreadable the
+    // lane default is the honest fallback, never a crash.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { readSettings } = require('../routes/account') as typeof import('../routes/account');
+    const { modelSlots } = readSettings(userId);
+    const id = modelSlots['embed'];
+    return typeof id === 'string' && id ? requireModelId(id, 'embed') : defaultModelFor('embed');
+  } catch {
+    return defaultModelFor('embed');
+  }
+}
+
+function clientForEmbed(model: string, apiKey: string): GoogleGenAI | OpenRouterClient {
+  return isOpenRouterModel(model) ? new OpenRouterClient(apiKey) : new GoogleGenAI({ apiKey });
+}
+
+/**
+ * Provider-neutral embed. GoogleGenAI uses models.embedContent with taskType +
+ * outputDimensionality; OpenRouter ids go through the facade's embedContent
+ * (/embeddings, OpenAI shape). Both return L2-normalized vectors (LAW 6) in
+ * input order.
+ */
+async function embedTextsAnyProvider(
+  client: GoogleGenAI | OpenRouterClient,
+  model: string,
+  texts: string[],
+  taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY'
+): Promise<number[][]> {
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += EMBED_BATCH_LIMIT) {
     const batch = texts.slice(i, i + EMBED_BATCH_LIMIT);
-    const response = await client.models.embedContent({
-      model: EMBED_MODEL_ID,
-      contents: batch,
-      config: { taskType, outputDimensionality: 768 },
-    });
-    for (const emb of response.embeddings || []) out.push(l2(emb.values || []));
+    if (isOpenRouterModel(model)) {
+      // OpenRouter: taskType/outputDimensionality don't exist on /embeddings.
+      const response = await (client as OpenRouterClient).models.embedContent({
+        model,
+        contents: batch,
+      });
+      for (const emb of response.embeddings) out.push(emb.values);
+    } else {
+      const response = await (client as GoogleGenAI).models.embedContent({
+        model,
+        contents: batch,
+        config: { taskType, outputDimensionality: 768 },
+      });
+      for (const emb of response.embeddings || []) out.push(l2(emb.values || []));
+    }
     if (i + EMBED_BATCH_LIMIT < texts.length) await new Promise((r) => setTimeout(r, 150));
   }
   return out;
@@ -142,12 +182,18 @@ async function indexOne(userId: number, projectId: string, artifactId: string): 
     return;
   }
 
-  // Diff by content_hash — unchanged sections cost nothing.
+  const qaModel = requireModelId(QA_MODEL_ID, 'qaGen');
+  // The user's own embed slot (Model Settings). A flip makes rows built with
+  // the old model a different model — the model-gated diff re-embeds them.
+  const embedModel = requireModelId(userEmbedModel(userId), 'embed');
+
+  // Diff by content_hash AND by model: rows built with another embed model
+  // count as stale, they get re-embedded instead of being reused.
   const existing = db
     .prepare(
       'SELECT section_id, content_hash FROM artifact_index_sections WHERE user_id = ? AND project_id = ? AND artifact_id = ? AND model = ?'
     )
-    .all(userId, projectId, artifactId, EMBED_MODEL_ID) as Array<{ section_id: string; content_hash: string }>;
+    .all(userId, projectId, artifactId, embedModel) as Array<{ section_id: string; content_hash: string }>;
   const existingByHash = new Map(existing.map((r) => [r.section_id, r.content_hash]));
   const staleIds = existing.filter((r) => !sections.some((s) => s.id === r.section_id)).map((r) => r.section_id);
   const changed = sections.filter((s) => existingByHash.get(s.id) !== s.hash);
@@ -167,9 +213,6 @@ async function indexOne(userId: number, projectId: string, artifactId: string): 
 
   if (!isVaultUnlocked(userId)) throw new VaultLockedError();
 
-  const qaModel = requireModelId(QA_MODEL_ID, 'qaGen');
-  const embedModel = requireModelId(EMBED_MODEL_ID, 'embed');
-  void embedModel;
   let apiKey: string;
   try {
     apiKey = resolveServerLaneKey(userId, 'qaGen', qaModel);
@@ -177,9 +220,9 @@ async function indexOne(userId: number, projectId: string, artifactId: string): 
     if (err instanceof NoKeyError) throw new Error('paused: no API key configured for gemini');
     throw err;
   }
-  const embedKey = resolveServerLaneKey(userId, 'embed', EMBED_MODEL_ID);
+  const embedKey = resolveServerLaneKey(userId, 'embed', embedModel);
   const qaClient = new GoogleGenAI({ apiKey });
-  const embedClient = new GoogleGenAI({ apiKey: embedKey });
+  const embedClient: GoogleGenAI | OpenRouterClient = clientForEmbed(embedModel, embedKey);
 
   // ONE generate-qa call for the whole note (only when something changed).
   const payloads: QaSectionPayload[] = sections.map((s) => ({ id: s.id, heading: s.heading, text: s.text }));
@@ -192,7 +235,7 @@ async function indexOne(userId: number, projectId: string, artifactId: string): 
 
   // Embed section texts + generated QA questions/answers (changed set only —
   // whole-note embed is one batched call, still far cheaper than re-LLM).
-  const sectionVecs = await embedTexts(embedClient, sections.map((s) => s.text), 'RETRIEVAL_DOCUMENT');
+  const sectionVecs = await embedTextsAnyProvider(embedClient, embedModel, sections.map((s) => s.text), 'RETRIEVAL_DOCUMENT');
   const qaByHeading = new Map<string, typeof qaPairs>();
   for (const qa of qaPairs) {
     const list = qaByHeading.get(qa.sectionHeading) ?? [];
@@ -200,7 +243,7 @@ async function indexOne(userId: number, projectId: string, artifactId: string): 
     qaByHeading.set(qa.sectionHeading, list);
   }
   const allQaTexts = qaPairs.map((q) => `${q.question} ${q.answer}`);
-  const qaVecs = allQaTexts.length ? await embedTexts(embedClient, allQaTexts, 'RETRIEVAL_DOCUMENT') : [];
+  const qaVecs = allQaTexts.length ? await embedTextsAnyProvider(embedClient, embedModel, allQaTexts, 'RETRIEVAL_DOCUMENT') : [];
   let qaCursor = 0;
   const qaVecByHeading = new Map<string, number[][]>();
   for (const [heading, list] of qaByHeading) {
@@ -257,7 +300,7 @@ async function indexOne(userId: number, projectId: string, artifactId: string): 
         JSON.stringify(sectionQa),
         JSON.stringify(secVec),
         qaVecJson,
-        EMBED_MODEL_ID,
+        embedModel,
         Date.now()
       );
     });

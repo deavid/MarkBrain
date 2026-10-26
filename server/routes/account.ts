@@ -133,7 +133,7 @@ interface SettingsRow {
   chat_tier: string;
 }
 
-function readSettings(userId: number): { modelSlots: Record<string, string>; chatTier: string } {
+export function readSettings(userId: number): { modelSlots: Record<string, string>; chatTier: string } {
   const row = getDb()
     .prepare('SELECT model_slots_json, chat_tier FROM user_settings WHERE user_id = ?')
     .get(userId) as SettingsRow | undefined;

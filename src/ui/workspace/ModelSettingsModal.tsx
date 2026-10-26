@@ -60,6 +60,8 @@ import { getWorkspaceMode, getVpsSession, patchVpsSession } from '../../services
 interface ModelSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Tab to land on when opened programmatically (design 25 §1.1). */
+  initialTab?: 'models' | 'keys' | 'users';
   /** Catalog as currently known by App (sidebar list). A fresh fetch runs on open. */
   catalog: Array<{
     id: string;
@@ -107,7 +109,7 @@ const TIER_HINT =
 const HINT_VPS = TIER_HINT;
 const HINT_LOCAL = TIER_HINT;
 
-export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, onClose, catalog }) => {
+export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, onClose, catalog, initialTab }) => {
   const [slots, setSlots] = useState<ModelSlotConfig>(DEFAULT_MODEL_SLOTS);
   const [liveCatalog, setLiveCatalog] = useState<ModalCatalogEntry[]>(catalog);
   const [keyValues, setKeyValues] = useState<Record<KeySlotId, string>>(emptyKeyRecord);
@@ -179,7 +181,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
   useEffect(() => {
     if (!isOpen) return;
     setMode(getWorkspaceMode() ?? 'local');
-    setTab('models');
+    setTab(initialTab ?? 'models');
     setSlots(loadModelConfig());
     setLaneKeys(loadLaneKeys());
     refreshKeyValues();
@@ -215,9 +217,14 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     const next = { ...slots, [slot]: modelId };
     setSlots(next);
     saveModelConfig(next);
+    if (slot === 'embed' && modelId !== slots.embed) {
+      // §3.4: vectors from different embedding models are NOT comparable —
+      // switching rebuilds the whole search index (everything reads as stale
+      // until re-embedded). The user picks the slot, the cost is told here.
+      logger.action('ModelSettings', `Slot embed → ${modelId}: the search index will be fully re-embedded`);
+    }
     logger.action('ModelSettings', `Slot ${slot} → ${modelId}`);
   };
-
   const commitKey = (id: KeySlotId, value: string) => {
     setKeyValues((prev) => ({ ...prev, [id]: value }));
     setKeySlot(id, value); // local vault RAM + envelope re-seal

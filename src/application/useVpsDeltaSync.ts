@@ -22,6 +22,7 @@ import type { ThreadRegistry } from '../domains/06-chat-threads';
 import { reconcileThreadAttachments } from '../domains/06-chat-threads';
 import { flushServerMutations } from './serverMutationQueue';
 import { setVaultLocked } from '../data/vaultReArm';
+import { setServerKeySnapshot } from '../data/sendReadiness';
 import { apiFetch } from '../gateway/api';
 import { getWorkspaceMode } from '../services/workspaceSession';
 import type { ProjectDeltaResponse } from '../../server/db/projectRepo';
@@ -225,12 +226,18 @@ export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
         }
         // design 25: piggyback the lock-state check onto this poll — no new
         // poller, one cheap GET per tick. Catches a server restart's vault
-        // lock BEFORE the user finds out through a failed send.
+        // lock BEFORE the user finds out through a failed send. Uses
+        // /api/account/settings so the no-key snapshot feeds sendReadiness too.
         try {
-          const sess = await apiFetch('/api/auth/session');
+          const sess = await apiFetch('/api/account/settings');
           if (sess.ok) {
-            const body = (await sess.json()) as { user?: { vaultUnlocked?: boolean } };
-            setVaultLocked(body.user?.vaultUnlocked === false);
+            const body = (await sess.json()) as {
+              vaultUnlocked?: boolean;
+              keys?: Record<string, { configured: boolean }>;
+              chatTier?: 'free' | 'paid';
+            };
+            setVaultLocked(body.vaultUnlocked === false);
+            setServerKeySnapshot(body);
           } else if (sess.status === 401) {
             setVaultLocked(true); // session gone — nothing will send anyway
           }

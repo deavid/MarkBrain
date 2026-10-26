@@ -40,7 +40,7 @@ export const DEFAULT_MODEL_SLOTS: ModelSlotConfig = {
   summarize: 'gemini-3.5-flash-lite',
   qaGen: 'gemini-3.5-flash-lite',
   title: 'gemini-3.5-flash-lite',
-  embed: 'gemini-embedding-001',
+  embed: 'nvidia/nemotron-3-embed-1b:free',
   tts: 'gemini-3.8-flash-lite-tts',
 };
 
@@ -126,6 +126,16 @@ export async function hydrateAccountSettingsFromVps(): Promise<void> {
  */
 export function getModelForSlot(slot: ModelSlot): string {
   return loadModelConfig()[slot];
+}
+
+/**
+ * Change detector for the embed slot: vectors from different embedding models
+ * are NOT comparable (§3.4), so the UI warns that switching re-embeds
+ * everything — the whole index reads as stale until it is rebuilt.
+ */
+export function isEmbedModelChange(oldConfig: ModelSlotConfig | null, next: ModelSlotConfig): boolean {
+  if (!oldConfig) return false;
+  return oldConfig.embed !== next.embed;
 }
 
 /**

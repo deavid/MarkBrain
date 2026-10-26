@@ -43,6 +43,12 @@ interface OpenAiChunk {
   usage?: OpenAiUsage;
 }
 
+/** LAW 6 (design-docs/16 §3.4): normalized before it touches any index. */
+function l2Normalize(v: number[]): number[] {
+  const norm = Math.hypot(...v) || 1;
+  return v.map((x) => x / norm);
+}
+
 function usageOf(usage: OpenAiUsage | undefined): LaneUsageMetadata | undefined {
   if (!usage) return undefined;
   const out: LaneUsageMetadata = {};
@@ -174,6 +180,29 @@ export class OpenRouterClient {
       if (!res.ok) await throwUpstreamError(res, params.model);
       if (!res.body) throw new Error(`OpenRouter ${params.model}: empty stream body`);
       return readSse(res.body as ReadableStream<Uint8Array>, params.config?.abortSignal);
+    },
+
+    /**
+     * Embeddings over the OpenAI-compatible /embeddings endpoint — the client
+     * gateway's openrouter adapter already does exactly this (L2-normalized
+     * output). Kept on the same facade so server embed call sites can route
+     * OpenRouter ids without a second provider abstraction.
+     */
+    embedContent: async (params: {
+      model: string;
+      contents: string[];
+      config?: { abortSignal?: AbortSignal };
+    }): Promise<{ embeddings: Array<{ values: number[] }> }> => {
+      const res = await this.fetchImpl(`${OPENROUTER_BASE}/embeddings`, {
+        method: 'POST',
+        headers: headersOf(this.apiKey),
+        body: JSON.stringify({ model: params.model, input: params.contents }),
+        signal: params.config?.abortSignal,
+      });
+      if (!res.ok) await throwUpstreamError(res, params.model);
+      const payload = (await res.json()) as { data?: Array<{ embedding?: number[] }> };
+      const ordered = (payload.data ?? []).map((d) => l2Normalize(d.embedding ?? []));
+      return { embeddings: ordered.map((values) => ({ values })) };
     },
   };
 }

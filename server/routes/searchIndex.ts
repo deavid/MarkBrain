@@ -2,22 +2,24 @@
  * searchIndex routes — the two API calls the draft-proximity testbed needs.
  *
  *   POST /api/search-index/generate-qa   → LLM Q&A extraction, windowed by the caller
- *   POST /api/search-index/embed         → gemini-embedding-001, L2-normalized
+ *   POST /api/search-index/embed         → lane embed model (user slot), L2-normalized
  *
  * Both degrade to deterministic offline fallbacks when GEMINI_API_KEY is
  * absent, so tests and keyless dev boxes still exercise the whole pipeline.
  */
 import type { Express, Request, Response } from 'express';
-import { aiForRequest, geminiAiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
+import { aiForRequest, geminiAiForRequest, embedClientForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { getIndexStatus } from '../jobs/serverArtifactIndexer';
 import { QueryVectorCache } from '../../src/domains/search/queryVectorCache';
 import { tokenizeForFts, cosineSimilarity } from '../../src/domains/search/draftSearchEngine';
 import { GoogleGenAI } from '@google/genai';
+import { OpenRouterClient, isOpenRouterModel } from '../providers/openrouter';
 import { resolveServerLaneKey, isVaultUnlocked } from '../lib/accountVault';
+import { readSettings } from './account';
 import { getDb } from '../db';
 import { logServer } from '../lib/log';
 import type { GeneratedQaPair } from '../../src/services/searchIndexStore';
-import { tryRequireModelId } from '../lib/models';
+import { tryRequireModelId, requireModelId, defaultModelFor } from '../lib/models';
 
 /** gemini-embedding-001 accepts 2,048 input tokens; 6,000 chars ≈ 1,600. */
 const EMBED_TEXT_CHAR_CAP = 6000;
@@ -86,6 +88,20 @@ interface SectionPayload {
   id: string;
   heading: string;
   text: string;
+}
+
+/**
+ * The requesting user's embed slot (Model Settings), validated against the
+ * catalog. Falls back to the lane default if nothing is set — never env.
+ */
+function userEmbedModelForSearch(userId: number): string {
+  try {
+    const { modelSlots } = readSettings(userId);
+    const id = modelSlots['embed'];
+    return typeof id === 'string' && id ? requireModelId(id, 'embed') : defaultModelFor('embed');
+  } catch {
+    return defaultModelFor('embed');
+  }
 }
 
 export function l2Normalize(v: number[]): number[] {
@@ -303,8 +319,8 @@ export function registerSearchIndexRoutes(app: Express): void {
       const title = typeof req.body?.title === 'string' ? req.body.title.slice(0, 300) : undefined;
       const capped = texts.map((t) => t.slice(0, EMBED_TEXT_CHAR_CAP));
 
-      // Embed is a Gemini-only lane (embedContent) — the catalog caps it there.
-      const ai = geminiAiForRequest(req, 'embed', embedModel);
+      // Embed works on both providers: the facade picks the right client.
+      const ai = embedClientForRequest(req, embedModel);
 
       const embeddings: number[][] = [];
       const callCount = Math.ceil(capped.length / EMBED_BATCH_SIZE);
@@ -323,20 +339,29 @@ export function registerSearchIndexRoutes(app: Express): void {
           `embedContent #${embedContentCalls}: ${batch.length} texts [${embedModel}]` +
             ` (batch ${Math.floor(i / EMBED_BATCH_SIZE) + 1}/${callCount})`
         );
-        const response = await ai.models.embedContent({
-          model: embedModel,
-          contents: batch,
-          config: {
-            // EmbedContentConfig.taskType is a plain string in @google/genai —
-            // no cast needed (the previous conditional type was also misspelled).
-            taskType,
-            outputDimensionality: 768,
-            ...(taskType === 'RETRIEVAL_DOCUMENT' && title ? { title } : {}),
-          },
-        });
-        for (const emb of response.embeddings || []) {
-          // LAW 6: truncated Matryoshka output is NOT unit-length. Normalize here.
-          embeddings.push(l2Normalize(emb.values || []));
+        if (isOpenRouterModel(embedModel)) {
+          // OpenRouter: taskType/title/outputDimensionality don't exist there.
+          const response = await (ai as OpenRouterClient).models.embedContent({
+            model: embedModel,
+            contents: batch,
+          });
+          for (const emb of response.embeddings) {
+            embeddings.push(emb.values);
+          }
+        } else {
+          const response = await (ai as GoogleGenAI).models.embedContent({
+            model: embedModel,
+            contents: batch,
+            config: {
+              taskType,
+              outputDimensionality: 768,
+              ...(taskType === 'RETRIEVAL_DOCUMENT' && title ? { title } : {}),
+            },
+          });
+          for (const emb of response.embeddings || []) {
+            // LAW 6: truncated Matryoshka output is NOT unit-length. Normalize here.
+            embeddings.push(l2Normalize(emb.values || []));
+          }
         }
         if (i + EMBED_BATCH_SIZE < capped.length) {
           await new Promise((r) => setTimeout(r, 150));
@@ -374,6 +399,8 @@ export function registerSearchIndexRoutes(app: Express): void {
       if (!query) return res.status(400).json({ error: 'query is required' });
       const topK = Math.min(Number(req.body?.topK ?? 12) || 12, 50);
       const status = getIndexStatus(userId, projectId);
+      // Same model as the index, or the query vectors would score nothing.
+      const embedModel = userEmbedModelForSearch(userId);
 
       const db = getDb();
       const rows = db
@@ -381,9 +408,9 @@ export function registerSearchIndexRoutes(app: Express): void {
           `SELECT s.artifact_id, s.section_id, s.heading, s.text, s.qa_json, s.section_vec_json, s.qa_vecs_json, a.doc_json
            FROM artifact_index_sections s
            JOIN artifacts a ON a.user_id = s.user_id AND a.project_id = s.project_id AND a.artifact_id = s.artifact_id
-           WHERE s.user_id = ? AND s.project_id = ?`
+           WHERE s.user_id = ? AND s.project_id = ? AND s.model = ?`
         )
-        .all(userId, projectId) as Array<{
+        .all(userId, projectId, embedModel) as Array<{
         artifact_id: string; section_id: string; heading: string; text: string;
         qa_json: string; section_vec_json: string; qa_vecs_json: string; doc_json: string;
       }>;
@@ -392,24 +419,35 @@ export function registerSearchIndexRoutes(app: Express): void {
         return res.json({ results: [], indexStatus: status });
       }
 
-      // One query embed, reused across tabs via the per-user near-dupe cache.
-      const embedModel = 'gemini-embedding-001'; // server-owned constant — never request-supplied (errors-are-final)
+      // One query embed, reused via the per-user near-dupe cache — keyed by
+      // model: a query embedded with another model must never be reused here.
       const cache = cacheFor(userId);
-      let hit = cache.get(query);
+      let hit = cache.get(query, embedModel);
       let queryVec: Float32Array;
       if (hit) {
         queryVec = hit.vectors[0];
       } else {
         const apiKey = resolveServerLaneKey(userId, 'embed', embedModel);
-        const client = new GoogleGenAI({ apiKey });
-        const response = await client.models.embedContent({
-          model: embedModel,
-          contents: query,
-          config: { taskType: 'RETRIEVAL_QUERY', outputDimensionality: 768 },
-        });
-        const values = response.embeddings?.[0]?.values ?? [];
+        const client: GoogleGenAI | OpenRouterClient = isOpenRouterModel(embedModel)
+          ? new OpenRouterClient(apiKey)
+          : new GoogleGenAI({ apiKey });
+        let values: number[];
+        if (isOpenRouterModel(embedModel)) {
+          const response = await (client as OpenRouterClient).models.embedContent({
+            model: embedModel,
+            contents: [query],
+          });
+          values = response.embeddings[0]?.values ?? [];
+        } else {
+          const response = await (client as GoogleGenAI).models.embedContent({
+            model: embedModel,
+            contents: query,
+            config: { taskType: 'RETRIEVAL_QUERY', outputDimensionality: 768 },
+          });
+          values = response.embeddings?.[0]?.values ?? [];
+        }
         const normed = l2Normalize(values);
-        cache.set(query, [Float32Array.from(normed)]);
+        cache.set(query, [Float32Array.from(normed)], embedModel);
         queryVec = Float32Array.from(normed);
       }
 

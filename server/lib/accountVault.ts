@@ -345,6 +345,20 @@ export function aiForRequest(req: Request, capability: LaneCapability, modelId: 
   return clientForApiKey(modelId, apiKey);
 }
 
+/**
+ * Embed-capable client for either provider (design 24 facade extended to
+ * embeddings): `/`-shaped ids get the OpenRouter client (its models surface
+ * includes embedContent), everything else GoogleGenAI. Requires an unlocked
+ * vault and a configured lane key — same fail-closed law as aiForRequest.
+ */
+export function embedClientForRequest(req: Request, modelId: string): LaneAiClient {
+  const user = req.user;
+  if (!user) throw new VaultLockedError();
+  if (!isVaultUnlocked(user.id)) throw new VaultLockedError();
+  const apiKey = resolveServerLaneKey(user.id, 'embed', modelId);
+  return clientForApiKey(modelId, apiKey);
+}
+
 /** Same law, keyed by userId — the job runner has no Request (21E: decoupled). */
 export function aiClientForUser(userId: number, capability: LaneCapability, modelId: string): LaneAiClient {
   if (!isVaultUnlocked(userId)) throw new VaultLockedError();

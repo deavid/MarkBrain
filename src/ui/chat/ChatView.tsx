@@ -64,6 +64,11 @@ import {
 import { getWorkspaceMode } from '../../services/workspaceSession';
 import type { DraftProgress } from '../../application/draftQueue';
 import { getModelForSlot } from '../../data/modelConfig';
+import {
+  evaluateSendReadiness,
+  subscribeReadiness,
+  getReadinessVersion,
+} from '../../data/sendReadiness';
 
 /** Ticking elapsed clock for a draft phase (design 23 §2.2) — cleans up. */
 function useElapsed(since: number | undefined): number {
@@ -127,6 +132,8 @@ interface ChatViewProps {
   project: ProjectMetadata;
   chapters: ChapterTurns[];
   onSendMessage: (text: string) => Promise<void>;
+  /** design 25 §1.1: a send with no configured key routes here (Model Settings → Keys). */
+  onOpenKeySettings?: () => void;
   isLoading: boolean;
   streamingStatus?: string | null;
   streamPhase?: 'waiting' | 'streaming' | null;
@@ -208,6 +215,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   project,
   chapters,
   onSendMessage,
+  onOpenKeySettings,
   isLoading,
   streamingStatus,
   streamPhase,
@@ -534,9 +542,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // design 25: locked keys never fail a send after the fact — the padlock
-    // opens the unlock row (or re-arms silently) before anything is sent.
-    if (vaultLocked) {
+    // design 25: a send that cannot work is never attempted — locked keys
+    // open the unlock popup; missing keys open Model Settings → Keys.
+    if (sendBlocked) {
       void handlePadlockClick();
       return;
     }
@@ -559,6 +567,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // The send button IS the lock indicator: locked keys show a padlock, and a
   // locked send opens the unlock row instead of failing after the fact.
   const vaultLocked = useSyncExternalStore(subscribeVaultLock, isVaultLocked);
+  // design 25 §1.1: "no key configured" is a SECOND blocked state — a send
+  // that cannot work is never attempted; the user is routed to Model
+  // Settings → Keys instead.
+  useSyncExternalStore(subscribeReadiness, getReadinessVersion);
+  const chatModelId = getModelForSlot('chat') ?? '';
+  const readiness = evaluateSendReadiness(chatModelId);
+  const sendBlocked = !readiness.ok;
   const [composerUnlockOpen, setComposerUnlockOpen] = useState(false);
   const [composerPw, setComposerPw] = useState('');
   const [composerUnlockErr, setComposerUnlockErr] = useState('');
@@ -572,6 +587,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }, []);
 
   const handlePadlockClick = async () => {
+    // No configured key: no send to unlock — route to Model Settings → Keys.
+    if (readiness.reason === 'no-key') {
+      onOpenKeySettings?.();
+      return;
+    }
     // A tab holding a derived key re-arms silently — no password needed.
     if (getWorkspaceMode() === 'vps' && getReArmKey()) {
       if (await tryReArmVault()) return;
@@ -1022,11 +1042,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 ) : (
                   <button
                     type="submit"
-                    disabled={!inputText.trim() || isLoading}
-                    className="px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-ink font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                    // design 25: when the send is blocked (locked keys or no
+                    // key), the padlock IS the affordance — it must stay
+                    // clickable with an empty composer, or an empty chat
+                    // leaves you no way to unlock at all.
+                    disabled={isLoading || (!sendBlocked && !inputText.trim())}
+                    title={
+                      readiness.reason === 'no-key'
+                        ? 'Add an API key to send — Model Settings → Keys'
+                        : readiness.reason === 'vault-locked'
+                          ? 'Keys locked — click to unlock'
+                          : undefined
+                    }
+                    className={
+                      sendBlocked
+                        ? 'px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 active:bg-amber-400 text-[#231a02] font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-amber-900/30 cursor-pointer'
+                        : 'px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-ink font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer'
+                    }
                   >
                     <span>Start Dialogue</span>
-                    {vaultLocked ? <Lock className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+                    {sendBlocked ? <Lock className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
                   </button>
                 )}
               </div>
@@ -1943,11 +1978,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
             ) : (
               <button
                 type="submit"
-                disabled={!inputText.trim()}
-                className="px-4 py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 disabled:hover:bg-[#2563eb] text-ink transition-all shadow-md shadow-blue-900/25 flex items-center justify-center cursor-pointer shrink-0"
-                title="Send message"
+                // Same law as the other composer: the blocked padlock (locked
+                // keys or no key) stays clickable with an empty input — it
+                // routes to the unlock popup or Model Settings → Keys.
+                disabled={!sendBlocked && !inputText.trim()}
+                className={
+                  sendBlocked
+                    ? 'px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 active:bg-amber-400 text-[#231a02] transition-all shadow-md shadow-amber-900/30 flex items-center justify-center cursor-pointer shrink-0'
+                    : 'px-4 py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 disabled:hover:bg-[#2563eb] text-ink transition-all shadow-md shadow-blue-900/25 flex items-center justify-center cursor-pointer shrink-0'
+                }
+                title={
+                  readiness.reason === 'no-key'
+                    ? 'Add an API key to send — Model Settings → Keys'
+                    : readiness.reason === 'vault-locked'
+                      ? 'Keys locked — click to unlock'
+                      : 'Send message'
+                }
               >
-                {vaultLocked ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+                {sendBlocked ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
               </button>
             )}
           </form>

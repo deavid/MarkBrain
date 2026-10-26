@@ -16,6 +16,7 @@
  * Both paths answer the same Response vocabulary; call sites cannot tell.
  */
 import { resolveLaneKey, type ResolvedKey } from '../data/keySlots';
+import { DEFAULT_MODEL_SLOTS } from '../data/modelConfig';
 import { getWorkspaceMode, getVpsSession, type VpsSessionInfo } from '../services/workspaceSession';
 import {
   directChatStream,
@@ -338,7 +339,7 @@ export interface EmbedTextsRequest {
 }
 
 export function embedTexts(params: EmbedTextsRequest): Promise<Response> {
-  const key = resolveLaneKey('embed', params.model || 'gemini-embedding-001');
+  const key = resolveLaneKey('embed', params.model || DEFAULT_MODEL_SLOTS.embed);
   if (key && params.model && !inVpsMode()) {
     return directEmbed(key, { ...params, model: params.model });
   }

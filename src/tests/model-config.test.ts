@@ -40,7 +40,7 @@ afterEach(() => {
 describe('modelConfig defaults', () => {
   it('pins infrastructure lanes to the free-quota models, chat to flash-lite', () => {
     expect(DEFAULT_MODEL_SLOTS.chat).toBe('gemini-3.5-flash-lite');
-    expect(DEFAULT_MODEL_SLOTS.embed).toBe('gemini-embedding-001');
+    expect(DEFAULT_MODEL_SLOTS.embed).toBe('nvidia/nemotron-3-embed-1b:free');
     expect(DEFAULT_MODEL_SLOTS.tts).toBe('gemini-3.8-flash-lite-tts');
     // workhorse lanes share the chat default in Phase 0
     expect(DEFAULT_MODEL_SLOTS.extract).toBe('gemini-3.5-flash-lite');

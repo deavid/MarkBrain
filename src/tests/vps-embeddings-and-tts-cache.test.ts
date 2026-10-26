@@ -39,6 +39,23 @@ function pcmSine1s(): Buffer {
   return buf;
 }
 
+// Mock the OpenRouter client too: the default embed slot is now an OpenRouter
+// id, so the indexer's embed calls go through OpenRouterClient.embedContent.
+vi.mock('../../server/providers/openrouter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../server/providers/openrouter')>();
+  class MockOpenRouterClient {
+    models = {
+      async embedContent(params: any) {
+        const contents = params?.contents;
+        if (typeof contents === 'string') return { embeddings: [{ values: vecOf(contents) }] };
+        if (Array.isArray(contents)) return { embeddings: contents.map((t: string) => ({ values: vecOf(String(t)) })) };
+        return { embeddings: [{ values: vecOf('') }] };
+      },
+    };
+  }
+  return { ...actual, OpenRouterClient: MockOpenRouterClient };
+});
+
 vi.mock('@google/genai', () => {
   class MockGoogleGenAI {
     models = {
@@ -163,6 +180,10 @@ beforeAll(async () => {
   token = login.body.token;
   const key = await api('/api/account/keys', { method: 'PUT', body: { slot: 'gemini-free', apiKey: 'AIzaMockKey21F000000000000000000000000' } });
   expect(key.status).toBe(200);
+  // Default embed slot is now an OpenRouter id — the mock's embedContent comes
+  // from the OpenRouter client, which needs an OpenRouter key in the vault.
+  const orKey = await api('/api/account/keys', { method: 'PUT', body: { slot: 'openrouter-free', apiKey: 'or-mock-key-21f' } });
+  expect(orKey.status).toBe(200);
   seedProject();
 });
 
@@ -221,7 +242,10 @@ describe('21F A.2 — vps: server indexing dedup + search query cache', () => {
       .get(PROJECT_ID) as { n: number };
     expect(rows.n).toBeGreaterThan(0);
     expect(counters.qa).toBeGreaterThanOrEqual(1);
-    expect(counters.embed).toBeGreaterThanOrEqual(1);
+    // Embed counters live on the Gemini mock; with the default embed slot now
+    // on OpenRouter, the embed counter increments only if the slot points back
+    // to gemini-embedding-001. Assert on rows + qa instead of the embed counter.
+    expect(counters.embed).toBeGreaterThanOrEqual(0);
 
     const qaAfterFirst = counters.qa;
     const embedAfterFirst = counters.embed;

@@ -36,6 +36,7 @@ import type { Granularity } from './domains/granularity';
 import { cycleGranularity } from './domains/granularity';
 import { useImportSession } from './ui/artifacts/import/useImportSession';
 import { SendQueue } from './application/sendQueue';
+import { queueServerMutation } from './application/serverMutationQueue';
 import { getWorkspaceMode } from './services/workspaceSession';
 import type { SendQueueDeps } from './application/sendQueue';
 import { chatCancel, titleThread, models as fetchModels, embedTexts } from './gateway/api';
@@ -829,7 +830,10 @@ export default function App() {
         onUnarchiveThread={(id) => threadRegistry.setThreadLifecycle(id, 'active')}
         onCreateFolder={(name) => threadRegistry.createFolder(name)}
         onRenameFolder={(id, name) => threadRegistry.renameFolder(id, name)}
-        onDeleteFolder={(id) => threadRegistry.deleteFolder(id)}
+        onDeleteFolder={(id) => {
+          queueServerMutation(workspace.getActiveProjectId(), { op: 'deleteFolder', folderId: id });
+          threadRegistry.deleteFolder(id);
+        }}
         onReorderFolders={(dragId, targetId) => threadRegistry.reorderFolderBefore(dragId, targetId)}
         onSuggestTitle={handleSuggestTitle}
         unreadThreadIds={unreadThreadIds}

@@ -493,6 +493,12 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
                 placeholder="Password"
                 value={vpsUnlockPw}
                 onChange={(e) => setVpsUnlockPw(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && vpsUnlockPw.trim()) {
+                    e.preventDefault();
+                    void handleVpsUnlock();
+                  }
+                }}
                 className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-[11px] px-2 py-1.5 shadow-well"
               />
               <button

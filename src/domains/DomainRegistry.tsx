@@ -25,6 +25,7 @@ import { persistProjectSnapshot, attachPersistWorker } from '../application/pers
 import { useSessionMachine } from '../application/sessionMachine';
 import { loadProjectSnapshotIntoDomains, loadNewWorkspace } from '../application/snapshotLoader';
 import { useVpsDeltaSync } from '../application/useVpsDeltaSync';
+import { queueServerMutation } from '../application/serverMutationQueue';
 import type { WorkspaceUser } from '../types';
 
 export interface DomainContextValue {
@@ -241,6 +242,9 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const deleteThread = useCallback(
     (threadId: string) => {
+      // Explicit delete must reach the VPS — the snapshot save is upsert-only,
+      // so without this the row resurrects on refresh (live 2026-10-26).
+      queueServerMutation(workspace.getActiveProjectId(), { op: 'deleteThread', threadId });
       const incoming = threadRegistry.deleteThread(threadId);
       if (incoming) {
         // Active thread died — live domains load the fallback thread's content.

@@ -4,6 +4,7 @@ import type { Granularity } from '../../domains/granularity';
 import { serializeArtifactToYamlDoc } from '../../utils/yamlArtifactParser';
 import { detectImportFlag, flagRelationship, ImportFlag } from '../../utils/importDetect';
 import { purgeArtifact } from './purgeArtifact';
+import { queueServerMutation } from '../../application/serverMutationQueue';
 import { logger } from '../../utils/logger';
 
 type WorkspaceContainer = NonNullable<ReturnType<DomainContextValue['workspace']['getProject']>>;
@@ -282,6 +283,7 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     versioning.recordRevision(oldId, newBody, `Overwritten by import triage from "${newArt.title}"`);
 
     artifactsDomain.deleteArtifact(newId);
+    queueServerMutation(activeProjectId, { op: 'deleteArtifact', artifactId: newId });
     scrubReferencesTo(newId);
     logger.action(
       'App',
@@ -291,6 +293,7 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
 
   const handleTriageDelete = (artifactId: string) => {
     const art = artifactsDomain.getArtifact(artifactId);
+    queueServerMutation(activeProjectId, { op: 'deleteArtifact', artifactId });
     artifactsDomain.deleteArtifact(artifactId);
     scrubReferencesTo(artifactId);
     logger.action('App', `Triage: deleted ${art?.title || artifactId}`);

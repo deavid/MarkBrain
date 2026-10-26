@@ -20,6 +20,7 @@ import type { IChapterSegmentationDomain } from '../domains/02-chapter-segmentat
 import type { ITopologicalGraphDomain } from '../domains/02-topological-graph';
 import type { ThreadRegistry } from '../domains/06-chat-threads';
 import { reconcileThreadAttachments } from '../domains/06-chat-threads';
+import { flushServerMutations } from './serverMutationQueue';
 import { apiFetch } from '../gateway/api';
 import { getWorkspaceMode } from '../services/workspaceSession';
 import type { ProjectDeltaResponse } from '../../server/db/projectRepo';
@@ -206,6 +207,9 @@ export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       inFlight.current = true;
       try {
+        // Explicit deletes queued since the last tick go out BEFORE the pull —
+        // the tombstones they create then ride back in the same merge.
+        await flushServerMutations(activeProjectId);
         const since = lastRevisionRef.current;
         const res = await apiFetch(
           `/api/projects/${encodeURIComponent(activeProjectId)}/delta?since=${since}`

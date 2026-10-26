@@ -10,14 +10,17 @@ import type { IArtifactDocumentDomain } from '../../domains/01-artifact-document
 import type { IArtifactVersioningDomain } from '../../domains/01-artifact-versioning';
 import type { ITopologicalGraphDomain } from '../../domains/02-topological-graph';
 import type { ThreadRegistry } from '../../domains/06-chat-threads';
+import type { IWorkspaceDomain } from '../../domains/00-workspace';
 import type { Artifact } from '../../types';
 import { serializeArtifactToYamlDoc } from '../../utils/yamlArtifactParser';
+import { queueServerMutation } from '../../application/serverMutationQueue';
 
 export interface PurgeDeps {
   artifactsDomain: IArtifactDocumentDomain;
   versioning: IArtifactVersioningDomain;
   graph: ITopologicalGraphDomain;
   threadRegistry: ThreadRegistry;
+  workspace?: IWorkspaceDomain;
 }
 
 export function purgeArtifact(deps: PurgeDeps, artifactId: string): void {
@@ -43,5 +46,10 @@ export function purgeArtifact(deps: PurgeDeps, artifactId: string): void {
   // Garbage collection, not a user-facing detach: every chat loses the reference.
   threadRegistry.purgeArtifact(artifactId);
   versioning.purgeArtifact(artifactId);
+  // Explicit delete must reach the VPS — snapshot saves are upsert-only, so
+  // without this the artifact resurrects on refresh (live 2026-10-26).
+  if (deps.workspace) {
+    queueServerMutation(deps.workspace.getActiveProjectId(), { op: 'deleteArtifact', artifactId });
+  }
   artifactsDomain.deleteArtifact(artifactId);
 }

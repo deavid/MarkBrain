@@ -7,6 +7,7 @@
     data_dir: /var/lib/markbrain
     config_dir: /etc/markbrain
     rotate_owner_password: false
+    markbrain_owner_password_hash: ""
 
   tasks:
     - name: 1. Run local production build + secret guard on dev machine
@@ -101,13 +102,44 @@
         content: "{{ markbrain_owner_password }}\n"
       no_log: true
 
-    - name: 8c. Check for a server-side owner password file
+    - name: 8b2. Write owner password HASH to the server-side secrets file when
+        #    supplied (hash generated locally with scripts/password-hash.cjs —
+        #    the plaintext never leaves the dev machine)
+      when: markbrain_owner_password_hash | length > 0
+      copy:
+        dest: "{{ config_dir }}/secrets/owner-password-hash"
+        owner: root
+        group: root
+        mode: "0600"
+        content: "{{ markbrain_owner_password_hash }}\n"
+      no_log: true
+
+    - name: 8c. Check for a server-side owner password hash file
+      stat:
+        path: "{{ config_dir }}/secrets/owner-password-hash"
+      register: owner_hash_file
+
+    - name: 8c2. Check for a server-side owner password file
       stat:
         path: "{{ config_dir }}/secrets/owner-password"
       register: owner_password_file
 
-    - name: 8d. Seed Owner Account #1 from the secrets file (idempotent — skipped
-        #    if the user already exists)
+    - name: 8d. Seed Owner Account #1 from the hash file (preferred — plaintext
+        #    never crosses anything; idempotent, skipped if the user exists)
+      when: owner_hash_file.stat.exists
+      shell: >
+        npx tsx scripts/user-admin.ts create {{ markbrain_owner_email }}
+        --password-hash "$(cat {{ config_dir }}/secrets/owner-password-hash)" --owner
+      args:
+        chdir: "{{ app_dir }}"
+      environment:
+        MARKBRAIN_DB_PATH: "{{ data_dir }}/markbrain.sqlite"
+      register: seed_owner
+      failed_when: seed_owner.rc != 0 and ('already exists' not in seed_owner.stderr)
+      no_log: true
+
+    - name: 8d2. Seed Owner Account #1 from the password file (fallback — used when
+        #    only a plaintext password was supplied, e.g. rotation)
       when: owner_password_file.stat.exists
       command: >
         npx tsx scripts/user-admin.ts create {{ markbrain_owner_email }}

@@ -37,27 +37,43 @@ Random visitors in Local Workspace mode never touch the Node process.
 
 ## First Bootstrap
 
-Preferred (password never touches a command line or shell history):
+Preferred (the plaintext password never leaves your machine):
 
 ```bash
-# on the VPS — paste the password, then Ctrl-D
-ssh YOUR_VPS 'sudo install -m 0600 /dev/stdin /etc/markbrain/secrets/owner-password'
+# 1. generate the hash locally — prompts on muted stdin, prints scrypt$salt$hash
+node scripts/password-hash.cjs --out /tmp/owner-password-hash
 
-# from the dev machine
+# 2. upload ONLY the hash to the VPS (the hash cannot be used to log in)
+scp /tmp/owner-password-hash YOUR_VPS:/tmp/owner-password-hash
+ssh YOUR_VPS 'sudo install -m 0600 /tmp/owner-password-hash /etc/markbrain/secrets/owner-password-hash && rm /tmp/owner-password-hash'
+rm /tmp/owner-password-hash
+
+# 3. deploy — the playbook seeds the owner account from the stored hash
 cp deploy/ansible/inventory.ini.example deploy/ansible/inventory.ini   # edit email
 ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml
 ```
 
-Alternative (convenience, lands in your local shell history):
+The hash is `scrypt$salt$hash` — the exact verifier the server stores. It is
+NOT a login credential and knowing it does not reveal the password; it is only
+an offline dictionary target, which means nothing against a strong password.
+The server generates its own vault salt, so the vault works normally: at login
+the vault key derives from the password you type. KEEP THE PLAINTEXT
+SOMEWHERE SAFE — it is needed at every login, and the vault cannot be
+re-keyed from the hash alone.
+
+To pass the hash without a file (e.g. from a local .env reference):
 
 ```bash
 ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml \
-  -e "markbrain_owner_password=..."
+  -e "markbrain_owner_password_hash=$(cat /path/to/owner-password-hash)"
 ```
 
-Either way the playbook stores the password at
-`/etc/markbrain/secrets/owner-password` (0600) and seeds the owner account from
-that file — subsequent deploys read the stored file, so you pass nothing.
+Alternative bootstrap paths (less clean, documented for completeness):
+
+- Plaintext via stdin over SSH into `/etc/markbrain/secrets/owner-password`
+  (0600) — playbook seeds from it.
+- `-e "markbrain_owner_password=..."` — convenience; lands in your local
+  shell history. `no_log` hides Ansible output, not the invocation.
 
 ## Routine Update
 
@@ -75,6 +91,10 @@ ever breaks because upstream published a bad version, pin the version in
 package.json and redeploy.
 
 ## Rotate Owner Password
+
+The rotation path needs the PLAINTEXT (the vault must be re-encrypted under
+the new password; a hash alone cannot do that, and rotating from a hash would
+drop all saved API keys):
 
 ```bash
 ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml \

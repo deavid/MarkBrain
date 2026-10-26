@@ -127,6 +127,41 @@ export function createUser(email: string, password: string, opts: { isOwner?: bo
   return created;
 }
 
+/**
+ * Create a user from a PRE-COMPUTED password hash (scrypt$<saltHex>$<hashHex>,
+ * the exact format hashPassword stores) — used by the deployment flow so the
+ * plaintext password never has to cross a command line. The server generates
+ * its own fresh kdf_salt; the vault starts empty, and at login the vault key
+ * derives from the password the user types. Knowing this hash does NOT allow
+ * login — it is only an offline dictionary target.
+ */
+export function createUserWithHash(
+  email: string,
+  storedHash: string,
+  opts: { isOwner?: boolean } = {}
+): UserRecord {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized.includes('@')) throw new Error(`Invalid email address: ${email}`);
+  if (!/^scrypt\$[0-9a-f]{32}\$[0-9a-f]{128}$/.test(storedHash.trim())) {
+    throw new Error('Invalid password hash format — expected scrypt$<saltHex32>$<hashHex128>.');
+  }
+  if (findUserByEmail(normalized)) throw new Error(`User already exists: ${normalized}`);
+
+  const kdfSalt = crypto.randomBytes(16);
+  const forceOwner = countUsers() === 0;
+  const isOwner = forceOwner || opts.isOwner === true;
+
+  const info = getDb()
+    .prepare(
+      'INSERT INTO users (email, password_hash, kdf_salt, is_owner, enabled, created_at) VALUES (?, ?, ?, ?, 1, ?)'
+    )
+    .run(normalized, storedHash.trim(), kdfSalt, isOwner ? 1 : 0, Date.now());
+
+  const created = findUserById(Number(info.lastInsertRowid));
+  if (!created) throw new Error('User creation failed.');
+  return created;
+}
+
 /** Verify credentials for login. Returns the user or null (never throws on bad password). */
 export function verifyCredentials(email: string, password: string): UserRecord | null {
   const row = getRawUserByEmail(email);

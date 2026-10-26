@@ -3,6 +3,7 @@
  * CLI user administration (design-docs/21B §5).
  *
  *   npm run user -- create <email> --password <password> [--owner]
+ *   npm run user -- create <email> --password-hash <scrypt$salt$hash> [--owner]
  *   npm run user -- list
  *   npm run user -- enable <email>
  *   npm run user -- disable <email>
@@ -22,6 +23,7 @@ import {
   findUserByEmail,
   setUserEnabled,
   changeUserPassword,
+  createUserWithHash,
 } from '../server/lib/users';
 
 function flagValue(args: string[], flag: string): string | null {
@@ -54,6 +56,7 @@ function fail(msg: string): never {
 function usage(): never {
   console.log(`usage:
   npm run user -- create <email> --password <password> [--owner]
+  npm run user -- create <email> --password-hash <scrypt$salt$hash> [--owner]
   npm run user -- list
   npm run user -- enable <email>
   npm run user -- disable <email>
@@ -73,9 +76,12 @@ function main(): void {
       case 'create': {
         const email = args[0];
         const password = passwordFrom(args);
-        if (!email || !password) usage();
+        const passwordHash = flagValue(args, '--password-hash');
+        if (!email || (!password && !passwordHash)) usage();
         const isOwner = args.includes('--owner');
-        const user = createUser(email, password, { isOwner });
+        const user = passwordHash
+          ? createUserWithHash(email, passwordHash, { isOwner })
+          : createUser(email, password!, { isOwner });
         console.log(`created ${user.email} (id=${user.id}, owner=${user.isOwner})`);
         break;
       }

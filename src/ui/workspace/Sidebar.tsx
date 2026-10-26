@@ -32,8 +32,8 @@ import {
   FolderKanban,
   Save,
   RotateCcw,
-  MoreHorizontal,
-  Trash2,
+  RefreshCw,
+  MoreHorizontal,  Trash2,
   Settings2,
   ALargeSmall,
 } from 'lucide-react';
@@ -119,7 +119,10 @@ interface SidebarProps {
   onChangeView: (view: ActiveView) => void;
   onOpenExport: () => void;
   onOpenImport: () => void;
-  onExportDatabase: () => void;
+  /** Sync now (vps mode): replay offline outbox + re-pull server state. */
+  onRefreshSync?: () => void;
+  /** Project ids with unsynced offline edits — amber dot on the project row. */
+  unsyncedProjectIds?: string[];  onExportDatabase: () => void;
   onImportDatabase: () => void;
   onOpenProjectLauncher: () => void;
   onOpenServerLogs?: () => void;
@@ -179,6 +182,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onImportDatabase,
   onOpenProjectLauncher,
   onOpenServerLogs,
+  onRefreshSync,
+  unsyncedProjectIds = [],
   currentUser,
   onSignOut,
   onSwitchToLocal,
@@ -561,13 +566,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="rounded-xl bg-surface-2 p-1.5">
+            {/* Refresh sits OUTSIDE the toggle button — no nested buttons. */}
+            <div className="flex items-center gap-1">
             <button
               onClick={() => {
                 const nextState = !projectAccordionOpen;
                 logger.action('Sidebar', `Toggle project accordion: ${nextState ? 'opened' : 'closed'}`);
                 setProjectAccordionOpen(nextState);
               }}
-              className="w-full flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-3 cursor-pointer"
+              className="flex-1 min-w-0 flex items-center justify-between pl-1.5 pr-1 py-2 rounded-lg text-left transition-colors hover:bg-surface-3 cursor-pointer"
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 <span
@@ -586,8 +593,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="flex items-center gap-1.5 text-[#556985]">
                 <span className="text-10 font-mono">{projects.length} proj</span>
                 {projectAccordionOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              </div>
-            </button>
+              </div>            </button>
+            {onRefreshSync && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  logger.action('Sidebar', 'Sync now (refresh from server)');
+                  onRefreshSync();
+                }}
+                title="Sync now — push offline edits, pull server changes"
+                aria-label="Sync now"
+                className="p-1.5 rounded-lg text-[#556985] hover:text-ink hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            )}
+            </div>
 
             {projectAccordionOpen && (
               <div className="mt-0.5 pb-1.5 space-y-0.5 animate-in fade-in duration-100">
@@ -613,7 +634,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         />
                         <span className="truncate">{proj.name}</span>
                       </div>
-                      {proj.id === activeProject.id && (
+                      {unsyncedProjectIds.includes(proj.id) && (
+                        <span
+                          className="ml-1 w-2 h-2 rounded-full bg-amber-400 shrink-0"
+                          title="Unsynced changes — will sync when back online"
+                        />
+                      )}                      {proj.id === activeProject.id && (
                         <Check className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
                       )}
                     </button>

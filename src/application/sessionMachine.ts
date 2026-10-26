@@ -48,6 +48,8 @@ export interface SessionMachine {
   signIn: (email: string, password: string, baseUrl?: string) => Promise<WorkspaceUser>;
   continueLocal: () => Promise<void>;
   signOut: () => Promise<void>;
+  /** Re-pull the project list from the active backend (refresh button, replay aftermath). */
+  loadUserCloudData: () => Promise<void>;
 }
 
 function userFromSession(): WorkspaceUser | null {
@@ -201,5 +203,6 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
     signIn,
     continueLocal,
     signOut,
+    loadUserCloudData,
   };
 }

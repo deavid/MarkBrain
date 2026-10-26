@@ -256,6 +256,11 @@ export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
     };
     const onFocus = () => void pull();
 
+    // Manual "sync now" (sidebar refresh button): same path as the wake poll,
+    // just user-triggered. Guarded — inFlight makes double-taps harmless.
+    const onSyncNow = () => void pull();
+    window.addEventListener('markbrain:sync-now', onSyncNow);
+
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
     if (typeof window !== 'undefined') window.addEventListener('focus', onFocus);
     const timer = setInterval(() => void pull(), POLL_MS);
@@ -266,6 +271,7 @@ export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
       clearInterval(timer);
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
       if (typeof window !== 'undefined') window.removeEventListener('focus', onFocus);
+    window.removeEventListener('markbrain:sync-now', onSyncNow);
     };
   }, [activeProjectId, lastRevisionRef]);
 }

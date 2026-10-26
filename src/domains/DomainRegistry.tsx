@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useMemo, useRef, useEffect, useCallback, useState } from 'react';
 import { WorkspaceDomain, IWorkspaceDomain } from './00-workspace';
 import { DialogueTimelineDomain, IDialogueTimelineDomain } from './01-dialogue-timeline';
 import { ArtifactDocumentDomain, IArtifactDocumentDomain } from './01-artifact-document';
@@ -26,6 +26,9 @@ import { useSessionMachine } from '../application/sessionMachine';
 import { loadProjectSnapshotIntoDomains, loadNewWorkspace } from '../application/snapshotLoader';
 import { useVpsDeltaSync } from '../application/useVpsDeltaSync';
 import { queueServerMutation } from '../application/serverMutationQueue';
+import { getWorkspaceMode } from '../services/workspaceSession';
+import { initVpsSync, replayOutbox } from '../services/vpsSync';
+import { getAllRecords, OUTBOX_CHANGED_EVENT } from '../services/offlineOutbox';
 import type { WorkspaceUser } from '../types';
 
 export interface DomainContextValue {
@@ -57,6 +60,10 @@ export interface DomainContextValue {
   selectThread: (threadId: string) => void;
   createThread: () => string;
   deleteThread: (threadId: string) => void;
+  /** Refresh button: replay the offline outbox, re-pull the list, rehydrate the active project. */
+  refreshFromServer: () => Promise<void>;
+  /** Projects with unsynced offline edits (vps mode only; [] otherwise). */
+  unsyncedProjectIds: string[];
 }
 
 const DomainContext = createContext<DomainContextValue | null>(null);
@@ -97,12 +104,16 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     signIn,
     continueLocal,
     signOut,
+    loadUserCloudData,
   } = useSessionMachine({
     getBackend,
     setBackend,
     listUserProjects,
     workspace,
   });
+
+  // Manual refresh counter (declared before the load effect that consumes it).
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   // Load only after the auth observer has resolved, and re-load when the
   // session identity changes. A cloud load fired before the observer lands
@@ -134,7 +145,37 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     artifacts,
     graph,
     threadRegistry,
+    refreshNonce, // manual refresh button → rehydrate the active project
   ]);
+
+  // Offline replay (vpsSync): push queued edits to the server on reconnect.
+  // Event-driven only — 'online' + one attempt after auth. No timers.
+  useEffect(() => {
+    initVpsSync();
+  }, []);
+  useEffect(() => {
+    if (!authInitialized || getWorkspaceMode() !== 'vps') return;
+    void replayOutbox();
+  }, [authInitialized, currentUser?.uid]);
+
+  // Unsynced-badge state: which projects have edits queued in the outbox.
+  const [unsyncedProjectIds, setUnsyncedProjectIds] = useState<string[]>([]);
+  useEffect(() => {
+    const update = () => setUnsyncedProjectIds(getAllRecords().map((r) => r.projectId));
+    update();
+    window.addEventListener(OUTBOX_CHANGED_EVENT, update);
+    return () => window.removeEventListener(OUTBOX_CHANGED_EVENT, update);
+  }, []);
+
+  // Manual refresh: push the outbox, wake the delta poller, re-pull the list
+  // and rehydrate the active project (refreshNonce re-runs its load effect).
+  const refreshFromServer = useCallback(async () => {
+    if (getWorkspaceMode() !== 'vps') return;
+    await replayOutbox();
+    window.dispatchEvent(new Event('markbrain:sync-now'));
+    await loadUserCloudData();
+    setRefreshNonce((n) => n + 1);
+  }, [loadUserCloudData]);
 
   // 21D §4.5: Connected-mode delta poller (focus wake + 10s while visible).
   const lastRevisionRef = useRef(0);
@@ -279,6 +320,8 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       selectThread,
       createThread,
       deleteThread,
+      refreshFromServer,
+      unsyncedProjectIds,
     }),
     [
       workspace,
@@ -303,9 +346,10 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       selectThread,
       createThread,
       deleteThread,
+      refreshFromServer,
+      unsyncedProjectIds,
     ]
   );
-
   return <DomainContext.Provider value={value}>{children}</DomainContext.Provider>;
 };
 

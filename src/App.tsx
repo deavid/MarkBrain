@@ -95,8 +95,9 @@ export default function App() {
     selectThread,
     createThread,
     deleteThread,
+    refreshFromServer,
+    unsyncedProjectIds,
   } = useDomains();
-
   const [tick, setTick] = useState(0);
   const triggerReRender = useCallback(() => setTick((t) => t + 1), []);
 
@@ -827,7 +828,8 @@ export default function App() {
         onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
         onOpenServerLogs={() => setIsServerLogsOpen(true)}
         onOpenCleanup={() => setIsCleanupOpen(true)}
-        currentUser={currentUser}
+        onRefreshSync={currentUser?.mode === 'vps' ? refreshFromServer : undefined}
+        unsyncedProjectIds={currentUser?.mode === 'vps' ? unsyncedProjectIds : []}        currentUser={currentUser}
         onSignOut={signOut}
         onSwitchToLocal={continueLocal}
         threads={threadRegistry.getThreads()}

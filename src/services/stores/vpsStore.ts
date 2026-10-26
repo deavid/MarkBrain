@@ -14,19 +14,36 @@
 import { logger } from '../../utils/logger';
 import { apiFetch } from '../../gateway/api';
 import {
-  localListProjects,
-  localLoadProject,
+  localListProjects,  localLoadProject,
   localPutProject,
   localReplaceAll,
   localDeleteProject,
 } from '../localBackend';
+import * as offlineOutbox from '../offlineOutbox';
 import type { ProjectStore, ProjectSnapshot } from './projectStore';
 
 async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
   await localReplaceAll(projects);
 }
 
-export const vpsStore: ProjectStore = {
+  /** Mirror snapshot revision type: body.project carries `revision` from the server. */
+  type MirrorWithRevision = ProjectSnapshot & { revision?: number };
+
+  /**
+   * A failure with no HTTP response at all (fetch throws TypeError) is the
+   * offline signature. HTTP failures (401/500/quota) are NOT offline — those
+   * keep the loud critical-notice path.
+   */
+  function isNetworkFailure(err: unknown): boolean {
+    return err instanceof TypeError || (err as { name?: string })?.name === 'TypeError';
+  }
+
+  /** Preserve the mirror's last-seen server revision across local writes. */
+  function withRevision(snapshot: ProjectSnapshot, revision: number | null): MirrorWithRevision {
+    return revision == null ? { ...snapshot } : ({ ...snapshot, revision } as MirrorWithRevision);
+  }
+
+  export const vpsStore: ProjectStore = {
   async load(projectId: string): Promise<ProjectSnapshot | null> {
     try {
       const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`);
@@ -63,39 +80,86 @@ export const vpsStore: ProjectStore = {
   },
 
   async save(snapshot: ProjectSnapshot): Promise<void> {
-    await localPutProject(snapshot); // mirror first: local edit never lost
-    const res = await apiFetch(`/api/projects/${encodeURIComponent(snapshot.projectId)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(snapshot),
-    });
-    if (res.status === 404) {
-      // Project not on the server yet (created offline) → create then save.
-      const create = await apiFetch('/api/projects', {
-        method: 'POST',
+    // Capture the mirror's last-seen server revision BEFORE the local write
+    // replaces the record — it is the baseRevision the outbox replays against.
+    const existing = (await localLoadProject(snapshot.projectId)) as MirrorWithRevision | null;
+    const baseRevision = typeof existing?.revision === 'number' ? existing.revision : null;
+    await localPutProject(withRevision(snapshot, baseRevision)); // mirror first: local edit never lost
+    try {
+      const res = await apiFetch(`/api/projects/${encodeURIComponent(snapshot.projectId)}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project: snapshot }),
+        body: JSON.stringify(snapshot),
       });
-      if (!create.ok) throw new Error(`Project create failed: HTTP ${create.status}`);
-      return;
+      if (res.status === 404) {
+        // Project not on the server yet (created offline) → create then save.
+        const create = await apiFetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project: snapshot }),
+        });
+        if (!create.ok) throw new Error(`Project create failed: HTTP ${create.status}`);
+        offlineOutbox.clearDirty(snapshot.projectId);
+        return;
+      }
+      if (!res.ok) throw new Error(`Project save failed: HTTP ${res.status}`);
+      offlineOutbox.clearDirty(snapshot.projectId); // server confirmed → outbox entry gone
+    } catch (err) {
+      if (!isNetworkFailure(err)) throw err;
+      // Offline: the edit lives safely in the mirror. Queue what changed and
+      // resolve — the save DID land somewhere durable. vpsSync replays it on
+      // reconnect; the sidebar shows the unsynced badge meanwhile.
+      offlineOutbox.markDirty(
+        snapshot.projectId,
+        existing ?? null,
+        snapshot,
+        baseRevision
+      );
+      logger.warn('VpsStore', `offline: ${snapshot.projectId} queued for replay (baseRevision=${baseRevision})`);
     }
-    if (!res.ok) throw new Error(`Project save failed: HTTP ${res.status}`);
   },
 
   async create(snapshot: ProjectSnapshot): Promise<void> {
     await localPutProject(snapshot);
-    const res = await apiFetch('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project: snapshot }),
-    });
-    if (!res.ok && res.status !== 409) throw new Error(`Project create failed: HTTP ${res.status}`);
+    try {
+      const res = await apiFetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: snapshot }),
+      });
+      if (!res.ok && res.status !== 409) throw new Error(`Project create failed: HTTP ${res.status}`);
+      offlineOutbox.clearDirty(snapshot.projectId);
+    } catch (err) {
+      if (!isNetworkFailure(err)) throw err;
+      // Created offline: the mirror holds it; replay will POST it (404→create path).
+      offlineOutbox.markDirty(snapshot.projectId, null, snapshot, null);
+      logger.warn('VpsStore', `offline: created ${snapshot.projectId} in mirror, queued for replay`);
+    }
   },
 
   async delete(projectId: string): Promise<void> {
+    // Project deletion is ONLINE-ONLY (2026-10-26 decision): offline it is
+    // ambiguous against server-side edits, and there is no tombstone story
+    // worth building. Anyone needing to remove something offline archives it.
+    // (A connection dropping mid-delete is caught below: the mirror copy is
+    // restored so the project is never half-deleted.)
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new Error('Deleting a project needs a connection. Archive it instead, or delete when back online.');
+    }
+    const doomed = await localLoadProject(projectId); // keep a copy in case the server write fails
     await localDeleteProject(projectId);
-    const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' });
-    if (!res.ok && res.status !== 404) throw new Error(`Project delete failed: HTTP ${res.status}`);
+    try {
+      const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 404) throw new Error(`Project delete failed: HTTP ${res.status}`);
+      offlineOutbox.clearDirty(projectId); // server-confirmed deletion → drop any stale queue entry
+    } catch (err) {
+      if (isNetworkFailure(err) && doomed) {
+        // Connection dropped mid-delete: put the mirror back so the project
+        // is not half-deleted (gone locally, alive on the server).
+        await localPutProject(doomed);
+      }
+      throw err;
+    }
   },
 
   async replaceAll(projects: ProjectSnapshot[]): Promise<void> {

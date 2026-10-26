@@ -166,6 +166,13 @@
         MARKBRAIN_DB_PATH: "{{ data_dir }}/markbrain.sqlite"
       no_log: true
 
+    - name: 8f. Remove the ephemeral plaintext password file — the plaintext
+        #    exists on the VPS only in RAM during seed/rotation; the hash file
+        #    is the only persistent artifact
+      file:
+        path: "{{ config_dir }}/secrets/owner-password"
+        state: absent
+
     - name: 9. Fix ownership of application and SQLite files
       file:
         path: "{{ item }}"

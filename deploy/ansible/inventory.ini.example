@@ -7,9 +7,9 @@ markbrain_port=3032
 markbrain_owner_email=you@example.com
 # Pass initial owner password only on first bootstrap via:
 # ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml -e "markbrain_owner_password=..."
-# The playbook stores it in /etc/markbrain/secrets/owner-password (0600) on the
-# VPS and seeds the account from there — never on the command line of the seed
-# command itself. Later deploys read the stored file; no need to pass it again.
+# The playbook writes it to /etc/markbrain/secrets/owner-password (0600) on the
+# VPS only for the duration of the run and deletes it right after — the hash
+# file is the only persistent artifact. Later deploys need nothing passed.
 # Rotate with: -e "markbrain_owner_password=<new> rotate_owner_password=true"
 markbrain_owner_password=""
 # SSH connection multiplexing — speeds up repeated deploys noticeably

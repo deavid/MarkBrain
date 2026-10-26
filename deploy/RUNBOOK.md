@@ -19,7 +19,8 @@ directory, one SQLite database, one systemd unit, Caddy in front.
 /etc/markbrain/
   markbrain.env            service environment (root:markbrain 0640)
   secrets/                 root-only (0700)
-    owner-password         owner account password, root 0600
+    owner-password         owner account password — EPHEMERAL (0600, deleted by the
+                       playbook right after use; only the hash file persists)
 /etc/caddy/conf.d/markbrain.caddy
 /etc/systemd/system/markbrain.service
 ```
@@ -71,9 +72,14 @@ ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml \
 Alternative bootstrap paths (less clean, documented for completeness):
 
 - Plaintext via stdin over SSH into `/etc/markbrain/secrets/owner-password`
-  (0600) — playbook seeds from it.
+  (0600) — playbook seeds from it and **deletes it immediately after**. The
+  plaintext touches the VPS disk only for the duration of one playbook run
+  (0600, root-only), then exists only in RAM during seed/rotation.
 - `-e "markbrain_owner_password=..."` — convenience; lands in your local
   shell history. `no_log` hides Ansible output, not the invocation.
+
+Either way the persistent artifact on the VPS is at most the **hash** file —
+never the plaintext.
 
 ## Routine Update
 
@@ -103,7 +109,9 @@ ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml \
 
 (Or overwrite `/etc/markbrain/secrets/owner-password` by hand and run
 `sudo npx tsx scripts/user-admin.ts passwd <email> --password-file
-/etc/markbrain/secrets/owner-password` in /srv/markbrain.)
+/etc/markbrain/secrets/owner-password` in /srv/markbrain — then delete the
+file. The plaintext exists on the VPS only in that 0600 file for the duration
+of the change, and in Node's RAM while the vault is re-keyed.)
 
 ## Operations and Verification
 

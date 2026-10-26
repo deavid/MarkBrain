@@ -24,3 +24,8 @@ evidence/
 
 # Personal Ansible inventory (host/password overrides) — only .example is tracked
 deploy/ansible/inventory.ini
+
+# Package manager is bun (bun.lock). Stray npm lockfiles break npm ci
+# (vite/esbuild peer conflict) — found via Orion dev-orion merge 2026-10-26
+/package-lock.json
+npm-shrinkwrap.json

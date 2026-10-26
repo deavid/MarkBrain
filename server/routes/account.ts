@@ -41,7 +41,17 @@ import {
 } from '../lib/users';
 import { verifyPassword } from '../lib/accountVault';
 
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// Sliding renewal: once a session is past half its life, any authenticated
+// request extends it back to the full 30 days (and re-arms the cookie).
+// Without this the TTL is a countdown from LOGIN, not from last use — a
+// daily-active user could still get logged out while offline on day 30,
+// which is exactly when they cannot re-authenticate. The offline sync story
+// ("online today, plane tomorrow, land and sync") requires use to keep the
+// window alive. Same token is kept: rotating it would need a new Set-Cookie
+// value on every API response for no security gain.
+const SESSION_RENEW_THRESHOLD_MS = SESSION_TTL_MS / 2;
 
 /**
  * Fixed-window login rate limit (audit 26 H1): the public login runs
@@ -144,6 +154,16 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     vaultUnlocked: isVaultUnlocked(row.user_id),
   };
   req.user = user;
+
+  // Sliding renewal (see SESSION_RENEW_THRESHOLD_MS): past half-life, this
+  // very request extends the session. Set-Cookie on an API response is fine.
+  if (row.expires_at - Date.now() < SESSION_RENEW_THRESHOLD_MS) {
+    getDb()
+      .prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?')
+      .run(Date.now() + SESSION_TTL_MS, row.token_hash);
+    setSessionCookie(res, token);
+  }
+
   next();
 }
 

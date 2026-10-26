@@ -179,12 +179,39 @@ Unknown email skips scrypt (~1ms) vs ~100ms for a real one
   credentials (keys live in the GCM vault; app only ever holds plaintext keys
   of unlocked sessions in RAM).
 
-## Priority order for fixes
+## Verification (Orion, 2026-10-26) — Vega's no-brainer set `6f389bb`
 
-1. H1 rate-limit login (+ async scrypt, body cap on auth) — Caddy or code.
-2. H3 root-owned webroot (one playbook task).
-3. M1 `admin off` in Caddy.
-4. M2 trust proxy + Secure cookie.
-5. H2/M3 CSP img-src tighten; then decide on cookie-only sessions.
-6. M4/M5/M6 caps (disk, jobs, queue).
-7. L1 prod lockfile; L2 systemd hardening; the rest as sweep-up.
+Independently reviewed line-by-line and re-gated in dev-orion (merged;
+tsc clean, 549/549, build + secret guard clean, server boots). Verdict:
+**the work is correct and matches the claims.** Specifically checked: limiter
+counts failures only and throttles the correct password too (tested); dummy
+scrypt verify fires on unknown email; session pruning runs in issueSession;
+jobs/send 404s BEFORE body validation; logs are requireOwner on all three
+routes; playbook chowns app_dir to root (rsync runs via sudo as root, so no
+--chown needed); tsx only needs read — fine; TTS LRU evicts by
+last_accessed_at (updated on hit) and runs after every store. The
+"deliberately not taken" list is sound: admin off genuinely breaks Caddy's
+ExecReload; MemoryDenyWriteExecute genuinely breaks V8 JIT.
+
+Residual nits found during review (all LOW, logged for the next sweep):
+- The 64KB cap reads the Content-Length header; chunked requests without the
+  header skip the check (express.json 10MB still bounds them).
+- `loginFailures` map entries are never evicted — unbounded growth (bytes are
+  tiny; a restart clears). A size cap would be tidy.
+- Disabled accounts skip verifyPassword without the dummy verify, so the
+  "account exists but disabled" timing still differs from unknown-email.
+
+Remaining from the priority list (NOT yet done):
+- H2 cookie-only sessions (localStorage token removal) — decision needed.
+- L1 prod lockfile — David decision pending (Vega proposal stands).
+
+## Priority order for fixes (status after 6f389bb)
+
+1. ~~H1 rate-limit login~~ DONE (+ 64KB auth body cap).
+2. ~~H3 root-owned webroot~~ DONE.
+3. M1 Caddy admin off — REJECTED with reason (breaks ExecReload).
+4. ~~M2 trust proxy + Secure cookie~~ DONE (L3 bind too).
+5. H2 cookie-only sessions — OPEN, decision needed; M3 img-src REJECTED
+   (breaks https: images).
+6. M4 DONE (LRU); M5/M6 REJECTED (feature caps, single-user).
+7. L1 prod lockfile — pending David decision; L5/L6/L7 done; rest as sweep-up.

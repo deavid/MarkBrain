@@ -10,6 +10,7 @@ WorkingDirectory=/srv/markbrain
 EnvironmentFile=/etc/markbrain/markbrain.env
 Environment=NODE_ENV=production
 Environment=PORT=3032
+Environment=MARKBRAIN_BIND=127.0.0.1
 Environment=MARKBRAIN_DB_PATH=/var/lib/markbrain/markbrain.sqlite
 Environment=MARKBRAIN_TTS_CACHE_DIR=/var/lib/markbrain/tts-cache
 ExecStart=/usr/bin/npx tsx server.ts

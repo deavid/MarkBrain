@@ -12,7 +12,7 @@ directory, one SQLite database, one systemd unit, Caddy in front.
 ## Layout on the VPS
 
 ```text
-/srv/markbrain/            app (dist/, server/, src/, scripts/, node_modules)
+/srv/markbrain/            app (dist/, server/, src/, scripts/, node_modules) — root-owned; the markbrain user only reads it
 /var/lib/markbrain/        data (0700, markbrain:markbrain)
   markbrain.sqlite         the database — back this up
   tts-cache/               TTS audio cache

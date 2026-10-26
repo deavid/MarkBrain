@@ -29,6 +29,7 @@ import {
   type KeySlotId,
   type AuthUser,
 } from '../lib/accountVault';
+import { hashPassword } from '../lib/accountVault';
 import {
   findUserById,
   findUserByEmail,
@@ -41,6 +42,56 @@ import {
 import { verifyPassword } from '../lib/accountVault';
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/**
+ * Fixed-window login rate limit (audit 26 H1): the public login runs
+ * scryptSync (~50-100ms) per attempt, so unlimited guessing is both a
+ * brute-force and a CPU-starvation vector. 10 failures per IP per 5 minutes;
+ * successes don't count. In-memory: a restart clears it, which is fine for
+ * this threat model (a patient attacker doesn't win by waiting for a restart,
+ * the window re-arms).
+ */
+const LOGIN_MAX_FAILURES = 10;
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
+const loginFailures = new Map<string, { count: number; windowStart: number }>();
+
+function loginRateLimited(req: Request): boolean {
+  const key = req.ip ?? 'unknown';
+  const now = Date.now();
+  const entry = loginFailures.get(key);
+  if (!entry || now - entry.windowStart > LOGIN_WINDOW_MS) {
+    loginFailures.set(key, { count: 0, windowStart: now });
+    return false;
+  }
+  return entry.count >= LOGIN_MAX_FAILURES;
+}
+
+function recordLoginFailure(req: Request): void {
+  const key = req.ip ?? 'unknown';
+  const now = Date.now();
+  const entry = loginFailures.get(key);
+  if (!entry || now - entry.windowStart > LOGIN_WINDOW_MS) {
+    loginFailures.set(key, { count: 1, windowStart: now });
+  } else {
+    entry.count += 1;
+  }
+}
+
+function clearLoginFailures(req: Request): void {
+  loginFailures.delete(req.ip ?? 'unknown');
+}
+
+/** Test hook: the limiter is module state; tests reset it between cases. */
+export function resetLoginRateLimiterForTests(): void {
+  loginFailures.clear();
+}
+
+/**
+ * A hash of a value no real user has (audit 26 M8): verifying against it on
+ * the unknown-email path costs the same scrypt run as a real attempt, so
+ * response timing no longer reveals whether the email exists.
+ */
+const DUMMY_PASSWORD_HASH = hashPassword('timing-equalizer-' + '0'.repeat(24)).stored;
 
 function sha256hex(input: string): string {
   return crypto.createHash('sha256').update(input).digest('hex');
@@ -114,6 +165,8 @@ export function requireOwner(req: Request, res: Response, next: NextFunction): v
 function issueSession(userId: number): string {
   const token = crypto.randomBytes(32).toString('hex');
   const now = Date.now();
+  // Expired rows would otherwise accumulate forever (audit 26 L5).
+  getDb().prepare('DELETE FROM sessions WHERE expires_at < ?').run(now);
   getDb()
     .prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
     .run(sha256hex(token), userId, now, now + SESSION_TTL_MS);
@@ -121,7 +174,10 @@ function issueSession(userId: number): string {
 }
 
 function setSessionCookie(res: Response, token: string): void {
-  const secure = res.req.secure ? '; Secure' : '';
+  // In production the app is always behind a TLS-terminating proxy, so the
+  // cookie is always Secure there (audit 26 M2); req.secure alone is false
+  // behind TLS termination without trust proxy.
+  const secure = res.req.secure || process.env.NODE_ENV === 'production' ? '; Secure' : '';
   res.setHeader(
     'Set-Cookie',
     `mb_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`
@@ -159,12 +215,25 @@ export function registerAccountRoutes(app: Express): void {
       res.status(400).json({ error: 'email and password are required.' });
       return;
     }
+    if (loginRateLimited(req)) {
+      res.status(429).json({ error: 'Too many failed logins. Try again in a few minutes.' });
+      return;
+    }
+    if (typeof req.headers['content-length'] === 'string' && Number(req.headers['content-length']) > 65536) {
+      res.status(413).json({ error: 'Login body too large.' });
+      return;
+    }
     const user = findUserByEmail(email);
     const raw = user ? getRawUserById(user.id) : null;
     if (!user || !raw || raw.enabled !== 1 || !verifyPassword(password, raw.password_hash)) {
+      // Unknown email / bad password: burn the same scrypt cost either way so
+      // response timing does not reveal whether the account exists (26 M8).
+      if (!raw) verifyPassword(password, DUMMY_PASSWORD_HASH);
+      recordLoginFailure(req);
       res.status(401).json({ error: 'Invalid email or password.' });
       return;
     }
+    clearLoginFailures(req);
     try {
       unlockVaultWithPassword(user.id, password);
     } catch (err) {

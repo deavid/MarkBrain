@@ -22,6 +22,15 @@ import { loadProjectForUser, bumpProjectRevision } from '../db/projectRepo';
 export function registerJobRoutes(app: Express): void {
   // Enqueue a send/regenerate job (fire-and-forget: runner outlives this request).
   app.post('/api/projects/:projectId/jobs/send', (req: Request, res: Response) => {
+    // Ownership before enqueue (audit 26 L6): a caller could otherwise create
+    // ghost jobs pointing at projects they don't own. 404 mirrors the rest of
+    // the surface (no existence leak). Checked before body validation so it
+    // answers 404 regardless of payload shape.
+    const project = loadProjectForUser(req.user!.id, req.params.projectId);
+    if (!project) {
+      res.status(404).json({ error: 'Project not found.' });
+      return;
+    }
     const {
       threadId,
       kind = 'send',
@@ -68,8 +77,7 @@ export function registerJobRoutes(app: Express): void {
       stagedAttachments,
       targetTurnId: targetTurnId ?? null,
     });
-    const project = loadProjectForUser(req.user!.id, req.params.projectId);
-    res.status(201).json({ job: { jobId: job.job_id, state: job.state, threadId: job.thread_id }, revision: project?.revision ?? 0 });
+    res.status(201).json({ job: { jobId: job.job_id, state: job.state, threadId: job.thread_id }, revision: project.revision });
   });
 
   // Non-completed jobs for a project.

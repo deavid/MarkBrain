@@ -31,6 +31,10 @@ const port = parseInt(process.env.PORT || '3000', 10);
 
 const isProd = process.env.NODE_ENV === 'production';
 
+// Behind Caddy on the same host (audit 26 M2): exactly one proxy hop, so
+// req.secure / req.ip reflect the real client instead of the proxy.
+app.set('trust proxy', 1);
+
 app.use(express.json({ limit: '10mb' }));
 
 // Small CORS seam (design-docs/21B §7.2): custom server URLs + Caddy
@@ -140,7 +144,7 @@ export async function startServer() {
     });
   }
 
-  app.listen(port, '0.0.0.0', () => {
-    logServer('info', 'SERVER', `Server listening on http://0.0.0.0:${port}`);
+  app.listen(port, process.env.MARKBRAIN_BIND || '0.0.0.0', () => {
+    logServer('info', 'SERVER', `Server listening on ${process.env.MARKBRAIN_BIND || '0.0.0.0'}:${port}`);
   });
 }

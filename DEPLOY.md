@@ -37,7 +37,7 @@ Only `/api/*` wakes up the backend.
 
 On disk, everything goes into three tidy places:
 
-- `/srv/markbrain/` — the application code and compiled frontend
+- `/srv/markbrain/` — the application code and compiled frontend (**root-owned**; the `markbrain` user can only read it — the app process can never rewrite the site it serves)
 - `/var/lib/markbrain/` — your SQLite database and TTS audio cache (`0700`, owned by the `markbrain` system user — nobody else on the machine can read it)
 - `/etc/markbrain/` — configuration and the `/etc/markbrain/secrets/` folder (`0700`, root-only)
 

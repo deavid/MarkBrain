@@ -84,7 +84,6 @@
         delete: true
         rsync_path: "sudo rsync"
         rsync_opts:
-          - "--chown=markbrain:markbrain"
           - "--include=/dist/***"
           - "--include=/server/***"
           - "--include=/src/***"
@@ -193,15 +192,18 @@
         path: "{{ config_dir }}/secrets/owner-password"
         state: absent
 
-    - name: 9. Fix ownership of application and SQLite files
+    - name: 9. Fix ownership — data is the app user's; the app dir is root-owned
+        #    (audit 26 H3: /srv/markbrain incl. dist/ is served unauthenticated,
+        #    so the markbrain user must not be able to write it. tsx only needs
+        #    read access; npm install runs as root via become)
       file:
-        path: "{{ item }}"
-        owner: markbrain
-        group: markbrain
+        path: "{{ item.path }}"
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
         recurse: true
       loop:
-        - "{{ app_dir }}"
-        - "{{ data_dir }}"
+        - { path: "{{ app_dir }}", owner: "root", group: "root" }
+        - { path: "{{ data_dir }}", owner: "markbrain", group: "markbrain" }
 
     - name: 10. Install systemd unit
       copy:

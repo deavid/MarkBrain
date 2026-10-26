@@ -88,6 +88,44 @@ export async function encodePcmToOgg(pcmBuffer: Buffer, sampleRate = 24000): Pro
   }
 }
 
+/**
+ * Cache ceiling (audit 26 M4): every distinct text writes a new .ogg forever,
+ * which is a slow authenticated disk-fill. Evict least-recently-used entries
+ * past a byte budget. Generous defaults: hundreds of hours of speech.
+ */
+const TTS_CACHE_MAX_BYTES = parseInt(process.env.MARKBRAIN_TTS_CACHE_MAX_BYTES || '', 10) || 500 * 1024 * 1024;
+const TTS_CACHE_MAX_FILES = parseInt(process.env.MARKBRAIN_TTS_CACHE_MAX_FILES || '', 10) || 5000;
+
+function evictTtsCacheOverflow(): void {
+  const db = getDb();
+  const totals = db
+    .prepare('SELECT COALESCE(SUM(byte_size), 0) AS totalBytes, COUNT(*) AS totalFiles FROM tts_cache')
+    .get() as { totalBytes: number; totalFiles: number };
+  if (totals.totalBytes <= TTS_CACHE_MAX_BYTES && totals.totalFiles <= TTS_CACHE_MAX_FILES) return;
+
+  // Delete least-recently-used entries until both budgets hold again.
+  const victims = db
+    .prepare(
+      `SELECT cache_key, file_path, byte_size FROM tts_cache
+       ORDER BY last_accessed_at ASC, created_at ASC`
+    )
+    .all() as { cache_key: string; file_path: string; byte_size: number }[];
+  const del = db.prepare('DELETE FROM tts_cache WHERE cache_key = ?');
+  let bytes = totals.totalBytes;
+  let files = totals.totalFiles;
+  for (const v of victims) {
+    if (bytes <= TTS_CACHE_MAX_BYTES && files <= TTS_CACHE_MAX_FILES) break;
+    try {
+      fs.unlinkSync(v.file_path);
+    } catch {
+      /* already gone is fine */
+    }
+    del.run(v.cache_key);
+    bytes -= v.byte_size;
+    files -= 1;
+  }
+}
+
 /** Atomic write: `.tmp` → rename, then upsert the metadata row. */
 export function storeCachedTtsAudio(cacheKey: string, model: string, voice: string, oggBuffer: Buffer): string {
   const dir = ttsCacheDir();
@@ -103,5 +141,6 @@ export function storeCachedTtsAudio(cacheKey: string, model: string, voice: stri
          byte_size = excluded.byte_size, last_accessed_at = excluded.last_accessed_at`
     )
     .run(cacheKey, model, voice, finalPath, oggBuffer.length, Date.now(), Date.now());
+  evictTtsCacheOverflow();
   return finalPath;
 }

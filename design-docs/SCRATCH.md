@@ -10,7 +10,7 @@
 |---|---|
 | [`scratch/motivation.md`](scratch/motivation.md) | **David's actual "why"** — brain-overflow collector, expensive agentic, mobile capture, 3 modes, honesty flags, open tensions. Ground truth; docs defer to this. |
 | [`scratch/corrections.md`](scratch/corrections.md) | The real pillars, my corrected misreadings, motivation audit of existing docs, anti-slop writing rules. |
-| [`scratch/pending.md`](scratch/pending.md) | Checklist: doc cleanup (main task), doc/code gaps, open design questions. |
+| [`archive/pending_oct17_20.md`](archive/pending_oct17_20.md) | Historical live log (Oct 17–20), retired. **Live state now lives in [`STATUS.md`](STATUS.md).** |
 | [`scratch/COOPERATION.md`](scratch/COOPERATION.md) | **The Charter** — who I am, my training biases, David's grant of honesty/equality, how I must write (§4b epistemic humility), the compaction ritual. Read in full after every `/compact`. |
 
 ## Session state
@@ -36,3 +36,4 @@
 ---
 
 *(New yaps go into the topic files above; put session-level notes here.)*
+| [STATUS.md](STATUS.md) | Current live status file. See STATUS.md in design-docs/ |

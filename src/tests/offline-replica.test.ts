@@ -222,3 +222,132 @@ describe('wipeReplicaStorage ("Sign out & erase this device\'s copy")', () => {
     expect(emails).not.toContain('wiped@example.com');
   });
 });
+
+describe('apiFetch offline-replica short-circuit', () => {
+  beforeEach(() => {
+    lsStore.clear();
+  });
+
+  it('returns HTTP 503 {offline:true} without invoking fetch when offline', async () => {
+    setWorkspaceMode('vps');
+    saveVpsSession({
+      baseUrl: 'https://mb.example.com',
+      token: '',
+      userId: 1,
+      email: 'a@b.c',
+      isOwner: true,
+      vaultUnlocked: false,
+      offline: true,
+    });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const { apiFetch } = await import('../gateway/api');
+    const res = await apiFetch('/api/projects');
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'Offline replica mode', offline: true });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not short-circuit when the session is online', async () => {
+    setWorkspaceMode('vps');
+    saveVpsSession({
+      baseUrl: 'https://mb.example.com',
+      token: 'tok',
+      userId: 1,
+      email: 'a@b.c',
+      isOwner: true,
+      vaultUnlocked: true,
+    });
+    const fetchSpy = vi.fn((..._args: unknown[]) =>
+      Promise.resolve(new Response('{}', { status: 200 }))
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const { apiFetch } = await import('../gateway/api');
+    const res = await apiFetch('/api/projects');
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe('https://mb.example.com/api/projects');
+  });
+});
+
+describe('end-to-end signed-out + VPS-offline replica access and export', () => {
+  beforeEach(() => {
+    lsStore.clear();
+  });
+
+  it('user logs in → syncs project to local mirror → signs out (keep) → VPS goes dead → opens offline replica → reads project & exports lossless .tar.gz with zero network calls', async () => {
+    // Simulated per-database IndexedDB storage keyed by getActiveIdbName()
+    const idbDatabases = new Map<string, Map<string, unknown>>();
+    const getStore = (dbName: string) => {
+      let db = idbDatabases.get(dbName);
+      if (!db) {
+        db = new Map();
+        idbDatabases.set(dbName, db);
+      }
+      return db;
+    };
+
+    const { getActiveIdbName, openOfflineSession } = await import('../services/workspaceSession');
+    const { makeSnapshot } = await import('./fixtures/plaintextFixture');
+    const { exportProjectsTarGz, importProjectTarGz } = await import('../domains/plaintextTree');
+
+    // 1. User logs in to VPS (https://mb.example.com as David@Example.com)
+    setWorkspaceMode('vps');
+    saveVpsSession({
+      baseUrl: 'https://mb.example.com',
+      token: 'live-jwt-token',
+      userId: 7,
+      email: 'David@Example.com',
+      isOwner: true,
+      vaultUnlocked: true,
+    });
+    rememberReplica('https://mb.example.com', 'David@Example.com');
+
+    // While online, the user's project snapshot is mirrored into the active IndexedDB
+    const onlineIdbName = getActiveIdbName();
+    expect(onlineIdbName).toBe('markbrain-vps:https://mb.example.com:david@example.com');
+    const seededProject = makeSnapshot();
+    getStore(onlineIdbName).set(seededProject.projectId, JSON.parse(JSON.stringify(seededProject)));
+
+    // 2. User signs out (keep replica on this device)
+    clearVpsSession();
+    // WorkspaceMode is cleared on sign-out, returning user to AuthGate
+    lsShim.removeItem(WORKSPACE_MODE_KEY);
+    expect(getVpsSession()).toBeNull();
+
+    // 3. VPS is now completely DEAD (any fetch throws connection refused)
+    const deadNetworkSpy = vi.fn(() => Promise.reject(new TypeError('fetch failed: ECONNREFUSED')));
+    vi.stubGlobal('fetch', deadNetworkSpy);
+
+    // 4. User opens AuthGate, sees the known replica, and clicks "Open offline"
+    const replicas = listKnownReplicas();
+    expect(replicas).toHaveLength(1);
+    expect(replicas[0].email).toBe('David@Example.com');
+
+    openOfflineSession(replicas[0]);
+    expect(isOfflineReplica()).toBe(true);
+
+    // CRITICAL: the active IndexedDB name in offline replica mode MUST match
+    // the exact IndexedDB name that was populated when the user was online!
+    const offlineIdbName = getActiveIdbName();
+    expect(offlineIdbName).toBe(onlineIdbName);
+
+    // 5. Read the user's projects from the mirror and export them to .tar.gz
+    const offlineProjects = [...getStore(offlineIdbName).values()] as ReturnType<typeof makeSnapshot>[];
+    expect(offlineProjects).toHaveLength(1);
+    expect(offlineProjects[0].name).toBe('Fixture Project — fïxture');
+    expect(offlineProjects[0].artifacts).toHaveLength(3);
+
+    const tarGzBytes = await exportProjectsTarGz(offlineProjects);
+    expect(tarGzBytes.byteLength).toBeGreaterThan(500);
+
+    // Verify the exported .tar.gz unpacks back to the exact project with all notes & turns
+    const restored = await importProjectTarGz(tarGzBytes);
+    expect(restored).toEqual(offlineProjects);
+
+    // Zero network calls were attempted while signed out + offline
+    expect(deadNetworkSpy).not.toHaveBeenCalled();
+  });
+});

@@ -22,6 +22,7 @@ import { initDb, closeDbForTests } from '../../server/db';
 import { listProjectsForUser, loadProjectForUser, applyProjectSnapshotDiff } from '../../server/db/projectRepo';
 import { createUser, findUserByEmail } from '../../server/lib/users';
 import { makeSnapshot, P_ID } from './fixtures/plaintextFixture';
+import Database from 'better-sqlite3';
 
 // ---------------------------------------------------------------------------
 // CLI invocation helper
@@ -127,5 +128,98 @@ describe('plaintext CLI (Package 6)', () => {
 
   it('rejects a missing --user flag with usage', () => {
     expect(() => runCli('export', ['--out', outDir], dbAPath)).toThrow();
+  });
+});
+
+describe('backup-sqlite script (Stream A — operator snapshot)', () => {
+  const BACKUP_SCRIPT = path.join(repoRoot, 'scripts', 'backup-sqlite.ts');
+
+  function runBackup(dbPath: string, outPath: string, extraArgs: string[] = []): string {
+    return execFileSync('npx', ['tsx', BACKUP_SCRIPT, '--out', outPath, ...extraArgs], {
+      cwd: repoRoot,
+      env: { ...process.env, MARKBRAIN_DB_PATH: dbPath },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  }
+
+  it('copies a seeded DB to the snapshot and strips api_call_logs from the snapshot only', () => {
+    // Seed wire-log rows into DB B (whatever the snapshot is taken from).
+    const db = initDb(dbBPath);
+    db.prepare(
+      `INSERT INTO api_call_logs (id, user_id, kind, provider, model, t_send, status, request_json)
+       VALUES ('log-1', 1, 'chat', 'fixture', 'test-model', 1700000000000, 'ok', '{}')`
+    ).run();
+
+    const outPath = path.join(tempRoot, 'snapshot.sqlite');
+    const out = runBackup(dbBPath, outPath);
+    expect(out).toContain('snapshot written');
+    expect(out).toContain('stripped');
+
+    const snap = new Database(outPath, { readonly: true });
+    try {
+      expect(snap.prepare('SELECT COUNT(*) AS n FROM api_call_logs').get()).toEqual({ n: 0 });
+      // The domain data survives the strip.
+      expect(snap.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 1 });
+      expect(snap.prepare('SELECT COUNT(*) AS n FROM artifacts').get()).toEqual({ n: 3 });
+    } finally {
+      snap.close();
+    }
+
+    // The SOURCE DB keeps its logs — the strip touches the snapshot only.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM api_call_logs').get()).toEqual({ n: 1 });
+    db.prepare('DELETE FROM api_call_logs').run(); // leave DB B clean for other tests
+  });
+
+  it('keeps api_call_logs with --keep-call-logs', () => {
+    const db = initDb(dbBPath);
+    db.prepare(
+      `INSERT INTO api_call_logs (id, user_id, kind, provider, model, t_send, status, request_json)
+       VALUES ('log-2', 1, 'chat', 'fixture', 'test-model', 1700000000000, 'ok', '{}')`
+    ).run();
+
+    const outPath = path.join(tempRoot, 'snapshot-kept.sqlite');
+    const out = runBackup(dbBPath, outPath, ['--keep-call-logs']);
+    expect(out).toContain('kept');
+
+    const snap = new Database(outPath, { readonly: true });
+    try {
+      expect(snap.prepare('SELECT COUNT(*) AS n FROM api_call_logs').get()).toEqual({ n: 1 });
+    } finally {
+      snap.close();
+    }
+  });
+
+  it('rejects a missing --out with usage', () => {
+    expect(() =>
+      execFileSync('npx', ['tsx', BACKUP_SCRIPT], {
+        cwd: repoRoot,
+        env: { ...process.env, MARKBRAIN_DB_PATH: dbBPath },
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    ).toThrow();
+  });
+
+  it('survives a database without api_call_logs (old-shaped DB, found by skeptical review)', async () => {
+    const { mkdtempSync: mkd, rmSync: rm } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const dir = mkd(path.join(tmpdir(), 'markbrain-old-db-'));
+    try {
+      const oldDb = new Database(path.join(dir, 'old.sqlite'));
+      oldDb.exec('CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)');
+      oldDb.close();
+      const outPath = path.join(dir, 'old-snap.sqlite');
+      const out = runBackup(path.join(dir, 'old.sqlite'), outPath);
+      expect(out).toContain('no api_call_logs table');
+      const snap = new Database(outPath, { readonly: true });
+      try {
+        expect(snap.prepare('SELECT COUNT(*) AS n FROM users').get()).toEqual({ n: 0 });
+      } finally {
+        snap.close();
+      }
+    } finally {
+      rm(dir, { recursive: true, force: true });
+    }
   });
 });

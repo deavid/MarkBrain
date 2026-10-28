@@ -1698,47 +1698,132 @@ async function main() {
     }
   });
 
-  // ── J26 my data is readable with the server gone ──────────────────────────
-  await journey(page, '26-offline-replica', 'Signed out: Open offline boots without any login call; erase removes the replica', async (page) => {
+  // ── J26 my data is readable AND exportable with the server gone ───────────
+  await journey(page, '26-offline-replica', 'Signed out + VPS dead: Open offline loads the real project & notes from IndexedDB and exports a .tar.gz with zero network calls', async (page) => {
     // Fresh CONTEXT: this journey owns its device — no inherited workspace
     // mode, no inherited mirror, or the gate would never appear.
     const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
     const page2 = await ctx2.newPage();
     guardExternal(page2);
     try {
-      const authCalls = [];
-      page2.on('request', (r) => { if (r.url().includes('/api/auth')) authCalls.push(r.url()); });
       await page2.goto(APP, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page2.getByRole('button', { name: /Use Local Workspace/ }).first().waitFor({ state: 'visible', timeout: 10_000 });
-      await page2.evaluate((url) => {
+
+      // Seed a REAL project with a note and a chat turn inside the replica's
+      // actual IndexedDB (`markbrain-vps:<origin>:<email>`) as if the user had
+      // worked online and then signed out.
+      await page2.evaluate(async (url) => {
+        const origin = new URL(url).origin;
+        const email = 'offline.cuj@example.com';
+        const idbName = `markbrain-vps:${origin}:${email}`;
         localStorage.setItem('markbrain:knownReplicas', JSON.stringify([{
-          baseUrl: url, email: 'offline.cuj@example.com',
-          idbName: 'markbrain-vps-offline-cuj', lastUsedAt: Date.now(),
+          baseUrl: origin,
+          email,
+          idbName,
+          lastUsedAt: Date.now(),
         }]));
+        await new Promise((resolve, reject) => {
+          const req = indexedDB.open(idbName, 1);
+          req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('projects')) {
+              db.createObjectStore('projects', { keyPath: 'projectId' });
+            }
+          };
+          req.onsuccess = () => {
+            const db = req.result;
+            const tx = db.transaction('projects', 'readwrite');
+            tx.objectStore('projects').put({
+              projectId: 'proj-offline-survival',
+              name: 'Offline Survival Project',
+              codeName: 'SURVIVE',
+              description: 'Must remain readable and exportable when signed out and VPS is down.',
+              color: '#5ad49b',
+              updatedAt: Date.now(),
+              turns: [
+                { id: 't-1', role: 'user', content: 'Can I still read this when the server dies?', timestamp: Date.now() - 1000 },
+                { id: 't-2', role: 'assistant', content: 'Yes — straight from your device replica.', timestamp: Date.now() },
+              ],
+              chapters: [],
+              artifacts: [
+                {
+                  id: 'art-survive-1',
+                  workspaceId: 'proj-offline-survival',
+                  code: 'SURVIVAL-NOTE',
+                  title: 'Unhaunter Offline Survival Note',
+                  type: 'document',
+                  category: 'concept',
+                  isHighConcept: true,
+                  current: {
+                    subtitle: 'Still here when the server is dead',
+                    description: 'Full description preserved offline.',
+                    summary: 'Full summary preserved offline.',
+                    body: '# Survival Note\n\nEvery paragraph of my work is still on this device.\n',
+                  },
+                  tags: ['offline'],
+                  createdAt: Date.now(),
+                  updatedAt: Date.now(),
+                },
+              ],
+              edges: [],
+            });
+            tx.oncomplete = () => { db.close(); resolve(true); };
+            tx.onerror = () => reject(tx.error);
+          };
+          req.onerror = () => reject(req.error);
+        });
       }, APP);
+
       await page2.reload({ waitUntil: 'domcontentloaded' });
       await page2.getByText('Offline replicas on this device').first().waitFor({ state: 'visible', timeout: 10_000 });
       step('wait', 'AuthGate offers the offline replica');
       check((await page2.evaluate(() => document.body.innerText)).includes('offline.cuj@example.com'), 'the replica is named');
       await page2.screenshot({ path: path.join(J.dir, 'shots', '01-authgate-replicas.png') }).catch(() => {});
 
+      // Now simulate the VPS being 100% DEAD: abort every /api/* request!
+      const apiCallsAttempted = [];
+      await page2.route('**/api/**', async (route) => {
+        apiCallsAttempted.push(route.request().url());
+        await route.abort('connectionrefused');
+      });
+
       await page2.locator('[data-testid="open-offline-replica"]').first().click({ timeout: 5000 });
-      // An empty mirror boots to the workspace shell; there may be nothing to
-      // compose yet, so wait for the shell, not for a composer.
-      await page2.waitForTimeout(4000);
+      await page2.locator('textarea').first().waitFor({ state: 'visible', timeout: 15_000 });
+      await page2.waitForTimeout(1000);
+
       const wsText = await page2.evaluate(() => document.body.innerText);
       check(!wsText.includes('Use Local Workspace'), 'the gate is gone — the workspace opened from the device copy');
-      check(authCalls.length === 0, `no login call was made to any server (${authCalls.length} seen)`);
-      step('boot', 'workspace opened offline');
+      check(wsText.includes('Offline Survival Project'), 'the real project loaded from the offline replica');
+      check(wsText.includes('Can I still read this when the server dies?'), 'the chat history is visible');
+      check(apiCallsAttempted.length === 0, `zero /api/* calls were made while opening offline (${apiCallsAttempted.length} seen)`);
+      step('boot', 'real project + chat loaded offline with VPS dead');
       await page2.screenshot({ path: path.join(J.dir, 'shots', '02-offline-workspace.png') }).catch(() => {});
 
-      // Sign out (the "keep" choice): the copy stays, so the gate must still
-      // offer the replica — that is the whole point of signing out instead of
-      // erasing. (The wipe choice needs a workspace sidebar; with an empty
-      // mirror only plain Sign out exists. wipeReplicaStorage itself is pinned
-      // by a unit test in offline-replica.test.ts.)
-      await page2.screenshot({ path: path.join(J.dir, 'shots', '02b-before-signout.png') }).catch(() => {});
-      await page2.getByRole('button', { name: /Sign out$/i }).first().click({ timeout: 5000 });
+      // Switch to Artifacts view and verify the project's note is readable offline!
+      await page2.getByRole('button', { name: /Artifacts/i }).first().click({ timeout: 5000 });
+      await page2.waitForTimeout(500);
+      const artText = await page2.evaluate(() => document.body.innerText);
+      check(artText.includes('Unhaunter Offline Survival Note') || artText.includes('SURVIVAL-NOTE'), 'the project note is visible in Artifacts view while offline');
+      await page2.screenshot({ path: path.join(J.dir, 'shots', '02a-offline-artifacts.png') }).catch(() => {});
+
+      // Export the plaintext .tar.gz while signed out & VPS dead!
+      await page2.getByText('Import / Export I/O').first().click({ timeout: 5000 });
+      await page2.waitForTimeout(400);
+      const [download] = await Promise.all([
+        page2.waitForEvent('download', { timeout: 10_000 }),
+        page2.locator('button:has-text("Plaintext backup")').first().click({ timeout: 5000 }),
+      ]);
+      const dlPath = path.join(J.dir, download.suggestedFilename());
+      await download.saveAs(dlPath);
+      const zlib = require('zlib');
+      const raw = zlib.gunzipSync(fs.readFileSync(dlPath)).toString('utf8');
+      check(raw.includes('Offline Survival Project'), 'exported .tar.gz contains project.json with the project');
+      check(raw.includes('Every paragraph of my work is still on this device.'), 'exported .tar.gz contains the full Markdown body of the note');
+      step('export', `downloaded ${download.suggestedFilename()} with full note + chat while VPS is dead`);
+
+      // Sign out (the "keep" choice) via the Sidebar account menu: the copy stays!
+      await page2.locator('[aria-label="Account and sync"]').first().click({ timeout: 5000 });
+      await page2.getByRole('button', { name: /^Sign Out$/i }).first().click({ timeout: 5000 });
       await page2.getByRole('button', { name: /Use Local Workspace/ }).first().waitFor({ state: 'visible', timeout: 10_000 });
       const gateTxt = await page2.evaluate(() => document.body.innerText);
       check(/offline replicas on this device/i.test(gateTxt), 'signing out KEEPS the copy — the gate still offers it');

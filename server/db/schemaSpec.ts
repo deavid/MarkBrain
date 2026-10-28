@@ -125,6 +125,7 @@ const PROJECTS: TableSpec = {
   active_thread_id TEXT,
   granularity_law TEXT NOT NULL DEFAULT 'user-only',
   capabilities_json TEXT,
+  doc_json TEXT NOT NULL DEFAULT '{}',
   revision INTEGER NOT NULL DEFAULT 1,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, project_id)
@@ -139,6 +140,10 @@ const PROJECTS: TableSpec = {
     { name: 'active_thread_id', ddl: 'active_thread_id TEXT' },
     { name: 'granularity_law', ddl: "granularity_law TEXT NOT NULL DEFAULT 'user-only'" },
     { name: 'capabilities_json', ddl: 'capabilities_json TEXT' },
+    // Envelope law (design-docs/28 §5.3): the canonical project metadata doc.
+    // The columns above are what SQL filters/orders on; anything else on the
+    // project (and any future field) lives here — zero SQL migrations.
+    { name: 'doc_json', ddl: "doc_json TEXT NOT NULL DEFAULT '{}'" },
     { name: 'revision', ddl: 'revision INTEGER NOT NULL DEFAULT 1' },
     { name: 'updated_at', ddl: 'updated_at INTEGER NOT NULL' },
   ],
@@ -186,6 +191,7 @@ const FOLDERS: TableSpec = {
   folder_id TEXT NOT NULL,
   name TEXT NOT NULL,
   order_index INTEGER NOT NULL DEFAULT 0,
+  doc_json TEXT NOT NULL DEFAULT '{}',
   revision INTEGER NOT NULL,
   PRIMARY KEY (user_id, project_id, folder_id),
   FOREIGN KEY (user_id, project_id) REFERENCES projects(user_id, project_id) ON DELETE CASCADE
@@ -196,6 +202,8 @@ const FOLDERS: TableSpec = {
     { name: 'folder_id', ddl: 'folder_id TEXT NOT NULL' },
     { name: 'name', ddl: 'name TEXT NOT NULL' },
     { name: 'order_index', ddl: 'order_index INTEGER NOT NULL DEFAULT 0' },
+    // Envelope law (design-docs/28 §5.3): the canonical ThreadFolder doc.
+    { name: 'doc_json', ddl: "doc_json TEXT NOT NULL DEFAULT '{}'" },
     { name: 'revision', ddl: 'revision INTEGER NOT NULL' },
   ],
 };
@@ -213,9 +221,9 @@ const TURNS: TableSpec = {
   thread_id TEXT NOT NULL,
   turn_id TEXT NOT NULL,
   seq INTEGER NOT NULL,
-  role TEXT NOT NULL,
-  content TEXT NOT NULL,
-  timestamp INTEGER NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user',
+  content TEXT NOT NULL DEFAULT '',
+  timestamp INTEGER NOT NULL DEFAULT 0,
   meta_json TEXT NOT NULL DEFAULT '{}',
   doc_json TEXT NOT NULL DEFAULT '{}',
   revision INTEGER NOT NULL,
@@ -228,9 +236,9 @@ const TURNS: TableSpec = {
     { name: 'thread_id', ddl: 'thread_id TEXT NOT NULL' },
     { name: 'turn_id', ddl: 'turn_id TEXT NOT NULL' },
     { name: 'seq', ddl: 'seq INTEGER NOT NULL' },
-    { name: 'role', ddl: 'role TEXT NOT NULL' },
-    { name: 'content', ddl: 'content TEXT NOT NULL' },
-    { name: 'timestamp', ddl: 'timestamp INTEGER NOT NULL' },
+    { name: 'role', ddl: "role TEXT NOT NULL DEFAULT 'user'" },
+    { name: 'content', ddl: "content TEXT NOT NULL DEFAULT ''" },
+    { name: 'timestamp', ddl: 'timestamp INTEGER NOT NULL DEFAULT 0' },
     { name: 'meta_json', ddl: "meta_json TEXT NOT NULL DEFAULT '{}'" },
     { name: 'doc_json', ddl: "doc_json TEXT NOT NULL DEFAULT '{}'" },
     { name: 'revision', ddl: 'revision INTEGER NOT NULL' },
@@ -251,9 +259,9 @@ const CHAPTERS: TableSpec = {
   project_id TEXT NOT NULL,
   thread_id TEXT NOT NULL,
   chapter_id TEXT NOT NULL,
-  start_turn_id TEXT NOT NULL,
+  start_turn_id TEXT NOT NULL DEFAULT '0',
   end_turn_id TEXT,
-  title TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
   description TEXT,
   summary TEXT,
   granularity TEXT NOT NULL DEFAULT 'full',
@@ -269,9 +277,9 @@ const CHAPTERS: TableSpec = {
     { name: 'project_id', ddl: 'project_id TEXT NOT NULL' },
     { name: 'thread_id', ddl: 'thread_id TEXT NOT NULL' },
     { name: 'chapter_id', ddl: 'chapter_id TEXT NOT NULL' },
-    { name: 'start_turn_id', ddl: 'start_turn_id TEXT NOT NULL' },
+    { name: 'start_turn_id', ddl: "start_turn_id TEXT NOT NULL DEFAULT '0'" },
     { name: 'end_turn_id', ddl: 'end_turn_id TEXT' },
-    { name: 'title', ddl: 'title TEXT NOT NULL' },
+    { name: 'title', ddl: "title TEXT NOT NULL DEFAULT ''" },
     { name: 'description', ddl: 'description TEXT' },
     { name: 'summary', ddl: 'summary TEXT' },
     { name: 'granularity', ddl: "granularity TEXT NOT NULL DEFAULT 'full'" },
@@ -465,6 +473,7 @@ const ARTIFACT_REVISIONS: TableSpec = {
   provenance_json TEXT NOT NULL DEFAULT '{}',
   title TEXT NOT NULL DEFAULT '',
   layers_json TEXT NOT NULL DEFAULT '{}',
+  doc_json TEXT NOT NULL DEFAULT '{}',
   revision INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, project_id, artifact_id, version),
   FOREIGN KEY (user_id, project_id) REFERENCES projects(user_id, project_id) ON DELETE CASCADE
@@ -480,6 +489,10 @@ const ARTIFACT_REVISIONS: TableSpec = {
     { name: 'provenance_json', ddl: "provenance_json TEXT NOT NULL DEFAULT '{}'" },
     { name: 'title', ddl: "title TEXT NOT NULL DEFAULT ''" },
     { name: 'layers_json', ddl: "layers_json TEXT NOT NULL DEFAULT '{}'" },
+    // Envelope law (design-docs/28 §5.3): the canonical ArtifactRevision doc —
+    // future revision fields ride here with zero SQL migrations. The columns
+    // above stay as the SQL-usable projection (and the legacy fallback).
+    { name: 'doc_json', ddl: "doc_json TEXT NOT NULL DEFAULT '{}'" },
     // Package 1: same revision-stamp envelope as every other domain table —
     // getProjectDelta filters revision rows by it. Added by the annealer.
     { name: 'revision', ddl: 'revision INTEGER NOT NULL DEFAULT 0' },

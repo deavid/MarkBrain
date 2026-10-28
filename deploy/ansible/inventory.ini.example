@@ -1,16 +1,26 @@
+# Copy this file to inventory.ini (gitignored) and edit it for your server.
+#
+#   cp deploy/ansible/inventory.ini.example deploy/ansible/inventory.ini
+
 [markbrain_vps]
-markbrain.unhaunter.com ansible_user=debian
+markbrain.yourdomain.com ansible_user=debian
 
 [markbrain_vps:vars]
-markbrain_domain=markbrain.unhaunter.com
+# The domain Caddy serves HTTPS on. The playbook writes it into the Caddy
+# config — nothing else needs to know your domain.
+markbrain_domain=markbrain.yourdomain.com
 markbrain_port=3032
-markbrain_owner_email=you@example.com
-# Pass initial owner password only on first bootstrap via:
-# ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml -e "markbrain_owner_password=..."
-# The playbook writes it to /etc/markbrain/secrets/owner-password (0600) on the
-# VPS only for the duration of the run and deletes it right after — the hash
-# file is the only persistent artifact. Later deploys need nothing passed.
-# Rotate with: -e "markbrain_owner_password=<new> rotate_owner_password=true"
+markbrain_owner_email=you@yourdomain.com
+
+# The owner password is NOT set here. The playbook reads it from
+# /etc/markbrain/secrets/ on the server (see RUNBOOK.md, "First Bootstrap").
+# For a one-off bootstrap or rotation you can pass it on the command line:
+#   ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml \
+#     -e "markbrain_owner_password=..."
+#   ansible-playbook ... -e "markbrain_owner_password=<new>" rotate_owner_password=true
+# (no_log hides Ansible's output, but the value still lands in your local shell
+# history — prefer the hash-file flow in the runbook.)
 markbrain_owner_password=""
+
 # SSH connection multiplexing — speeds up repeated deploys noticeably
 ansible_ssh_common_args="-o ControlMaster=auto -o ControlPersist=60s"

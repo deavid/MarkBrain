@@ -25,7 +25,7 @@ import { flushServerMutations } from './serverMutationQueue';
 import { setVaultLocked } from '../data/vaultReArm';
 import { setServerKeySnapshot } from '../data/sendReadiness';
 import { apiFetch } from '../gateway/api';
-import { getWorkspaceMode } from '../services/workspaceSession';
+import { getWorkspaceMode, getVpsSession, isOfflineReplica, rememberReplica } from '../services/workspaceSession';
 import type { ProjectDeltaResponse } from '../../server/db/projectRepo';
 import { logger } from '../utils/logger';
 
@@ -205,7 +205,9 @@ export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
   const inFlight = useRef(false);
 
   useEffect(() => {
-    if (getWorkspaceMode() !== 'vps' || !activeProjectId) return;
+    // Offline replica: the poller would fire dead 503s every 10s at nothing —
+    // the replica IS the data; there is no server to poll.
+    if (getWorkspaceMode() !== 'vps' || isOfflineReplica() || !activeProjectId) return;
 
     // New project → start the cursor at 0 so the first pull is a full catch-up.
     lastRevisionRef.current = 0;
@@ -224,6 +226,12 @@ export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
           `/api/projects/${encodeURIComponent(activeProjectId)}/delta?since=${since}`
         );
         if (!res.ok) return; // 401/404 etc. — next tick retries; boot load owns first hydration
+        // A successful sync proves this (baseUrl, email) pair holds a real
+        // replica — remember it so AuthGate can offer "Open offline" later.
+        const session = getVpsSession();
+        if (session?.email) {
+          rememberReplica(session.baseUrl, session.email);
+        }
         const delta = (await res.json()) as ProjectDeltaResponse;
         if (cancelled) return;
         if (delta.revision > lastRevisionRef.current) {

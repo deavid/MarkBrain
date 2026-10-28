@@ -15,7 +15,7 @@
 export type WorkspaceMode = 'local' | 'vps';
 
 export interface VpsSessionInfo {
-  /** '' = same origin, or e.g. 'https://markbrain.unhaunter.com' */
+  /** '' = same origin, or e.g. 'https://markbrain.yourdomain.com' */
   baseUrl: string;
   /**
    * Bearer token from POST /api/auth/login. '' in offline replica mode —

@@ -47,9 +47,12 @@ The following documentation set is active:
 * Deploy wording scrub (`playbook.yml`, `RUNBOOK.md`).
 
 ## Active Backlog (Honest & Numbered)
+0. **Durability from the backup discussion (see `DECISIONS_BACKUP_SQLITE_VS_PLAINTEXT.md`) — SOLVED IN CODE (executed 2026-10-28 via `BACKUP_DISCUSSION_FIX_PLAN.md`; all gates green):**
+    - (a) **Service backup/restore (Problem A):** `npm run backup-sqlite` takes a consistent online snapshot and strips ephemeral `api_call_logs` (tested, including old-shaped DBs); `deploy/RUNBOOK.md` has the daily cron + scp rolling-ring command for the home machine; `playbook.yml` `-e restore_db=...` restores a dead VPS in one command.
+    - (b) **User data sovereignty (Problem B):** Every browser device keeps an IndexedDB replica of the user's VPS workspace; even when signed out and the VPS is dead, the user can click **Open offline** on the sign-in screen, read all their projects/notes/chats, and download a lossless `.tar.gz` plaintext tree (`ExportModal` for single project, Sidebar for all projects) that imports cleanly into any MarkBrain instance or Local Mode.
 1. **Verification & Bug-Fix:** Complete manual testing and bug-fix pass on all above landed features (Orion is mid-check; David to test Text size on mobile, composer draft recovery, offline airplane behavior).
 2. **Live Deployment:** First live Ansible deployment to `markbrain.unhaunter.com` (Sequenced deployment via `deploy/RUNBOOK.md`).
-3. **Horizon Pack 2 (Design Sign-off Needed):** Two-axis semantic graph + forest map + neighborhood staging; bidirectional suggestions (attach/push-in/push-out); chat-driven Auto-Organizator; WASM browser embeddings; FS Access folder mirror; peer-collaborator prompt tuning.
+3. **Horizon Pack 2 (Design Sign-off Needed):** Two-axis semantic graph + forest map + neighborhood staging; bidirectional suggestions (attach/push-in/push-out); chat-driven Auto-Organizator; WASM browser embeddings; peer-collaborator prompt tuning.
 4. **Future Drawer (Parked):** Security H2 (cookie-only sessions), L1 (prod lockfile), offline-replica password verifier, paragraph-anchored comments.
 
 **Decision Pending:** L1 prod-lockfile script (regen-deps + npm ci + fail-hard playbook) — pitched, awaiting decision.

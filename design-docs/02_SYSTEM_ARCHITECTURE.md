@@ -116,6 +116,10 @@ server/
 
 ## 3. The Three-Part Storage & Backup Model
 
+*Why this shape and not the alternatives (YAML-restore, SQL dumps in Git,
+plaintext-as-runtime-store): see `DECISIONS_BACKUP_SQLITE_VS_PLAINTEXT.md` —
+the verbatim decision record with the rejected roads.*
+
 Decided law (`archive/27` §1). What is sacred, in order: **Tier 1** artifacts
 + revision history + provenance; **Tier 2** chat threads & turns; **Tier 3**
 disposable (embeddings, TTS cache, 7-day call logs — never backed up).

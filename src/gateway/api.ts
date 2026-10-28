@@ -17,7 +17,7 @@
  */
 import { resolveLaneKey, type ResolvedKey } from '../data/keySlots';
 import { DEFAULT_MODEL_SLOTS } from '../data/modelConfig';
-import { getWorkspaceMode, getVpsSession, type VpsSessionInfo } from '../services/workspaceSession';
+import { getWorkspaceMode, getVpsSession, isOfflineReplica, type VpsSessionInfo } from '../services/workspaceSession';
 import { isCaptureMode } from '../services/persistenceService';
 import {
   recordCallStart,
@@ -171,6 +171,16 @@ function fixtureChatStream(
  * Same-origin requests in local mode carry no Authorization header.
  */
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  // Offline replica: NOTHING may leave the tab. The replica's IndexedDB is the
+  // whole world — answer 503 without touching the network (an empty-Bearer
+  // request to the last-known URL would at best 401, at worst hit a server
+  // the user explicitly said is unreachable).
+  if (isOfflineReplica()) {
+    return new Response(JSON.stringify({ error: 'Offline replica mode', offline: true }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
   const session = getWorkspaceMode() === 'vps' ? getVpsSession() : null;
   const baseUrl = session?.baseUrl ?? '';
   const token = session?.token ?? '';

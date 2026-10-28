@@ -17,6 +17,7 @@
  */
 import YAML from 'yaml';
 import { sanitizeTarPath, createTarGz, parseTarGz, type TarEntry } from '../utils/tarGz';
+import { contentHash } from '../utils/contentHash';
 import type { ProjectSnapshot } from '../services/stores/projectStore';
 import type { Turn } from './01-dialogue-timeline/types';
 import type { ChapterPartition } from './02-chapter-segmentation/types';
@@ -60,26 +61,23 @@ function artifactFileBase(artifact: UniversalArtifactDocument): string {
 // ---------------------------------------------------------------------------
 
 function artifactToFrontmatter(artifact: UniversalArtifactDocument): Record<string, unknown> {
-  const fm: Record<string, unknown> = {
-    id: artifact.id,
-    workspaceId: artifact.workspaceId,
-    code: artifact.code,
-    title: artifact.title,
-    type: artifact.type,
-    category: artifact.category,
-    isHighConcept: artifact.isHighConcept,
-    tags: artifact.tags,
-    createdAt: artifact.createdAt,
-    updatedAt: artifact.updatedAt,
-    subtitle: artifact.current.subtitle,
-    description: artifact.current.description,
-    summary: artifact.current.summary,
-  };
-  if (artifact.color !== undefined) fm.color = artifact.color;
-  if (artifact.lifecycle !== undefined) fm.lifecycle = artifact.lifecycle;
-  if (artifact.layersStaleAt !== undefined) fm.layersStaleAt = artifact.layersStaleAt;
-  if (artifact.graph !== undefined) fm.graph = artifact.graph;
-  if (artifact.yamlDocument !== undefined) fm.yamlDocument = artifact.yamlDocument;
+  // Spread all top-level artifact properties EXCEPT `current` (whose body
+  // becomes the Markdown body and whose subtitle/description/summary sit at
+  // top level of the frontmatter). Any future field on UniversalArtifactDocument
+  // is preserved automatically without touching this serializer — a new field
+  // can no longer be silently dropped on export.
+  const { current, ...rest } = artifact as UniversalArtifactDocument & Record<string, unknown>;
+  const fm: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(rest)) {
+    if (v !== undefined) fm[k] = v;
+  }
+  fm.subtitle = current.subtitle;
+  fm.description = current.description;
+  fm.summary = current.summary;
+  // Hash of the body at export time. On import, a mismatch proves the .md
+  // was edited outside MarkBrain (VS Code / Git) while description/summary
+  // still describe the OLD body → the summary layers must go stale.
+  fm.bodyHash = contentHash(current.body ?? '');
   return fm;
 }
 
@@ -105,30 +103,53 @@ function parseArtifactMarkdown(md: string, workspaceId: string): UniversalArtifa
   const fm = (YAML.parse(fmStr) ?? {}) as Record<string, unknown>;
   const body = lines.slice(endIdx + 1).join('\n');
 
+  // subtitle/description/summary live in `current`; bodyHash is consumed by
+  // the external-edit detector below; everything else spreads back in.
+  const {
+    subtitle,
+    description,
+    summary,
+    bodyHash,
+    ...rest
+  } = fm;
+
   const current = {
-    subtitle: (fm.subtitle as string | undefined) ?? undefined,
-    description: (fm.description as string) ?? '',
-    summary: (fm.summary as string) ?? '',
+    subtitle: (subtitle as string | undefined) ?? undefined,
+    description: (description as string) ?? '',
+    summary: (summary as string) ?? '',
     body,
   };
-  return {
-    id: fm.id as string,
-    workspaceId: (fm.workspaceId as string) || workspaceId,
-    code: fm.code as string,
-    title: fm.title as string,
-    type: fm.type as 'document' | 'chapter',
-    category: fm.category as string,
-    isHighConcept: fm.isHighConcept as boolean,
-    color: fm.color as string | undefined,
+
+  // External edit detection ([19293]): if the Markdown body was edited in
+  // VS Code / Git outside MarkBrain, its hash no longer matches `bodyHash`
+  // from when the file was exported, while description/summary are non-empty.
+  // Mark the summary layers stale so the compiler omits them at `full` cut —
+  // a stale summary must never lie to the LLM.
+  let layersStaleAt = rest.layersStaleAt as number | undefined;
+  const actualHash = contentHash(body);
+  const hasSummaryLayers = Boolean(current.description || current.summary);
+  if (typeof bodyHash === 'string' && bodyHash !== actualHash && hasSummaryLayers && !layersStaleAt) {
+    layersStaleAt = Date.now();
+  }
+
+  const doc: Record<string, unknown> = {
+    ...rest,
+    id: rest.id as string,
+    workspaceId: (rest.workspaceId as string) || workspaceId,
+    code: rest.code as string,
+    title: rest.title as string,
+    type: rest.type as 'document' | 'chapter',
+    category: rest.category as string,
+    isHighConcept: Boolean(rest.isHighConcept),
     current,
-    tags: (fm.tags as string[]) ?? [],
-    createdAt: fm.createdAt as number,
-    updatedAt: fm.updatedAt as number,
-    layersStaleAt: fm.layersStaleAt as number | undefined,
-    graph: fm.graph as UniversalArtifactDocument['graph'],
-    yamlDocument: fm.yamlDocument as string | undefined,
-    lifecycle: fm.lifecycle as UniversalArtifactDocument['lifecycle'],
+    tags: (rest.tags as string[]) ?? [],
+    createdAt: rest.createdAt as number,
+    updatedAt: rest.updatedAt as number,
   };
+  if (layersStaleAt !== undefined) {
+    doc.layersStaleAt = layersStaleAt;
+  }
+  return doc as unknown as UniversalArtifactDocument;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,18 +160,17 @@ export function snapshotToTree(snapshot: ProjectSnapshot): TarEntry[] {
   const root = safeFilename(snapshot.codeName || snapshot.projectId);
   const entries: TarEntry[] = [];
 
-  // project.json — metadata + capabilities + granularityLaw
-  const meta: Record<string, unknown> = {
-    projectId: snapshot.projectId,
-    updatedAt: snapshot.updatedAt,
-  };
-  if (snapshot.activeThreadId !== undefined) meta.activeThreadId = snapshot.activeThreadId;
-  if (snapshot.name !== undefined) meta.name = snapshot.name;
-  if (snapshot.codeName !== undefined) meta.codeName = snapshot.codeName;
-  if (snapshot.description !== undefined) meta.description = snapshot.description;
-  if (snapshot.color !== undefined) meta.color = snapshot.color;
-  if (snapshot.granularityLaw !== undefined) meta.granularityLaw = snapshot.granularityLaw;
-  if (snapshot.capabilities !== undefined) meta.capabilities = snapshot.capabilities;
+  // project.json — spread ALL snapshot metadata. The collection arrays and
+  // the server-only revision cursor are the only things that travel in their
+  // own files/columns; any future project-level field round-trips
+  // automatically instead of being silently dropped here.
+  const COLLECTION_KEYS = new Set([
+    'turns', 'chapters', 'artifacts', 'edges', 'threads', 'folders', 'revisions', 'revision',
+  ]);
+  const meta: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(snapshot)) {
+    if (!COLLECTION_KEYS.has(k) && v !== undefined) meta[k] = v;
+  }
   entries.push({ path: `${root}/project.json`, data: encodeUtf8(JSON.stringify(meta, null, 2) + '\n') });
 
   // folders.json
@@ -293,13 +313,16 @@ export function treeToSnapshot(entries: TarEntry[], fallbackProjectId?: string):
     // history file with no matching artifact: dropped (cannot exist from our export)
   }
 
-  return {
+  // Spread meta back first so any future project-level field written by a
+  // newer build round-trips; the known keys below then land canonically.
+  const out: ProjectSnapshot = {
+    ...(meta ?? {}),
     projectId,
+    updatedAt: (meta?.updatedAt as number) ?? 0,
     turns,
     chapters,
     artifacts,
     edges,
-    updatedAt: (meta?.updatedAt as number) ?? 0,
     threads: threads.length > 0 ? threads : undefined,
     folders: folders && folders.length > 0 ? folders : undefined,
     activeThreadId: meta?.activeThreadId as string | undefined,
@@ -311,6 +334,7 @@ export function treeToSnapshot(entries: TarEntry[], fallbackProjectId?: string):
     revisions: Object.keys(revisions).length > 0 ? revisions : undefined,
     capabilities: meta?.capabilities as Partial<ChatCapabilities> | undefined,
   };
+  return out;
 }
 
 /** Entries grouped by their top-level project folder (for multi-project archives). */

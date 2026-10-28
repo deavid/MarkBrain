@@ -64,10 +64,8 @@ On disk, everything goes into three tidy places:
 
 ## Step 1 — Point the config at your domain and server
 
-Two files contain the domain `markbrain.unhaunter.com` as the default. Replace
-it with yours:
-
-**1. Create your Ansible inventory from the example:**
+Everything is driven by one file: your Ansible inventory. Create it from the
+example:
 
 ```bash
 cp deploy/ansible/inventory.ini.example deploy/ansible/inventory.ini
@@ -91,16 +89,9 @@ ansible_ssh_common_args="-o ControlMaster=auto -o ControlPersist=60s"
 (Leave `markbrain_owner_password=""` empty — we will handle the password
 properly in Step 2 so it never sits in a config file or in your bash history.)
 
-**2. Update the domain at the top of `deploy/Caddyfile`:**
-
-Open `deploy/Caddyfile` and change the first line from `markbrain.unhaunter.com {`
-to your domain:
-
-```caddyfile
-markbrain.yourdomain.com {
-    encode zstd gzip
-    ...
-```
+That is the only place your domain needs to appear: the playbook renders the
+Caddy site config (`deploy/Caddyfile` is a template) from `markbrain_domain`
+and `markbrain_port` at deploy time.
 
 ---
 

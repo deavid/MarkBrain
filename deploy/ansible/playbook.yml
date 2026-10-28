@@ -9,8 +9,22 @@
     config_dir: /etc/markbrain
     rotate_owner_password: false
     markbrain_owner_password_hash: ""
+    # Database restore (RUNBOOK §Backups & Restore): a local .sqlite snapshot made
+    # by `npm run backup-sqlite`. Empty = normal deploy; set it to restore, e.g.
+    #   ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml \
+    #     -e restore_db=/home/you/backups/markbrain-YYYY-MM-DD.sqlite
+    restore_db: ""
 
   tasks:
+    - name: 0. Check that the inventory defines a domain
+      assert:
+        that:
+          - markbrain_domain | default('') | length > 0
+        fail_msg: >-
+          markbrain_domain is not set. Put your domain in the [markbrain_vps:vars]
+          section of your inventory (see inventory.ini.example) — the playbook
+          writes it into the Caddy config.
+
     - name: 1. Run local production build + secret guard on dev machine
       delegate_to: localhost
       become: false
@@ -205,6 +219,31 @@
         - { path: "{{ app_dir }}", owner: "root", group: "root" }
         - { path: "{{ data_dir }}", owner: "markbrain", group: "markbrain" }
 
+    - name: 7b. Stop markbrain service before restoring database snapshot (when restore_db is set)
+      when: restore_db | length > 0
+      systemd:
+        name: markbrain
+        state: stopped
+      failed_when: false
+
+    - name: 7c. Remove stale WAL/SHM files before restoring database snapshot
+      when: restore_db | length > 0
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ data_dir }}/markbrain.sqlite-wal"
+        - "{{ data_dir }}/markbrain.sqlite-shm"
+
+    - name: 7d. Copy local restore_db snapshot to VPS
+      when: restore_db | length > 0
+      copy:
+        src: "{{ restore_db }}"
+        dest: "{{ data_dir }}/markbrain.sqlite"
+        owner: markbrain
+        group: markbrain
+        mode: "0600"
+
     - name: 10. Install systemd unit
       copy:
         src: "{{ playbook_dir }}/../markbrain.service"
@@ -214,8 +253,8 @@
         mode: "0644"
       notify: Restart markbrain
 
-    - name: 11. Install Caddy site config
-      copy:
+    - name: 11. Install Caddy site config (domain/port rendered from inventory)
+      template:
         src: "{{ playbook_dir }}/../Caddyfile"
         dest: /etc/caddy/conf.d/markbrain.caddy
         owner: root

@@ -666,7 +666,7 @@ describe('G8 — backup restore: serialize → parse → replace-all → GET rou
  * ───────────────────────────────────────────────────────────────────────── */
 
 const SESSION = {
-  baseUrl: 'https://markbrain.unhaunter.com',
+  baseUrl: 'https://markbrain.yourdomain.com',
   token: 'bearer-token-abc',
   userId: 7,
   email: 'Deavid@Example.com',
@@ -702,7 +702,7 @@ describe('G10 — workspaceSession session contract', () => {
 
     ws.setWorkspaceMode('vps');
     ws.saveVpsSession(SESSION);
-    expect(ws.getActiveIdbName()).toBe('markbrain-vps:https://markbrain.unhaunter.com:deavid@example.com');
+    expect(ws.getActiveIdbName()).toBe('markbrain-vps:https://markbrain.yourdomain.com:deavid@example.com');
 
     // Empty baseUrl = same origin → window.location.origin is the namespace.
     ws.saveVpsSession({ ...SESSION, baseUrl: '' });
@@ -718,7 +718,7 @@ describe('G10 — workspaceSession session contract', () => {
 
     ws.setWorkspaceMode('vps');
     ws.saveVpsSession(SESSION);
-    expect(ws.getScopedStorageKey('draft')).toBe('markbrain:vps:https://markbrain.unhaunter.com:deavid@example.com:draft');
+    expect(ws.getScopedStorageKey('draft')).toBe('markbrain:vps:https://markbrain.yourdomain.com:deavid@example.com:draft');
   });
 
   it('clearWorkspaceMode / clearVpsSession clean up both keys', () => {

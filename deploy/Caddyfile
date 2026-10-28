@@ -1,10 +1,13 @@
-markbrain.unhaunter.com {
+# Site config for MarkBrain, rendered by deploy/ansible/playbook.yml from
+# markbrain_domain and markbrain_port in your Ansible inventory — the domain
+# and port below are filled in at deploy time; don't edit them here.
+{{ markbrain_domain }} {
     encode zstd gzip
 
-    # Only /api/* wakes up the Node + SQLite daemon on 127.0.0.1:3032.
+    # Only /api/* wakes up the Node + SQLite daemon on 127.0.0.1:{{ markbrain_port }}.
     # flush_interval -1 ensures SSE chat streams (/api/jobs/*/stream) never buffer.
     handle /api/* {
-        reverse_proxy 127.0.0.1:3032 {
+        reverse_proxy 127.0.0.1:{{ markbrain_port }} {
             flush_interval -1
         }
     }

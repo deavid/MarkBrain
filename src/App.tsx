@@ -72,6 +72,7 @@ import { groupTurnsByChapter } from './domains/02-chapter-segmentation';
 import type { ProjectExportInput } from './utils/tokenCalculator';
 import { createWorkspaceHandlers } from './ui/workspace/createWorkspaceHandlers';
 import { useDatabaseTransfer } from './ui/workspace/useDatabaseTransfer';
+import { exportProjectTarGz } from './domains/plaintextTree';
 import { createArtifactHandlers } from './ui/artifacts/createArtifactHandlers';
 import { createGraphHandlers } from './ui/graph/createGraphHandlers';
 import { createChapterHandlers, useAutoSummarizeSealedChapters } from './ui/chat/createChapterHandlers';
@@ -633,6 +634,41 @@ export default function App() {
     chapters: chapterGroups,
     edges: domainEdges,
   };
+
+  // Package 28 §3.5: single-project plaintext backup, assembled exactly like
+  // the persist worker assembles a save (compose re-flattens the threads).
+  const handleExportProjectTarGz = useCallback(async () => {
+    const composed = threadRegistry.compose(timeline.getTurns(), segmentation.listChapters());
+    const container = workspace.getProject(projectMeta.id);
+    const snapshot = {
+      projectId: projectMeta.id,
+      turns: composed.turns,
+      chapters: composed.chapters,
+      threads: composed.threads,
+      folders: composed.folders,
+      activeThreadId: composed.activeThreadId,
+      artifacts: domainArtifacts,
+      edges: domainEdges,
+      revisions: versioning.getAllRevisions(),
+      name: container?.metadata.name,
+      codeName: container?.metadata.codeName,
+      description: container?.metadata.description,
+      color: container?.metadata.color,
+      ...(container?.metadata.capabilities ? { capabilities: container.metadata.capabilities } : {}),
+      updatedAt: Date.now(),
+    };
+    const bytes = await exportProjectTarGz(snapshot);
+    const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/gzip' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${projectMeta.codeName || projectMeta.id}.tar.gz`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    logger.info('App', `Plaintext project archive downloaded (${projectMeta.codeName || projectMeta.id})`);
+  }, [threadRegistry, timeline, segmentation, workspace, versioning, projectMeta, domainArtifacts, domainEdges]);
 
   const {
     handleAttachArtifact: handleAttachArtifactRaw,
@@ -1214,6 +1250,7 @@ export default function App() {
         <ExportModal
           projects={domainProjectsList}
           activeProject={activeProjectExport}
+          onExportProjectTarGz={handleExportProjectTarGz}
           onClose={() => setIsExportOpen(false)}
         />
       )}

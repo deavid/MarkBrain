@@ -6,22 +6,28 @@ import {
   exportToYAML,
   type ProjectExportInput,
 } from '../../utils/tokenCalculator';
-import { Download, Copy, Check, X, FileText, Code, FileJson } from 'lucide-react';
+import { Download, Copy, Check, X, FileText, Code, FileJson, Archive } from 'lucide-react';
 
 interface ExportModalProps {
   projects: ProjectMetadata[];
   /** Domain-shaped export payload (App composes it from domain reads + selectors). */
   activeProject: ProjectExportInput;
+  /** Builds the LIVE ProjectSnapshot of the active project and downloads it as
+   * a bijection-safe .tar.gz (Package 28 §3.5) — the only export that can be
+   * imported back into MarkBrain losslessly. */
+  onExportProjectTarGz: () => Promise<void>;
   onClose: () => void;
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({
   projects,
   activeProject,
+  onExportProjectTarGz,
   onClose,
 }) => {
   const [format, setFormat] = useState<'json' | 'markdown' | 'yaml'>('json');
   const [copied, setCopied] = useState(false);
+  const [tarBusy, setTarBusy] = useState(false);
 
   // Close on Escape — consistent with ArtifactDetailModal/ImportModal/MirrorPanel
   useEffect(() => {
@@ -63,6 +69,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadTarGz = async () => {
+    setTarBusy(true);
+    try {
+      await onExportProjectTarGz();
+    } finally {
+      setTarBusy(false);
+    }
   };
 
   return (
@@ -141,6 +156,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               <span>Download .{format === 'markdown' ? 'md' : format}</span>
             </button>
           </div>
+        </div>
+
+        {/* The only export that imports back losslessly (Package 28 §3.5). */}
+        <div className="px-3 pb-3 bg-surface-0">
+          <button
+            onClick={handleDownloadTarGz}
+            disabled={tarBusy}
+            className="w-full flex items-center justify-center gap-2 px-3.5 py-2 rounded-lg bg-[#2f5d3f] hover:bg-[#3b7050] disabled:opacity-60 text-xs font-semibold text-[#eaf6ef] shadow-md transition-colors"
+          >
+            <Archive className="w-3.5 h-3.5" />
+            <span>{tarBusy ? 'Building archive…' : 'Download Plaintext Archive (.tar.gz) — re-importable backup'}</span>
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 bg-surface-0 font-mono text-xs text-[#d1c5db]">

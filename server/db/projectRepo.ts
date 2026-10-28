@@ -94,12 +94,13 @@ interface ProjectRow {
   active_thread_id: string | null;
   granularity_law: string;
   capabilities_json: string | null;
+  doc_json?: string;
   revision: number;
   updated_at: number;
 }
 
 const SELECT_PROJECT = `SELECT project_id, name, code_name, description, color, active_thread_id,
-  granularity_law, capabilities_json, revision, updated_at FROM projects WHERE user_id = ? AND project_id = ?`;
+  granularity_law, capabilities_json, doc_json, revision, updated_at FROM projects WHERE user_id = ? AND project_id = ?`;
 
 /* ── assembly ─────────────────────────────────────────────────────────────── */
 
@@ -137,9 +138,15 @@ function assembleProject(db: Db, userId: number, row: ProjectRow): ProjectSnapsh
 
   const folders = (
     db
-      .prepare('SELECT folder_id, name, order_index FROM folders WHERE user_id = ? AND project_id = ? ORDER BY order_index ASC')
-      .all(userId, row.project_id) as Array<{ folder_id: string; name: string; order_index: number }>
-  ).map((f) => ({ id: f.folder_id, name: f.name, order: f.order_index } as ThreadFolder));
+      .prepare('SELECT folder_id, name, order_index, doc_json FROM folders WHERE user_id = ? AND project_id = ? ORDER BY order_index ASC')
+      .all(userId, row.project_id) as Array<{ folder_id: string; name: string; order_index: number; doc_json: string }>
+  ).map((f) => {
+    // Envelope law: doc_json is the canonical ThreadFolder (any future field
+    // rides inside it); the columns are the SQL-usable projection + fallback.
+    const doc = parseJson<ThreadFolder | null>(f.doc_json, null);
+    if (doc && doc.id) return doc;
+    return { id: f.folder_id, name: f.name, order: f.order_index } as ThreadFolder;
+  });
 
   const turns = (
     db
@@ -214,7 +221,13 @@ function assembleProject(db: Db, userId: number, row: ProjectRow): ProjectSnapsh
       .all(userId, row.project_id) as Array<{ edge_json: string }>
   ).map((e) => parseJson<SemanticEdge | null>(e.edge_json, null)).filter((e): e is SemanticEdge => Boolean(e && e.id));
 
+  // Envelope law: doc_json holds any project fields beyond the SQL columns —
+  // future fields survive a SQLite round-trip with zero migrations. It never
+  // overrides the column-backed fields (they are the SQL-usable projection).
+  const extraMeta = parseJson<Record<string, unknown> | null>(row.doc_json, null);
+
   return {
+    ...(extraMeta ?? {}),
     projectId: row.project_id,
     name: row.name,
     codeName: row.code_name,
@@ -239,15 +252,27 @@ function assembleProject(db: Db, userId: number, row: ProjectRow): ProjectSnapsh
 
 function upsertProjectMeta(db: Db, userId: number, snap: ProjectSnapshot, newRev: number): void {
   const now = Date.now();
+  // Envelope law: doc_json carries everything beyond the SQL columns. The
+  // column-backed keys are excluded so the projection stays the projection —
+  // otherwise reads would double-store (and drift) the same field.
+  const COLUMN_KEYS = new Set([
+    'projectId', 'turns', 'chapters', 'artifacts', 'edges', 'threads', 'folders', 'revisions',
+    'name', 'codeName', 'description', 'color', 'activeThreadId', 'granularityLaw',
+    'capabilities', 'updatedAt', 'revision',
+  ]);
+  const extraMeta: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(snap)) {
+    if (!COLUMN_KEYS.has(k) && v !== undefined) extraMeta[k] = v;
+  }
   db.prepare(
     `INSERT INTO projects (project_id, user_id, name, code_name, description, color, active_thread_id,
-       granularity_law, capabilities_json, revision, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       granularity_law, capabilities_json, doc_json, revision, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, project_id) DO UPDATE SET
        name = excluded.name, code_name = excluded.code_name, description = excluded.description,
        color = excluded.color, active_thread_id = excluded.active_thread_id,
        granularity_law = excluded.granularity_law, capabilities_json = excluded.capabilities_json,
-       revision = excluded.revision, updated_at = excluded.updated_at`
+       doc_json = excluded.doc_json, revision = excluded.revision, updated_at = excluded.updated_at`
   ).run(
     snap.projectId,
     userId,
@@ -258,6 +283,7 @@ function upsertProjectMeta(db: Db, userId: number, snap: ProjectSnapshot, newRev
     snap.activeThreadId ?? null,
     snap.granularityLaw ?? 'user-only',
     snap.capabilities ? JSON.stringify(snap.capabilities) : null,
+    JSON.stringify(extraMeta),
     newRev,
     snap.updatedAt || now
   );
@@ -325,11 +351,12 @@ function upsertThread(db: Db, userId: number, projectId: string, thread: ChatThr
 
 function upsertFolder(db: Db, userId: number, projectId: string, folder: ThreadFolder, rev: number): void {
   db.prepare(
-    `INSERT INTO folders (user_id, project_id, folder_id, name, order_index, revision)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO folders (user_id, project_id, folder_id, name, order_index, doc_json, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, project_id, folder_id) DO UPDATE SET
-       name = excluded.name, order_index = excluded.order_index, revision = excluded.revision`
-  ).run(userId, projectId, folder.id, folder.name ?? '', folder.order ?? 0, rev); // name NOT NULL
+       name = excluded.name, order_index = excluded.order_index, doc_json = excluded.doc_json,
+       revision = excluded.revision`
+  ).run(userId, projectId, folder.id, folder.name ?? '', folder.order ?? 0, JSON.stringify(folder), rev); // name NOT NULL
 }
 
 // Envelope contract (design-docs/28 §5.3): `doc_json` is the canonical
@@ -405,12 +432,13 @@ function upsertArtifactRevision(
 ): void {
   db.prepare(
     `INSERT INTO artifact_revisions (user_id, project_id, artifact_id, version, timestamp, actor,
-       change_summary, provenance_json, title, layers_json, revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       change_summary, provenance_json, title, layers_json, doc_json, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, project_id, artifact_id, version) DO UPDATE SET
        timestamp = excluded.timestamp, actor = excluded.actor,
        change_summary = excluded.change_summary, provenance_json = excluded.provenance_json,
-       title = excluded.title, layers_json = excluded.layers_json, revision = excluded.revision`
+       title = excluded.title, layers_json = excluded.layers_json, doc_json = excluded.doc_json,
+       revision = excluded.revision`
   ).run(
     userId,
     projectId,
@@ -422,6 +450,10 @@ function upsertArtifactRevision(
     JSON.stringify(revision.provenance ?? {}),
     revision.title ?? '',
     JSON.stringify(revision.layers ?? {}),
+    // Envelope law: the full revision doc is canonical — future fields ride
+    // here with zero SQL migrations. The columns stay in sync as the
+    // SQL-usable projection (and the legacy fallback for old rows).
+    JSON.stringify(revision),
     rev
   );
 }
@@ -445,7 +477,7 @@ export function upsertArtifactRevisions(
 export function loadArtifactRevisions(db: Db, userId: number, projectId: string): Record<string, ArtifactRevision[]> {
   const rows = db
     .prepare(
-      'SELECT artifact_id, version, timestamp, actor, change_summary, provenance_json, title, layers_json FROM artifact_revisions WHERE user_id = ? AND project_id = ? ORDER BY artifact_id ASC, version ASC'
+      'SELECT artifact_id, version, timestamp, actor, change_summary, provenance_json, title, layers_json, doc_json FROM artifact_revisions WHERE user_id = ? AND project_id = ? ORDER BY artifact_id ASC, version ASC'
     )
     .all(userId, projectId) as Array<{
     artifact_id: string;
@@ -456,10 +488,18 @@ export function loadArtifactRevisions(db: Db, userId: number, projectId: string)
     provenance_json: string;
     title: string;
     layers_json: string;
+    doc_json: string;
   }>;
   const out: Record<string, ArtifactRevision[]> = {};
   for (const r of rows) {
     const list = (out[r.artifact_id] ??= []);
+    // Envelope law: the doc_json revision doc wins when present (any future
+    // field rides inside it); legacy columns reconstruct older rows.
+    const doc = parseJson<ArtifactRevision | null>(r.doc_json, null);
+    if (doc && doc.version !== undefined) {
+      list.push(doc);
+      continue;
+    }
     list.push({
       version: r.version,
       timestamp: r.timestamp,
@@ -547,7 +587,7 @@ export function listProjectsForUser(userId: number): ProjectSnapshotWithRevision
   const db = getDb();
   const rows = db
     .prepare(
-      `SELECT project_id, name, code_name, description, color, active_thread_id, granularity_law, capabilities_json, revision, updated_at
+      `SELECT project_id, name, code_name, description, color, active_thread_id, granularity_law, capabilities_json, doc_json, revision, updated_at
        FROM projects WHERE user_id = ? ORDER BY updated_at DESC`
     )
     .all(userId) as ProjectRow[];
@@ -1189,9 +1229,13 @@ export function getProjectDelta(userId: number, projectId: string, sinceRevision
   base.threads = deltaThreads.map((t) => parseJson<ChatThread | null>(t.doc_json, null)).filter((t): t is ChatThread => Boolean(t?.id));
 
   const deltaFolders = db
-    .prepare('SELECT folder_id, name, order_index FROM folders WHERE user_id = ? AND project_id = ? AND revision > ?')
-    .all(userId, projectId, sinceRevision) as Array<{ folder_id: string; name: string; order_index: number }>;
-  base.folders = deltaFolders.map((f) => ({ id: f.folder_id, name: f.name, order: f.order_index } as ThreadFolder));
+    .prepare('SELECT folder_id, name, order_index, doc_json FROM folders WHERE user_id = ? AND project_id = ? AND revision > ?')
+    .all(userId, projectId, sinceRevision) as Array<{ folder_id: string; name: string; order_index: number; doc_json: string }>;
+  base.folders = deltaFolders.map((f) => {
+    const doc = parseJson<ThreadFolder | null>(f.doc_json, null);
+    if (doc && doc.id) return doc;
+    return { id: f.folder_id, name: f.name, order: f.order_index } as ThreadFolder;
+  });
 
   const deltaChapters = db
     .prepare('SELECT doc_json FROM chapters WHERE user_id = ? AND project_id = ? AND revision > ? ORDER BY order_index ASC')
@@ -1212,7 +1256,7 @@ export function getProjectDelta(userId: number, projectId: string, sinceRevision
   // waking device picks up the new History without a full snapshot reload.
   const deltaRevisionRows = db
     .prepare(
-      'SELECT artifact_id, version, timestamp, actor, change_summary, provenance_json, title, layers_json FROM artifact_revisions WHERE user_id = ? AND project_id = ? AND revision > ? ORDER BY artifact_id ASC, version ASC'
+      'SELECT artifact_id, version, timestamp, actor, change_summary, provenance_json, title, layers_json, doc_json FROM artifact_revisions WHERE user_id = ? AND project_id = ? AND revision > ? ORDER BY artifact_id ASC, version ASC'
     )
     .all(userId, projectId, sinceRevision) as Array<{
     artifact_id: string;
@@ -1223,11 +1267,17 @@ export function getProjectDelta(userId: number, projectId: string, sinceRevision
     provenance_json: string;
     title: string;
     layers_json: string;
+    doc_json: string;
   }>;
   if (deltaRevisionRows.length > 0) {
     const revs: Record<string, ArtifactRevision[]> = {};
     for (const r of deltaRevisionRows) {
       const list = (revs[r.artifact_id] ??= []);
+      const doc = parseJson<ArtifactRevision | null>(r.doc_json, null);
+      if (doc && doc.version !== undefined) {
+        list.push(doc);
+        continue;
+      }
       list.push({
         version: r.version,
         timestamp: r.timestamp,

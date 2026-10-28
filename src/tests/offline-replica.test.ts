@@ -38,6 +38,7 @@ const {
   WORKSPACE_MODE_KEY,
   VPS_SESSION_KEY,
   idbNameForReplica,
+  wipeReplicaStorage,
 } = await import('../services/workspaceSession');
 
 describe('known replicas (localStorage contract)', () => {
@@ -185,5 +186,39 @@ describe('offline session helpers', () => {
     clearVpsSession();
     expect(lsStore.has(VPS_SESSION_KEY)).toBe(false);
     expect(lsStore.get(WORKSPACE_MODE_KEY)).toBe('vps');
+  });
+});
+
+describe('wipeReplicaStorage ("Sign out & erase this device\'s copy")', () => {
+  beforeEach(() => {
+    lsStore.clear();
+  });
+
+  it('removes the replica from the list and never throws without indexedDB', async () => {
+    rememberReplica('https://mb.example.com', 'wiped@example.com');
+    expect(listKnownReplicas().map((r) => r.email)).toContain('wiped@example.com');
+    // This environment has no indexedDB: the wipe must still take the
+    // knownReplicas entry off and settle (the IDB deletion runs in browsers).
+    await expect(wipeReplicaStorage({
+      baseUrl: 'https://mb.example.com',
+      email: 'wiped@example.com',
+      idbName: idbNameForReplica('https://mb.example.com', 'wiped@example.com'),
+      lastUsedAt: Date.now(),
+    })).resolves.toBeUndefined();
+    expect(listKnownReplicas().map((r) => r.email)).not.toContain('wiped@example.com');
+  });
+
+  it('wiping one replica leaves the others alone', async () => {
+    rememberReplica('https://mb.example.com', 'keep@example.com');
+    rememberReplica('https://other.example.com', 'wiped@example.com');
+    await wipeReplicaStorage({
+      baseUrl: 'https://other.example.com',
+      email: 'wiped@example.com',
+      idbName: idbNameForReplica('https://other.example.com', 'wiped@example.com'),
+      lastUsedAt: Date.now(),
+    });
+    const emails = listKnownReplicas().map((r) => r.email);
+    expect(emails).toContain('keep@example.com');
+    expect(emails).not.toContain('wiped@example.com');
   });
 });

@@ -30,6 +30,9 @@ const PACK = process.env.MARKBRAIN_EVIDENCE_DIR ||
 // Prefix match: `20` selects `20-enter-send-config`.
 const ONLY = (process.env.MARKBRAIN_JOURNEYS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const SKIP_AUDIT = !!process.env.MARKBRAIN_SKIP_AUDIT;
+// The harness NEVER talks to a provider. Capture mode runs the fixture stream
+// (gateway/api fixtureChatStream): deterministic SSE, zero network. The
+// hermetic-guard below enforces it — anything leaving localhost fails the pack.
 
 const VIEWPORTS = [
   { w: 350, h: 700, name: '350x700' },   // docs minimum phone
@@ -131,6 +134,19 @@ function fail(detail) { if (J) J.failures.push(detail); log('  ❌', detail); }
 function warn(detail) { if (J) J.warns.push(detail); log('  ⚠️', detail); }
 function check(cond, detail) { if (!cond) fail(detail); return !!cond; }
 let shotCounter = 0;
+// Hard guard for the no-external-calls default: while live sends are off,
+// ANY request leaving localhost fails the pack. Fixture runs must be hermetic.
+const externalRequests = [];
+function guardExternal(p) {
+  p.on('request', (r) => {
+    try {
+      const u = new URL(r.url());
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return;
+      externalRequests.push(`${u.host}${u.pathname}`);
+      log('  🚫 EXTERNAL REQUEST while live sends are off:', externalRequests[externalRequests.length - 1]);
+    } catch { /* unparseable url — count it */ externalRequests.push(String(r.url()).slice(0, 120)); }
+  });
+}
 async function shot(page, name) {
   const dir = mkDir(path.join(J.dir, 'shots'));
   const file = path.join(dir, `${String(++shotCounter).padStart(2, '0')}-${name}.png`);
@@ -491,11 +507,17 @@ async function main() {
     executablePath: chrome, headless: true,
     args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
   });
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  // acceptDownloads: J25 saves the plaintext .tar.gz the app generates.
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
 
   const page = await ctx.newPage();
+  guardExternal(page);
   // J13 deliberately forces a 500 — errors during that phase are EXPECTED evidence.
   let forceFailurePhase = false;
+  // Fixture runs never sign in, so 401s against /api/ are expected (see the
+  // response handler below). The console text carries no URL, so the response
+  // side records what it whitelisted and the console side matches against it.
+  const expected401s = new Set();
   page.on('pageerror', (e) => {
     const s = String(e).slice(0, 300);
     (forceFailurePhase || expectedNoise.test(s) ? summary.expectedNoise : summary.pageErrors).push(s);
@@ -503,11 +525,24 @@ async function main() {
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
     const t = m.text().slice(0, 300);
+    // 'Failed to load resource: ... 401' has no URL in it — expected only when
+    // a whitelisted 401 /api/ response actually happened this run.
+    if (/status of 401/.test(t) && expected401s.size > 0) {
+      summary.expectedNoise.push(t);
+      return;
+    }
     (forceFailurePhase || expectedNoise.test(t) ? summary.expectedNoise : summary.consoleErrors).push(t);
   });
   page.on('response', (r) => {
     if (r.status() >= 400) {
       const s = `${r.status()} ${r.url().slice(0, 140)}`;
+      // Fixture runs never sign in, so any /api/ 401 is the app being honest
+      // about "no session here" — expected, not a regression.
+      if (r.status() === 401 && r.url().includes('/api/')) {
+        summary.expectedNoise.push(s);
+        expected401s.add(new URL(r.url()).pathname);
+        return;
+      }
       (forceFailurePhase ? summary.expectedNoise : summary.httpErrors).push(s);
     }
   });
@@ -515,12 +550,18 @@ async function main() {
   const startUrl = `${APP}${APP.includes('?') ? '&' : '?'}fixture=1`;
   const boot = async () => {
     await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    // Phase 3 made "no mode chosen yet" a real gate (9c87b32). The harness is
+    // a visitor, not a ghost: it picks Local Workspace like a person would.
+    const gate = page.getByRole('button', { name: /Use Local Workspace/ }).first();
+    if (await gate.isVisible({ timeout: 4000 }).catch(() => false)) {
+      await gate.click({ timeout: 5000 });
+    }
     await page.locator('textarea').first().waitFor({ state: 'visible', timeout: 30_000 });
     await page.waitForTimeout(2500);
   };
   await boot();
   const composer = page.locator('textarea').first();
-  // Robust send: bottom composer button, or hero "Start Dialogue" (an EMPTY
+
   // thread has no [title="Send message"] button), last resort Enter.
   const send = async () => {
     const primary = page.locator('[title="Send message"]').first();
@@ -560,6 +601,8 @@ async function main() {
     await waitIdle(page);
     const txt = await bodyText();
     check(/EVIDENCE-OK/.test(txt), 'reply content landed');
+    // A failed draft carries the same text — only a real reply proves the send.
+    check(!/The stream ended without a reply/i.test(txt), 'the stream did not die into a failed draft');
     check(/total tok|first chunk|·/.test(txt), 'telemetry meta line present');
     check(!/EVIDENCE-OK[\s\S]{0,200}EVIDENCE-OK$/.test(txt.slice(-400)), 'no duplicate reply');
     await shot(page, 'reply');
@@ -1137,8 +1180,10 @@ async function main() {
     const txt = await bodyText();
     check(/Import Markdown|drop multiple/i.test(txt), 'local import lane visible');
     await shot(page, 'import-modal');
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(400);
+    // This modal ignores Escape — close it with its own button, or it eats
+    // every click for the rest of the run.
+    await page.getByText('Close', { exact: true }).first().click({ timeout: 5000 });
+    await page.waitForTimeout(500);
   });
 
   // ── J11 model picker ──────────────────────────────────────────────────────
@@ -1165,14 +1210,26 @@ async function main() {
     await page.waitForTimeout(2000);
     const geo = await page.evaluate(() => ({
       scrollW: document.documentElement.scrollWidth, vw: innerWidth,
-      send: (() => { const b = document.querySelector('[title="Send message"]'); if (!b) return null;
-        const r = b.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, vh: innerHeight, vw: innerWidth }; })(),
+      send: (() => {
+        // The composer action is ONE button with three honest states: ready,
+        // keys locked, or no key at all. Any of them counts — what must hold
+        // at 390px is that the affordance exists and sits inside the viewport.
+        const b = ['[title="Send message"]', '[title^="Keys locked"]', '[title^="Add an API key"]']
+          .map((s) => document.querySelector(s)).find(Boolean);
+        if (!b) return null;
+        const r = b.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, vh: innerHeight, vw: innerWidth };
+      })(),
     }));
     check(geo.scrollW <= geo.vw + 1, `no horizontal scroll (scrollW ${geo.scrollW} <= vw ${geo.vw})`);
-    if (geo.send) {
-      check(geo.send.x >= 0 && geo.send.y >= 0 && geo.send.x + geo.send.w <= geo.send.vw + 1 &&
-        geo.send.y + geo.send.h <= geo.send.vh + 1, 'send button fully within viewport');
-    } else fail('send button missing at 390px');
+    // With live sends off there is no key provisioned, so the composer shows
+    // the vault padlock instead of a send button — that IS the honest mobile
+    // state here. Either affordance must sit fully inside the viewport.
+    const composerBtn = geo.send || geo.lock;
+    if (composerBtn) {
+      check(composerBtn.x >= 0 && composerBtn.y >= 0 && composerBtn.x + composerBtn.w <= geo.vw + 1 &&
+        composerBtn.y + composerBtn.h <= composerBtn.vh + 1, 'composer action (send or vault lock) fully within viewport');
+      check(!!geo.send, 'the send button is ready — capture mode needs no key');
+    } else fail('the composer action button is missing at 390px');
     await shot(page, 'mobile-chat');
     const drawer = page.locator('button[aria-label="Open sidebar drawer"]');
     if (await drawer.isVisible().catch(() => false)) {
@@ -1191,20 +1248,19 @@ async function main() {
 
   // ── J13 error + retry ─────────────────────────────────────────────────────
   await journey(page, '13-error-retry', 'Stream 500 → failed draft + Retry pairs it', async (page) => {
-    forceFailurePhase = true;
     try {
-    await page.route('**/api/chat/stream', (route) => route.fulfill({
-      status: 500, contentType: 'application/json', body: '{"error":"evidence forced failure"}' }));
-    step('route', 'force 500 on /api/chat/stream');
+    // The fixture stream fails a prompt containing "should fail" ONCE per
+    // distinct text (transient shape), so Retry of the same ask succeeds and
+    // the pair law can be watched end to end. (The old page.route 500 never
+    // fired in BYOK mode — chat goes browser→provider, not /api/chat/stream.)
     await composer.fill('This send should fail');
     await send();
     await page.getByTestId('draft-failed').first().waitFor({ state: 'visible', timeout: 30_000 });
     step('wait', 'failed draft card');
     const failedTxt = await bodyText();
-    check(/HTTP 500|forced failure/i.test(failedTxt), 'failure reason lives on the draft');
+    check(/Fixture failure injected/i.test(failedTxt), 'failure reason lives on the draft');
     check(!/Generation failed/.test(failedTxt), 'no error banner / no failure in the feed');
     await shot(page, 'error-draft');
-    await page.unroute('**/api/chat/stream');
     const retry = page.getByTestId('draft-retry').first();
     check(await retry.isVisible().catch(() => false), 'Retry affordance present');
     await retry.click();
@@ -1218,7 +1274,6 @@ async function main() {
     await shot(page, 'after-retry');
     } finally {
       forceFailurePhase = false;
-      await page.unroute('**/api/chat/stream').catch(() => {});
     }
   });
 
@@ -1371,6 +1426,359 @@ async function main() {
     );
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Execution Pack 1 CUJs (design-docs/29_CUJ_PACK1.md). These run AFTER the
+  // classic suite and may mutate fixture state — they are last for a reason.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── J21 the note is editable, its past is kept ────────────────────────────
+  await journey(page, '21-artifact-edit-history', 'Edit a note → Save → History grows (yours) → Revert an old version → note comes back', async (page) => {
+    await page.getByRole('button', { name: /Artifacts/ }).first().click();
+    await page.waitForTimeout(600);
+    await page.locator('[data-testid="open-artifact-detail"]').first().click({ timeout: 5000 });
+    step('click', 'open artifact details (↗)');
+    await page.locator('[title="Edit this note"]').waitFor({ state: 'visible', timeout: 5000 });
+    await shot(page, 'note-open');
+
+    // Edit the body: what I type must survive Save and show up in History.
+    await page.locator('[title="Edit this note"]').click();
+    step('click', 'Edit this note');
+    const body = page.locator('textarea').first();
+    await body.waitFor({ state: 'visible', timeout: 5000 });
+    await body.fill('Fixture Alpha body — edited by CUJ-21.');
+    await page.getByRole('button', { name: /^Save$/i }).first().click({ timeout: 5000 });
+    step('click', 'Save');
+    await page.waitForTimeout(600);
+    const txt = await bodyText();
+    check(txt.includes('edited by CUJ-21'), 'the edit landed in the note');
+    await shot(page, 'after-edit');
+
+    // History: the save must have recorded a revision by ME (not the AI).
+    const histBtn = page.getByRole('button', { name: /History \(/ }).first();
+    check(await histBtn.isVisible().catch(() => false), 'History tab appears once revisions exist');
+    if (await histBtn.isVisible().catch(() => false)) {
+      await histBtn.click();
+      await page.waitForTimeout(500);
+      const hist = await bodyText();
+      check(/Manual edit|You/i.test(hist), 'the new revision is labeled as mine');
+      await shot(page, 'history');
+      // Revert to the OLDEST listed version: the note must go back wholesale.
+      const revert = page.getByRole('button', { name: /Revert to this version/ }).last();
+      if (await revert.isVisible().catch(() => false)) {
+        await revert.click({ timeout: 5000 });
+        step('click', 'Revert to this version');
+        await page.waitForTimeout(700);
+        const after = await bodyText();
+        check(!after.includes('edited by CUJ-21'), 'reverting brings the old body back');
+        await shot(page, 'after-revert');
+      } else warn('no Revert button offered — check the modal History tab');
+    }
+
+    // Take the note out as a file.
+    const [mdDl] = await Promise.all([
+      page.waitForEvent('download', { timeout: 8000 }),
+      page.locator('[title="Download this note as a .md file"]').click({ timeout: 5000 }),
+    ]);
+    const mdFile = path.join(PACK, 'downloads');
+    mkDir(mdFile);
+    await mdDl.saveAs(path.join(mdFile, 'note-download.md'));
+    // Pack §1.8: the .md download is the note's body, named by its code.
+    check(
+      /Synthetic body/.test(fs.readFileSync(path.join(mdFile, 'note-download.md'), 'utf8')),
+      'the .md download carries the note body'
+    );
+    step('download', 'note .md saved');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    await page.getByRole('button', { name: /^Chat$/ }).first().click();
+    await page.waitForTimeout(600);
+  });
+
+  // ── J22 the chat only does what I allow ───────────────────────────────────
+  await journey(page, '22-capability-toggles', 'Capability toggles change what the LLM receives — OFF means the block is gone, not hidden', async (page) => {
+    const openPopover = async () => {
+      await page.locator('[aria-label="What the chat can do"]').first().click({ timeout: 5000 });
+      await page.waitForTimeout(400);
+    };
+    const setCap = async (label, on) => {
+      await openPopover();
+      const row = page.locator('label', { hasText: label }).first();
+      const box = row.locator('input[type="checkbox"]');
+      const isOn = (await box.getAttribute('checked')) !== null || (await box.evaluate((el) => el.checked));
+      if (isOn !== on) { await row.click(); await page.waitForTimeout(250); }
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+      step('toggle', `${label} → ${on ? 'ON' : 'OFF'}`);
+    };
+    // The XML instruction blocks live in the systemInstruction — the mirror's
+    // "System Message" tab, not the default "Raw payload" one.
+    const rawPayload = async () => {
+      await page.locator('[title*="tap to see what the LLM will see"]').first().click({ timeout: 5000 });
+      await page.getByText('What the LLM will see').first().waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByRole('button', { name: 'System Message' }).first().click({ timeout: 5000 });
+      await page.waitForTimeout(400);
+      const t = await bodyText();
+      await shot(page, 'system-tab');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+      return t;
+    };
+
+    await setCap('Write notes', true);   // baseline: notes ON
+    const withNotes = await rawPayload();
+    check(/<artifact_upsert/i.test(withNotes), 'notes ON: the artifact instructions are taught');
+    check(/Capabilities: notes ON/.test(withNotes), 'mirror states the resolved capabilities');
+    await shot(page, 'notes-on');
+
+    await setCap('Write notes', false);  // OFF must mean ABSENT
+    const withoutNotes = await rawPayload();
+    check(!/<artifact_upsert/i.test(withoutNotes), 'notes OFF: no artifact instructions at all');
+    check(/Capabilities: notes OFF/.test(withoutNotes), 'the capability line flips too');
+    await shot(page, 'notes-off');
+    await setCap('Write notes', true);   // put it back for the next journeys
+
+    await setCap('Cut chapters', true);
+    const withChapters = await rawPayload();
+    check(/<topic_shift/i.test(withChapters), 'chapters ON: the chapter block is taught');
+    await setCap('Cut chapters', false); // default back
+    const withoutChapters = await rawPayload();
+    check(!/<topic_shift/i.test(withoutChapters), 'chapters OFF: no topic_shift block anywhere');
+    await shot(page, 'caps-final');
+  });
+
+  // ── J23 chapters answer to the menu ───────────────────────────────────────
+  await journey(page, '23-chapter-controls', 'Chapter ⋯ menu → Merge with previous chapter → one chapter fewer, turns survive', async (page) => {
+    const menus = page.locator('[data-testid^="chapter-menu-"]');
+    const before = await menus.count();
+    if (before < 2) {
+      // The bare fixture boots with a single chapter; a second one exists only
+      // after 04 declares a split. Merging needs two — say so and bail.
+      warn(`only ${before} chapter — merging needs two; run the full pack (or MARKBRAIN_JOURNEYS=04,23)`);
+      await shot(page, 'single-chapter');
+      return;
+    }
+    await menus.last().click({ timeout: 5000 });
+    await page.locator('[data-testid^="chapter-menu-panel-"]').first().waitFor({ state: 'visible', timeout: 5000 });
+    const panelTxt = await bodyText();
+    check(/Merge with previous chapter/.test(panelTxt), 'merge is offered in the menu');
+    await shot(page, 'chapter-menu');
+    const turnBodies = '[data-testid="message-markdown"], [data-testid="message-raw"]';
+    const turnsBefore = await page.locator(turnBodies).count();
+    await page.getByRole('button', { name: /Merge with previous chapter/ }).first().click({ timeout: 5000 });
+    step('click', 'Merge with previous chapter');
+    await page.waitForTimeout(900);
+    const after = await menus.count();
+    check(after === before - 1, `the chapter list shrank by one (${before} → ${after})`);
+    check((await page.locator(turnBodies).count()) >= turnsBefore, 'no turns were lost by the merge');
+    await shot(page, 'after-merge');
+  });
+
+  // ── J24 the flight recorder tells the truth ───────────────────────────────
+  await journey(page, '24-flight-recorder', 'Server Telemetry → API Calls (last 7d): request, raw unparsed response, timings — no secrets', async (page) => {
+    // The fixture never talks to a provider, so seed the local recorder store
+    // with two finished calls (the shape callLogStore writes) — one of them
+    // carrying a sentinel block in the RAW response, proving nothing was
+    // stripped before storage.
+    await page.evaluate(async () => {
+      const base = Date.now() - 60_000;
+      const mk = (id, kind, model, responseText) => ({
+        id, userId: null, kind, provider: 'fixture', model,
+        tSend: base, tAck: base + 120, tFirstToken: base + 450, tEnd: base + 1800,
+        status: 'ok',
+        request: {
+          endpoint: '/v1beta/models/' + model + ':streamGenerateContent',
+          model,
+          systemInstruction: 'You are the fixture compiler. Keep answers short.',
+          compiledPrompt: 'Fixture compiled prompt for ' + id,
+          messages: [{ role: 'user', content: 'Say ALPHA' }],
+          params: { temperature: 0.4 },
+        },
+        responseText,
+        usage: { promptTokens: 120, completionTokens: 60, totalTokens: 180 },
+        error: null, jobId: null, turnId: id === 'cuj-call-1' ? 'turn-1' : null,
+      });
+      const recs = [
+        mk('cuj-call-1', 'chat', 'gemini-fixture',
+          'Sure! ALPHA\n<artifact_upsert>{"code":"fixture-alpha"}</artifact_upsert>\n<topic_shift/>'),
+        mk('cuj-call-2', 'qa', 'gemini-fixture', '[{"q":"Q1","a":"A1"}]'),
+      ];
+      await new Promise((resolve) => {
+        const req = indexedDB.open('markbrain-call-logs', 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('calls')) {
+            const st = db.createObjectStore('calls', { keyPath: 'id' });
+            st.createIndex('t_send', 'tSend');
+          }
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction('calls', 'readwrite');
+          const st = tx.objectStore('calls');
+          recs.forEach((r) => st.put(r));
+          tx.oncomplete = () => { db.close(); resolve(); };
+          tx.onerror = () => { db.close(); resolve(); };
+        };
+        req.onerror = () => resolve();
+      });
+    });
+    step('seed', 'two recorded calls in markbrain-call-logs');
+
+    await page.getByText('Server Telemetry & Logs').first().click({ timeout: 5000 });
+    await page.getByRole('button', { name: /API Calls \(last 7d\)/ }).first().click({ timeout: 5000 });
+    await page.waitForTimeout(600);
+    let txt = await bodyText();
+    check(/cuj-call|chat/i.test(txt), 'the calls list renders');
+    await shot(page, 'calls-list');
+    await page.locator('button', { hasText: 'gemini-fixture' }).first().click({ timeout: 5000 });
+    step('click', 'open the recorded chat call');
+    await page.waitForTimeout(500);
+    txt = await bodyText();
+    check(/fixture compiler/.test(txt), 'the scrubbed system instruction is visible');
+    check(/artifact_upsert/.test(txt), 'the RAW response kept the sentinel blocks (nothing stripped)');
+    check(/180|totalTokens|tokens/i.test(txt), 'usage is shown');
+    check(!/AIza|sk-[A-Za-z0-9]|Authorization:/i.test(txt), 'no API key or auth header anywhere');
+    await shot(page, 'call-detail');
+    await page.locator('[title="Close log viewer"]').click({ timeout: 5000 });
+    step('click', 'close the log viewer (Escape does not close this modal)');
+    await page.waitForTimeout(400);
+  });
+
+  // ── J25 my data leaves as files, and comes back ───────────────────────────
+  await journey(page, '25-plaintext-io', 'Plaintext backup (.tar.gz) downloads and is readable; the same file restores into a fresh local workspace', async (page) => {
+    // Part A — export from the fixture workspace. The I/O section is an
+    // accordion: open it, then click the plaintext lane.
+    await page.getByText('Import / Export I/O').first().click({ timeout: 5000 });
+    await page.waitForTimeout(400);
+    const dlDir = mkDir(path.join(PACK, 'downloads'));
+    const tarPath = path.join(dlDir, 'plaintext-export.tar.gz');
+    const [dl] = await Promise.all([
+      page.waitForEvent('download', { timeout: 10_000 }),
+      page.locator('button:has-text("Plaintext backup")').first().click({ timeout: 5000 }),
+    ]);
+    await dl.saveAs(tarPath);
+    step('download', 'plaintext .tar.gz saved');
+    const zlib = require('zlib');
+    const raw = zlib.gunzipSync(fs.readFileSync(tarPath));
+    check(raw.includes('project.json'), 'the archive holds project.json');
+    check(raw.includes('threads/'), 'the archive holds thread files');
+    check(raw.includes('artifacts/'), 'the archive holds artifacts');
+    check(raw.includes('FIXTURE'), 'the archive holds the fixture project');
+    await shot(page, 'after-export');
+
+    // Part B — a brand-new local workspace imports the very same file.
+    // Fresh CONTEXT: J25 part B must not inherit this page's localStorage
+    // (workspace mode) or IndexedDB, or it imports into a used workspace.
+    const ctx2 = await browser.newContext({ acceptDownloads: true });
+    const page2 = await ctx2.newPage();
+    guardExternal(page2);
+    try {
+      await page2.goto(APP, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page2.getByRole('button', { name: /Use Local Workspace/ }).first().click({ timeout: 10_000 });
+      await page2.locator('textarea').first().waitFor({ state: 'visible', timeout: 30_000 });
+      await page2.waitForTimeout(1500);
+      const importInput = page2.locator('input[type="file"][accept*=".tar.gz"]').first();
+      await importInput.setInputFiles(tarPath);
+      step('import', 'fed the exported .tar.gz to the import lane');
+      await page2.locator('textarea').first().waitFor({ state: 'visible', timeout: 30_000 });
+      await page2.waitForTimeout(2500); // import writes, then the app reloads itself
+      let t2 = await page2.evaluate(() => document.body.innerText);
+      check(/Fixture Project/.test(t2), 'the imported project appears in the fresh workspace');
+      await page2.screenshot({ path: path.join(J.dir, 'shots', '04-imported.png') }).catch(() => {});
+      // Durability you can see: a reload later, the project is still there.
+      await page2.reload({ waitUntil: 'domcontentloaded' });
+      await page2.locator('textarea').first().waitFor({ state: 'visible', timeout: 30_000 });
+      await page2.waitForTimeout(2000);
+      t2 = await page2.evaluate(() => document.body.innerText);
+      check(/Fixture Project/.test(t2), 'the project survives a reload (real persistence, not memory)');
+      await page2.screenshot({ path: path.join(J.dir, 'shots', '06-after-reload.png') }).catch(() => {});
+    } finally {
+      await page2.close();
+      await ctx2.close();
+    }
+  });
+
+  // ── J26 my data is readable with the server gone ──────────────────────────
+  await journey(page, '26-offline-replica', 'Signed out: Open offline boots without any login call; erase removes the replica', async (page) => {
+    // Fresh CONTEXT: this journey owns its device — no inherited workspace
+    // mode, no inherited mirror, or the gate would never appear.
+    const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+    const page2 = await ctx2.newPage();
+    guardExternal(page2);
+    try {
+      const authCalls = [];
+      page2.on('request', (r) => { if (r.url().includes('/api/auth')) authCalls.push(r.url()); });
+      await page2.goto(APP, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page2.getByRole('button', { name: /Use Local Workspace/ }).first().waitFor({ state: 'visible', timeout: 10_000 });
+      await page2.evaluate((url) => {
+        localStorage.setItem('markbrain:knownReplicas', JSON.stringify([{
+          baseUrl: url, email: 'offline.cuj@example.com',
+          idbName: 'markbrain-vps-offline-cuj', lastUsedAt: Date.now(),
+        }]));
+      }, APP);
+      await page2.reload({ waitUntil: 'domcontentloaded' });
+      await page2.getByText('Offline replicas on this device').first().waitFor({ state: 'visible', timeout: 10_000 });
+      step('wait', 'AuthGate offers the offline replica');
+      check((await page2.evaluate(() => document.body.innerText)).includes('offline.cuj@example.com'), 'the replica is named');
+      await page2.screenshot({ path: path.join(J.dir, 'shots', '01-authgate-replicas.png') }).catch(() => {});
+
+      await page2.locator('[data-testid="open-offline-replica"]').first().click({ timeout: 5000 });
+      // An empty mirror boots to the workspace shell; there may be nothing to
+      // compose yet, so wait for the shell, not for a composer.
+      await page2.waitForTimeout(4000);
+      const wsText = await page2.evaluate(() => document.body.innerText);
+      check(!wsText.includes('Use Local Workspace'), 'the gate is gone — the workspace opened from the device copy');
+      check(authCalls.length === 0, `no login call was made to any server (${authCalls.length} seen)`);
+      step('boot', 'workspace opened offline');
+      await page2.screenshot({ path: path.join(J.dir, 'shots', '02-offline-workspace.png') }).catch(() => {});
+
+      // Sign out (the "keep" choice): the copy stays, so the gate must still
+      // offer the replica — that is the whole point of signing out instead of
+      // erasing. (The wipe choice needs a workspace sidebar; with an empty
+      // mirror only plain Sign out exists. wipeReplicaStorage itself is pinned
+      // by a unit test in offline-replica.test.ts.)
+      await page2.screenshot({ path: path.join(J.dir, 'shots', '02b-before-signout.png') }).catch(() => {});
+      await page2.getByRole('button', { name: /Sign out$/i }).first().click({ timeout: 5000 });
+      await page2.getByRole('button', { name: /Use Local Workspace/ }).first().waitFor({ state: 'visible', timeout: 10_000 });
+      const gateTxt = await page2.evaluate(() => document.body.innerText);
+      check(/offline replicas on this device/i.test(gateTxt), 'signing out KEEPS the copy — the gate still offers it');
+      check(gateTxt.includes('offline.cuj@example.com'), 'the kept replica is still named');
+      await page2.screenshot({ path: path.join(J.dir, 'shots', '03-after-signout-keep.png') }).catch(() => {});
+    } finally {
+      await page2.close();
+      await ctx2.close();
+    }
+  });
+
+  // ── J27 the fixture stream drives the REAL demuxer ───────────────────────
+  await journey(page, '27-fixture-sentinel', 'EMIT-ARTIFACT → the sentinel becomes a real note with a revision (demuxer chain, zero network)', async (page) => {
+    await composer.fill('EMIT-ARTIFACT: fixture-gamma');
+    await send();
+    step('click', 'Send (fixture stream)');
+    await waitIdle(page);
+    const txt = await bodyText();
+    check(/Saving fixture-gamma/.test(txt), 'the fixture reply landed');
+    check(!/artifact_upsert/.test(txt), 'the sentinel was stripped from the visible reply');
+    await shot(page, 'sentinel-reply');
+
+    // The note must exist as a real artifact with its four layers and a
+    // revision recorded — the whole upsert chain, from stream to store.
+    await page.getByRole('button', { name: /Artifacts/ }).first().click();
+    await page.waitForTimeout(600);
+    const lib = await bodyText();
+    check(/fixture-gamma/i.test(lib), 'the note landed in the library');
+    await shot(page, 'sentinel-library');
+    await page.locator('[data-testid="open-artifact-detail"]').last().click({ timeout: 5000 });
+    await page.waitForTimeout(500);
+    const histBtn = page.getByRole('button', { name: /History \(/ }).first();
+    check(await histBtn.isVisible().catch(() => false), 'an AI revision is recorded for the new note');
+    await shot(page, 'sentinel-history');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: /^Chat$/ }).first().click();
+    await page.waitForTimeout(500);
+  });
+
   // ── geometry audit: viewport × surface matrix ─────────────────────────────
   log('── audit: viewport × surface geometry');
   for (const vp of (SKIP_AUDIT ? [] : VIEWPORTS)) {
@@ -1423,6 +1831,13 @@ async function main() {
     }
   }
 
+  // External requests while live sends are off are a HARNESS failure, worse
+  // than a red journey: the run was supposed to be hermetic.
+  if (externalRequests.length > 0) {
+    summary.journeys.push({ id: 'hermetic-guard', caption: 'no external requests while live sends are off',
+      ok: false, failures: [`left localhost: ${externalRequests.slice(0, 5).join(', ')}`], warns: [],
+      steps: [], files: { steps: null, shots: [] }, durationMs: 0 });
+  }
   // ── verdict ───────────────────────────────────────────────────────────────
   summary.totals.journeyFails = summary.journeys.reduce((s, j) => s + j.failures.length, 0);
   summary.totals.journeyWarns = summary.journeys.reduce((s, j) => s + j.warns.length, 0);

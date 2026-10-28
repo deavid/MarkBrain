@@ -275,13 +275,17 @@ export default function App() {
   // chapters. Nothing is included by proximity — an artifact is attached, or it
   // is not in the payload at all.
   const activeAttachments = threadRegistry.getAttachments(activeThreadId);
+  const resolvedCapabilities = resolveCapabilities(
+    threadRegistry.getThread(activeThreadId),
+    currentContainer?.metadata?.capabilities
+  );
   const { compiledContext, ambientTelemetry } = useContextPayload({
     compiler,
     currentContainer,
     attachments: activeAttachments,
     tick,
+    capabilities: resolvedCapabilities,
   });
-
   // One measurer: the folder row, the chat tray and the chapter header all read
   // the counts the compiler assembles — never a second estimator. Rows for
   // artifacts already in this payload read live telemetry; untouched library

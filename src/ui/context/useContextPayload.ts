@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import type { DomainContextValue } from '../../domains/DomainRegistry';
-import type { ChatAttachment } from '../../domains/06-chat-threads';
-import type { AttachmentVisualState } from '../../domains/granularity';
+import type { ChatAttachment, ChatCapabilities } from '../../domains/06-chat-threads';import type { AttachmentVisualState } from '../../domains/granularity';
 import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
 import {
   AmbientTelemetryData,
@@ -20,11 +19,17 @@ export interface ContextPayloadParams {
   attachments: ChatAttachment[];
   /** Bumped whenever turns/chapters/artifacts mutate, to force a recompile. */
   tick: number;
+  /**
+   * Resolved chat capabilities (DEFAULT ← project ← thread) for the active
+   * chat. The mirror must show what the REAL send compiles — a preview built
+   * from defaults would lie the moment a toggle is off.
+   */
+  capabilities?: ChatCapabilities;
 }
 
 /** Compiles the payload for the active chat and derives the ambient numbers. */
 export function useContextPayload(params: ContextPayloadParams) {
-  const { compiler, currentContainer, attachments, tick } = params;
+  const { compiler, currentContainer, attachments, tick, capabilities } = params;
 
   // A cheap stable key: the attachment array is rebuilt on every render, but
   // the payload only changes when membership or a granularity does.
@@ -37,9 +42,10 @@ export function useContextPayload(params: ContextPayloadParams) {
       compiler.compile({
         attachments,
         tokenCeiling: currentContainer?.tokenCeiling || MAX_CONTEXT_TOKENS,
+        capabilities,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [compiler, attachmentKey, currentContainer?.tokenCeiling, tick]
+    [compiler, attachmentKey, currentContainer?.tokenCeiling, tick, capabilities]
   );
 
   const ambientTelemetry: AmbientTelemetryData = useMemo(() => {

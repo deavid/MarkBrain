@@ -18,6 +18,13 @@
 import { resolveLaneKey, type ResolvedKey } from '../data/keySlots';
 import { DEFAULT_MODEL_SLOTS } from '../data/modelConfig';
 import { getWorkspaceMode, getVpsSession, type VpsSessionInfo } from '../services/workspaceSession';
+import { isCaptureMode } from '../services/persistenceService';
+import {
+  recordCallStart,
+  recordCallAck,
+  recordCallFirstToken,
+  recordCallEnd,
+} from '../services/callLogStore';
 import {
   directChatStream,
   directEmbed,
@@ -27,6 +34,135 @@ import {
   directTitleThread,
   directTts,
 } from './direct';
+
+
+/* ------------------------------------------------- capture-mode fake stream */
+
+/**
+ * Deterministic stream for capture/fixture runs (`?fixture=1` / `?capture=1`).
+ * The send flow must be testable with ZERO provider traffic, so this fake sits
+ * in front of every network path and speaks the same SSE vocabulary
+ * (`status` / `chunk` / `complete`) the real adapters emit. What it replies is
+ * decided by the prompt itself:
+ *
+ * - `Reply with exactly: X`  → the reply is exactly `X` (journeys assert on it)
+ * - `EMIT-ARTIFACT: code`    → the reply carries an `<artifact_upsert>` sentinel
+ *                              so the demuxer/upsert chain is exercised for real
+ * - `EMIT-TOPIC: Title`      → same, for `<topic_shift>`
+ * - `should fail`            → fails ONCE per distinct prompt; a Retry of the
+ *                              same text succeeds (transient failure shape)
+ * - anything else            → a short canned sentence
+ *
+ * Chunks arrive ~200ms apart so "Stop mid-stream" is clickable. Every call is
+ * recorded in the flight recorder with provider `fixture`.
+ */
+const fixtureFailedOnce = new Set<string>();
+
+function sseFrame(name: string, data: unknown): string {
+  return `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function fixtureChatStream(
+  payload: { model?: string; compiledPrompt?: string; systemInstruction?: string },
+  signal?: AbortSignal
+): Promise<Response> {
+  const prompt = payload.compiledPrompt || '';
+  const model = payload.model || 'fixture-stream';
+  const callId = recordCallStart({
+    kind: 'chat',
+    provider: 'fixture',
+    model,
+    request: {
+      endpoint: 'fixture:stream',
+      model,
+      systemInstruction: payload.systemInstruction ?? null,
+      compiledPrompt: prompt,
+    },
+  });
+  recordCallAck(callId);
+
+  const failsOnce = /should fail/i.test(prompt) && !fixtureFailedOnce.has(prompt);
+  if (failsOnce) fixtureFailedOnce.add(prompt);
+
+  const echo = /Reply with exactly: (\S+)/i.exec(prompt)?.[1] ?? null;
+  const artCode = /EMIT-ARTIFACT:\s*([\w-]+)/i.exec(prompt)?.[1] ?? null;
+  const topicTitle = /EMIT-TOPIC:\s*(.+)/i.exec(prompt)?.[1]?.trim() ?? null;
+
+  let reply = echo ?? 'Fixture reply (capture mode): deterministic, no network.';
+  if (artCode) reply += `\n\nSaving ${artCode} as a durable note.`;
+  if (topicTitle) reply += `\n\nMoving on to ${topicTitle}.`;
+
+  // The sentinels ride ONE atomic chunk each (never split across chunks) so
+  // chunk-level demux stripping can never see half a block.
+  const sentinelBlocks: string[] = [];
+  if (artCode) {
+    sentinelBlocks.push(
+      `<artifact_upsert file="${artCode}.md" title="${artCode.replace(/-/g, ' ')}" type="document">\n` +
+      `<subtitle>Fixture note ${artCode} (capture mode).</subtitle>\n` +
+      `<description>Fixture description for ${artCode}: emitted by the capture-mode fake stream so the demuxer chain is exercised without a provider.</description>\n` +
+      `<summary>Fixture summary for ${artCode}: a deterministic stand-in written by the fake stream.</summary>\n` +
+      `<content>Fixture body for ${artCode}.</content>\n` +
+      `</artifact_upsert>`
+    );
+  }
+  if (topicTitle) {
+    sentinelBlocks.push(`<topic_shift title="${topicTitle}" subtitle="Fixture chapter cut (capture mode)." />`);
+  }
+  const rawReply = reply + (sentinelBlocks.length ? '\n\n' + sentinelBlocks.join('\n\n') : '');
+
+  const encoder = new TextEncoder();
+  const startedAt = Date.now();
+  let sentFirst = false;
+  const frames: string[] = [];
+  if (failsOnce) {
+    frames.push(sseFrame('status', { state: 'error', message: 'Fixture failure injected (capture mode).' }));
+  } else {
+    // 10 text slices (~200ms apart) + one atomic frame per sentinel + complete.
+    const slice = Math.max(1, Math.ceil(reply.length / 10));
+    for (let i = 0; i < reply.length; i += slice) {
+      frames.push(sseFrame('chunk', { delta: reply.slice(i, i + slice) }));
+    }
+    for (const block of sentinelBlocks) frames.push(sseFrame('chunk', { delta: '\n\n' + block }));
+    frames.push(sseFrame('complete', {
+      rawReply,
+      telemetry: {
+        model,
+        inputTokens: Math.max(1, Math.round(prompt.length / 4)),
+        outputTokens: Math.max(1, Math.round(rawReply.length / 4)),
+        totalTokens: Math.max(1, Math.round((prompt.length + rawReply.length) / 4)),
+        latencyMs: Date.now() - startedAt,
+        timeToFirstChunkMs: 200,
+        isFallback: true,
+      },
+    }));
+  }
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for (const frame of frames) {
+        if (signal?.aborted) {
+          recordCallEnd(callId, { status: 'aborted', responseText: rawReply.slice(0, 2000) });
+          try { controller.close(); } catch { /* already closed */ }
+          return;
+        }
+        if (!sentFirst && frame.startsWith('event: chunk')) {
+          recordCallFirstToken(callId);
+          sentFirst = true;
+        }
+        controller.enqueue(encoder.encode(frame));
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      recordCallEnd(callId, failsOnce
+        ? { status: 'error', error: 'Fixture failure injected (capture mode).' }
+        : { status: 'ok', responseText: rawReply, usage: { promptTokens: Math.round(prompt.length / 4), completionTokens: Math.round(rawReply.length / 4) } });
+      controller.close();
+    },
+  });
+  return Promise.resolve(new Response(stream, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  }));
+}
 
 /* ------------------------------------------------------------------ apiFetch */
 
@@ -259,6 +395,11 @@ export function chatStream(
   payload: ChatStreamPayload,
   init: ChatStreamInit = {}
 ): Promise<Response> {
+  // Capture/fixture runs NEVER touch the network, even with a key in the
+  // vault: the fake stream speaks the same SSE vocabulary deterministically.
+  if (isCaptureMode()) {
+    return fixtureChatStream(payload, init.signal);
+  }
   const key = resolveLaneKey('chat', payload.model || 'gemini-3.5-flash-lite');
   if (key && payload.model && !inVpsMode()) {
     return directChatStream(key, {

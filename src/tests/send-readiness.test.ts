@@ -18,9 +18,13 @@ vi.mock('../data/keySlots', () => ({
 vi.mock('../data/vaultReArm', () => ({
   isVaultLocked: () => vaultLocked,
 }));
+vi.mock('../services/persistenceService', () => ({
+  isCaptureMode: () => captureMode,
+}));
 
 let vaultLocked = false;
 let localHasKey = false;
+let captureMode = false;
 
 const { setServerKeySnapshot, resetServerKeySnapshot, isKeyConfiguredForModel, evaluateSendReadiness } =
   await import('../data/sendReadiness');
@@ -29,6 +33,7 @@ describe('sendReadiness — the composer pre-flight', () => {
   beforeEach(() => {
     vaultLocked = false;
     localHasKey = false;
+    captureMode = false;
     mode = 'vps';
     resetServerKeySnapshot();
   });
@@ -67,6 +72,19 @@ describe('sendReadiness — the composer pre-flight', () => {
     mode = 'local';
     expect(evaluateSendReadiness('gemini-3.5-flash-lite')).toEqual({ ok: false, reason: 'no-key' });
     localHasKey = true;
+    expect(evaluateSendReadiness('gemini-3.5-flash-lite')).toEqual({ ok: true, reason: null });
+  });
+});
+describe('sendReadiness — capture mode (fixture stream needs no key)', () => {
+  beforeEach(() => {
+    vaultLocked = true;
+    localHasKey = false;
+    captureMode = true;
+    mode = 'local';
+    resetServerKeySnapshot();
+  });
+
+  it('is ready with no key and a locked vault — the fake stream has no preconditions', () => {
     expect(evaluateSendReadiness('gemini-3.5-flash-lite')).toEqual({ ok: true, reason: null });
   });
 });

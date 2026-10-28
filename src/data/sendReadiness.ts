@@ -12,6 +12,7 @@
  * Keys (no key) — never a doomed attempt.
  */
 import { getWorkspaceMode } from '../services/workspaceSession';
+import { isCaptureMode } from '../services/persistenceService';
 import { resolveLaneKey } from './keySlots';
 import { isVaultLocked } from './vaultReArm';
 
@@ -83,6 +84,9 @@ export interface SendReadiness {
 
 /** The one pre-flight the composer asks before a send goes out. */
 export function evaluateSendReadiness(modelId: string): SendReadiness {
+  // Capture/fixture runs fake the stream (gateway/api fixtureChatStream): no
+  // key, no vault, nothing to be ready FOR. A padlock here would be theater.
+  if (isCaptureMode()) return { ok: true, reason: null };
   if (isVaultLocked()) return { ok: false, reason: 'vault-locked' };
   if (!isKeyConfiguredForModel(modelId)) return { ok: false, reason: 'no-key' };
   return { ok: true, reason: null };

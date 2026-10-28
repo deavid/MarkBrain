@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
+import { isOnline, subscribeOnline } from '../../application/connectivity';
 import {
   Artifact,
   ChapterTurns,
@@ -380,6 +381,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // ChatView only plays back with the voice chosen in the sidebar.
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null);
+  const online = useSyncExternalStore(subscribeOnline, isOnline);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [collapsedChapterIds, setCollapsedChapterIds] = useState<Record<string, boolean>>({});
@@ -741,6 +743,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   const handlePlayTTS = async (message: Turn) => {
+    // TTS is a server round-trip (/api/tts) — offline it cannot start. Stop
+    // always works (it is local), so the toggle still flips when playing.
+    if (!online && playingMessageId !== message.id) {
+      logger.warn('ChatView', 'TTS ignored while offline');
+      return;
+    }
     logger.action('ChatView', 'Toggle TTS Audio playback', { messageId: message.id });
     if (playingMessageId === message.id) {
       if (audioRef.current) {
@@ -1495,11 +1503,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                           <button
                             onClick={() => handlePlayTTS(message)}
-                            disabled={isTtsLoading}
-                            className={`p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer ${
+                            disabled={isTtsLoading || (!online && !isPlaying)}
+                            className={`p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer disabled:cursor-default ${
                               isPlaying ? 'text-[#38bdf8]' : 'text-[#50637f] hover:text-[#9bb0d1]'
                             }`}
-                            title={isPlaying ? 'Stop playback' : `Play audio (TTS) — voice: ${chosenVoice}`}
+                            title={
+                              isPlaying
+                                ? 'Stop playback'
+                                : !online
+                                  ? 'Offline — audio needs a connection'
+                                  : `Play audio (TTS) — voice: ${chosenVoice}`
+                            }
                           >
                             {isTtsLoading ? (
                               <Loader2 className="w-3 h-3 animate-spin text-[#38bdf8]" />
@@ -1728,8 +1742,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <button
                   type="button"
                   onClick={onOpenServerLogs}
-                  className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-10 text-ink-dim hover:text-ink transition-colors cursor-pointer"
-                  title="View live server logs"
+                  disabled={!online}
+                  className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-10 text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                  title={!online ? 'Offline — logs need a connection' : 'View live server logs'}
                 >
                   Logs
                 </button>

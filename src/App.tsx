@@ -24,6 +24,12 @@ import { loadChatRenderMode, saveChatRenderMode } from './ui/chat/chatRenderMode
 import type { ChatRenderMode } from './ui/chat/chatRenderMode';
 import { applyUiFontScale, loadUiFontScale, saveUiFontScale } from './ui/uiFontScale';
 import type { UiFontScale } from './ui/uiFontScale';
+import {
+  flushComposerDraftSave,
+  loadComposerDrafts,
+  registerComposerDraftFlush,
+  scheduleComposerDraftSave,
+} from './application/composerDrafts';
 import { loadEnterSendMode, saveEnterSendMode } from './ui/chat/sendOnEnter';
 import type { EnterSendMode } from './ui/chat/sendOnEnter';
 import { SaturationOrb } from './ui/context/SaturationOrb';
@@ -336,11 +342,22 @@ export default function App() {
   // ── Draft-proximity testbed (design-docs/15) ─────────────────────────────
   // LAW 4: the unsent draft lives HERE, keyed by thread. ChatView unmounts
   // when [+ Attach] opens the library; the query must survive that trip.
-  const [draftByThread, setDraftByThread] = useState<Record<string, string>>({});
+  // AND it survives the page: restored from mode-scoped storage, saved
+  // debounced on every change, flushed when the page hides or unloads
+  // (composerDrafts.ts) — a phone killing the browser must not eat the text.
+  const [draftByThread, setDraftByThread] = useState<Record<string, string>>(() => loadComposerDrafts());
   const draftText = draftByThread[activeThreadId] ?? '';
   const handleDraftTextChange = (text: string) => {
     setDraftByThread((prev) => ({ ...prev, [activeThreadId]: text }));
   };
+  // Persist on every change (debounced inside scheduleComposerDraftSave).
+  // The effect sees the latest state, so no stale-closure races on fast typing.
+  useEffect(() => {
+    scheduleComposerDraftSave(draftByThread);
+  }, [draftByThread]);
+  // Mobile browsers kill pages without beforeunload — pagehide and
+  // visibilitychange→hidden are the hooks that do arrive.
+  useEffect(() => registerComposerDraftFlush(), []);
   // A test query that is NOT the chat draft. Empty = "use the chat draft"
   // (the default); anything typed here overrides it WITHOUT touching what is
   // in the composer, so you can probe the library while a message is half-written.

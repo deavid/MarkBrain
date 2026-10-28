@@ -33,6 +33,7 @@ import { isAttachmentStaged, type ChatAttachment } from '../domains/06-chat-thre
 import { DraftQueue, type DraftItem, regenerateAllowed } from './draftQueue';
 import { apiFetch } from '../gateway/api';
 import { getWorkspaceMode } from '../services/workspaceSession';
+import { isOnline } from './connectivity';
 
 /**
  * Honest phase mapping from a SERVER job state / status event (design 23 §2.2):
@@ -151,6 +152,11 @@ export class SendQueue {
 
   constructor(getDeps: () => SendQueueDeps) {
     this.getDeps = getDeps;
+    // Reconnect: an offline gate held the head queued — walk it now. Kick is
+    // idempotent (activeDraft guard), so a single raw listener is enough.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => this.kick());
+    }
   }
 
   /** Live drafts — the queue of unpaired asks (design-docs/18). */
@@ -562,6 +568,10 @@ export class SendQueue {
   /** One stream at a time; the walk stops at a failed head and never skips. */
   private kick(): void {
     if (this.activeDraft) return;
+    // Offline: sends stay QUEUED, never attempted — no doomed request that
+    // marks the head failed and blocks its thread. The 'online' listener in
+    // the constructor walks the queue the moment the device reconnects.
+    if (!isOnline()) return;
     const item = this.drafts.nextSendable();
     if (!item) return;
     void this.runDraft(item);

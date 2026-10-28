@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { ModelOption, Artifact } from '../../types';
 import type { ProjectMetadata } from '../../domains/00-workspace/types';
 import { logger } from '../../utils/logger';
@@ -33,6 +33,7 @@ import {
   Save,
   RotateCcw,
   RefreshCw,
+  Plane,
   MoreHorizontal,  Trash2,
   Settings2,
   ALargeSmall,
@@ -41,6 +42,7 @@ import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-t
 import type { ChatRenderMode } from '../chat/chatRenderMode';
 import type { UiFontScale } from '../uiFontScale';
 import type { EnterSendMode } from '../chat/sendOnEnter';
+import { isOnline, subscribeOnline } from '../../application/connectivity';
 
 /** Read-aloud voices supported by the Gemini TTS endpoint (/api/tts). */
 export const TTS_VOICES = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'] as const;
@@ -223,6 +225,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       window.setTimeout(() => setSyncSpinning(false), remaining);
     }
   }, [syncSpinning, onRefreshSync]);  const [accountOpen, setAccountOpen] = useState(false);
+  // Connectivity flip: swaps the sync icon for the airplane and disables the
+  // network-only affordances (see connectivity.ts for what onLine does and
+  // does not promise).
+  const online = useSyncExternalStore(subscribeOnline, isOnline);
   const [ioToolsOpen, setIoToolsOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(true);
 
@@ -612,13 +618,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (!online) return;
                   void syncNow();
                 }}
-                title="Sync now — push offline edits, pull server changes"
-                aria-label="Sync now"
-                className="p-1.5 rounded-lg text-[#556985] hover:text-ink hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
+                disabled={!online}
+                title={
+                  online
+                    ? 'Sync now — push offline edits, pull server changes'
+                    : 'Offline — edits queue locally and sync when you reconnect'
+                }
+                aria-label={online ? 'Sync now' : 'Offline'}
+                className={`p-1.5 rounded-lg text-[#556985] hover:bg-surface-3 transition-colors shrink-0 ${
+                  online ? 'hover:text-ink cursor-pointer' : 'cursor-default'
+                }`}
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${syncSpinning ? 'animate-spin' : ''}`} />
+                {online ? (
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncSpinning ? 'animate-spin' : ''}`} />
+                ) : (
+                  <Plane className="w-3.5 h-3.5 text-[#e0b96c]" />
+                )}
               </button>
             )}
             </div>
@@ -1383,11 +1401,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {onOpenServerLogs && (
             <button
               onClick={() => {
+                if (!online) return;
                 logger.action('Sidebar', 'Open Server Logs Modal');
                 onOpenServerLogs();
               }}
-              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-2 hover:bg-veil-1 text-left transition-colors cursor-pointer group"
-              title="Inspect backend live streaming logs and token telemetry"
+              className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-2 hover:bg-veil-1 text-left transition-colors group ${
+                online ? 'cursor-pointer' : 'cursor-default opacity-60'
+              }`}
+              title={
+                online
+                  ? 'Inspect backend live streaming logs and token telemetry'
+                  : 'Offline — telemetry needs a connection'
+              }
             >
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>

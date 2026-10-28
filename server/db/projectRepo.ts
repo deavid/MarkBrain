@@ -252,6 +252,10 @@ function upsertProjectMeta(db: Db, userId: number, snap: ProjectSnapshot, newRev
   );
 }
 
+// Envelope contract (design-docs/28 §5.3): `doc_json` is the canonical Turn.
+// `role`/`content`/`timestamp`/`meta_json` are legacy duplicates kept in sync
+// so old rows (and the legacy fallback in assembleProject/turnRowHash) stay
+// honest; they are never the source of truth for a read when doc_json is set.
 function upsertTurn(db: Db, userId: number, projectId: string, turn: Turn, seq: number, rev: number): void {
   const doc = JSON.stringify(turn);
   db.prepare(
@@ -317,6 +321,10 @@ function upsertFolder(db: Db, userId: number, projectId: string, folder: ThreadF
   ).run(userId, projectId, folder.id, folder.name ?? '', folder.order ?? 0, rev); // name NOT NULL
 }
 
+// Envelope contract (design-docs/28 §5.3): `doc_json` is the canonical
+// ChapterPartition. `title`/`description`/`summary`/`granularity`/
+// `start_turn_id`/`end_turn_id` are legacy duplicates kept in sync for the
+// legacy fallback in assembleProject; doc_json wins on every read.
 function upsertChapter(db: Db, userId: number, projectId: string, chapter: ChapterPartition, orderIndex: number, rev: number): void {
   db.prepare(
     `INSERT INTO chapters (user_id, project_id, thread_id, chapter_id, start_turn_id, end_turn_id, title,

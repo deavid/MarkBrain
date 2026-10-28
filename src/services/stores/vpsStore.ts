@@ -13,6 +13,7 @@
  */
 import { logger } from '../../utils/logger';
 import { apiFetch } from '../../gateway/api';
+import { isOfflineReplica } from '../../services/workspaceSession';
 import {
   localListProjects,  localLoadProject,
   localPutProject,
@@ -45,6 +46,9 @@ async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
 
   export const vpsStore: ProjectStore = {
   async load(projectId: string): Promise<ProjectSnapshot | null> {
+    // Offline replica (Package 3 §3.6): the mirror is the only source — zero
+    // network calls, confirmed absence reads as null straight from the mirror.
+    if (isOfflineReplica()) return localLoadProject(projectId);
     try {
       const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`);
       if (res.status === 404) return null; // confirmed absence (port contract)
@@ -62,6 +66,8 @@ async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
   },
 
   async list(): Promise<ProjectSnapshot[]> {
+    // Offline replica: the mirror list only (Package 3 §3.6).
+    if (isOfflineReplica()) return localListProjects();
     try {
       const res = await apiFetch('/api/projects');
       if (!res.ok) throw new Error(`Project list failed: HTTP ${res.status}`);
@@ -80,6 +86,14 @@ async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
   },
 
   async save(snapshot: ProjectSnapshot): Promise<void> {
+    // Offline replica: mirror only — no server write, no outbox entry (the
+    // replica was opened from stale data; replaying those edits would clobber
+    // server-side changes made since the mirror was last synced).
+    if (isOfflineReplica()) {
+      await localPutProject(snapshot);
+      logger.warn('VpsStore', `offline replica: ${snapshot.projectId} saved to the local mirror only`);
+      return;
+    }
     // Capture the mirror's last-seen server revision BEFORE the local write
     // replaces the record — it is the baseRevision the outbox replays against.
     const existing = (await localLoadProject(snapshot.projectId)) as MirrorWithRevision | null;
@@ -120,6 +134,12 @@ async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
   },
 
   async create(snapshot: ProjectSnapshot): Promise<void> {
+    // Offline replica: mirror only (same reasoning as save()).
+    if (isOfflineReplica()) {
+      await localPutProject(snapshot);
+      logger.warn('VpsStore', `offline replica: created ${snapshot.projectId} in the local mirror only`);
+      return;
+    }
     await localPutProject(snapshot);
     try {
       const res = await apiFetch('/api/projects', {
@@ -138,6 +158,11 @@ async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
   },
 
   async delete(projectId: string): Promise<void> {
+    // Offline replica: project deletion mirrors the online-only rule —
+    // refusing keeps the mirror a faithful (if stale) replica.
+    if (isOfflineReplica()) {
+      throw new Error('Deleting a project needs a connection. Archive it instead, or delete when back online.');
+    }
     // Project deletion is ONLINE-ONLY (2026-10-26 decision): offline it is
     // ambiguous against server-side edits, and there is no tombstone story
     // worth building. Anyone needing to remove something offline archives it.
@@ -163,6 +188,11 @@ async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
   },
 
   async replaceAll(projects: ProjectSnapshot[]): Promise<void> {
+    // Offline replica: mirror only — a plaintext import must work offline.
+    if (isOfflineReplica()) {
+      await mirrorAll(projects);
+      return;
+    }
     await mirrorAll(projects);
     const res = await apiFetch('/api/projects/replace-all', {
       method: 'POST',

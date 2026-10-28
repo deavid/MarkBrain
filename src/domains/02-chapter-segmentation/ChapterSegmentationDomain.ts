@@ -128,13 +128,63 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
   }
 
   shiftBoundary(chapterId: string, newStartIndex: number): void {
-    const chapter = this.chapters.find((c) => c.id === chapterId);
-    if (!chapter) {
+    const idx = this.chapters.findIndex((c) => c.id === chapterId);
+    if (idx === -1) {
       logger.warn('Segmentation', `shiftBoundary: unknown chapter ${chapterId} — ignored`);
       return;
     }
+    // Boundary guards (Package 2 §2.6): the seam cannot move past turn 0,
+    // cannot swallow the previous chapter's last turn, and cannot cross into
+    // the next chapter's window. A seam that lands on another chapter's start
+    // would create two chapters owning the same turn.
+    if (newStartIndex < 0) {
+      logger.warn('Segmentation', `shiftBoundary: turn 0 has no chapter above it — ignored`);
+      return;
+    }
+    const prev = this.chapters[idx - 1];
+    if (prev && newStartIndex <= prev.startIndex) {
+      logger.warn('Segmentation', `shiftBoundary: seam would cross chapter ${prev.id} — ignored`);
+      return;
+    }
+    const next = this.chapters[idx + 1];
+    if (next && newStartIndex >= next.startIndex) {
+      logger.warn('Segmentation', `shiftBoundary: seam would cross chapter ${next.id} — ignored`);
+      return;
+    }
+    const chapter = this.chapters[idx];
     chapter.startIndex = newStartIndex;
     this.emit({ type: 'boundaryShifted', chapterId, newStartIndex });
+  }
+
+  /**
+   * Merge the chapter INTO the one before it (Package 2 §2.6): the previous
+   * chapter's window extends to this chapter's end, and this chapter ceases
+   * to exist. The previous chapter keeps its title and layers — merging is
+   * "this cut was a mistake", not a rewrite. Refused when the previous
+   * chapter is still in progress (its window is live; merging would move a
+   * boundary the compiler is actively reading) or when there is nothing
+   * above to merge into.
+   */
+  mergeChapters(chapterId: string): ChapterPartition | null {
+    const idx = this.chapters.findIndex((c) => c.id === chapterId);
+    if (idx <= 0) {
+      logger.warn('Segmentation', `mergeChapters: chapter ${chapterId} has no previous chapter — ignored`);
+      return null;
+    }
+    const prev = this.chapters[idx - 1];
+    const target = this.chapters[idx];
+    // The previous chapter's window is live while it is active — merging would
+    // move a boundary the compiler is actively reading (Package 2 §2.6).
+    if (prev.status === 'active') {
+      logger.warn('Segmentation', `mergeChapters: chapter ${prev.id} is still receiving turns — merge refused`);
+      return null;
+    }
+    prev.endIndex = target.endIndex;
+    if (target.endIndex === undefined) prev.status = 'active';
+    this.chapters.splice(idx, 1);
+    this.emit({ type: 'chapterMerged', mergedChapterId: chapterId, intoChapterId: prev.id });
+    logger.info('Segmentation', `Merged chapter ${chapterId} into ${prev.id}`);
+    return prev;
   }
 
   updateLevels(

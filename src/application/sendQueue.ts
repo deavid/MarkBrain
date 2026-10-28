@@ -29,6 +29,11 @@ import type { TurnMeta } from '../domains/01-dialogue-timeline/types';
 import { serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 import { logger } from '../utils/logger';
 import { placeholderTitle, sampleTurnsForTitle, titlePipelineStep } from '../domains/06-chat-threads';
+import {
+  DEFAULT_CHAT_CAPABILITIES,
+  resolveCapabilities,
+  type ChatCapabilities,
+} from '../domains/06-chat-threads/types';
 import { isAttachmentStaged, type ChatAttachment } from '../domains/06-chat-threads/types';
 import { DraftQueue, type DraftItem, regenerateAllowed } from './draftQueue';
 import { apiFetch } from '../gateway/api';
@@ -66,6 +71,12 @@ export interface TurnSendContext {
   projectId: string;
   projectTitle: string;
   tokenCeiling: number;
+  /**
+   * Resolved chat capabilities for this attempt (Package 2): DEFAULT ←
+   * project default ← thread override. Optional so test contexts keep
+   * compiling — absent means DEFAULT_CHAT_CAPABILITIES.
+   */
+  capabilities?: ChatCapabilities;
 }
 
 export interface SendQueueDeps
@@ -381,6 +392,12 @@ export class SendQueue {
     const deps = this.getDeps();
     const ctx = deps.getContext();
     const chain: QueueChain = { deps, ctx };
+    // Same per-thread resolution as runDraft (Package 2 §2.4): the stored
+    // partial must obey the thread's own capability toggles.
+    chain.ctx.capabilities = resolveCapabilities(
+      deps.threadRegistry.getThread(item.threadId),
+      chain.ctx.capabilities
+    );
     const artifacts = (item.bufferedArtifacts ?? []) as ExtractedArtifactUpsert[];
     const shifts = (item.bufferedShifts ?? []) as ExtractedTopicShift[];
     const estPrompt = Math.max(1, estimateTokens(item.text));
@@ -582,6 +599,13 @@ export class SendQueue {
     this.drafts.markSending(item.id);
     const deps = this.getDeps();
     const chain: QueueChain = { deps, ctx: deps.getContext() };
+    // Package 2 §2.4: capabilities resolve per THREAD (project default ←
+    // thread override) — the ask about to compile must match what its commit
+    // will later be allowed to apply.
+    chain.ctx.capabilities = resolveCapabilities(
+      deps.threadRegistry.getThread(item.threadId),
+      chain.ctx.capabilities
+    );
     try {
       // Connected VPS mode (21E §4): the SERVER owns the attempt — send-and-
       // forget. Local mode keeps today's in-browser stream untouched.
@@ -652,6 +676,7 @@ export class SendQueue {
         log: true, // once-per-send lifecycle log (display memo must stay silent)
         historyTurns: [...this.turnsOf(deps, threadId), virtualAsk],
         historyChapters: this.chaptersOf(deps, threadId),
+        capabilities: chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES,
       });
       // The phase moves on the provider's real ACK ('connected' status, or
       // legacy 'thinking') — never on optimism before the RPC is even sent.
@@ -848,6 +873,7 @@ export class SendQueue {
       log: true,
       historyTurns: [...this.turnsOf(deps, threadId), virtualAsk],
       historyChapters: this.chaptersOf(deps, threadId),
+      capabilities: chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES,
     });
 
     let jobId = item.serverJobId;
@@ -894,6 +920,9 @@ export class SendQueue {
             model: ctx.model.id,
             stagedAttachments: payloadAttachments.filter(isAttachmentStaged),
             targetTurnId: item.targetTurnId ?? null,
+            // Package 2 §2.4: the job carries the resolved toggles so the
+            // SERVER commit path gates exactly like the client one.
+            capabilities: chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES,
           }),
         }
       );
@@ -1065,6 +1094,7 @@ export class SendQueue {
         log: true,
         historyTurns,
         historyChapters: this.chaptersOf(deps, threadId),
+        capabilities: chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES,
       });
       // ACK-driven phase ladder (same as executeAttempt) — no optimistic
       // "thinking" before the provider has even accepted the connection.
@@ -1231,16 +1261,45 @@ export class SendQueue {
     assistantTurnId: string
   ): void {
     const deps = chain.deps;
+    // Package 2 §2.4: a capability that is OFF means its XML block was never
+    // taught — a rogue block that slipped through the demuxer is IGNORED here.
+    if (!(chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES).writeArtifacts) {
+      if (bufferedArtifacts.length) {
+        logger.info('App', `Dropped ${bufferedArtifacts.length} buffered note(s) — note writing is switched off for this chat`);
+      }
+      return;
+    }
     for (const u of bufferedArtifacts) {
       const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
       const existing = deps.artifacts.getArtifact(code) || deps.artifacts.getArtifact(u.id);
       let artifactId = existing?.id || u.id || '';
       if (existing) {
-        deps.versioning.recordRevision(
-          existing.id,
-          u.content.body,
-          `Update from chat: ${u.content.description}`
-        );
+        // Revision of the OLD state FIRST (full title + layers snapshot), so
+        // History can show and revert what the chat just overwrote…
+        deps.versioning.recordSnapshot(existing.id, {
+          actor: 'ai',
+          changeSummary: `Update from chat: ${u.content.description}`,
+          provenance: { threadId, turnId: assistantTurnId, turnIndex: assistantTurnIndex },
+          title: existing.title,
+          layers: { ...existing.current },
+        });
+        // …then actually apply the update. (Bug 2026-10-27: the revision was
+        // recorded but the upsert was forgotten — existing notes never
+        // changed on the client path, the reply just claimed they had.)
+        const savedExisting = deps.artifacts.upsertArtifact({
+          ...existing,
+          title: u.title || existing.title,
+          current: {
+            subtitle: u.content.subtitle,
+            description: u.content.description,
+            summary: u.content.summary,
+            body: u.content.body,
+          },
+          updatedAt: Date.now(),
+          // The AI rewrote every layer, so nothing is stale anymore.
+          layersStaleAt: undefined,
+        });
+        artifactId = savedExisting.id;
       } else {
         const now = Date.now();
         const newArtifact: Artifact = {
@@ -1268,6 +1327,14 @@ export class SendQueue {
           yamlDocument: serializeArtifactToYamlDoc(newArtifact),
         });
         artifactId = saved.id;
+        // Initial revision (v1): the note's birth state, with chat provenance.
+        deps.versioning.recordSnapshot(saved.id, {
+          actor: 'ai',
+          changeSummary: `Created from chat: ${u.content.description}`,
+          provenance: { threadId, turnId: assistantTurnId, turnIndex: assistantTurnIndex },
+          title: saved.title,
+          layers: { ...saved.current },
+        });
       }
       if (artifactId) {
         deps.threadRegistry.attachArtifact(threadId, artifactId, 'full', assistantTurnIndex, assistantTurnId);
@@ -1290,6 +1357,9 @@ export class SendQueue {
     askIndex: number
   ): void {
     const deps = chain.deps;
+    // Package 2 §2.4: autoChapter OFF = no model-cut chapters, even if a rogue
+    // <topic_shift> arrived. Manual splits stay unaffected.
+    if (!(chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES).autoChapter) return;
     const shift = bufferedShifts[bufferedShifts.length - 1];
     if (!shift) return;
     if (this.isActiveThread(deps, threadId)) {

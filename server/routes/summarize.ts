@@ -5,6 +5,8 @@ import { buildSummarizePrompt } from '../lib/prompt';
 import { parseSentinelBlocks } from '../../src/utils/sentinelParser';
 import { requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
+import { isOpenRouterModel } from '../providers/openrouter';
+import { recordCallStart, recordCallEnd } from '../lib/callRecorder';
 
 export function registerSummarizeRoutes(app: Express): void {
 app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
@@ -32,20 +34,43 @@ app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
       // open indefinitely and the client only finds out when a navigation kills
       // the fetch. Within 12s the answer is always one of two things: real text,
       // or an honest error the chapter chrome shows next to a Retry.
-      const response = await Promise.race([
-        ai.models.generateContent({
+      // Flight recorder (design-docs/28 §4.2): the exact prompt goes in, the
+      // raw unparsed reply (or the timeout) comes out.
+      const callLogId = recordCallStart({
+        userId: req.user?.id ?? null,
+        kind: 'summarize',
+        provider: isOpenRouterModel(summarizeModel) ? 'openrouter' : 'gemini',
+        model: summarizeModel,
+        request: {
+          endpoint: '/api/summarize-chapter',
           model: summarizeModel,
-          contents: prompt,
-          config: {
-            temperature: 0.3,
-          },
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('model call exceeded 12s')), 12_000)
-        ),
-      ]);
-
-      const raw = response.text || '';
+          compiledPrompt: prompt,
+          params: { temperature: 0.3 },
+        },
+      });
+      let raw = '';
+      try {
+        const response = await Promise.race([
+          ai.models.generateContent({
+            model: summarizeModel,
+            contents: prompt,
+            config: {
+              temperature: 0.3,
+            },
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('model call exceeded 12s')), 12_000)
+          ),
+        ]);
+        raw = response.text || '';
+        recordCallEnd(callLogId, { status: 'ok', responseText: raw });
+      } catch (err) {
+        recordCallEnd(callLogId, {
+          status: 'error',
+          error: err instanceof Error ? err.message : String(err).slice(0, 500),
+        });
+        throw err;
+      }
       const blocks = parseSentinelBlocks(raw);
       subtitleText = blocks.subtitle || '';
       descriptionText = blocks.description || '';

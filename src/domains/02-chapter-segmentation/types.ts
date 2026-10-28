@@ -21,6 +21,7 @@ export type SegmentationEvent =
   | { type: 'chapterDeclared'; chapter: ChapterPartition }
   | { type: 'chapterSplit'; oldChapterId: string; newChapter: ChapterPartition }
   | { type: 'boundaryShifted'; chapterId: string; newStartIndex: number }
+  | { type: 'chapterMerged'; mergedChapterId: string; intoChapterId: string }
   | {
       type: 'chapterLevelsUpdated';
       chapterId: string;

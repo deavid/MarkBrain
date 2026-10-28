@@ -2,6 +2,8 @@ import type { Express, Request, Response } from 'express';
 import { logServer } from '../lib/log';
 import { requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
+import { isOpenRouterModel } from '../providers/openrouter';
+import { recordCallStart, recordCallEnd } from '../lib/callRecorder';
 
 export function registerTitleRoutes(app: Express): void {
 // API: Thread title generation (best-effort meta call for the staged titling
@@ -49,14 +51,29 @@ ${transcript}
 
 Title:`;
 
-    const response = await ai.models.generateContent({
+    const callLogId = recordCallStart({
+      userId: req.user?.id ?? null,
+      kind: 'title',
+      provider: isOpenRouterModel(titleModel) ? 'openrouter' : 'gemini',
       model: titleModel,
-      contents: prompt,
-      config: { temperature: 0.4 },
+      request: { endpoint: '/api/title-thread', model: titleModel, compiledPrompt: prompt, params: { temperature: 0.4 } },
     });
+    let responseText = '';
+    try {
+      const response = await ai.models.generateContent({
+        model: titleModel,
+        contents: prompt,
+        config: { temperature: 0.4 },
+      });
+      responseText = response.text || '';
+      recordCallEnd(callLogId, { status: 'ok', responseText });
+    } catch (err) {
+      recordCallEnd(callLogId, { status: 'error', error: err instanceof Error ? err.message : String(err).slice(0, 500) });
+      throw err;
+    }
 
     let title =
-      (response.text || '')
+      responseText
         .trim()
         .split('\n')[0]
         .replace(/^["'“”«»]+/, '')

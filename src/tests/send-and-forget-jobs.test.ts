@@ -444,7 +444,7 @@ describe('§5.4 — topic-shift chapter law (David 2026-10-25)', () => {
     behavior.current = 'topic-shift';
     seedShiftThread();
 
-    const jobId = await enqueueOnShiftThread('the ask that changes the topic');
+    const jobId = await enqueueOnShiftThread('the ask that changes the topic', { capabilities: { autoChapter: true } });
     await waitFor(() => {
       const row = getDb().prepare('SELECT 1 FROM chat_jobs WHERE job_id = ?').get(jobId);
       return row === undefined ? true : null;

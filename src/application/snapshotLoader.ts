@@ -4,6 +4,7 @@ import type { IDialogueTimelineDomain } from '../domains/01-dialogue-timeline';
 import type { IArtifactDocumentDomain } from '../domains/01-artifact-document';
 import type { IChapterSegmentationDomain } from '../domains/02-chapter-segmentation';
 import type { ITopologicalGraphDomain } from '../domains/02-topological-graph';
+import type { IArtifactVersioningDomain } from '../domains/01-artifact-versioning';
 import type { ThreadRegistry } from '../domains/06-chat-threads';
 import type { ProjectSnapshot } from '../services/stores/projectStore';
 import type { HydratedRef } from './persistWorker';
@@ -17,6 +18,8 @@ export interface HydrationDeps {
   segmentation: IChapterSegmentationDomain;
   artifacts: IArtifactDocumentDomain;
   graph: ITopologicalGraphDomain;
+  /** Receives the snapshot's revision history (Package 1 §1.4) — F5 keeps History. */
+  versioning: IArtifactVersioningDomain;
   hydratedRef: HydratedRef;
 }
 
@@ -28,7 +31,7 @@ export function hydrateProjectFromSnapshot(
   snap: ProjectSnapshot | null | undefined,
   deps: HydrationDeps
 ): void {
-  const { threadRegistry, timeline, segmentation, artifacts, graph, hydratedRef } = deps;
+  const { threadRegistry, timeline, segmentation, artifacts, graph, versioning, hydratedRef } = deps;
   const activeContent = threadRegistry.hydrate({
     projectId,
     threads: snap?.threads as any,
@@ -41,6 +44,9 @@ export function hydrateProjectFromSnapshot(
   segmentation.loadChapters(activeContent.chapters);
   artifacts.loadArtifacts(snap?.artifacts || []);
   graph.loadEdges(snap?.edges || []);
+  // Merge (never wipe): an artifact whose incoming list is empty or missing
+  // keeps whatever history this session already holds.
+  versioning.loadHistory(snap?.revisions || {});
   hydratedRef.current = true;
 }
 
@@ -113,6 +119,7 @@ export async function loadNewWorkspace(
     segmentation: deps.segmentation,
     artifacts: deps.artifacts,
     graph: deps.graph,
+    versioning: deps.versioning,
     hydratedRef,
   });
 }

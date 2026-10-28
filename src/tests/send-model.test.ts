@@ -51,6 +51,8 @@ function makeDeps() {
         titleState: 'placeholder',
         titleVersion: 0,
         lifecycle: 'active',
+        // Package 2 §2.4: the chapter-cut law only fires when autoChapter is ON.
+        capabilities: { autoChapter: true },
       }),
       patch: vi.fn(),
       getAttachments: () => [...armed],

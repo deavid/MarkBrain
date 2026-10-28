@@ -3,7 +3,8 @@ import type { Turn } from '../../domains/01-dialogue-timeline/types';
 import type { ChapterPartition } from '../../domains/02-chapter-segmentation/types';
 import type { UniversalArtifactDocument } from '../../domains/01-artifact-document/types';
 import type { SemanticEdge } from '../../domains/02-topological-graph/types';
-import type { ChatThread, ThreadFolder } from '../../domains/06-chat-threads/types';
+import type { ChatCapabilities, ChatThread, ThreadFolder } from '../../domains/06-chat-threads/types';
+import type { ArtifactRevision } from '../../domains/01-artifact-versioning/types';
 
 export interface ProjectSnapshot {
   projectId: string;
@@ -26,6 +27,10 @@ export interface ProjectSnapshot {
    * `summary` on close — hydrate.ts resets those to Full exactly once.
    */
   granularityLaw?: 'user-only';
+  /** Artifact revision history, keyed by artifact id. */
+  revisions?: Record<string, ArtifactRevision[]>;
+  /** Project-default chat capabilities (Package 2 §2.2); optional for backward compat. */
+  capabilities?: Partial<ChatCapabilities>;
 }
 
 /**

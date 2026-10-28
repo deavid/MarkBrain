@@ -29,9 +29,29 @@ import {
 } from '../prompts/prompt';
 import { parseSentinelBlocks } from '../utils/sentinelParser';
 import type { ResolvedKey } from '../data/keySlots';
+import { recordCallStart, recordCallEnd } from '../services/callLogStore';
+import type { ApiCallKind, ApiCallLogRequest } from '../domains/callLogTypes';
 
 export function adapterFor(key: ResolvedKey): ProviderAdapter {
   return key.provider === 'openrouter' ? openrouterAdapter : geminiAdapter;
+}
+
+/**
+ * Local-mode flight recorder (design-docs/28 §4.3): one row per direct
+ * provider call, same shape the server keeps. Secrets are scrubbed inside
+ * recordCallStart; TTS has no recorder kind (chat/summarize/extract/title/
+ * embed/qa only) so it stays unrecorded.
+ */
+function recordDirectStart(key: ResolvedKey, kind: ApiCallKind, request: ApiCallLogRequest): string {
+  return recordCallStart({ kind, provider: key.provider, model: request.model, request });
+}
+
+async function errorTextOf(res: Response): Promise<string> {
+  try {
+    return (await res.text()) || `HTTP ${res.status}`;
+  } catch {
+    return `HTTP ${res.status}`;
+  }
 }
 
 /** Mirror of server/lib/tokens.ts — direct mode has no server to ask. */
@@ -44,6 +64,20 @@ async function textFrom(res: Response): Promise<{ text: string; usage?: { input:
   if (!res.ok) return { text: '', error: res };
   const body = await res.json().catch(() => ({}));
   return { text: body?.text ?? '', usage: body?.usage };
+}
+
+/** Record the end of a lane call from a text/error envelope. */
+function recordLaneEnd(
+  callId: string,
+  result: { text: string; usage?: { input: number; output: number }; error?: Response }
+): void {
+  if (result.error) {
+    void errorTextOf(result.error).then((t) =>
+      recordCallEnd(callId, { status: 'error', error: t.slice(0, 2000) })
+    );
+    return;
+  }
+  recordCallEnd(callId, { status: 'ok', responseText: result.text, usage: result.usage ?? null });
 }
 
 /* --------------------------------------------------------------------- chat */
@@ -71,14 +105,22 @@ export async function directTitleThread(
   key: ResolvedKey,
   params: { messages: Array<{ role: string; content: string }>; version: number; model: string }
 ): Promise<Response> {
+  const prompt = buildTitlePrompt(params.messages, params.version);
+  const callId = recordDirectStart(key, 'title', {
+    endpoint: 'direct:generateContent',
+    model: params.model,
+    compiledPrompt: prompt,
+    params: { temperature: 0.4 },
+  });
   const { text, error } = await textFrom(
     await adapterFor(key).generate({
       apiKey: key.apiKey,
       model: params.model,
-      prompt: buildTitlePrompt(params.messages, params.version),
+      prompt,
       temperature: 0.4,
     })
   );
+  recordLaneEnd(callId, { text, error });
   // Best-effort lane: never 5xx — the client keeps its current title.
   if (error) return jsonResponse({ title: null });
   return jsonResponse({ title: cleanupTitle(text) });
@@ -98,21 +140,29 @@ export async function directExtractArtifact(
     model: string;
   }
 ): Promise<Response> {
+  const prompt = buildExtractPrompt({
+    content: params.content,
+    filename: params.filename,
+    projectTitle: params.projectTitle,
+    fileType: params.fileType,
+    previousError: params.previousError,
+    previousOutput: params.previousOutput,
+  });
+  const callId = recordDirectStart(key, 'extract', {
+    endpoint: 'direct:generateContent',
+    model: params.model,
+    compiledPrompt: prompt,
+    params: { temperature: 0.2 },
+  });
   const { text, error } = await textFrom(
     await adapterFor(key).generate({
       apiKey: key.apiKey,
       model: params.model,
-      prompt: buildExtractPrompt({
-        content: params.content,
-        filename: params.filename,
-        projectTitle: params.projectTitle,
-        fileType: params.fileType,
-        previousError: params.previousError,
-        previousOutput: params.previousOutput,
-      }),
+      prompt,
       temperature: 0.2,
     })
   );
+  recordLaneEnd(callId, { text, error });
   if (error) return error;
   void EXTRACT_READ_CHAR_CAP; // cap warning is a server-log concern; see route
 
@@ -162,18 +212,26 @@ export async function directSummarizeChapter(
       summary: '',
     });
   }
+  const prompt = buildSummarizePrompt({
+    title: params.title,
+    messages: params.messages,
+    steeringPrompt: params.steeringPrompt,
+  });
+  const callId = recordDirectStart(key, 'summarize', {
+    endpoint: 'direct:generateContent',
+    model: params.model,
+    compiledPrompt: prompt,
+    params: { temperature: 0.3 },
+  });
   const { text, error } = await textFrom(
     await adapterFor(key).generate({
       apiKey: key.apiKey,
       model: params.model,
-      prompt: buildSummarizePrompt({
-        title: params.title,
-        messages: params.messages,
-        steeringPrompt: params.steeringPrompt,
-      }),
+      prompt,
       temperature: 0.3,
     })
   );
+  recordLaneEnd(callId, { text, error });
   if (error) return error;
 
   const blocks = parseSentinelBlocks(text);
@@ -207,14 +265,22 @@ export async function directGenerateQa(
     model: string;
   }
 ): Promise<Response> {
+  const prompt = buildQaPrompt(params.title, params.subtitle, params.sections);
+  const callId = recordDirectStart(key, 'qa', {
+    endpoint: 'direct:generateContent',
+    model: params.model,
+    compiledPrompt: prompt,
+    params: { temperature: 0.2 },
+  });
   const { text, error } = await textFrom(
     await adapterFor(key).generate({
       apiKey: key.apiKey,
       model: params.model,
-      prompt: buildQaPrompt(params.title, params.subtitle, params.sections),
+      prompt,
       temperature: 0.2,
     })
   );
+  recordLaneEnd(callId, { text, error });
   if (error) return error;
   const qaPairs = parseQaPairs(text, params.sections);
   if (qaPairs.length === 0) {
@@ -225,17 +291,30 @@ export async function directGenerateQa(
 
 /* --------------------------------------------------------------- embeddings */
 
-export function directEmbed(
+export async function directEmbed(
   key: ResolvedKey,
   params: { texts: string[]; taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY'; title?: string; model: string }
 ): Promise<Response> {
-  return adapterFor(key).embed({
+  const callId = recordDirectStart(key, 'embed', {
+    endpoint: 'direct:embed',
+    model: params.model,
+    params: { texts: params.texts.length, taskType: params.taskType, title: params.title ?? null },
+  });
+  const res = await adapterFor(key).embed({
     apiKey: key.apiKey,
     model: params.model,
     texts: params.texts,
     taskType: params.taskType,
     title: params.title,
   });
+  // Vector payloads are noise; the vector count is the useful bit.
+  if (res.ok) {
+    const body = await res.clone().json().catch(() => null);
+    recordCallEnd(callId, { status: 'ok', usage: { vectors: (body?.embeddings as unknown[] | undefined)?.length ?? params.texts.length } });
+  } else {
+    recordCallEnd(callId, { status: 'error', error: await errorTextOf(res.clone()) });
+  }
+  return res;
 }
 
 /* ---------------------------------------------------------------------- tts */

@@ -54,6 +54,9 @@ import {
 import { renderMarkdown } from '../../utils/markdown';
 import { formatAttachmentProvenance } from '../context/AttachmentControls';
 import type { ArtifactSearchIndexRecord, GeneratedQaPair } from '../../services/searchIndexStore';
+import type { ArtifactRevision } from '../../domains/01-artifact-versioning/types';
+import { diffLines, diffStats } from '../../utils/lineDiff';
+import { Download, Pencil, Save, RotateCcw, RefreshCw, MessageSquare } from 'lucide-react';
 
 interface ArtifactDetailModalProps {
   artifact: Artifact;
@@ -71,8 +74,20 @@ interface ArtifactDetailModalProps {
   onAttach: (artifactId: string) => void;
   onUnstage?: (artifactId: string) => void;
   onSetAttachmentGranularity: (artifactId: string, granularity: Granularity) => void;
-  /** Version history from the versioning domain (source of truth — artifacts no longer embed history) */
-  history?: Array<{ version: number; timestamp: number; changeSummary: string }>;
+  /** Full revision history from the versioning domain (title + all four layers per revision). */
+  history?: ArtifactRevision[];
+  /** True when the summary layers no longer match the body (manual body edit). */
+  layersStale?: boolean;
+  /** Saves a manual edit (title + subtitle + body). Records the revision + stale flag. */
+  onSaveEdit?: (patch: { title: string; subtitle: string; body: string }) => void;
+  /** Reverts title + all four layers to the given revision (records the discarded state first). */
+  onRevert?: (version: number) => void;
+  /** Regenerates subtitle/description/summary from the current body. Returns an error message or null. */
+  onRefreshLayers?: () => Promise<string | null>;
+  /** Closes the modal and opens the chat a revision came from. */
+  onOpenThread?: (threadId: string) => void;
+  /** Thread title lookup for the History actor chip (`AI · chat "…" msg #N`). */
+  getThreadTitle?: (threadId: string) => string | null;
   /** Closes the modal and filters the library folder tree to this tag. */
   onFilterByTag?: (tag: string) => void;
   // ── Q&A Index tab (design-docs/15, step 9) ───────────────────────────────
@@ -96,6 +111,12 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   onUnstage,
   onSetAttachmentGranularity,
   history = [],
+  layersStale = false,
+  onSaveEdit,
+  onRevert,
+  onRefreshLayers,
+  onOpenThread,
+  getThreadTitle,
   onFilterByTag,
   indexRecord = null,
   indexStatus = 'missing',
@@ -103,6 +124,16 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   indexArtifactProgress = null,
 }) => {
   const [activeTab, setActiveTab] = useState<'content' | 'qa' | 'metadata' | 'history'>('content');
+  // Manual edit state (Package 1 §1.6): pencil toggles the form; Cancel
+  // discards; Save hands the patch to the caller (which records the revision).
+  const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState('');
+  const [draftSubtitle, setDraftSubtitle] = useState('');
+  const [draftBody, setDraftBody] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  // Per-revision diff view: the version whose body diff is expanded, or null.
+  const [openDiffVersion, setOpenDiffVersion] = useState<number | null>(null);
 
   // Q&A pairs grouped by the section they were generated from — reading order
   // mirrors the document, so the tab is browsable, not a raw dump.
@@ -169,6 +200,44 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => {
+                if (editing) {
+                  setEditing(false);
+                } else {
+                  setDraftTitle(title);
+                  setDraftSubtitle(subtitle);
+                  setDraftBody(body);
+                  setEditing(true);
+                  setActiveTab('content');
+                }
+              }}
+              className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
+                editing
+                  ? 'bg-accent text-surface-0'
+                  : 'bg-surface-2 hover:bg-surface-4 text-[#869ab8] hover:text-ink'
+              }`}
+              title={editing ? 'Cancel editing' : 'Edit this note'}
+            >
+              {editing ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+            </button>
+
+            <button
+              onClick={() => {
+                const blob = new Blob([artifact.current?.body || ''], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${artifact.code || artifact.id}.md`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="p-1.5 rounded-xl bg-surface-2 hover:bg-surface-4 text-[#869ab8] hover:text-ink transition-colors cursor-pointer"
+              title="Download this note as a .md file"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+
             <button
               onClick={() => setIsFullscreen(!isFullscreen)}
               className="p-1.5 rounded-xl bg-surface-2 hover:bg-surface-4 text-[#869ab8] hover:text-ink transition-colors cursor-pointer"
@@ -303,6 +372,100 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-[#cad8eb] leading-relaxed">
           {activeTab === 'content' && (
             <div className="space-y-4">
+              {editing ? (
+                <div className="space-y-3" data-testid="artifact-edit-form">
+                  <div className="space-y-1">
+                    <label className="text-10 font-mono uppercase tracking-wider text-[#79ca4b] font-semibold block">
+                      Title
+                    </label>
+                    <input
+                      value={draftTitle}
+                      onChange={(e) => setDraftTitle(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-surface-1 text-xs text-ink font-mono outline-none focus:ring-1 focus:ring-accent"
+                      data-testid="edit-title-input"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-10 font-mono uppercase tracking-wider text-[#79ca4b] font-semibold block">
+                      Subtitle (the hook that travels with the title)
+                    </label>
+                    <input
+                      value={draftSubtitle}
+                      onChange={(e) => setDraftSubtitle(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-surface-1 text-xs text-ink italic outline-none focus:ring-1 focus:ring-accent"
+                      data-testid="edit-subtitle-input"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-10 font-mono uppercase tracking-wider text-[#5ad49b] font-semibold block">
+                      Body (markdown)
+                    </label>
+                    <textarea
+                      value={draftBody}
+                      onChange={(e) => setDraftBody(e.target.value)}
+                      rows={18}
+                      className="w-full px-2.5 py-2 rounded-lg bg-surface-1 font-mono text-11 text-[#c4d6ed] outline-none focus:ring-1 focus:ring-accent resize-y"
+                      data-testid="edit-body-textarea"
+                    />
+                    <p className="text-10 font-mono text-[#556985]">
+                      Saving snapshots the current version to History. If the body changes, the
+                      description and summary will be marked out of date until refreshed.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        onSaveEdit?.({ title: draftTitle, subtitle: draftSubtitle, body: draftBody });
+                        setEditing(false);
+                      }}
+                      data-testid="save-edit"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-surface-0 text-xs font-mono font-semibold hover:opacity-90 transition-opacity cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditing(false)}
+                      className="px-3 py-1.5 rounded-lg bg-surface-3 text-[#8ab1e0] text-xs font-mono hover:bg-surface-4 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {layersStale && (
+                    <div
+                      className="flex flex-wrap items-center gap-2 p-2.5 rounded-lg bg-wash-warn/40"
+                      data-testid="stale-layers-badge"
+                    >
+                      <span className="text-11 font-mono text-[#f0c674]">
+                        Summary layers out of date — they don&apos;t match the body anymore.
+                      </span>
+                      <button
+                        onClick={async () => {
+                          if (!onRefreshLayers || refreshing) return;
+                          setRefreshing(true);
+                          setRefreshError(null);
+                          const err = await onRefreshLayers();
+                          setRefreshing(false);
+                          if (err) setRefreshError(err);
+                        }}
+                        disabled={refreshing}
+                        data-testid="refresh-layers"
+                        className="flex items-center gap-1 px-2 py-1 rounded-md bg-surface-3 hover:bg-surface-4 text-[#f0c674] text-10 font-mono transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                        title="Regenerate the description and summary from the current body"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+                        {refreshing ? 'Refreshing…' : 'Refresh layers'}
+                      </button>
+                      {refreshError && (
+                        <span className="text-10 font-mono text-[#f7aab3]" data-testid="refresh-layers-error">
+                          {refreshError}
+                        </span>
+                      )}
+                    </div>
+                  )}
               {subtitle && (
                 <CollapsibleField label="Subtitle (ships with the title)" labelClass="text-[#79ca4b]">
                   <div
@@ -374,6 +537,8 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                   </div>
                 )}
               </div>
+                </>
+              )}
             </div>
           )}
 
@@ -501,20 +666,97 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
 
           {activeTab === 'history' && (
             <div className="space-y-2">
-              {history.map((h, i) => (
-                <div
-                  key={i}
-                  className="p-3 rounded-lg bg-surface-1 space-y-1 font-mono text-11"
-                >
-                  <div className="flex items-center justify-between text-[#8ab1e0]">
-                    <span className="font-bold">v{h.version}</span>
-                    <span className="text-10 text-[#556985]">
-                      {new Date(h.timestamp).toLocaleString()}
-                    </span>
-                  </div>
-                  <p className="text-[#a4bddf]">{h.changeSummary}</p>
+              {history.length === 0 && (
+                <div className="p-4 rounded-lg bg-surface-1 text-center text-11 font-mono text-ink-dim">
+                  No earlier versions of this note yet.
                 </div>
-              ))}
+              )}
+              {history.map((h, i) => {
+                const prev = i > 0 ? history[i - 1] : null;
+                const diffOpen = openDiffVersion === h.version;
+                const lines = diffOpen ? diffLines(prev?.layers?.body || '', h.layers?.body || '') : [];
+                const stats = diffOpen ? diffStats(lines) : null;
+                const actorLabel =
+                  h.actor === 'user'
+                    ? 'Manual edit'
+                    : h.provenance?.threadId
+                      ? `AI · chat "${getThreadTitle?.(h.provenance.threadId) || 'chat'}"${
+                          typeof h.provenance.turnIndex === 'number' ? ` msg #${h.provenance.turnIndex}` : ''
+                        }`
+                      : 'AI';
+                return (
+                  <div key={h.version} className="p-3 rounded-lg bg-surface-1 space-y-1.5 font-mono text-11" data-testid={`revision-row-${h.version}`}>
+                    <div className="flex items-center justify-between gap-2 text-[#8ab1e0]">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-bold shrink-0">v{h.version}</span>
+                        <span
+                          className={`text-9 px-1.5 py-0.5 rounded shrink-0 ${
+                            h.actor === 'user' ? 'bg-wash-success text-[#6ee7b7]' : 'bg-surface-4 text-[#8ab1e0]'
+                          }`}
+                        >
+                          {actorLabel}
+                        </span>
+                        <span className="text-[#a4bddf] truncate">{h.changeSummary}</span>
+                      </div>
+                      <span className="text-10 text-[#556985] shrink-0">
+                        {new Date(h.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => setOpenDiffVersion(diffOpen ? null : h.version)}
+                        data-testid={`view-diff-${h.version}`}
+                        className="px-2 py-0.5 rounded-md bg-surface-3 hover:bg-surface-4 text-[#8ab1e0] text-10 transition-colors cursor-pointer"
+                        title={prev ? 'Show what this version changed in the body' : 'This is the first recorded version'}
+                      >
+                        {diffOpen ? 'Hide diff' : 'View diff'}
+                        {stats && <span className="ml-1 text-[#556985]">+{stats.added}/−{stats.removed}</span>}
+                      </button>
+                      {onRevert && (
+                        <button
+                          onClick={() => onRevert(h.version)}
+                          data-testid={`revert-${h.version}`}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-3 hover:bg-surface-4 text-[#e0b96c] text-10 transition-colors cursor-pointer"
+                          title={`Restore the note to v${h.version} (title and all layers together). The current state is kept in History first.`}
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          Revert to this version
+                        </button>
+                      )}
+                      {h.provenance?.threadId && onOpenThread && (
+                        <button
+                          onClick={() => onOpenThread(h.provenance!.threadId!)}
+                          data-testid={`open-chat-${h.version}`}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-3 hover:bg-surface-4 text-[#67e8f9] text-10 transition-colors cursor-pointer"
+                          title="Open the chat this version came from"
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          Open chat
+                        </button>
+                      )}
+                    </div>
+                    {diffOpen && (
+                      <div className="bg-surface-0 rounded-lg overflow-auto max-h-72 text-10 font-mono leading-relaxed" data-testid={`diff-${h.version}`}>
+                        {lines.map((l, li) => (
+                          <div
+                            key={li}
+                            className={
+                              l.type === 'add'
+                                ? 'bg-wash-success text-[#6ee7b7] whitespace-pre-wrap px-2'
+                                : l.type === 'del'
+                                  ? 'bg-wash-danger text-[#f7aab3] whitespace-pre-wrap px-2'
+                                  : 'text-[#8297b5] whitespace-pre-wrap px-2'
+                            }
+                          >
+                            {l.type === 'add' ? '+ ' : l.type === 'del' ? '− ' : '  '}
+                            {l.text}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

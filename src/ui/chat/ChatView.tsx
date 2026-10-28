@@ -29,8 +29,8 @@ import {
   Pencil,
   Code,
   Copy,
-} from 'lucide-react';
-import { logger } from '../../utils/logger';
+  MoreVertical,
+} from 'lucide-react';import { logger } from '../../utils/logger';
 import { copyText } from '../../utils/clipboard';
 import { isChapterInProgress } from '../../domains/02-chapter-segmentation';
 import { getTtsSnapshot, ttsTransport } from '../context/ttsTransport';
@@ -41,6 +41,9 @@ import type { ChatRenderMode } from './chatRenderMode';
 import { composerKeyAction, enterSendHint } from './sendOnEnter';
 import type { EnterSendMode } from './sendOnEnter';
 import { ThreadRuntime, ChatAttachment, isAttachmentStaged } from '../../domains/06-chat-threads';
+import type { ChatCapabilities } from '../../domains/06-chat-threads/types';
+import { resolveCapabilities } from '../../domains/06-chat-threads/types';
+import { CapabilitiesPopover } from './CapabilitiesPopover';
 import type { Granularity, AttachmentVisualState } from '../../domains/granularity';
 import { GRANULARITY_LABEL, cutIncludes, getAttachmentStatePalette } from '../../domains/granularity';
 import {
@@ -202,6 +205,15 @@ interface ChatViewProps {
   missingMatchCount?: number;
   /** Open the library straight into the Proximity lens (badge-aware attach). */
   onOpenArtifactsWithProximity?: () => void;
+  /** Chat capability toggles (Package 2 §2.5): per-thread override vs project default. */
+  threadCapabilities?: Partial<ChatCapabilities>;
+  projectCapabilities?: Partial<ChatCapabilities>;
+  onSetThreadCapabilities?: (caps: Partial<ChatCapabilities>) => void;
+  onSetProjectCapabilities?: (caps: Partial<ChatCapabilities>) => void;
+  /** Chapter controls (Package 2 §2.6): merge into the previous, move the seam, re-summarize with a steering note. */
+  onMergeChapter?: (chapterId: string) => void;
+  onShiftBoundary?: (chapterId: string, newStartIndex: number) => void;
+  onRecalibrateChapter?: (chapterId: string, steeringPrompt?: string) => Promise<void>;
 }
 
 const CHAPTER_PASTEL_COLORS = [
@@ -255,6 +267,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onDraftTextChange,
   missingMatchCount = 0,
   onOpenArtifactsWithProximity,
+  threadCapabilities,
+  projectCapabilities,
+  onSetThreadCapabilities,
+  onSetProjectCapabilities,
+  onMergeChapter,
+  onShiftBoundary,
+  onRecalibrateChapter,
 }) => {
   // Controlled when App lifts the draft; local fallback for uncontrolled mounts.
   const [localDraft, setLocalDraft] = useState('');
@@ -395,6 +414,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [summarizingIds, setSummarizingIds] = useState<Record<string, boolean>>({});
   const [summarizeErrorIds, setSummarizeErrorIds] = useState<Record<string, string>>({});
 
+  // Chat capability toggles (Package 2 §2.5): what the checkboxes show is the
+  // RESOLVED state — defaults ← project default ← this chat's override.
+  const resolvedCapabilities = resolveCapabilities(
+    { capabilities: threadCapabilities },
+    projectCapabilities
+  );
+  // Chapter header menu (Package 2 §2.6): which chapter's ⋯ menu is open, and
+  // the steering-note input for "Regenerate summary".
+  const [chapterMenuId, setChapterMenuId] = useState<string | null>(null);
+  const [steerChapterId, setSteerChapterId] = useState<string | null>(null);
+  const [steerText, setSteerText] = useState('');
   // Inline "Split Chapter" form state
   const [declaringMessageId, setDeclaringMessageId] = useState<string | null>(null);
   const [newChapterTitle, setNewChapterTitle] = useState('');
@@ -1001,6 +1031,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
               <div className="flex items-center justify-between pt-3 text-xs">
                 <div className="flex items-center gap-2 min-w-0">
+                  <CapabilitiesPopover
+                    resolved={resolvedCapabilities}
+                    onSetThread={(caps) => onSetThreadCapabilities?.(caps)}
+                    onSetProject={(caps) => onSetProjectCapabilities?.(caps)}
+                  />
                   <button
                     type="button"
                     onClick={() => {
@@ -1310,6 +1345,142 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           <ChevronUp className="w-4 h-4" />
                         )}
                       </button>
+                    )}
+
+                    {/* Chapter actions (Package 2 §2.6): undo a cut, nudge the
+                        seam, or re-run the summary with a steering note. The
+                        existing per-message split control stays where it is. */}
+                    {(onMergeChapter || onShiftBoundary || onRecalibrateChapter) && (
+                      <div className="relative shrink-0">
+                        <button
+                          type="button"
+                          data-testid={`chapter-menu-${chapter.id}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setSteerChapterId(null);
+                            setChapterMenuId(chapterMenuId === chapter.id ? null : chapter.id);
+                          }}
+                          className="min-w-[24px] min-h-[24px] p-1 rounded-lg hover:bg-surface-3 text-[#8ca3c7] transition-colors cursor-pointer"
+                          title="Chapter actions"
+                          aria-label="Chapter actions"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                        {chapterMenuId === chapter.id && (
+                          <div
+                            data-testid={`chapter-menu-panel-${chapter.id}`}
+                            className="absolute z-50 right-0 top-full mt-1 w-60 rounded-xl bg-surface-2 shadow-pop border border-line p-1.5 space-y-0.5"
+                          >
+                            {onMergeChapter && chapterIndex > 0 && (
+                              <button
+                                type="button"
+                                data-testid={`chapter-merge-${chapter.id}`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  onMergeChapter(chapter.id);
+                                  setChapterMenuId(null);
+                                }}
+                                className="block w-full text-left px-2 py-1.5 rounded-lg text-11 text-ink hover:bg-surface-3 transition-colors cursor-pointer"
+                              >
+                                Merge with previous chapter
+                              </button>
+                            )}
+                            {onShiftBoundary && chapterIndex > 0 && chapter.startIndex > 0 && (
+                              <button
+                                type="button"
+                                data-testid={`chapter-seam-up-${chapter.id}`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  onShiftBoundary(chapter.id, chapter.startIndex - 1);
+                                  setChapterMenuId(null);
+                                }}
+                                className="block w-full text-left px-2 py-1.5 rounded-lg text-11 text-ink hover:bg-surface-3 transition-colors cursor-pointer"
+                              >
+                                Move seam up one message
+                              </button>
+                            )}
+                            {onShiftBoundary && (
+                              <button
+                                type="button"
+                                data-testid={`chapter-seam-down-${chapter.id}`}
+                                disabled={
+                                  chapters[chapterIndex + 1] !== undefined &&
+                                  chapters[chapterIndex + 1].chapter.startIndex <= chapter.startIndex + 1
+                                }
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  onShiftBoundary(chapter.id, chapter.startIndex + 1);
+                                  setChapterMenuId(null);
+                                }}
+                                className="block w-full text-left px-2 py-1.5 rounded-lg text-11 text-ink hover:bg-surface-3 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                              >
+                                Move seam down one message
+                              </button>
+                            )}
+                            {onRecalibrateChapter && !isChapterInProgress(chapterList, chapterIndex) && (
+                              steerChapterId === chapter.id ? (
+                                <div className="px-2 py-1.5 space-y-1.5" data-testid="chapter-steer-input">
+                                  <div className="text-10 text-ink-mute leading-snug">
+                                    What should the recap focus on? Optional.
+                                  </div>
+                                  <input
+                                    value={steerText}
+                                    onChange={(e) => setSteerText(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        void onRecalibrateChapter(chapter.id, steerText.trim() || undefined);
+                                        setSteerChapterId(null);
+                                        setChapterMenuId(null);
+                                      }
+                                    }}
+                                    placeholder="e.g. focus on the decisions made"
+                                    className="w-full bg-recess-1 rounded-lg px-2 py-1 text-11 text-ink placeholder:text-ink-faint focus:outline-none"
+                                  />
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      type="button"
+                                      data-testid="chapter-steer-submit"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        void onRecalibrateChapter(chapter.id, steerText.trim() || undefined);
+                                        setSteerChapterId(null);
+                                        setChapterMenuId(null);
+                                      }}
+                                      className="px-2 py-1 rounded-lg bg-surface-4 text-ink text-10 font-mono cursor-pointer"
+                                    >
+                                      Regenerate
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        setSteerChapterId(null);
+                                      }}
+                                      className="px-2 py-1 rounded-lg text-ink-mute text-10 font-mono hover:bg-surface-3 cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  data-testid={`chapter-recalibrate-${chapter.id}`}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setSteerText('');
+                                    setSteerChapterId(chapter.id);
+                                  }}
+                                  className="block w-full text-left px-2 py-1.5 rounded-lg text-11 text-ink hover:bg-surface-3 transition-colors cursor-pointer"
+                                >
+                                  Regenerate summary…
+                                </button>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1964,6 +2135,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {totalMessagesCount > 0 && (
         <div className="p-2.5 sm:p-3 bg-surface-0 shrink-0 space-y-2">
           <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
+            <CapabilitiesPopover
+              resolved={resolvedCapabilities}
+              onSetThread={(caps) => onSetThreadCapabilities?.(caps)}
+              onSetProject={(caps) => onSetProjectCapabilities?.(caps)}
+            />
             {/* [+] → the Artifacts folder IS the picker. The voice
                 selector moved to the sidebar, where settings belong. */}
             <button

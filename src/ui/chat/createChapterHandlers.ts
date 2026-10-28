@@ -62,6 +62,8 @@ export function useAutoSummarizeSealedChapters(
 export interface ChapterHandlerParams {
   timeline: DomainContextValue['timeline'];
   segmentation: DomainContextValue['segmentation'];
+  /** Chapter Recalibrate (Package 2 §2.6): absent in bare test mounts. */
+  recalibration?: DomainContextValue['recalibration'];
 }
 
 export function createChapterHandlers(params: ChapterHandlerParams) {
@@ -178,9 +180,40 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
     segmentation.setGranularity(chapterId, granularity);
   };
 
+  // Merge with the previous chapter (Package 2 §2.6): undo a cut. The domain
+  // refuses when there is nothing above or the previous chapter is live.
+  const handleMergeChapter = (chapterId: string) => {
+    segmentation.mergeChapters(chapterId);
+  };
+
+  // Move the seam between this chapter and the one above, one turn at a
+  // time. Bounds (turn 0, neighbours) are guarded inside the domain.
+  const handleShiftBoundary = (chapterId: string, newStartIndex: number) => {
+    segmentation.shiftBoundary(chapterId, newStartIndex);
+  };
+
+  // Regenerate summary with a steering note (Package 2 §2.6): the user says
+  // WHAT the recap should emphasise. Same in-progress guard as summarize —
+  // live chapters send Full, so anything written now is stale on arrival.
+  const handleRecalibrateChapter = async (chapterId: string, steeringPrompt?: string) => {
+    if (!params.recalibration) return;
+    const target = segmentation.getChapter(chapterId);
+    if (!target) return;
+    const list = segmentation.listChapters();
+    const idx = list.findIndex((c) => c.id === chapterId);
+    if (idx !== -1 && isChapterInProgress(list, idx)) {
+      logger.warn('App', `Recalibrate refused for in-progress chapter ${chapterId}`);
+      return;
+    }
+    await params.recalibration.recalibrateSummary(chapterId, steeringPrompt);
+  };
+
   return {
     handleDeclareChapter,
     handleSummarizeChapter,
     handleSetChapterGranularity,
+    handleMergeChapter,
+    handleShiftBoundary,
+    handleRecalibrateChapter,
   };
 }

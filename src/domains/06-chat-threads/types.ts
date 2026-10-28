@@ -59,6 +59,44 @@ export interface ChatThread {
    * conversation is sent. Legacy snapshots hydrate to [] (see ThreadRegistry).
    */
   attachments: ChatAttachment[];
+  /** Per-thread capability overrides (Package 2 §2.2). Absent fields fall through to the project default. */
+  capabilities?: Partial<ChatCapabilities>;
+}
+
+/**
+ * Which functional blocks the chatbot is ALLOWED to use (Package 2 §2.2).
+ * A capability that is OFF never reaches the system instruction: the XML
+ * schema for it is not taught, and any rogue block the model emits anyway is
+ * stripped by the demuxer and IGNORED by the apply paths.
+ */
+export interface ChatCapabilities {
+  /** Allow/instruct LLM to emit <topic_shift> to cut chapters. DEFAULT: false. */
+  autoChapter: boolean;
+  /** Allow/instruct LLM to emit <artifact_upsert>. DEFAULT: true. */
+  writeArtifacts: boolean;
+  /** Allow/instruct LLM to emit <link>. DEFAULT: false. */
+  graphLinks: boolean;
+}
+
+export const DEFAULT_CHAT_CAPABILITIES: ChatCapabilities = {
+  autoChapter: false,
+  writeArtifacts: true,
+  graphLinks: false,
+};
+
+/**
+ * Merge order (Package 2 §2.2): DEFAULT ← project default ← thread override.
+ * `null`/undefined at any level falls through to the previous one.
+ */
+export function resolveCapabilities(
+  thread: Pick<ChatThread, 'capabilities'> | null | undefined,
+  projectDefault?: Partial<ChatCapabilities> | null
+): ChatCapabilities {
+  return {
+    ...DEFAULT_CHAT_CAPABILITIES,
+    ...(projectDefault || {}),
+    ...(thread?.capabilities || {}),
+  };
 }
 
 export interface ThreadFolder {

@@ -34,6 +34,8 @@ export interface IChapterSegmentationDomain {
     description?: string
   ): ChapterPartition;
   shiftBoundary(chapterId: string, newStartIndex: number): void;
+  /** Merge this chapter into the previous one; null when refused (no previous / previous in progress). */
+  mergeChapters(chapterId: string): ChapterPartition | null;
   updateLevels(
     chapterId: string,
     levels: { subtitle?: string; description?: string; summary?: string }

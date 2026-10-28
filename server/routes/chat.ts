@@ -6,6 +6,8 @@ import { estimateTokens } from '../lib/tokens';
 import { DEFAULT_SYSTEM_INSTRUCTION, buildCompiledPrompt } from '../lib/prompt';
 import { DEFAULT_MODEL_ID, requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
+import { isOpenRouterModel } from '../providers/openrouter';
+import { recordCallStart, recordCallAck, recordCallFirstToken, recordCallEnd } from '../lib/callRecorder';
 
 export function registerChatRoutes(app: Express): void {
 app.post('/api/chat/cancel', (req: Request, res: Response) => {
@@ -18,6 +20,9 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
   const reqId = (req as any).reqId || Math.floor(Math.random() * 10000);
   const startTime = Date.now();
   let isClientAborted = false;
+  // Flight recorder id (design-docs/28 §4) — null until the request payload
+  // is built; every recorder call no-ops while it is null.
+  let callLogId: string | null = null;
 
   // Resolve the caller's model + vault key BEFORE committing to SSE, so
   // 400/428 answer as JSON (design-docs/21B §7: locked vault → 428).
@@ -66,6 +71,15 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     const systemInstruction = clientSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
     const compiledPrompt = buildCompiledPrompt(req.body);
 
+    // Flight recorder: the exact scrubbed request goes in before the wire.
+    callLogId = recordCallStart({
+      userId: req.user?.id ?? null,
+      kind: 'chat',
+      provider: isOpenRouterModel(targetModel) ? 'openrouter' : 'gemini',
+      model: targetModel,
+      request: { endpoint: '/api/chat/stream', model: targetModel, systemInstruction, compiledPrompt },
+    });
+
     // Model errors are FINAL (David 2026-10-25): no substitution, no watchdog
     // swap. An unknown model or a provider failure is the real error — the
     // client's draft shows it as-is. (targetModel + ai resolved above.)
@@ -83,6 +97,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       // The requested model answers, or the request fails with the real
       // reason. There is no second stream waiting behind a timer.
       const responseStream = await streamFromModel(ai, targetModel, compiledPrompt, systemInstruction, reqId);
+      recordCallAck(callLogId);
       const usedModel = targetModel;
 
       // THE ACK BEFORE FIRST TOKEN: the provider accepted the stream. Only
@@ -104,11 +119,13 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       for await (const chunk of responseStream) {
         if (isClientAborted) {
           logServer('warn', 'STREAM:BREAK', `#${reqId} Generator loop exited due to client abort.`);
+          recordCallEnd(callLogId, { status: 'aborted', responseText: fullText });
           break;
         }
 
         if (timeToFirstChunkMs === null) {
           timeToFirstChunkMs = Date.now() - startTime;
+          recordCallFirstToken(callLogId);
           logServer('success', 'STREAM:TTFC', `#${reqId} First chunk received in ${timeToFirstChunkMs}ms from ${usedModel}`);
           sendSSE('status', {
             state: 'writing',
@@ -156,6 +173,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       }
 
       if (isClientAborted) {
+        recordCallEnd(callLogId, { status: 'aborted', responseText: fullText });
         res.end();
         return;
       }
@@ -169,6 +187,12 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       const outputTokens = usageMetadata?.candidatesTokenCount ?? estimateTokens(fullText);
       const totalTokens = usageMetadata?.totalTokenCount ?? (inputTokens + outputTokens);
       const latencyMs = Date.now() - startTime;
+
+      recordCallEnd(callLogId, {
+        status: 'ok',
+        responseText: fullText,
+        usage: usageMetadata ?? undefined,
+      });
 
       logServer('success', 'STREAM:DONE', `#${reqId} Completed in ${latencyMs}ms`, {
         model: usedModel,
@@ -197,6 +221,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     }
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : 'Internal Server Error';
+    recordCallEnd(callLogId, { status: 'error', error: errorMessage });
     logServer('error', 'STREAM:FAIL', `#${reqId} Fatal streaming error: ${errorMessage}`);
     sendSSE('error', { error: errorMessage });
     res.end();

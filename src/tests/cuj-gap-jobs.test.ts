@@ -542,7 +542,7 @@ describe('G5 — job commit applies buffered artifacts + topic shifts', () => {
 
     behavior.current = 'ok-with-sentinels';
     behavior.calls = 0;
-    const jobId = await enqueueSend(threadId, 'extract the hook and shift topic');
+    const jobId = await enqueueSend(threadId, 'extract the hook and shift topic', { capabilities: { autoChapter: true } });
     await waitFor(() => (jobState(jobId) === undefined ? true : null));
     behavior.current = 'ok';
 
@@ -615,7 +615,7 @@ describe('G5 — job commit applies buffered artifacts + topic shifts', () => {
 
     behavior.current = 'ok-with-sentinels';
     behavior.calls = 0;
-    const jobId = await enqueueSend(threadId, 'extract the hook and shift topic');
+    const jobId = await enqueueSend(threadId, 'extract the hook and shift topic', { capabilities: { autoChapter: true } });
     await waitFor(() => (jobState(jobId) === undefined ? true : null));
     behavior.current = 'ok';
 

@@ -20,6 +20,7 @@ import { getDb } from '../db';
 import { logServer } from '../lib/log';
 import type { GeneratedQaPair } from '../../src/services/searchIndexStore';
 import { tryRequireModelId, requireModelId, defaultModelFor } from '../lib/models';
+import { recordCallStart, recordCallEnd } from '../lib/callRecorder';
 
 /** gemini-embedding-001 accepts 2,048 input tokens; 6,000 chars ≈ 1,600. */
 const EMBED_TEXT_CHAR_CAP = 6000;
@@ -275,13 +276,28 @@ export function registerSearchIndexRoutes(app: Express): void {
 
       const ai = aiForRequest(req, 'qaGen', qaModel);
 
-      const response = await ai.models.generateContent({
+      const qaPrompt = buildQaPrompt(title, subtitle, sections);
+      const callLogId = recordCallStart({
+        userId: req.user?.id ?? null,
+        kind: 'qa',
         model: qaModel,
-        contents: buildQaPrompt(title, subtitle, sections),
-        config: { temperature: 0.2 },
+        request: { endpoint: '/api/search-index/generate-qa', model: qaModel, compiledPrompt: qaPrompt, params: { temperature: 0.2 } },
       });
+      let responseText = '';
+      try {
+        const response = await ai.models.generateContent({
+          model: qaModel,
+          contents: qaPrompt,
+          config: { temperature: 0.2 },
+        });
+        responseText = response.text || '';
+        recordCallEnd(callLogId, { status: 'ok', responseText });
+      } catch (err) {
+        recordCallEnd(callLogId, { status: 'error', error: err instanceof Error ? err.message : String(err).slice(0, 500) });
+        throw err;
+      }
 
-      const qaPairs = parseQaPairs(response.text || '', sections);
+      const qaPairs = parseQaPairs(responseText, sections);
       if (qaPairs.length === 0) {
         logServer('warn', 'API:SEARCH_QA', 'Model produced no parseable Q&A — using fallback');
         return res.json({ qaPairs: fallbackQaPairs(sections), offline: true });
@@ -339,29 +355,47 @@ export function registerSearchIndexRoutes(app: Express): void {
           `embedContent #${embedContentCalls}: ${batch.length} texts [${embedModel}]` +
             ` (batch ${Math.floor(i / EMBED_BATCH_SIZE) + 1}/${callCount})`
         );
-        if (isOpenRouterModel(embedModel)) {
-          // OpenRouter: taskType/title/outputDimensionality don't exist there.
-          const response = await (ai as OpenRouterClient).models.embedContent({
-            model: embedModel,
-            contents: batch,
-          });
-          for (const emb of response.embeddings) {
-            embeddings.push(emb.values);
+        // Flight recorder (design-docs/28 §4.2): one row per metered
+        // embedContent call. Vector payloads are noise — dims land in usage
+        // instead of a raw response body.
+        const batchLogId = recordCallStart({
+          userId: req.user?.id ?? null,
+          kind: 'embed',
+          model: embedModel,
+          request: { endpoint: 'embedContent', model: embedModel, params: { texts: batch.length, taskType, title: title ?? null } },
+        });
+        try {
+          if (isOpenRouterModel(embedModel)) {
+            // OpenRouter: taskType/title/outputDimensionality don't exist there.
+            const response = await (ai as OpenRouterClient).models.embedContent({
+              model: embedModel,
+              contents: batch,
+            });
+            for (const emb of response.embeddings) {
+              embeddings.push(emb.values);
+            }
+          } else {
+            const response = await (ai as GoogleGenAI).models.embedContent({
+              model: embedModel,
+              contents: batch,
+              config: {
+                taskType,
+                outputDimensionality: 768,
+                ...(taskType === 'RETRIEVAL_DOCUMENT' && title ? { title } : {}),
+              },
+            });
+            for (const emb of response.embeddings || []) {
+              // LAW 6: truncated Matryoshka output is NOT unit-length. Normalize here.
+              embeddings.push(l2Normalize(emb.values || []));
+            }
           }
-        } else {
-          const response = await (ai as GoogleGenAI).models.embedContent({
-            model: embedModel,
-            contents: batch,
-            config: {
-              taskType,
-              outputDimensionality: 768,
-              ...(taskType === 'RETRIEVAL_DOCUMENT' && title ? { title } : {}),
-            },
+          recordCallEnd(batchLogId, {
+            status: 'ok',
+            usage: { vectors: batch.length, dims: embeddings.length > 0 ? embeddings[embeddings.length - batch.length]?.length ?? null : null },
           });
-          for (const emb of response.embeddings || []) {
-            // LAW 6: truncated Matryoshka output is NOT unit-length. Normalize here.
-            embeddings.push(l2Normalize(emb.values || []));
-          }
+        } catch (err) {
+          recordCallEnd(batchLogId, { status: 'error', error: err instanceof Error ? err.message : String(err).slice(0, 500) });
+          throw err;
         }
         if (i + EMBED_BATCH_SIZE < capped.length) {
           await new Promise((r) => setTimeout(r, 150));

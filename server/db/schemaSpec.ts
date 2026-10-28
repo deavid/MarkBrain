@@ -124,6 +124,7 @@ const PROJECTS: TableSpec = {
   color TEXT NOT NULL DEFAULT '#e05a66',
   active_thread_id TEXT,
   granularity_law TEXT NOT NULL DEFAULT 'user-only',
+  capabilities_json TEXT,
   revision INTEGER NOT NULL DEFAULT 1,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, project_id)
@@ -137,6 +138,7 @@ const PROJECTS: TableSpec = {
     { name: 'color', ddl: "color TEXT NOT NULL DEFAULT '#e05a66'" },
     { name: 'active_thread_id', ddl: 'active_thread_id TEXT' },
     { name: 'granularity_law', ddl: "granularity_law TEXT NOT NULL DEFAULT 'user-only'" },
+    { name: 'capabilities_json', ddl: 'capabilities_json TEXT' },
     { name: 'revision', ddl: 'revision INTEGER NOT NULL DEFAULT 1' },
     { name: 'updated_at', ddl: 'updated_at INTEGER NOT NULL' },
   ],
@@ -356,6 +358,7 @@ const CHAT_JOBS: TableSpec = {
   system_instruction TEXT,
   model TEXT NOT NULL,
   staged_attachments_json TEXT NOT NULL DEFAULT '[]',
+  capabilities_json TEXT,
   state TEXT NOT NULL,
   partial_text TEXT NOT NULL DEFAULT '',
   error_reason TEXT,
@@ -378,6 +381,7 @@ const CHAT_JOBS: TableSpec = {
     { name: 'system_instruction', ddl: 'system_instruction TEXT' },
     { name: 'model', ddl: 'model TEXT NOT NULL' },
     { name: 'staged_attachments_json', ddl: "staged_attachments_json TEXT NOT NULL DEFAULT '[]'" },
+    { name: 'capabilities_json', ddl: 'capabilities_json TEXT' },
     { name: 'state', ddl: 'state TEXT NOT NULL' },
     { name: 'partial_text', ddl: "partial_text TEXT NOT NULL DEFAULT ''" },
     { name: 'error_reason', ddl: 'error_reason TEXT' },
@@ -461,6 +465,7 @@ const ARTIFACT_REVISIONS: TableSpec = {
   provenance_json TEXT NOT NULL DEFAULT '{}',
   title TEXT NOT NULL DEFAULT '',
   layers_json TEXT NOT NULL DEFAULT '{}',
+  revision INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, project_id, artifact_id, version),
   FOREIGN KEY (user_id, project_id) REFERENCES projects(user_id, project_id) ON DELETE CASCADE
 )`,
@@ -475,6 +480,9 @@ const ARTIFACT_REVISIONS: TableSpec = {
     { name: 'provenance_json', ddl: "provenance_json TEXT NOT NULL DEFAULT '{}'" },
     { name: 'title', ddl: "title TEXT NOT NULL DEFAULT ''" },
     { name: 'layers_json', ddl: "layers_json TEXT NOT NULL DEFAULT '{}'" },
+    // Package 1: same revision-stamp envelope as every other domain table —
+    // getProjectDelta filters revision rows by it. Added by the annealer.
+    { name: 'revision', ddl: 'revision INTEGER NOT NULL DEFAULT 0' },
   ],
 };
 

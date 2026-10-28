@@ -9,6 +9,7 @@
 import type { IWorkspaceDomain } from '../domains/00-workspace';
 import type { IDialogueTimelineDomain } from '../domains/01-dialogue-timeline';
 import type { IArtifactDocumentDomain } from '../domains/01-artifact-document';
+import type { IArtifactVersioningDomain } from '../domains/01-artifact-versioning';
 import type { IChapterSegmentationDomain } from '../domains/02-chapter-segmentation';
 import type { ITopologicalGraphDomain } from '../domains/02-topological-graph';
 import type { ThreadRegistry } from '../domains/06-chat-threads';
@@ -26,6 +27,7 @@ export interface PersistDeps {
   segmentation: IChapterSegmentationDomain;
   artifacts: IArtifactDocumentDomain;
   graph: ITopologicalGraphDomain;
+  versioning: IArtifactVersioningDomain;
   threadRegistry: ThreadRegistry;
   hydratedRef: HydratedRef;
   saveProjectSnapshot: (
@@ -45,6 +47,7 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
     segmentation,
     artifacts,
     graph,
+    versioning,
     threadRegistry,
     hydratedRef,
     saveProjectSnapshot,
@@ -88,10 +91,18 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
       activeThreadId: composed.activeThreadId,
       artifacts: artifacts.listArtifacts(),
       edges: graph.listEdges(),
+      // History rides the snapshot: without it an F5 wipes the History tab
+      // (Package 1 §1.4). Keyed by artifact id, merged on hydrate.
+      revisions: versioning.getAllRevisions(),
       name: container?.metadata.name,
       codeName: container?.metadata.codeName,
       description: container?.metadata.description,
       color: container?.metadata.color,
+      // Project-default chat capabilities (Package 2 §2.2) — omit when unset
+      // so legacy snapshots stay byte-compatible.
+      ...(container?.metadata.capabilities
+        ? { capabilities: container.metadata.capabilities }
+        : {}),
     };
   } catch (err) {
     logger.error('DomainRegistry', 'Snapshot assembly failed — nothing was sent to storage', err);

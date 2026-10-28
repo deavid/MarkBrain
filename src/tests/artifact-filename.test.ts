@@ -113,7 +113,9 @@ describe('the compiled payload', () => {
       granularity: 'summary' as const,
       addedAt: 0,
     }));
-    return compiler.compile({ attachments });
+    // Package 2: the <link> block is now capability-gated — this suite pins the
+    // filename law, so it opts into graphLinks explicitly.
+    return compiler.compile({ attachments, capabilities: { autoChapter: false, writeArtifacts: true, graphLinks: true } });
   };
 
   it('leaks no internal artifact id into what the model reads', () => {

@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
-import { Brain, AlertCircle, Terminal, HardDrive, RefreshCw, ChevronDown, Server } from 'lucide-react';
+import { Brain, AlertCircle, Terminal, HardDrive, RefreshCw, ChevronDown, Server, CloudOff } from 'lucide-react';
 import { logger } from '../../utils/logger';
+import type { KnownReplica } from '../../services/workspaceSession';
 
 interface AuthGateProps {
   /** VPS login: POST /api/auth/login against baseUrl ('' = same origin). */
   onVpsLogin: (email: string, password: string, baseUrl: string) => Promise<unknown>;
   onContinueLocal: () => Promise<void> | void;
+  /** Open a known replica from its local mirror — offline, no login call. */
+  onOpenOfflineReplica?: (replica: KnownReplica) => Promise<void> | void;
+  /** Replicas with a local mirror on this device (from the session machine). */
+  knownReplicas?: KnownReplica[];
   onOpenServerLogs?: () => void;
 }
 
@@ -14,7 +19,13 @@ interface AuthGateProps {
  * 1. Primary: Sign in to Server (email + password, optional Server URL).
  * 2. Secondary: Use Local Workspace (this browser only, BYOK).
  */
-export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal, onOpenServerLogs }) => {
+export const AuthGate: React.FC<AuthGateProps> = ({
+  onVpsLogin,
+  onContinueLocal,
+  onOpenOfflineReplica,
+  knownReplicas = [],
+  onOpenServerLogs,
+}) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showUrl, setShowUrl] = useState(false);
@@ -146,6 +157,48 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onVpsLogin, onContinueLocal,
             Stays in this browser only. Bring your own API key.
           </p>
         </div>
+
+        {/* 3. Offline replicas — copies of a server workspace already on this
+            device. Open them with no login: useful when the server is down or
+            unreachable (Package 3 §3.6). */}
+        {onOpenOfflineReplica && knownReplicas.length > 0 && (
+          <div className="w-full flex flex-col gap-2 rounded-2xl bg-surface-2 shadow-step p-4">
+            <div className="flex items-center gap-2 text-11 font-semibold uppercase tracking-wider text-ink-dim">
+              <CloudOff className="w-3.5 h-3.5 text-brand" />
+              Offline replicas on this device
+            </div>
+            {knownReplicas.map((replica) => {
+              let host = replica.baseUrl;
+              try {
+                host = new URL(replica.baseUrl || window.location.origin).host;
+              } catch {
+                /* keep raw string */
+              }
+              return (
+                <button
+                  key={`${replica.baseUrl}::${replica.email}`}
+                  type="button"
+                  data-testid="open-offline-replica"
+                  onClick={() => {
+                    logger.action('AuthGate', `Open offline replica: ${replica.email} @ ${host}`);
+                    setErrorMessage(null);
+                    void onOpenOfflineReplica(replica);
+                  }}
+                  className="w-full flex items-center justify-between gap-2 h-10 rounded-xl bg-surface-0 border border-line hover:border-brand px-3 text-13 text-ink transition-colors cursor-pointer"
+                >
+                  <span className="truncate">
+                    <span className="font-medium">{replica.email}</span>
+                    <span className="text-ink-mute"> @ {host}</span>
+                  </span>
+                  <span className="text-11 font-mono text-[#8ab1e0] shrink-0">Open offline</span>
+                </button>
+              );
+            })}
+            <p className="text-11 leading-relaxed text-ink-mute">
+              Works without the server. Changes stay on this device until you sign in and sync.
+            </p>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="w-full p-3.5 rounded-xl bg-wash-danger space-y-2 text-xs text-red-300 animate-in fade-in duration-200">

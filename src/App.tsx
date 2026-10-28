@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ModelOption } from './types';
+import { ModelOption, Artifact } from './types';
 import { FALLBACK_MODEL } from './data/models';
 import { loadModelConfig, saveModelConfig, getModelForSlot, resolveChatModelOption } from './data/modelConfig';
 import { Sidebar, ActiveView } from './ui/workspace/Sidebar';
@@ -40,6 +40,7 @@ import { MAX_CONTEXT_TOKENS } from './utils/contextWindow';
 import { useDomains } from './domains/DomainRegistry';
 import { estimateArtifactCutTokens } from './domains/03-optical-compiler';
 import { isAttachmentStaged } from './domains/06-chat-threads';
+import { resolveCapabilities } from './domains/06-chat-threads/types';
 import type { Granularity } from './domains/granularity';
 import { cycleGranularity } from './domains/granularity';
 import { useImportSession } from './ui/artifacts/import/useImportSession';
@@ -87,6 +88,7 @@ export default function App() {
     versioning,
     graph,
     segmentation,
+    recalibration,
     compiler,
     stream,
     currentUser,
@@ -95,6 +97,9 @@ export default function App() {
     signIn,
     continueLocal,
     signOut,
+    signOutWipeReplica,
+    openOfflineReplica,
+    knownReplicas,
     createCloudWorkspace,
     deleteWorkspace,
     threadRegistry,
@@ -233,7 +238,7 @@ export default function App() {
   const [libraryTagFilter, setLibraryTagFilter] = useState({ tag: '', seq: 0 });
   const [triageFocusId, setTriageFocusId] = useState<string | null>(null);
 
-  const { importDbFileRef, handleExportDatabase, dbImportInput } = useDatabaseTransfer();
+  const { importDbFileRef, handleExportDatabase, dbImportInput, handleExportPlaintext, importPlaintextFileRef, plaintextImportInput } = useDatabaseTransfer();
 
   const { handleSelectProjectAndLaunchChat, handleCreateProject } = createWorkspaceHandlers({
     workspace,
@@ -632,6 +637,9 @@ export default function App() {
     handleSetAttachmentGranularity: handleSetAttachmentGranularityRaw,
     handleAddArtifact,
     handleImportArtifact,
+    handleManualArtifactEdit,
+    handleRevertArtifact,
+    handleRefreshLayers,
     handleTriageKeepBoth,
     handleTriageOverwrite,
     handleTriageDelete,
@@ -650,6 +658,26 @@ export default function App() {
     triageFocusId,
     setTriageFocusId,
   });
+
+  // + New Note (Package 1 §1.8): a fresh document with a birth revision,
+  // selected on creation. The id mints like the import path's.
+  const handleNewNote = (title: string, body: string) => {
+    const now = Date.now();
+    const id = `art-${now}-${Math.floor(Math.random() * 10000)}`;
+    handleAddArtifact({
+      id,
+      code: id,
+      title: title || 'Untitled',
+      workspaceId: activeProjectId,
+      type: 'document',
+      category: 'note',
+      isHighConcept: false,
+      current: { subtitle: '', description: '', summary: '', body },
+      tags: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+  };
 
   // Design 23 §2.1.2: while the thread's head draft is `queued` (nothing
   // sending), the DRAFT's attachment snapshot is the SOURCE OF TRUTH for the
@@ -701,8 +729,14 @@ export default function App() {
   const { handleUpdateNodePosition, handleBatchUpdateNodePositions, handleAddEdge } =
     createGraphHandlers({ artifactsDomain, graph });
 
-  const { handleDeclareChapter, handleSummarizeChapter, handleSetChapterGranularity } =
-    createChapterHandlers({ timeline, segmentation });
+  const {
+    handleDeclareChapter,
+    handleSummarizeChapter,
+    handleSetChapterGranularity,
+    handleMergeChapter,
+    handleShiftBoundary,
+    handleRecalibrateChapter,
+  } = createChapterHandlers({ timeline, segmentation, recalibration });
   // One rule for EVERY seal path: the manual split AND the model's own
   // <topic_shift>, which used to leave its sealed chapter at "No summary yet".
   useAutoSummarizeSealedChapters(segmentation, handleSummarizeChapter);
@@ -755,6 +789,9 @@ export default function App() {
       projectId: activeProjectId,
       projectTitle: projectMeta.name,
       tokenCeiling: currentContainer?.tokenCeiling || MAX_CONTEXT_TOKENS,
+      // Project-default capability toggles (Package 2): the thread override
+      // is applied per-send inside the queue.
+      capabilities: projectMeta.capabilities,
     }),
   };
 
@@ -778,6 +815,8 @@ export default function App() {
         <AuthGate
           onVpsLogin={signIn}
           onContinueLocal={continueLocal}
+          onOpenOfflineReplica={openOfflineReplica}
+          knownReplicas={knownReplicas}
           onOpenServerLogs={() => setIsServerLogsOpen(true)}
         />
         <ServerLogsModal
@@ -805,7 +844,7 @@ export default function App() {
           onSignOut={signOut}
           onImportDatabase={() => importDbFileRef.current?.click()}
         />
-        {dbImportInput}
+        {dbImportInput}{plaintextImportInput}
         <ServerLogsModal
           isOpen={isServerLogsOpen}
           onClose={() => setIsServerLogsOpen(false)}
@@ -842,6 +881,9 @@ export default function App() {
         onOpenImport={() => setIsImportOpen(true)}
         onExportDatabase={handleExportDatabase}
         onImportDatabase={() => importDbFileRef.current?.click()}
+        onExportPlaintext={handleExportPlaintext}
+        onImportPlaintext={() => importPlaintextFileRef.current?.click()}
+        onSignOutWipeReplica={signOutWipeReplica}
         onOpenProjectLauncher={() => setIsProjectLauncherOpen(true)}
         onOpenServerLogs={() => setIsServerLogsOpen(true)}
         onOpenCleanup={() => setIsCleanupOpen(true)}
@@ -898,6 +940,7 @@ export default function App() {
               onUpdateNodePosition={handleUpdateNodePosition}
               onBatchUpdateNodePositions={handleBatchUpdateNodePositions}
               onOpenImport={() => setIsImportOpen(true)}
+              onNewNote={handleNewNote}
               onTriageArtifact={(id) => {
                 logger.action('App', `Open revision triage focused on ${id}`);
                 setTriageFocusId(id);
@@ -966,6 +1009,21 @@ export default function App() {
                   onSummarizeChapter={handleSummarizeChapter}
                   onDeclareChapter={handleDeclareChapter}
                   onSetChapterGranularity={handleSetChapterGranularity}
+                  threadCapabilities={threadRegistry.getThread(activeThreadId)?.capabilities}
+                  projectCapabilities={projectMeta.capabilities}
+                  onSetThreadCapabilities={(caps) => {
+                    logger.action('App', 'Set chat capabilities (this chat)', caps);
+                    threadRegistry.patch(activeThreadId, { capabilities: caps });
+                    triggerReRender();
+                  }}
+                  onSetProjectCapabilities={(caps) => {
+                    logger.action('App', 'Set chat capabilities (all chats in project)', caps);
+                    workspace.updateMetadata(activeProjectId, { capabilities: caps });
+                    triggerReRender();
+                  }}
+                  onMergeChapter={handleMergeChapter}
+                  onShiftBoundary={handleShiftBoundary}
+                  onRecalibrateChapter={handleRecalibrateChapter}
                   attachments={activeAttachments}
                   tokensByArtifact={tokensByArtifact}
                   chapterTokens={chapterTokens}
@@ -1027,6 +1085,7 @@ export default function App() {
               setIsMirrorOpen(false);
             }}
             compiled={compiledContext}
+            capabilities={resolveCapabilities(threadRegistry.getThread(activeThreadId), projectMeta.capabilities)}
             artifacts={domainArtifacts}
             chapters={chapterGroups}
             ceiling={ambientTelemetry.ceiling}
@@ -1164,6 +1223,15 @@ export default function App() {
             <ArtifactDetailModal
               artifact={art}
               history={versioning.getHistory(art.id)}
+              layersStale={typeof art.layersStaleAt === 'number'}
+              onSaveEdit={(patch) => handleManualArtifactEdit(art.id, patch)}
+              onRevert={(version) => handleRevertArtifact(art.id, version)}
+              onRefreshLayers={() => handleRefreshLayers(art.id)}
+              onOpenThread={(threadId) => {
+                setSelectedArtifactId(null);
+                selectThread(threadId);
+              }}
+              getThreadTitle={(threadId) => threadRegistry.getThread(threadId)?.title || null}
               onClose={() => setSelectedArtifactId(null)}
               attachmentGranularity={
                 activeAttachments.find((a) => a.artifactId === art.id)?.granularity ?? null
@@ -1191,7 +1259,7 @@ export default function App() {
       )}
 
       {/* Hidden trigger for full-database restore (Sidebar → Restore DB) */}
-      {dbImportInput}
+      {dbImportInput}{plaintextImportInput}
 
       {/* The red banner: failures severe enough that the session is lying to you */}
       <CriticalNotifications />

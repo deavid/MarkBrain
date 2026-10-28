@@ -3,6 +3,8 @@ import { logServer } from '../lib/log';
 import { EXTRACT_READ_CHAR_CAP, buildExtractPrompt, readSentinelArtifact } from '../lib/prompt';
 import { requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
+import { isOpenRouterModel } from '../providers/openrouter';
+import { recordCallStart, recordCallEnd } from '../lib/callRecorder';
 
 export function registerExtractRoutes(app: Express): void {
 app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) => {
@@ -36,13 +38,26 @@ app.post('/api/extract-artifact-from-file', async (req: Request, res: Response) 
         previousOutput,
       });
 
-      const response = await ai.models.generateContent({
+      const callLogId = recordCallStart({
+        userId: req.user?.id ?? null,
+        kind: 'extract',
+        provider: isOpenRouterModel(extractModel) ? 'openrouter' : 'gemini',
         model: extractModel,
-        contents: prompt,
-        config: { temperature: 0.2 },
+        request: { endpoint: '/api/extract-artifact-from-file', model: extractModel, compiledPrompt: prompt, params: { temperature: 0.2 } },
       });
-
-      const raw = response.text || '';
+      let raw = '';
+      try {
+        const response = await ai.models.generateContent({
+          model: extractModel,
+          contents: prompt,
+          config: { temperature: 0.2 },
+        });
+        raw = response.text || '';
+        recordCallEnd(callLogId, { status: 'ok', responseText: raw });
+      } catch (err) {
+        recordCallEnd(callLogId, { status: 'error', error: err instanceof Error ? err.message : String(err).slice(0, 500) });
+        throw err;
+      }
       const read = readSentinelArtifact(raw, filename.replace(/\.[^/.]+$/, ''));
       if (!read.hasLayers) {
         // Hand the raw text back so the client's Retry is failure-aware.

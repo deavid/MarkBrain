@@ -31,6 +31,14 @@ import {
   getJobSummaryRows,
 } from '../db/projectRepo';
 import type { ChatJobSummary } from '../db/projectRepo';
+import { isOpenRouterModel } from '../providers/openrouter';
+import {
+  recordCallStart,
+  recordCallAck,
+  recordCallFirstToken,
+  recordCallEnd,
+} from '../lib/callRecorder';
+import type { ApiCallKind } from '../../src/domains/callLogTypes';
 
 export type JobState = 'queued' | 'sending' | 'completed' | 'failed' | 'stopped';
 
@@ -46,6 +54,7 @@ export interface ChatJobRow {
   system_instruction: string | null;
   model: string;
   staged_attachments_json: string;
+  capabilities_json: string | null;
   state: JobState;
   partial_text: string;
   error_reason: string | null;
@@ -73,14 +82,23 @@ interface ActiveJobContext {
 const activeJobs = new Map<string, ActiveJobContext>();
 let lastPartialFlush = 0;
 
+function parseJsonOrNull(raw: string | null | undefined): unknown {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 /* ── job row helpers ──────────────────────────────────────────────────────── */
 
 export function getJobRow(jobId: string): ChatJobRow | null {
   const row = getDb()
     .prepare(
       `SELECT job_id, user_id, project_id, thread_id, kind, target_turn_id, ask_text,
-        compiled_prompt, system_instruction, model, staged_attachments_json, state,
-        partial_text, error_reason FROM chat_jobs WHERE job_id = ?`
+        compiled_prompt, system_instruction, model, staged_attachments_json, capabilities_json,
+        state, partial_text, error_reason FROM chat_jobs WHERE job_id = ?`
     )
     .get(jobId) as ChatJobRow | undefined;
   return row ?? null;
@@ -183,6 +201,8 @@ export interface EnqueueSendInput {
   systemInstruction?: string;
   model: string;
   stagedAttachments?: unknown[];
+  /** Resolved chat capabilities (Package 2 §2.4) — committed with the pair so the commit gates match. */
+  capabilities?: unknown;
   targetTurnId?: string | null;
 }
 
@@ -192,10 +212,10 @@ export function enqueueJob(input: EnqueueSendInput): ChatJobRow {
   getDb()
     .prepare(
       `INSERT INTO chat_jobs (job_id, user_id, project_id, thread_id, kind, target_turn_id,
-        ask_text, compiled_prompt, system_instruction, model, staged_attachments_json, state,
-        partial_text, error_reason, buffered_artifacts_json, buffered_shifts_json,
-        result_user_turn_id, result_assistant_turn_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', '', NULL, '[]', '[]', NULL, NULL, ?, ?)`
+        ask_text, compiled_prompt, system_instruction, model, staged_attachments_json,
+        capabilities_json, state, partial_text, error_reason, buffered_artifacts_json,
+        buffered_shifts_json, result_user_turn_id, result_assistant_turn_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', '', NULL, '[]', '[]', NULL, NULL, ?, ?)`
     )
     .run(
       jobId,
@@ -209,6 +229,7 @@ export function enqueueJob(input: EnqueueSendInput): ChatJobRow {
       input.systemInstruction ?? DEFAULT_SYSTEM_INSTRUCTION,
       input.model,
       JSON.stringify(input.stagedAttachments ?? []),
+      input.capabilities === undefined ? null : JSON.stringify(input.capabilities),
       now,
       now
     );
@@ -257,17 +278,38 @@ export async function runJob(jobId: string): Promise<void> {
   // this is CONNECTING, never "the model is thinking".
   broadcast(ctx, 'status', { type: 'status', state: 'connecting' });
 
+  // Flight recorder (design-docs/28 §4.2). Started only AFTER the client is
+  // resolved — vault-locked / no-key jobs never touched the wire, so they
+  // leave no row.
+  let callLogId: string | null = null;
   try {
     const model = requireModelId(job.model, 'chat');
     // Facade (design-docs/24 §4): a `/`-shaped model id streams from
     // OpenRouter; the `{text}` chunk shape is identical either way.
     const client = aiClientForUser(job.user_id, 'chat', model);
 
+    const systemInstruction = job.system_instruction || DEFAULT_SYSTEM_INSTRUCTION;
+    callLogId = recordCallStart({
+      userId: job.user_id,
+      kind: 'chat',
+      provider: isOpenRouterModel(model) ? 'openrouter' : 'gemini',
+      model,
+      jobId,
+      request: {
+        endpoint: 'generateContentStream',
+        model,
+        systemInstruction,
+        compiledPrompt: job.compiled_prompt,
+        params: { temperature: 0.7 },
+      },
+    });
+
     const stream = await client.models.generateContentStream({
       model,
       contents: job.compiled_prompt,
-      config: { systemInstruction: job.system_instruction || DEFAULT_SYSTEM_INSTRUCTION, temperature: 0.7 },
+      config: { systemInstruction, temperature: 0.7 },
     });
+    recordCallAck(callLogId);
 
     // THE ACK BEFORE FIRST TOKEN (David 2026-10-25): the provider accepted
     // the stream — from here on "the model is thinking" is true. Zero bytes
@@ -295,7 +337,10 @@ export async function runJob(jobId: string): Promise<void> {
       if (chunk.usageMetadata) usage = chunk.usageMetadata;
       const text = chunk.text || '';
       if (!text) continue;
-      if (timeToFirstChunkMs === null) timeToFirstChunkMs = Date.now() - jobStart;
+      if (timeToFirstChunkMs === null) {
+        timeToFirstChunkMs = Date.now() - jobStart;
+        recordCallFirstToken(callLogId);
+      }
       raw += text;
       const demuxed = domain.demuxFullTurn(raw);
       // Live partial = prose without sentinel blocks; buffers ride alongside.
@@ -316,6 +361,7 @@ export async function runJob(jobId: string): Promise<void> {
 
     if (abortController.signal.aborted) {
       // stopJob already flipped state; just close out.
+      recordCallEnd(callLogId, { status: 'aborted', responseText: raw });
       closeSubscribers(ctx);
       activeJobs.delete(jobId);
       return;
@@ -341,6 +387,7 @@ export async function runJob(jobId: string): Promise<void> {
       replyText: reply,
       model,
       stagedAttachments: JSON.parse(job.staged_attachments_json || '[]'),
+      capabilities: parseJsonOrNull(job.capabilities_json) ?? undefined,
       artifacts,
       shifts: finalDemux.topicShift ? [finalDemux.topicShift] : [],
       pairKey: jobId,
@@ -355,6 +402,8 @@ export async function runJob(jobId: string): Promise<void> {
     });
 
     getDb().prepare('DELETE FROM chat_jobs WHERE job_id = ?').run(jobId);
+    // Link the recorder row to the committed assistant turn (pack §4.2).
+    recordCallEnd(callLogId, { status: 'ok', responseText: raw, usage, turnId: assistantTurnId });
     kickNextQueuedOnThread(job.thread_id, job.project_id, job.user_id);
     broadcast(ctx, 'complete', { type: 'complete', revision, userTurnId, assistantTurnId });
     closeSubscribers(ctx);
@@ -363,6 +412,10 @@ export async function runJob(jobId: string): Promise<void> {
 
     void runPostCommitChores(job.user_id, job.project_id, job.thread_id);
   } catch (err) {
+    recordCallEnd(callLogId, {
+      status: 'error',
+      error: err instanceof Error ? err.message : String(err).slice(0, 500),
+    });
     if (abortController.signal.aborted) {
       closeSubscribers(ctx);
       activeJobs.delete(jobId);
@@ -530,6 +583,7 @@ export function storeJobAsIs(jobId: string): { revision: number } | null {
     replyText: partial,
     model: job.model,
     stagedAttachments: JSON.parse(job.staged_attachments_json || '[]'),
+    capabilities: parseJsonOrNull(job.capabilities_json) ?? undefined,
     artifacts: [],
     shifts: [],
     pairKey: jobId,
@@ -582,6 +636,23 @@ function choreClient(userId: number, capability: 'title' | 'summarize', modelId:
   return aiClientForUser(userId, capability, modelId);
 }
 
+/** Flight recorder for a post-commit chore call (design-docs/28 §4.2). */
+function recordChoreCall(
+  userId: number,
+  kind: ApiCallKind,
+  model: string,
+  contents: string,
+  temperature: number
+): string | null {
+  return recordCallStart({
+    userId,
+    kind,
+    provider: isOpenRouterModel(model) ? 'openrouter' : 'gemini',
+    model,
+    request: { endpoint: 'generateContent', model, compiledPrompt: contents, params: { temperature } },
+  });
+}
+
 async function runTitleChore(userId: number, projectId: string, threadId: string): Promise<void> {
   const db = getDb();
   const thread = db
@@ -609,7 +680,15 @@ async function runTitleChore(userId: number, projectId: string, threadId: string
   const client = choreClient(userId, 'title', model);
   const messages = parsed.slice(-10).map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
   const prompt = buildTitlePrompt(messages, 1);
-  const response = await client.models.generateContent({ model, contents: prompt, config: { temperature: 0.4 } });
+  const choreLogId = recordChoreCall(userId, 'title', model, prompt, 0.4);
+  let response: Awaited<ReturnType<typeof client.models.generateContent>>;
+  try {
+    response = await client.models.generateContent({ model, contents: prompt, config: { temperature: 0.4 } });
+    recordCallEnd(choreLogId, { status: 'ok', responseText: response.text || '' });
+  } catch (err) {
+    recordCallEnd(choreLogId, { status: 'error', error: err instanceof Error ? err.message : String(err) });
+    throw err;
+  }
   const title = cleanupTitle(response.text || '');
   if (!title) return;
 
@@ -666,11 +745,19 @@ async function runChapterSummaries(userId: number, projectId: string, threadId: 
     const model = requireModelId('gemini-3.5-flash-lite', 'summarize');
     const client = choreClient(userId, 'summarize', model);
     const prompt = buildSummarizePrompt({ title: chapter.title, messages: parsedTurns });
-    const response = await Promise.race([
-      client.models.generateContent({ model, contents: prompt, config: { temperature: 0.3 } }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('summarize exceeded 12s')), 12_000)),
-    ]);
-    const raw = response.text || '';
+    const choreLogId = recordChoreCall(userId, 'summarize', model, prompt, 0.3);
+    let raw = '';
+    try {
+      const response = await Promise.race([
+        client.models.generateContent({ model, contents: prompt, config: { temperature: 0.3 } }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('summarize exceeded 12s')), 12_000)),
+      ]);
+      raw = response.text || '';
+      recordCallEnd(choreLogId, { status: 'ok', responseText: raw });
+    } catch (err) {
+      recordCallEnd(choreLogId, { status: 'error', error: err instanceof Error ? err.message : String(err) });
+      throw err;
+    }
     // Sentinel headers FIRST (the prompt's own format, `=== FIELD ===`), then
     // the legacy `FIELD:` colon form. Live 2026-10-25: the model obeyed the
     // prompt, the parser only knew the colon form → the whole reply INCLUDING

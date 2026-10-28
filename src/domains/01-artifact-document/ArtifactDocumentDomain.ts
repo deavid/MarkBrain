@@ -7,24 +7,35 @@ import {
 } from './types';
 import { Granularity, cutIncludes } from '../granularity';
 
+/**
+ * Stale-layer guard: after a manual body edit the description/summary layers no
+ * longer match the body. Serving them would hand the model a confident lie, so
+ * at `full` they are omitted (title + body only), and at the shorter cuts the
+ * text carries an explicit out-of-date notice instead of pretending they're true.
+ */
+export const STALE_LAYERS_NOTICE = '[Layers out of date — read full note for current content]';
+
 /** Cumulative plain-text cut (`title ⊂ description ⊂ summary ⊂ body`). Missing layers are omitted, never synthesized. */
 export function getArtifactCut(
-  art: Pick<UniversalArtifactDocument, 'title' | 'current'>,
+  art: Pick<UniversalArtifactDocument, 'title' | 'current' | 'layersStaleAt'>,
   granularity: Granularity
-): { title: string; description?: string; summary?: string; body?: string } {
+): { title: string; description?: string; summary?: string; body?: string; layersStale?: boolean } {
   const subtitle = (art.current?.subtitle || '').trim();
-  const cut: { title: string; description?: string; summary?: string; body?: string } = {
+  const stale = typeof art.layersStaleAt === 'number';
+  const cut: { title: string; description?: string; summary?: string; body?: string; layersStale?: boolean } = {
     // The title cut is title + subtitle: the hook is what makes a 4-word name
     // mean something to a reader (or a model) who has never opened the note.
     title: subtitle ? `${art.title || ''} — ${subtitle}` : art.title || '',
   };
+  if (stale) cut.layersStale = true;
   if (cutIncludes(granularity, 'description')) {
     const description = art.current?.description || '';
-    if (description) cut.description = description;
+    // Stale at `full`: the body is included, so the lying layers are dropped.
+    if (description && !(stale && granularity === 'full')) cut.description = description;
   }
   if (cutIncludes(granularity, 'summary')) {
     const summary = art.current?.summary || '';
-    if (summary) cut.summary = summary;
+    if (summary && !(stale && granularity === 'full')) cut.summary = summary;
   }
   if (cutIncludes(granularity, 'body')) {
     const body = art.current?.body || '';
@@ -34,13 +45,20 @@ export function getArtifactCut(
 }
 
 export function artifactCutText(
-  art: Pick<UniversalArtifactDocument, 'title' | 'current'>,
+  art: Pick<UniversalArtifactDocument, 'title' | 'current' | 'layersStaleAt'>,
   granularity: Granularity
 ): string {
   const cut = getArtifactCut(art, granularity);
-  return [cut.title, cut.description, cut.summary, cut.body]
-    .filter((part): part is string => Boolean(part))
-    .join('\n\n');
+  const parts = [cut.title, cut.description, cut.summary, cut.body].filter(
+    (part): part is string => Boolean(part)
+  );
+  const text = parts.join('\n\n');
+  // Stale at the shorter cuts: the layers still travel (the model may want the
+  // gist) but labelled honestly, so it knows to read the body for the truth.
+  if (cut.layersStale && (granularity === 'description' || granularity === 'summary')) {
+    return `${text}\n\n${STALE_LAYERS_NOTICE}`;
+  }
+  return text;
 }
 
 export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
@@ -111,6 +129,16 @@ export class ArtifactDocumentDomain implements IArtifactDocumentDomain {
         : existing?.yamlDocument !== undefined
           ? { yamlDocument: existing.yamlDocument }
           : {}),
+      // Stale-layer flag: an upsert may set it, CLEAR it (AI rewrites every
+      // layer — `{ layersStaleAt: undefined }` present-but-undefined clears),
+      // or leave it alone (key absent → keep the existing value).
+      ...(doc.layersStaleAt !== undefined
+        ? { layersStaleAt: doc.layersStaleAt }
+        : 'layersStaleAt' in doc
+          ? {}
+          : existing?.layersStaleAt !== undefined
+            ? { layersStaleAt: existing.layersStaleAt }
+            : {}),
     };
 
     this.artifacts.set(doc.id, merged);

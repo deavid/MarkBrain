@@ -222,6 +222,18 @@ export function clearServerLogs(): Promise<Response> {
   return apiFetch('/api/server-logs/clear', { method: 'POST' });
 }
 
+/* ------------------------------------------------------ flight recorder API */
+
+/** GET /api/logs/calls — the caller's own API call log, newest first. */
+export function listApiCallLogs(limit = 50): Promise<Response> {
+  return apiFetch(`/api/logs/calls?limit=${limit}`);
+}
+
+/** GET /api/logs/calls/:id — full record, 404 when it belongs to someone else. */
+export function getApiCallLog(id: string): Promise<Response> {
+  return apiFetch(`/api/logs/calls/${encodeURIComponent(id)}`);
+}
+
 /* --------------------------------------------------------------------- chat */
 
 export interface ChatStreamPayload {

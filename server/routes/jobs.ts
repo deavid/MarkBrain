@@ -75,6 +75,12 @@ export function registerJobRoutes(app: Express): void {
       systemInstruction,
       model: modelId,
       stagedAttachments,
+      // Package 2 §2.4: the resolved toggles ride the job so the server's
+      // commit gates match what the client compiled into the payload.
+      capabilities:
+        typeof req.body?.capabilities === 'object' && req.body.capabilities !== null
+          ? req.body.capabilities
+          : undefined,
       targetTurnId: targetTurnId ?? null,
     });
     res.status(201).json({ job: { jobId: job.job_id, state: job.state, threadId: job.thread_id }, revision: project.revision });

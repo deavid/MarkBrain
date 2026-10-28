@@ -1,5 +1,6 @@
 import { IArtifactDocumentDomain } from '../01-artifact-document';
 import type { UniversalArtifactDocument } from '../01-artifact-document';
+import { STALE_LAYERS_NOTICE } from '../01-artifact-document/ArtifactDocumentDomain';
 import {
   IChapterSegmentationDomain,
   ChapterPartition,
@@ -8,7 +9,8 @@ import {
   sliceChapterTurns,
 } from '../02-chapter-segmentation';
 import { IDialogueTimelineDomain, Turn } from '../01-dialogue-timeline';
-import type { ChatAttachment } from '../06-chat-threads';
+import type { ChatAttachment, ChatCapabilities } from '../06-chat-threads';
+import { DEFAULT_CHAT_CAPABILITIES } from '../06-chat-threads';
 import { Granularity, cutIncludes } from '../granularity';
 import { logger } from '../../utils/logger';
 import { estimateTokens } from '../../utils/estimateTokens';
@@ -32,6 +34,13 @@ export interface OpticalCompilerOptions {
   historyTurns?: Turn[];
   /** Chapters for the compile (defaults to the segmentation domain). Pair with historyTurns. */
   historyChapters?: ChapterPartition[];
+  /**
+   * Which functional blocks the model is taught (Package 2 §2.3). A block
+   * whose capability is OFF is NOT in the system instruction at all — the
+   * schema for it is never mentioned, so small models cannot fire it.
+   * Defaults to DEFAULT_CHAT_CAPABILITIES when absent.
+   */
+  capabilities?: ChatCapabilities;
   /**
    * Emit the compile lifecycle log + ceiling warn. Default FALSE because
    * compile() also runs from the display memo on every stream-chunk render
@@ -150,6 +159,56 @@ export function uniqueFileName(base: string, used: Set<string>): string {
   }
 }
 
+/** The base persona + grounding law: present on EVERY turn, capability or not. */
+const BASE_PERSONA = `You are MarkBrain, a thinking partner for a brain that overflows with ideas. Collect thoughts before they evaporate, keep them organized, and keep the forest in view. Talk WITH the user, direct, plain-spoken, no corporate filler.
+Ground your thinking in the notes and chapters provided.
+Notes arrive at the compaction level the user chose (title, description, summary, full). A layer that is missing was compacted on purpose: do not ask for it unless you genuinely cannot answer without it.
+Each note is named by its \`file\`, a kebab-case filename like \`early-sprawling-dream.md\`, and each chapter by its \`name\`, a kebab-case handle built from the chapter's own title. Those, and the \`<title>\`s, are how you refer to things — write them as a reader would say them. There are no other identifiers in what you are sent: never invent one, and never quote something that looks like a database key.`;
+
+/** The book-report rule is a style law, not a capability — it always rides along. */
+const STYLE_LAW = `Never open a layer with "This document outlines", "This note describes", "The user and AI discuss" or any other book report: name the thing and state what is in it.`;
+
+const TOPIC_SHIFT_BLOCK = `Emit these functional blocks in your reply when appropriate. Never emit JSON.
+
+1. When the conversation shifts to a substantially new topic:
+<topic_shift title="New Chapter Title" subtitle="One or two sentences stating what this chapter is about and its main takeaway, directly" />
+Topic changes are rare — only emit this when the conversation truly moves to a substantially different subject; do not emit on ordinary follow-ups.`;
+
+const ARTIFACT_UPSERT_BLOCK = `2. When an idea crystallizes into a durable note, emit an artifact_upsert carrying all four layers. They are read together in this order, so each one continues where the previous stopped and never re-introduces the note. Its \`file\` is the note's name: the same kebab-case filename you would see on an attached note, and the same note updates in place if the name is one you were sent:
+<artifact_upsert file="kebab-case-slug.md" title="Short Note Title" type="document">
+<subtitle>
+One or two sentences (~40 tokens): what this note is and its single main takeaway. This is what a human reads next to the title in a list of fifty notes.
+</subtitle>
+<description>
+Two or three dense paragraphs (~200 tokens) continuing from the subtitle: the core thesis, the main pillars, and the conclusions reached. State facts, decisions and rules directly.
+</description>
+<summary>
+A multi-section digest (~800 to 1500 tokens for a substantial note) continuing from the description: walk every major section with Markdown headings and bullets, and extract the concrete rules, numbers, mechanics, rejected alternatives and open questions, so a reader at this level rarely needs the full note.
+</summary>
+<content>
+The complete Markdown note body.
+</content>
+</artifact_upsert>`;
+
+const LINK_BLOCK = `3. To link two notes in the graph:
+<link source="file1.md" target="file2.md" kind="relates_to|refines|parent_of|child_of|born_from" />`;
+
+/**
+ * The system instruction assembles from capability blocks (Package 2 §2.3):
+ * each functional block appears ONLY when its capability is ON, and when all
+ * are off none of the schema words appear at all.
+ */
+export function buildSystemInstruction(capabilities: ChatCapabilities): string {
+  const blocks: string[] = [];
+  if (capabilities.autoChapter) blocks.push(TOPIC_SHIFT_BLOCK);
+  if (capabilities.writeArtifacts) blocks.push(ARTIFACT_UPSERT_BLOCK);
+  if (capabilities.graphLinks) blocks.push(LINK_BLOCK);
+  const functional = blocks.length
+    ? `${blocks.join('\n\n')}\n\n`
+    : '';
+  return `${BASE_PERSONA}\n${functional}${STYLE_LAW}`;
+}
+
 export function artifactXml(
   art: UniversalArtifactDocument,
   granularity: Granularity,
@@ -157,8 +216,19 @@ export function artifactXml(
   fileName?: string
 ): string {
   const lines: string[] = [];
-  const withDescription = cutIncludes(granularity, 'description') && Boolean(art.current?.description);
-  const withSummary = cutIncludes(granularity, 'summary') && Boolean(art.current?.summary);
+  // Stale-layer guard (Package 1 §1.6): a manual body edit leaves the
+  // description/summary layers behind. At `full` the body is present, so the
+  // lying layers are dropped entirely; at the shorter cuts they still travel
+  // but the notice tells the model to read the body for the truth.
+  const stale = typeof art.layersStaleAt === 'number';
+  const withDescription =
+    cutIncludes(granularity, 'description') &&
+    Boolean(art.current?.description) &&
+    !(stale && granularity === 'full');
+  const withSummary =
+    cutIncludes(granularity, 'summary') &&
+    Boolean(art.current?.summary) &&
+    !(stale && granularity === 'full');
   const withBody = cutIncludes(granularity, 'body') && Boolean(art.current?.body);
 
   // The title cut carries title + subtitle: a bare name tells a reader nothing,
@@ -179,6 +249,9 @@ export function artifactXml(
     lines.push(`    <content>`);
     lines.push(indentBlock(art.current.body, '      '));
     lines.push(`    </content>`);
+  }
+  if (stale && (granularity === 'description' || granularity === 'summary')) {
+    lines.push(`    <notice>${STALE_LAYERS_NOTICE}</notice>`);
   }
   lines.push(`  </artifact>`);
   return lines.join('\n');
@@ -309,35 +382,8 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const historyBlock = `<conversation_chapters>\n${historyParts.join('\n\n')}\n</conversation_chapters>`;
 
     const compiledPrompt = `${substrateBlock}\n\n${historyBlock}`;
-    const systemInstruction = `You are MarkBrain, a thinking partner for a brain that overflows with ideas. Collect thoughts before they evaporate, keep them organized, and keep the forest in view. Talk WITH the user, direct, plain-spoken, no corporate filler.
-Ground your thinking in the notes and chapters provided.
-Notes arrive at the compaction level the user chose (title, description, summary, full). A layer that is missing was compacted on purpose: do not ask for it unless you genuinely cannot answer without it.
-Each note is named by its \`file\`, a kebab-case filename like \`early-sprawling-dream.md\`, and each chapter by its \`name\`, a kebab-case handle built from the chapter's own title. Those, and the \`<title>\`s, are how you refer to things — write them as a reader would say them. There are no other identifiers in what you are sent: never invent one, and never quote something that looks like a database key.
-Emit these functional blocks in your reply when appropriate. Never emit JSON.
-
-1. When the conversation shifts to a substantially new topic:
-<topic_shift title="New Chapter Title" subtitle="One or two sentences stating what this chapter is about and its main takeaway, directly" />
-
-2. When an idea crystallizes into a durable note, emit an artifact_upsert carrying all four layers. They are read together in this order, so each one continues where the previous stopped and never re-introduces the note. Its \`file\` is the note's name: the same kebab-case filename you would see on an attached note, and the same note updates in place if the name is one you were sent:
-<artifact_upsert file="kebab-case-slug.md" title="Short Note Title" type="document">
-<subtitle>
-One or two sentences (~40 tokens): what this note is and its single main takeaway. This is what a human reads next to the title in a list of fifty notes.
-</subtitle>
-<description>
-Two or three dense paragraphs (~200 tokens) continuing from the subtitle: the core thesis, the main pillars, and the conclusions reached. State facts, decisions and rules directly.
-</description>
-<summary>
-A multi-section digest (~800 to 1500 tokens for a substantial note) continuing from the description: walk every major section with Markdown headings and bullets, and extract the concrete rules, numbers, mechanics, rejected alternatives and open questions, so a reader at this level rarely needs the full note.
-</summary>
-<content>
-The complete Markdown note body.
-</content>
-</artifact_upsert>
-
-3. To link two notes in the graph:
-<link source="file1.md" target="file2.md" kind="relates_to|refines|parent_of|child_of|born_from" />
-
-Never open a layer with "This document outlines", "This note describes", "The user and AI discuss" or any other book report: name the thing and state what is in it.`;
+    const capabilities = options.capabilities ?? DEFAULT_CHAT_CAPABILITIES;
+    const systemInstruction = buildSystemInstruction(capabilities);
 
     const systemTokens = estimateTokens(systemInstruction);
     const totalTokens = systemTokens + substrateTokens + historyTokens;

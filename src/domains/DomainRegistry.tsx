@@ -26,7 +26,7 @@ import { useSessionMachine } from '../application/sessionMachine';
 import { loadProjectSnapshotIntoDomains, loadNewWorkspace } from '../application/snapshotLoader';
 import { useVpsDeltaSync } from '../application/useVpsDeltaSync';
 import { queueServerMutation } from '../application/serverMutationQueue';
-import { getWorkspaceMode } from '../services/workspaceSession';
+import { getWorkspaceMode, isOfflineReplica, type KnownReplica } from '../services/workspaceSession';
 import { initVpsSync, replayOutbox } from '../services/vpsSync';
 import { getAllRecords, OUTBOX_CHANGED_EVENT } from '../services/offlineOutbox';
 import type { WorkspaceUser } from '../types';
@@ -48,6 +48,12 @@ export interface DomainContextValue {
   signIn: (email: string, password: string, baseUrl?: string) => Promise<WorkspaceUser>;
   continueLocal: () => Promise<void>;
   signOut: () => Promise<void>;
+  /** Sign out AND erase this device's copy of the server workspace (Package 3 §3.6). */
+  signOutWipeReplica: () => Promise<void>;
+  /** Open a known replica from its local mirror — offline, no login call. */
+  openOfflineReplica: (replica: KnownReplica) => Promise<void>;
+  /** Server workspaces that have a local mirror on this device. */
+  knownReplicas: KnownReplica[];
   createCloudWorkspace: (meta: {
     id: string;
     name: string;
@@ -104,6 +110,9 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     signIn,
     continueLocal,
     signOut,
+    signOutWipeReplica,
+    openOfflineReplica,
+    knownReplicas,
     loadUserCloudData,
   } = useSessionMachine({
     getBackend,
@@ -134,6 +143,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       segmentation,
       artifacts,
       graph,
+      versioning,
       hydratedRef,
     });
   }, [
@@ -144,17 +154,20 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     segmentation,
     artifacts,
     graph,
+    versioning,
     threadRegistry,
     refreshNonce, // manual refresh button → rehydrate the active project
   ]);
 
   // Offline replay (vpsSync): push queued edits to the server on reconnect.
   // Event-driven only — 'online' + one attempt after auth. No timers.
+  // Offline replica mode: replayOutbox must no-op (no network, and the mirror
+  // was opened stale — pushing its edits would clobber server-side changes).
   useEffect(() => {
     initVpsSync();
   }, []);
   useEffect(() => {
-    if (!authInitialized || getWorkspaceMode() !== 'vps') return;
+    if (!authInitialized || getWorkspaceMode() !== 'vps' || isOfflineReplica()) return;
     void replayOutbox();
   }, [authInitialized, currentUser?.uid]);
 
@@ -170,7 +183,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Manual refresh: push the outbox, wake the delta poller, re-pull the list
   // and rehydrate the active project (refreshNonce re-runs its load effect).
   const refreshFromServer = useCallback(async () => {
-    if (getWorkspaceMode() !== 'vps') return;
+    if (getWorkspaceMode() !== 'vps' || isOfflineReplica()) return;
     await replayOutbox();
     window.dispatchEvent(new Event('markbrain:sync-now'));
     await loadUserCloudData();
@@ -178,15 +191,18 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [loadUserCloudData]);
 
   // 21D §4.5: Connected-mode delta poller (focus wake + 10s while visible).
+  // Offline replica mode: no delta polling at all — the mirror is the only
+  // source of truth and no network call may fire (Package 3 §3.6).
   const lastRevisionRef = useRef(0);
   useVpsDeltaSync({
-    activeProjectId: activeProjectId ?? null,
+    activeProjectId: isOfflineReplica() ? null : activeProjectId ?? null,
     lastRevisionRef,
     timeline,
     segmentation,
     artifacts,
     graph,
     threadRegistry,
+    versioning,
   });
 
   const persistState = useCallback(
@@ -197,12 +213,13 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         segmentation,
         artifacts,
         graph,
+        versioning,
         threadRegistry,
         hydratedRef,
         saveProjectSnapshot,
         isCaptureMode,
       }),
-    [workspace, timeline, segmentation, artifacts, graph, threadRegistry]
+    [workspace, timeline, segmentation, artifacts, graph, versioning, threadRegistry]
   );
 
   useEffect(
@@ -234,6 +251,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         segmentation,
         artifacts,
         graph,
+        versioning,
         hydratedRef,
       });
       setCloudProjectsCount(1);
@@ -314,6 +332,9 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       signIn,
       continueLocal,
       signOut,
+      signOutWipeReplica,
+      openOfflineReplica,
+      knownReplicas,
       createCloudWorkspace,
       deleteWorkspace,
       threadRegistry,
@@ -348,6 +369,9 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       deleteThread,
       refreshFromServer,
       unsyncedProjectIds,
+      signOutWipeReplica,
+      openOfflineReplica,
+      knownReplicas,
     ]
   );
   return <DomainContext.Provider value={value}>{children}</DomainContext.Provider>;

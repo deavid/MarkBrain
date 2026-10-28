@@ -1,3 +1,5 @@
+import type { ChatCapabilities } from '../06-chat-threads/types';
+
 export interface ProjectMetadata {
   id: string;
   name: string;
@@ -6,6 +8,8 @@ export interface ProjectMetadata {
   color?: string;
   createdAt: number;
   updatedAt: number;
+  /** Project-default chat capabilities (Package 2 §2.2); lives on the project so "all chats" has a home. */
+  capabilities?: Partial<ChatCapabilities>;
 }
 
 /** Project metadata and token ceiling. Context membership lives per-chat in `06-chat-threads`, never on the project. */

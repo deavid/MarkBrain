@@ -25,6 +25,8 @@ const makeDeps = (loadProjectSnapshot: (id: string) => Promise<ProjectSnapshot |
     segmentation: { loadChapters: vi.fn() },
     artifacts: { loadArtifacts: vi.fn() },
     graph: { loadEdges: vi.fn() },
+    // Package 1: revision history rides the snapshot — the loader merges it.
+    versioning: { loadHistory: vi.fn() },
     hydratedRef: { current: false },
   }) as any;
 

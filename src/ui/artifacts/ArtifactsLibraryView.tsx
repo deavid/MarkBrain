@@ -33,6 +33,8 @@ interface ArtifactsLibraryViewProps {
   onUpdateNodePosition: (artifactId: string, x: number, y: number) => void;
   onBatchUpdateNodePositions: (positions: Array<{ artifactId: string; x: number; y: number }>) => void;
   onOpenImport: () => void;
+  /** + New Note: creates a fresh document from the tiny form (title + body). */
+  onNewNote?: (title: string, body: string) => void;
   onTriageArtifact: (artifactId: string) => void;
   attachments: ChatAttachment[];
   tokensByArtifact: Record<string, number>;

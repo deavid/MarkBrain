@@ -37,7 +37,11 @@ import {
   MoreHorizontal,  Trash2,
   Settings2,
   ALargeSmall,
+  CloudOff,
+  FileArchive,
+  FolderInput,
 } from 'lucide-react';
+import { isOfflineReplica } from '../../services/workspaceSession';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 import type { ChatRenderMode } from '../chat/chatRenderMode';
 import type { UiFontScale } from '../uiFontScale';
@@ -126,6 +130,12 @@ interface SidebarProps {
   /** Project ids with unsynced offline edits — amber dot on the project row. */
   unsyncedProjectIds?: string[];  onExportDatabase: () => void;
   onImportDatabase: () => void;
+  /** Export every project as a plaintext .tar.gz (Package 3 §3.5). */
+  onExportPlaintext: () => void;
+  /** Import a plaintext .tar.gz/.tar archive (Package 3 §3.5). */
+  onImportPlaintext: () => void;
+  /** Sign out AND delete the local mirror of this replica (Package 3 §3.6). */
+  onSignOutWipeReplica?: () => void;
   onOpenProjectLauncher: () => void;
   onOpenServerLogs?: () => void;
   currentUser?: {
@@ -182,6 +192,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenImport,
   onExportDatabase,
   onImportDatabase,
+  onExportPlaintext,
+  onImportPlaintext,
+  onSignOutWipeReplica,
   onOpenProjectLauncher,
   onOpenServerLogs,
   onRefreshSync,
@@ -484,6 +497,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <UserAvatar src={currentUser?.photoURL} />
             </button>
 
+            {currentUser?.mode === 'vps' && isOfflineReplica() && (
+              <span
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-0 text-10 font-mono text-[#c9a978] shrink-0"
+                title="Opened from the copy on this device — the server is not connected"
+              >
+                <CloudOff className="w-3 h-3" />
+                Offline replica
+              </span>
+            )}
+
             <button
               onClick={() => {
                 logger.action('Sidebar', 'Close sidebar button clicked');
@@ -545,6 +568,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <LogOut className="w-3.5 h-3.5" />
                       <span>Sign Out</span>
+                    </button>
+                    <div className="px-2.5 pb-1 pt-1">
+                      <span className="text-10 leading-relaxed text-ink-mute block">
+                        Signing out keeps the copy of your workspace on this device. You can open it from the sign-in screen without the server.
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        logger.action('Sidebar', 'Sign out & wipe local copy');
+                        setAccountOpen(false);
+                        onSignOutWipeReplica?.();
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-mono text-[#f28894] hover:bg-surface-3 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Sign out &amp; erase this device's copy</span>
                     </button>
                   </>
                 )}
@@ -1371,6 +1410,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-[#38bdf8]" />
                     <span>Restore DB</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      logger.action('Sidebar', 'Export plaintext backup (.tar.gz)');
+                      onExportPlaintext();
+                    }}
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-xs font-mono text-[#5ad49b] transition-colors cursor-pointer col-span-2"
+                    title="Download every project as a folder of readable files (JSON + Markdown) in a .tar.gz"
+                  >
+                    <FileArchive className="w-3.5 h-3.5 text-[#5ad49b]" />
+                    <span>Plaintext backup (.tar.gz)</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      logger.action('Sidebar', 'Import plaintext archive');
+                      onImportPlaintext();
+                    }}
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer col-span-2"
+                    title="Import projects from a plaintext .tar.gz (or .tar) backup"
+                  >
+                    <FolderInput className="w-3.5 h-3.5 text-[#38bdf8]" />
+                    <span>Import plaintext</span>
                   </button>
                 </div>
               </div>

@@ -18,8 +18,13 @@ import type { ProjectSnapshot } from '../../src/services/stores/projectStore';
 import type { Turn } from '../../src/domains/01-dialogue-timeline/types';
 import type { ChapterPartition } from '../../src/domains/02-chapter-segmentation/types';
 import type { UniversalArtifactDocument } from '../../src/domains/01-artifact-document/types';
+import type { ArtifactRevision } from '../../src/domains/01-artifact-versioning/types';
 import type { SemanticEdge } from '../../src/domains/02-topological-graph/types';
-import type { ChatThread, ThreadFolder } from '../../src/domains/06-chat-threads/types';
+import type { ChatThread, ThreadFolder, ChatCapabilities } from '../../src/domains/06-chat-threads/types';
+import {
+  DEFAULT_CHAT_CAPABILITIES,
+  resolveCapabilities,
+} from '../../src/domains/06-chat-threads/types';
 
 export type ProjectSnapshotWithRevision = ProjectSnapshot & { revision: number };
 
@@ -40,6 +45,8 @@ export interface ProjectDeltaResponse {
   chapters: ChapterPartition[];
   artifacts: UniversalArtifactDocument[];
   edges: SemanticEdge[];
+  /** Artifact revision rows newer than the cursor, keyed by artifact id. */
+  revisions?: Record<string, ArtifactRevision[]>;
   tombstones: Array<{ entityType: string; entityId: string }>;
   activeJobs: unknown[]; // populated in Phase 5 (21E)
 }
@@ -86,12 +93,13 @@ interface ProjectRow {
   color: string;
   active_thread_id: string | null;
   granularity_law: string;
+  capabilities_json: string | null;
   revision: number;
   updated_at: number;
 }
 
 const SELECT_PROJECT = `SELECT project_id, name, code_name, description, color, active_thread_id,
-  granularity_law, revision, updated_at FROM projects WHERE user_id = ? AND project_id = ?`;
+  granularity_law, capabilities_json, revision, updated_at FROM projects WHERE user_id = ? AND project_id = ?`;
 
 /* ── assembly ─────────────────────────────────────────────────────────────── */
 
@@ -214,6 +222,7 @@ function assembleProject(db: Db, userId: number, row: ProjectRow): ProjectSnapsh
     color: row.color,
     activeThreadId: row.active_thread_id ?? undefined,
     granularityLaw: row.granularity_law === 'user-only' ? 'user-only' : undefined,
+    capabilities: parseJson<Partial<ChatCapabilities> | null>(row.capabilities_json, null) ?? undefined,
     updatedAt: row.updated_at,
     revision: row.revision,
     threads,
@@ -222,6 +231,7 @@ function assembleProject(db: Db, userId: number, row: ProjectRow): ProjectSnapsh
     chapters,
     artifacts,
     edges,
+    revisions: loadArtifactRevisions(db, userId, row.project_id),
   };
 }
 
@@ -231,13 +241,13 @@ function upsertProjectMeta(db: Db, userId: number, snap: ProjectSnapshot, newRev
   const now = Date.now();
   db.prepare(
     `INSERT INTO projects (project_id, user_id, name, code_name, description, color, active_thread_id,
-       granularity_law, revision, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       granularity_law, capabilities_json, revision, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, project_id) DO UPDATE SET
        name = excluded.name, code_name = excluded.code_name, description = excluded.description,
        color = excluded.color, active_thread_id = excluded.active_thread_id,
-       granularity_law = excluded.granularity_law, revision = excluded.revision,
-       updated_at = excluded.updated_at`
+       granularity_law = excluded.granularity_law, capabilities_json = excluded.capabilities_json,
+       revision = excluded.revision, updated_at = excluded.updated_at`
   ).run(
     snap.projectId,
     userId,
@@ -247,6 +257,7 @@ function upsertProjectMeta(db: Db, userId: number, snap: ProjectSnapshot, newRev
     snap.color ?? '#e05a66',
     snap.activeThreadId ?? null,
     snap.granularityLaw ?? 'user-only',
+    snap.capabilities ? JSON.stringify(snap.capabilities) : null,
     newRev,
     snap.updatedAt || now
   );
@@ -381,9 +392,146 @@ function recordTombstone(db: Db, userId: number, projectId: string, entityType: 
   ).run(userId, projectId, entityType, entityId, rev);
 }
 
-function docChanged(db: Db, table: string, idCol: string, id: string, userId: number, projectId: string, nextDoc: string): boolean {
+/* ── artifact revisions (design-docs/28 §1.3 — persistent 4-layer history) ── */
+
+/** Upsert one revision row for an artifact (same envelope pattern as the other domain tables). */
+function upsertArtifactRevision(
+  db: Db,
+  userId: number,
+  projectId: string,
+  artifactId: string,
+  revision: ArtifactRevision,
+  rev: number
+): void {
+  db.prepare(
+    `INSERT INTO artifact_revisions (user_id, project_id, artifact_id, version, timestamp, actor,
+       change_summary, provenance_json, title, layers_json, revision)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, project_id, artifact_id, version) DO UPDATE SET
+       timestamp = excluded.timestamp, actor = excluded.actor,
+       change_summary = excluded.change_summary, provenance_json = excluded.provenance_json,
+       title = excluded.title, layers_json = excluded.layers_json, revision = excluded.revision`
+  ).run(
+    userId,
+    projectId,
+    artifactId,
+    revision.version,
+    revision.timestamp,
+    revision.actor,
+    revision.changeSummary,
+    JSON.stringify(revision.provenance ?? {}),
+    revision.title ?? '',
+    JSON.stringify(revision.layers ?? {}),
+    rev
+  );
+}
+
+/** Upsert a client-provided revision list for one artifact. Client versions win; nothing is deleted. */
+export function upsertArtifactRevisions(
+  db: Db,
+  userId: number,
+  projectId: string,
+  artifactId: string,
+  revisions: ArtifactRevision[],
+  newRev: number
+): void {
+  for (const r of revisions) {
+    if (!r || typeof r.version !== 'number') continue;
+    upsertArtifactRevision(db, userId, projectId, artifactId, r, newRev);
+  }
+}
+
+/** Load the full revision history of a project, keyed by artifact id. */
+export function loadArtifactRevisions(db: Db, userId: number, projectId: string): Record<string, ArtifactRevision[]> {
+  const rows = db
+    .prepare(
+      'SELECT artifact_id, version, timestamp, actor, change_summary, provenance_json, title, layers_json FROM artifact_revisions WHERE user_id = ? AND project_id = ? ORDER BY artifact_id ASC, version ASC'
+    )
+    .all(userId, projectId) as Array<{
+    artifact_id: string;
+    version: number;
+    timestamp: number;
+    actor: string;
+    change_summary: string;
+    provenance_json: string;
+    title: string;
+    layers_json: string;
+  }>;
+  const out: Record<string, ArtifactRevision[]> = {};
+  for (const r of rows) {
+    const list = (out[r.artifact_id] ??= []);
+    list.push({
+      version: r.version,
+      timestamp: r.timestamp,
+      actor: r.actor === 'user' ? 'user' : 'ai',
+      changeSummary: r.change_summary,
+      provenance: parseJson(r.provenance_json, {}) || undefined,
+      title: r.title,
+      layers: parseJson(r.layers_json, { subtitle: '', description: '', summary: '', body: '' }),
+    });
+  }
+  return out;
+}
+
+/** Next artifact_revisions version for one artifact (server-side recorder). */
+function nextArtifactRevisionVersion(db: Db, userId: number, projectId: string, artifactId: string): number {
   const row = db
-    .prepare(`SELECT doc_json FROM ${table} WHERE user_id = ? AND project_id = ? AND ${idCol} = ?`)
+    .prepare(
+      'SELECT COALESCE(MAX(version), 0) AS v FROM artifact_revisions WHERE user_id = ? AND project_id = ? AND artifact_id = ?'
+    )
+    .get(userId, projectId, artifactId) as { v: number };
+  return row.v + 1;
+}
+
+/**
+ * Server-side revision record for the AI upsert path (design-docs/28 §1.5):
+ * snapshots the artifact's OLD state before an upsert overwrites it, or the
+ * NEW state when the artifact is being created (version 1).
+ */
+function recordServerArtifactRevision(
+  db: Db,
+  userId: number,
+  projectId: string,
+  doc: UniversalArtifactDocument,
+  provenance: { threadId?: string; turnId?: string; turnIndex?: number | null },
+  rev: number
+): void {
+  const existingRow = db
+    .prepare('SELECT doc_json FROM artifacts WHERE user_id = ? AND project_id = ? AND artifact_id = ?')
+    .get(userId, projectId, doc.id) as { doc_json: string } | undefined;
+  const existing = existingRow?.doc_json
+    ? parseJson<UniversalArtifactDocument | null>(existingRow.doc_json, null)
+    : null;
+  const snapshot: UniversalArtifactDocument = existing ?? doc;
+  const creating = !existing;
+  upsertArtifactRevision(
+    db,
+    userId,
+    projectId,
+    doc.id,
+    {
+      version: nextArtifactRevisionVersion(db, userId, projectId, doc.id),
+      timestamp: Date.now(),
+      actor: 'ai',
+      changeSummary: creating
+        ? `Created from chat: ${doc.current?.description || ''}`
+        : `Update from chat: ${doc.current?.description || ''}`,
+      provenance: Object.keys(provenance).length > 0 ? provenance : undefined,
+      title: snapshot.title ?? '',
+      layers: {
+        subtitle: snapshot.current?.subtitle ?? '',
+        description: snapshot.current?.description ?? '',
+        summary: snapshot.current?.summary ?? '',
+        body: snapshot.current?.body ?? '',
+      },
+    },
+    rev
+  );
+}
+
+function docChanged(db: Db, table: string, idCol: string, jsonCol: string, id: string, userId: number, projectId: string, nextDoc: string): boolean {
+  const row = db
+    .prepare(`SELECT ${jsonCol} AS doc_json FROM ${table} WHERE user_id = ? AND project_id = ? AND ${idCol} = ?`)
     .get(userId, projectId, id) as { doc_json?: string } | undefined;
   if (!row || !row.doc_json || row.doc_json === '{}') return true;
   try {
@@ -399,7 +547,7 @@ export function listProjectsForUser(userId: number): ProjectSnapshotWithRevision
   const db = getDb();
   const rows = db
     .prepare(
-      `SELECT project_id, name, code_name, description, color, active_thread_id, granularity_law, revision, updated_at
+      `SELECT project_id, name, code_name, description, color, active_thread_id, granularity_law, capabilities_json, revision, updated_at
        FROM projects WHERE user_id = ? ORDER BY updated_at DESC`
     )
     .all(userId) as ProjectRow[];
@@ -430,7 +578,7 @@ export function applyProjectSnapshotDiff(userId: number, snapshot: ProjectSnapsh
       upsertTurn(db, userId, snapshot.projectId, turn, idx, newRev);
     });
     for (const thread of snapshot.threads ?? []) {
-      if (!docChanged(db, 'threads', 'thread_id', thread.id, userId, snapshot.projectId, JSON.stringify(thread))) continue;
+      if (!docChanged(db, 'threads', 'thread_id', 'doc_json', thread.id, userId, snapshot.projectId, JSON.stringify(thread))) continue;
       upsertThread(db, userId, snapshot.projectId, thread, newRev);
     }
     (snapshot.folders ?? []).forEach((folder, idx) => {
@@ -441,15 +589,22 @@ export function applyProjectSnapshotDiff(userId: number, snapshot: ProjectSnapsh
       upsertFolder(db, userId, snapshot.projectId, folder, newRev);
     });
     snapshot.chapters?.forEach((chapter, idx) => {
-      if (!docChanged(db, 'chapters', 'chapter_id', chapter.id, userId, snapshot.projectId, JSON.stringify(chapter))) return;
+      if (!docChanged(db, 'chapters', 'chapter_id', 'doc_json', chapter.id, userId, snapshot.projectId, JSON.stringify(chapter))) return;
       upsertChapter(db, userId, snapshot.projectId, chapter, idx, newRev);
     });
     for (const artifact of snapshot.artifacts ?? []) {
-      if (!docChanged(db, 'artifacts', 'artifact_id', artifact.id, userId, snapshot.projectId, JSON.stringify(artifact))) continue;
+      if (!docChanged(db, 'artifacts', 'artifact_id', 'doc_json', artifact.id, userId, snapshot.projectId, JSON.stringify(artifact))) continue;
       upsertArtifact(db, userId, snapshot.projectId, artifact, newRev);
     }
+    // Package 1: revision history rides the snapshot (client is the source of
+    // truth for history; server rows are upserted, never deleted here).
+    const snapshotRevisions = snapshot.revisions ?? {};
+    for (const [artifactId, revisions] of Object.entries(snapshotRevisions)) {
+      if (!revisions || revisions.length === 0) continue;
+      upsertArtifactRevisions(db, userId, snapshot.projectId, artifactId, revisions, newRev);
+    }
     for (const edge of snapshot.edges ?? []) {
-      if (!docChanged(db, 'edges', 'edge_id', edge.id, userId, snapshot.projectId, JSON.stringify(edge))) continue;
+      if (!docChanged(db, 'edges', 'edge_id', 'edge_json', edge.id, userId, snapshot.projectId, JSON.stringify(edge))) continue;
       upsertEdge(db, userId, snapshot.projectId, edge, newRev);
     }
     return { revision: newRev };
@@ -495,6 +650,7 @@ export function applyAtomicMutation(
           break;
         case 'deleteArtifact': {
           db.prepare('DELETE FROM artifacts WHERE user_id = ? AND project_id = ? AND artifact_id = ?').run(userId, projectId, m.artifactId);
+          db.prepare('DELETE FROM artifact_revisions WHERE user_id = ? AND project_id = ? AND artifact_id = ?').run(userId, projectId, m.artifactId);
           deleteIndexRows(userId, projectId, m.artifactId);
           recordTombstone(db, userId, projectId, 'artifact', m.artifactId, newRev);
           break;
@@ -646,6 +802,12 @@ export interface CommitJobInput {
     content: { subtitle: string; description: string; summary: string; body: string };
   }>;
   shifts: Array<{ title: string; subtitle?: string; description?: string; summary?: string }>;
+  /**
+   * Resolved chat capabilities the job ran with (Package 2 §2.4). Absent →
+   * DEFAULT_CHAT_CAPABILITIES. A capability that is OFF means its buffered
+   * blocks are IGNORED at commit, exactly like the client apply path.
+   */
+  capabilities?: Partial<ChatCapabilities>;
   pairKey: string;
   isFallbackPartial?: boolean;
   /**
@@ -702,6 +864,8 @@ export function commitJobPairTransaction(input: CommitJobInput): {
 
     let userTurnId = '';
     let assistantTurnId = '';
+    // Index of the assistant turn WITHIN the thread — revision provenance.
+    let revisionTurnIndex: number | null = null;
     const now = Date.now();
 
     if (input.kind === 'regenerate' && input.targetTurnId) {
@@ -758,6 +922,7 @@ export function commitJobPairTransaction(input: CommitJobInput): {
       }
       upsertTurn(db, input.userId, input.projectId, turnDoc, row?.seq ?? 0, newRev);
       userTurnId = ''; // regenerate replaces the reply; the ask turn already exists
+      revisionTurnIndex = regenIndex;
     } else {
       userTurnId = `turn-user-${input.pairKey}`;
       assistantTurnId = `turn-ai-${input.pairKey}`;
@@ -775,6 +940,7 @@ export function commitJobPairTransaction(input: CommitJobInput): {
         .prepare('SELECT COUNT(*) AS n FROM turns WHERE user_id = ? AND project_id = ? AND thread_id = ?')
         .get(input.userId, input.projectId, input.threadId) as { n: number };
       const userTurnIndex = threadTurnCount.n;
+      revisionTurnIndex = userTurnIndex + 1;
       upsertTurn(
         db,
         input.userId,
@@ -849,6 +1015,10 @@ export function commitJobPairTransaction(input: CommitJobInput): {
         input.projectId,
         input.threadId
       ) as { n: number }).n;
+    // Package 2 §2.4: writeArtifacts OFF = rogue <artifact_upsert> blocks are
+    // dropped at commit, never written — same gate as the client path.
+    const caps = resolveCapabilities(null, input.capabilities ?? DEFAULT_CHAT_CAPABILITIES);
+    if (caps.writeArtifacts) {
     for (const u of input.artifacts) {
       const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
       const now2 = Date.now();
@@ -872,7 +1042,23 @@ export function commitJobPairTransaction(input: CommitJobInput): {
         updatedAt: now2,
         graph: { is_high_concept: false, x: 300, y: 200 },
       };
+      // Package 1 §1.5: record the artifact's history in the SAME transaction
+      // as the pair commit — old state for existing notes, birth state for new
+      // ones — so the server path and the client path tell the same story.
+      recordServerArtifactRevision(
+        db,
+        input.userId,
+        input.projectId,
+        doc as unknown as UniversalArtifactDocument,
+        {
+          threadId: input.threadId,
+          turnId: input.targetTurnId ?? assistantTurnId,
+          turnIndex: revisionTurnIndex,
+        },
+        newRev
+      );
       upsertArtifact(db, input.userId, input.projectId, doc as unknown as UniversalArtifactDocument, newRev);
+      }
     }
 
     // Topic-shift chapter law (David 2026-10-25):
@@ -884,7 +1070,7 @@ export function commitJobPairTransaction(input: CommitJobInput): {
     //      genesis, a previous commit's cut, a re-emitted sentinel on
     //      regenerate), REPLACE that chapter's title/metadata — never open a
     //      duplicate with the same start.
-    if (input.shifts.length > 0) {
+    if (caps.autoChapter && input.shifts.length > 0) {
       const shift = input.shifts[input.shifts.length - 1];
       const askIndex = Math.max(0, turnCount - 2);
       const rows = db
@@ -1022,6 +1208,39 @@ export function getProjectDelta(userId: number, projectId: string, sinceRevision
     .all(userId, projectId, sinceRevision) as Array<{ edge_json: string }>;
   base.edges = deltaEdges.map((e) => parseJson<SemanticEdge | null>(e.edge_json, null)).filter((e): e is SemanticEdge => Boolean(e?.id));
 
+  // Revision rows stamped after the cursor — mirrors the artifacts above so a
+  // waking device picks up the new History without a full snapshot reload.
+  const deltaRevisionRows = db
+    .prepare(
+      'SELECT artifact_id, version, timestamp, actor, change_summary, provenance_json, title, layers_json FROM artifact_revisions WHERE user_id = ? AND project_id = ? AND revision > ? ORDER BY artifact_id ASC, version ASC'
+    )
+    .all(userId, projectId, sinceRevision) as Array<{
+    artifact_id: string;
+    version: number;
+    timestamp: number;
+    actor: string;
+    change_summary: string;
+    provenance_json: string;
+    title: string;
+    layers_json: string;
+  }>;
+  if (deltaRevisionRows.length > 0) {
+    const revs: Record<string, ArtifactRevision[]> = {};
+    for (const r of deltaRevisionRows) {
+      const list = (revs[r.artifact_id] ??= []);
+      list.push({
+        version: r.version,
+        timestamp: r.timestamp,
+        actor: r.actor === 'user' ? 'user' : 'ai',
+        changeSummary: r.change_summary,
+        provenance: parseJson(r.provenance_json, {}) || undefined,
+        title: r.title,
+        layers: parseJson(r.layers_json, { subtitle: '', description: '', summary: '', body: '' }),
+      });
+    }
+    base.revisions = revs;
+  }
+
   const deltaTombs = db
     .prepare('SELECT entity_type, entity_id FROM tombstones WHERE user_id = ? AND project_id = ? AND revision > ?')
     .all(userId, projectId, sinceRevision) as Array<{ entity_type: string; entity_id: string }>;
@@ -1055,6 +1274,10 @@ export function replaceAllProjectsForUser(userId: number, projects: ProjectSnaps
       snap.folders?.forEach((f) => upsertFolder(db, userId, snap.projectId, f, rev));
       snap.chapters?.forEach((c, i) => upsertChapter(db, userId, snap.projectId, c, i, rev));
       for (const a of snap.artifacts ?? []) upsertArtifact(db, userId, snap.projectId, a, rev);
+      for (const [artifactId, revisions] of Object.entries(snap.revisions ?? {})) {
+        if (!revisions || revisions.length === 0) continue;
+        upsertArtifactRevisions(db, userId, snap.projectId, artifactId, revisions, rev);
+      }
       for (const e of snap.edges ?? []) upsertEdge(db, userId, snap.projectId, e, rev);
       lastRev = rev;
     }

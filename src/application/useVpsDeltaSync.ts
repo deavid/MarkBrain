@@ -18,6 +18,7 @@ import type { IDialogueTimelineDomain } from '../domains/01-dialogue-timeline';
 import type { IArtifactDocumentDomain } from '../domains/01-artifact-document';
 import type { IChapterSegmentationDomain } from '../domains/02-chapter-segmentation';
 import type { ITopologicalGraphDomain } from '../domains/02-topological-graph';
+import type { IArtifactVersioningDomain } from '../domains/01-artifact-versioning';
 import type { ThreadRegistry } from '../domains/06-chat-threads';
 import { reconcileThreadAttachments } from '../domains/06-chat-threads';
 import { flushServerMutations } from './serverMutationQueue';
@@ -38,6 +39,8 @@ export interface VpsDeltaSyncDeps {
   segmentation: IChapterSegmentationDomain;
   graph: ITopologicalGraphDomain;
   threadRegistry: ThreadRegistry;
+  /** Receives delta revision rows (merged by artifactId + version, no dupes). */
+  versioning: IArtifactVersioningDomain;
 }
 
 /** test seam — exercised by src/tests/cuj-gap-sync.test.ts */
@@ -105,6 +108,10 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
     }
     graph.loadEdges(merged);
   }
+
+  // Artifact revision history: merged by artifactId + version (the versioning
+  // domain dedupes), so the 10s poll and re-hydrates never duplicate rows.
+  if (delta.revisions) deps.versioning.loadHistory(delta.revisions);
 
   // Turns: merge the active thread's list by id, preserving local order and
   // appending genuinely-new rows (server seq order arrives sorted).

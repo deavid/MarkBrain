@@ -92,6 +92,7 @@ const GATED_PATHS = [
   '/api/extract-artifact-from-file',
   '/api/search-index',
   '/api/server-logs',
+  '/api/logs',
   '/api/projects',
   '/api/jobs',
 ];

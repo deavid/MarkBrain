@@ -130,6 +130,8 @@ describe('the app layer reports its failures', () => {
       segmentation: { listChapters: () => [] },
       artifacts: { listArtifacts: () => [] },
       graph: { listEdges: () => [] },
+      // Package 1: revisions ride the snapshot payload.
+      versioning: { getAllRevisions: () => ({}) },
       threadRegistry: {
         compose: () => ({ turns: [], chapters: [], threads: [], folders: [], activeThreadId: 'th1' }),
       },

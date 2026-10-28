@@ -5,6 +5,7 @@ import { serializeArtifactToYamlDoc } from '../../utils/yamlArtifactParser';
 import { detectImportFlag, flagRelationship, ImportFlag } from '../../utils/importDetect';
 import { purgeArtifact } from './purgeArtifact';
 import { queueServerMutation } from '../../application/serverMutationQueue';
+import { apiFetch } from '../../gateway/api';
 import { logger } from '../../utils/logger';
 
 type WorkspaceContainer = NonNullable<ReturnType<DomainContextValue['workspace']['getProject']>>;
@@ -102,6 +103,164 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     }
   };
 
+  /**
+   * Manual edit from the detail modal (Package 1 §1.6): the OLD state is
+   * snapshotted first (title + all four layers), then title/subtitle/body are
+   * applied. When the body changed but the description/summary layers were
+   * left untouched (the edit form doesn't touch them), the artifact is marked
+   * stale so the compiler stops serving layers that no longer match the body.
+   */
+  const handleManualArtifactEdit = (
+    artifactId: string,
+    patch: { title: string; subtitle: string; body: string }
+  ) => {
+    const art = artifactsDomain.getArtifact(artifactId);
+    if (!art) return;
+    const oldBody = art.current?.body || '';
+    const oldSubtitle = art.current?.subtitle || '';
+    const bodyChanged = patch.body !== oldBody;
+    const anythingChanged = bodyChanged || patch.subtitle !== oldSubtitle || patch.title !== art.title;
+    if (!anythingChanged) return;
+
+    versioning.recordSnapshot(artifactId, {
+      actor: 'user',
+      changeSummary: 'Manual edit',
+      title: art.title,
+      layers: {
+        subtitle: oldSubtitle,
+        description: art.current?.description || '',
+        summary: art.current?.summary || '',
+        body: oldBody,
+      },
+    });
+    artifactsDomain.upsertArtifact({
+      id: artifactId,
+      title: patch.title.trim() || art.title,
+      current: {
+        subtitle: patch.subtitle,
+        description: art.current?.description || '',
+        summary: art.current?.summary || '',
+        body: patch.body,
+      },
+      updatedAt: Date.now(),
+      // Only mark stale when the body actually moved; a title-only tweak must
+      // not touch an existing flag either way (key absent → domain keeps it).
+      ...(bodyChanged ? { layersStaleAt: Date.now() } : {}),
+      ...(art.yamlDocument !== undefined
+        ? { yamlDocument: serializeArtifactToYamlDoc({ ...art, title: patch.title.trim() || art.title }) }
+        : {}),
+    });
+    logger.action('App', `Manual edit on artifact ${artifactId}${bodyChanged ? ' (body changed — summary layers marked stale)' : ''}`);
+    triggerReRender();
+  };
+
+  /**
+   * Revert to a revision (Package 1 §1.7): the versioning domain snapshots the
+   * state being discarded (so the revert itself is undoable), then the target's
+   * title and all four layers are restored together — one document, one write.
+   */
+  const handleRevertArtifact = (artifactId: string, targetVersion: number) => {
+    const art = artifactsDomain.getArtifact(artifactId);
+    if (!art) return;
+    const target = versioning.rollback(artifactId, targetVersion, {
+      title: art.title,
+      layers: {
+        subtitle: art.current?.subtitle || '',
+        description: art.current?.description || '',
+        summary: art.current?.summary || '',
+        body: art.current?.body || '',
+      },
+    });
+    const restored: Artifact = {
+      ...art,
+      title: target.title || art.title,
+      current: {
+        subtitle: target.layers.subtitle || '',
+        description: target.layers.description || '',
+        summary: target.layers.summary || '',
+        body: target.layers.body || '',
+      },
+      updatedAt: Date.now(),
+      // The restored layers matched their body when they were recorded.
+      layersStaleAt: undefined,
+    };
+    artifactsDomain.upsertArtifact({
+      ...restored,
+      ...(restored.yamlDocument !== undefined
+        ? { yamlDocument: serializeArtifactToYamlDoc(restored) }
+        : {}),
+    });
+    logger.action('App', `Reverted artifact ${artifactId} to v${targetVersion}`);
+    triggerReRender();
+  };
+
+  /**
+   * Refresh layers (Package 1 §1.6): the stale layers are snapshotted first,
+   * then /api/extract rewrites subtitle/description/summary from the current
+   * body and the stale flag clears. Runs only on an explicit button press.
+   */
+  const handleRefreshLayers = async (artifactId: string): Promise<string | null> => {
+    const art = artifactsDomain.getArtifact(artifactId);
+    if (!art) return 'Note not found.';
+    const body = art.current?.body || '';
+    if (!body.trim()) return 'This note has no body to summarize yet.';
+    try {
+      const res = await apiFetch('/api/extract-artifact-from-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: body,
+          filename: `${art.code || art.id}.md`,
+          projectTitle: workspace.getProject(activeProjectId)?.metadata?.name || 'Project',
+          fileType: 'doc',
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        return (detail as { error?: string }).error || `Layer refresh failed (${res.status}).`;
+      }
+      const data = (await res.json()) as {
+        artifact?: { subtitle?: string; description?: string; summary?: string };
+      };
+      const layers = data.artifact;
+      if (!layers) return 'Layer refresh returned nothing usable.';
+      versioning.recordSnapshot(artifactId, {
+        actor: 'ai',
+        changeSummary: 'Layers refreshed from body',
+        title: art.title,
+        layers: {
+          subtitle: art.current?.subtitle || '',
+          description: art.current?.description || '',
+          summary: art.current?.summary || '',
+          body,
+        },
+      });
+      const next: Artifact = {
+        ...art,
+        current: {
+          subtitle: layers.subtitle || '',
+          description: layers.description || '',
+          summary: layers.summary || '',
+          body,
+        },
+        updatedAt: Date.now(),
+        layersStaleAt: undefined,
+      };
+      artifactsDomain.upsertArtifact({
+        ...next,
+        ...(next.yamlDocument !== undefined
+          ? { yamlDocument: serializeArtifactToYamlDoc(next) }
+          : {}),
+      });
+      logger.action('App', `Refreshed summary layers of ${artifactId} from /api/extract`);
+      triggerReRender();
+      return null;
+    } catch (err) {
+      logger.error('App', `Layer refresh failed for ${artifactId}`, err);
+      return 'Layer refresh failed — check your connection and try again.';
+    }
+  };
+
   const handleAddArtifact = (newArt: Artifact) => {
     // Idempotent by title: extracted notes are already auto-upserted with a
     // different id — "Save as Artifact" must update that record, not duplicate it.
@@ -139,6 +298,21 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
       })(),
     });
     setSelectedArtifactId(existing?.id ?? newArt.id);
+    // A brand-new note gets its birth revision (v1) so History has a ground
+    // truth from day one; the idempotent update path keeps its own history.
+    if (!existing) {
+      versioning.recordSnapshot(newArt.id, {
+        actor: 'user',
+        changeSummary: 'Created note',
+        title: newArt.title || 'Untitled',
+        layers: {
+          subtitle: newArt.current?.subtitle || '',
+          description: newArt.current?.description || '',
+          summary: newArt.current?.summary || '',
+          body: newArt.current?.body || '',
+        },
+      });
+    }
   };
 
   // Import land is ALWAYS a separate artifact: unlike handleAddArtifact
@@ -306,6 +480,9 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     handleSetAttachmentGranularity,
     attachArtifactToActiveChat,
     handleUpdateArtifactContent,
+    handleManualArtifactEdit,
+    handleRevertArtifact,
+    handleRefreshLayers,
     handleAddArtifact,
     handleImportArtifact,
     handleTriageKeepBoth,

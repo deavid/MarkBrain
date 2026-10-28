@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, ChevronDown, ChevronUp, Plus, Maximize2, Minimize2, Copy, Check } from 'lucide-react';
 import type { Artifact, ChapterTurns } from '../../types';
+import type { ChatCapabilities } from '../../domains/06-chat-threads/types';
 import type { ChatAttachment } from '../../domains/06-chat-threads';
 import { isAttachmentStaged } from '../../domains/06-chat-threads';
 import type { Granularity } from '../../domains/granularity';
@@ -69,6 +70,8 @@ interface MirrorPanelProps {
   onOpenArtifacts: () => void;
   onUnstageAttachment: (artifactId: string) => void;
   onOpenArtifact?: (artifactId: string) => void;
+  /** Resolved capability toggles (Package 2 §2.5), read-only beside the system message. */
+  capabilities?: ChatCapabilities;
 }
 
 type MirrorTab = 'artifacts' | 'chapters' | 'system' | 'payload';
@@ -93,6 +96,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
   onOpenArtifacts,
   onUnstageAttachment,
   onOpenArtifact,
+  capabilities,
 }) => {
   const [activeTab, setActiveTab] = useState<MirrorTab>('artifacts');
   const [fullscreen, setFullscreen] = useState(false);
@@ -370,6 +374,12 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-10 uppercase tracking-wider text-[#6b82a3]">
                   System message ({tb.systemTokens} tok)
+                  {capabilities && (
+                    <span data-testid="mirror-capabilities" className="ml-2 normal-case tracking-normal text-[#8ca3c7]">
+                      Capabilities: notes {capabilities.writeArtifacts ? 'ON' : 'OFF'} · chapters{' '}
+                      {capabilities.autoChapter ? 'ON' : 'OFF'} · links {capabilities.graphLinks ? 'ON' : 'OFF'}
+                    </span>
+                  )}
                 </span>
                 <div className="flex items-center gap-1">
                   <button

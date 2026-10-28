@@ -25,6 +25,12 @@ import {
   getVpsSession,
   saveVpsSession,
   clearVpsSession,
+  isOfflineReplica,
+  openOfflineSession,
+  listKnownReplicas,
+  rememberReplica,
+  getActiveIdbName,
+  type KnownReplica,
 } from '../services/workspaceSession';
 import { authLogin, authLogout, type LoginResponse } from '../gateway/api';
 import { rememberReArmKey, setVaultLocked, forgetReArmKey } from '../data/vaultReArm';
@@ -48,6 +54,17 @@ export interface SessionMachine {
   signIn: (email: string, password: string, baseUrl?: string) => Promise<WorkspaceUser>;
   continueLocal: () => Promise<void>;
   signOut: () => Promise<void>;
+  /**
+   * Sign Out variants (Package 3 §3.6): 'keep' drops the session only — the
+   * local mirror + knownReplicas stay so the AuthGate offers "Open offline".
+   * 'wipe' also deletes the replica's IndexedDB and forgets it.
+   */
+  signOutKeepReplica: () => Promise<void>;
+  signOutWipeReplica: () => Promise<void>;
+  /** Open a known replica from its local mirror, offline, no login call. */
+  openOfflineReplica: (replica: KnownReplica) => Promise<void>;
+  /** Known replicas for the AuthGate's "Offline replicas on this device" list. */
+  knownReplicas: KnownReplica[];
   /** Re-pull the project list from the active backend (refresh button, replay aftermath). */
   loadUserCloudData: () => Promise<void>;
 }
@@ -105,7 +122,16 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
         if (user) {
           setCurrentUser(user);
           setAuthInitialized(true);
-          await Promise.all([loadUserCloudData(), hydrateAccountSettingsFromVps()]);
+          if (!getVpsSession()?.offline) {
+            // Live session: one login-time settings pull + remember the
+            // replica so the gate can offer "Open offline" next time.
+            rememberReplica(getVpsSession()!.baseUrl, getVpsSession()!.email);
+            await Promise.all([loadUserCloudData(), hydrateAccountSettingsFromVps()]);
+          } else {
+            // Offline replica: mirror-only reads, no delta polling, no
+            // network calls of any kind (Package 3 §3.6).
+            await loadUserCloudData();
+          }
           return;
         }
         // Session unreadable — fall through to the gate.
@@ -153,6 +179,7 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
       rememberReArmKey((data as LoginResponse & { rearmKey?: string }).rearmKey);
       setVaultLocked(!data.user.vaultUnlocked);
       setWorkspaceMode('vps');
+      rememberReplica(baseUrl, data.user.email); // gate can offer "Open offline" later
       const user: WorkspaceUser = {
         uid: String(data.user.id),
         email: data.user.email,
@@ -178,14 +205,17 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
     await loadUserCloudData();
   }, [loadUserCloudData, LOCAL_USER, setBackend]);
 
-  const signOut = useCallback(async () => {
-    // Leaving Connected mode: best-effort server logout, then drop the session.
-    if (getWorkspaceMode() === 'vps') {
+  const signOutBase = useCallback(async (opts: { serverLogout: boolean }) => {
+    // Leaving Connected mode: best-effort server logout (skipped in offline
+    // replica mode — no network calls, there is no session to invalidate).
+    if (opts.serverLogout && getWorkspaceMode() === 'vps' && !isOfflineReplica()) {
       try {
         await authLogout();
       } catch {
         /* server unreachable — local cleanup still proceeds */
       }
+      clearVpsSession();
+    } else {
       clearVpsSession();
     }
     forgetReArmKey();
@@ -195,6 +225,49 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
     setCloudProjectsCount(null);
   }, []);
 
+  const signOut = useCallback(async () => signOutBase({ serverLogout: true }), [signOutBase]);
+
+  // Package 3 §3.6: 'keep' leaves the IndexedDB mirror + knownReplicas entry
+  // alone so the gate offers "Open offline"; 'wipe' destroys both for good.
+  const signOutKeepReplica = useCallback(async () => signOutBase({ serverLogout: false }), [signOutBase]);
+  const signOutWipeReplica = useCallback(async () => {
+    const session = getVpsSession();
+    if (session) {
+      const { wipeReplicaStorage } = await import('../services/workspaceSession');
+      await wipeReplicaStorage({
+        baseUrl: session.baseUrl,
+        email: session.email,
+        idbName: getActiveIdbName(),
+        lastUsedAt: Date.now(),
+      });
+    }
+    await signOutBase({ serverLogout: false });
+  }, [signOutBase]);
+
+  /** Open a known replica from its local mirror — offline, no login call. */
+  const openOfflineReplica = useCallback(
+    async (replica: KnownReplica) => {
+      setBackend('vps');
+      openOfflineSession(replica);
+      setCurrentUser({
+        uid: `offline:${replica.email}`,
+        email: replica.email,
+        displayName: replica.email,
+        photoURL: null,
+        isOwner: false,
+        mode: 'vps',
+      });
+      setAuthInitialized(true);
+      await loadUserCloudData();
+      logger.action('Session', `Opened offline replica: ${replica.email} @ ${replica.baseUrl}`);
+    },
+    [loadUserCloudData, setBackend]
+  );
+
+  // Refetched when the gate mounts; refreshed after every sign-out so a
+  // fresh "wipe" is reflected immediately in the gate's replica list.
+  const knownReplicas = useMemo(() => listKnownReplicas(), [currentUser, authInitialized]);
+
   return {
     currentUser,
     authInitialized,
@@ -203,6 +276,10 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
     signIn,
     continueLocal,
     signOut,
+    signOutKeepReplica,
+    signOutWipeReplica,
+    openOfflineReplica,
+    knownReplicas,
     loadUserCloudData,
   };
 }

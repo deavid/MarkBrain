@@ -110,6 +110,7 @@ export class WorkspaceDomain implements IWorkspaceDomain {
         codeName: snap.codeName || id.slice(0, 4).toUpperCase(),
         description: snap.description || '',
         color: snap.color || '#3b82f6',
+        capabilities: snap.capabilities || undefined,
         createdAt: snap.updatedAt || Date.now(),
         updatedAt: snap.updatedAt || Date.now(),
       };

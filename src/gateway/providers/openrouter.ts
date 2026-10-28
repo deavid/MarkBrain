@@ -17,6 +17,110 @@ import type {
 } from './types';
 import { errorResponse, jsonResponse, sseStreamResponse } from './types';
 import { l2Normalize } from '../../domains/search/draftSearchEngine';
+import { recordCallStart, recordCallAck, recordCallFirstToken, recordCallEnd } from '../../services/callLogStore';
+
+/**
+ * The streamChat wire body + flight-recorder milestones (design-docs/28
+ * §4.3): ACK when the fetch resolves, first-token at the first delta, raw
+ * UNPARSED text accumulated for the log.
+ */
+async function streamOpenRouterChat(
+  params: StreamChatParams,
+  emit: (event: string, data: unknown) => void,
+  callId: string
+): Promise<{ raw: string; usage?: { input: number; output: number } }> {
+  const messages = [
+    ...(params.systemInstruction
+      ? [{ role: 'system', content: params.systemInstruction }]
+      : []),
+    { role: 'user', content: params.contents },
+  ];
+  const res = await fetch(`${BASE}/chat/completions`, {
+    method: 'POST',
+    headers: headers(params.apiKey),
+    body: JSON.stringify({
+      model: params.model,
+      messages,
+      temperature: params.temperature ?? 0.7,
+      stream: true,
+    }),
+  });
+  if (!res.ok || !res.body) {
+    let detail = `${res.status}`;
+    try {
+      const body = await res.json();
+      detail = body?.error?.message || detail;
+    } catch {
+      /* non-JSON */
+    }
+    throw new Error(`OpenRouter: ${detail}`);
+  }
+
+  // THE ACK BEFORE FIRST TOKEN: the provider accepted the stream — from
+  // here on "the model is thinking" is true.
+  recordCallAck(callId);
+  emit('status', {
+    state: 'connected',
+    message: `Connected to ${params.model} — awaiting first token`,
+    timestamp: Date.now(),
+    model: params.model,
+  });
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let raw = '';
+  let usage: { input: number; output: number } | undefined;
+  let wrote = false;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split('\n\n');
+    buffer = frames.pop() ?? '';
+    for (const frame of frames) {
+      for (const line of frame.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        let payload: any;
+        try {
+          payload = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        const delta = payload?.choices?.[0]?.delta?.content ?? '';
+        if (delta) {
+          if (!wrote) {
+            wrote = true;
+            recordCallFirstToken(callId);
+            emit('status', {
+              state: 'writing',
+              message: `Writing response with ${params.model}...`,
+              timestamp: Date.now(),
+              model: params.model,
+            });
+          }
+          raw += delta;
+          emit('chunk', {
+            delta,
+            accumulatedLength: raw.length,
+            timestamp: Date.now(),
+          });
+        }
+        if (payload?.usage) {
+          usage = {
+            input: payload.usage.prompt_tokens ?? usage?.input ?? 0,
+            output: payload.usage.completion_tokens ?? usage?.output ?? 0,
+          };
+        }
+      }
+    }
+  }
+  recordCallEnd(callId, { status: 'ok', responseText: raw, usage: usage ?? null });
+  return { raw, usage };
+}
 
 const BASE = 'https://openrouter.ai/api/v1';
 
@@ -71,102 +175,26 @@ export const openrouterAdapter: ProviderAdapter = {
 
   async streamChat(params: StreamChatParams): Promise<Response> {
     return sseStreamResponse(async (emit) => {
-      // Honest ladder (design 23 §2.2): before the RPC answers it is
-      // CONNECTING; the provider ACK comes after the fetch resolves.
-      emit('status', {
-        state: 'connecting',
-        message: `Sending to ${params.model}...`,
-        timestamp: Date.now(),
+      // Local-mode flight recorder (design-docs/28 §4.3) — the request is
+      // scrubbed inside recordCallStart (the apiKey lives in params/headers).
+      const callId = recordCallStart({
+        kind: 'chat',
+        provider: 'openrouter',
         model: params.model,
-      });
-      const messages = [
-        ...(params.systemInstruction
-          ? [{ role: 'system', content: params.systemInstruction }]
-          : []),
-        { role: 'user', content: params.contents },
-      ];
-      const res = await fetch(`${BASE}/chat/completions`, {
-        method: 'POST',
-        headers: headers(params.apiKey),
-        body: JSON.stringify({
+        request: {
+          endpoint: 'direct:chat/completions (stream)',
           model: params.model,
-          messages,
-          temperature: params.temperature ?? 0.7,
-          stream: true,
-        }),
+          systemInstruction: params.systemInstruction ?? null,
+          compiledPrompt: params.contents,
+          params: { temperature: params.temperature ?? 0.7 },
+        },
       });
-      if (!res.ok || !res.body) {
-        let detail = `${res.status}`;
-        try {
-          const body = await res.json();
-          detail = body?.error?.message || detail;
-        } catch {
-          /* non-JSON */
-        }
-        throw new Error(`OpenRouter: ${detail}`);
+      try {
+        return await streamOpenRouterChat(params, emit, callId);
+      } catch (err: unknown) {
+        recordCallEnd(callId, { status: 'error', error: err instanceof Error ? err.message : String(err) });
+        throw err;
       }
-
-      // THE ACK BEFORE FIRST TOKEN: the provider accepted the stream — from
-      // here on "the model is thinking" is true.
-      emit('status', {
-        state: 'connected',
-        message: `Connected to ${params.model} — awaiting first token`,
-        timestamp: Date.now(),
-        model: params.model,
-      });
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let raw = '';
-      let usage: { input: number; output: number } | undefined;
-      let wrote = false;
-
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const frames = buffer.split('\n\n');
-        buffer = frames.pop() ?? '';
-        for (const frame of frames) {
-          for (const line of frame.split('\n')) {
-            if (!line.startsWith('data:')) continue;
-            const data = line.slice(5).trim();
-            if (!data || data === '[DONE]') continue;
-            let payload: any;
-            try {
-              payload = JSON.parse(data);
-            } catch {
-              continue;
-            }
-            const delta = payload?.choices?.[0]?.delta?.content ?? '';
-            if (delta) {
-              if (!wrote) {
-                wrote = true;
-                emit('status', {
-                  state: 'writing',
-                  message: `Writing response with ${params.model}...`,
-                  timestamp: Date.now(),
-                  model: params.model,
-                });
-              }
-              raw += delta;
-              emit('chunk', {
-                delta,
-                accumulatedLength: raw.length,
-                timestamp: Date.now(),
-              });
-            }
-            if (payload?.usage) {
-              usage = {
-                input: payload.usage.prompt_tokens ?? usage?.input ?? 0,
-                output: payload.usage.completion_tokens ?? usage?.output ?? 0,
-              };
-            }
-          }
-        }
-      }
-      return { raw, usage };
     }, params.model);
   },
 

@@ -32,6 +32,13 @@ export interface UniversalArtifactDocument {
   tags: string[];
   createdAt: number;
   updatedAt: number;
+  /**
+   * Stale-layer guard: set when the body was edited by hand while the
+   * description/summary layers were left untouched, so the compiler stops
+   * serving layers that no longer match the body. Cleared when the layers are
+   * regenerated (Refresh layers) or an AI upsert rewrites all layers.
+   */
+  layersStaleAt?: number;
   graph?: {
     x?: number;
     y?: number;

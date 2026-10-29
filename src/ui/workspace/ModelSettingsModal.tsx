@@ -6,6 +6,7 @@ import {
   getAccountSettings,
   putAccountSettings,
   putAccountKeys,
+  changeAccountPassword,
   authUnlock,
   listAdminUsers,
   createAdminUser,
@@ -129,6 +130,13 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
   const [vpsUnlockPw, setVpsUnlockPw] = useState('');
   const [vpsKeysError, setVpsKeysError] = useState<string | null>(null);
   const [vpsSlotDrafts, setVpsSlotDrafts] = useState<Record<KeySlotId, string>>(emptyKeyRecord);
+
+  // ── vps password change state ──
+  const [vpsPwCurrent, setVpsPwCurrent] = useState('');
+  const [vpsPwNew, setVpsPwNew] = useState('');
+  const [vpsPwConfirm, setVpsPwConfirm] = useState('');
+  const [vpsPwMsg, setVpsPwMsg] = useState<string | null>(null);
+  const [vpsPwOk, setVpsPwOk] = useState(false);
 
   // ── users (owner) state ──
   const [users, setUsers] = useState<AdminUserRow[] | null>(null);
@@ -318,6 +326,36 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     setVpsUnlockPw('');
     loadVpsSettings();
     logger.action('ModelSettings', 'VPS vault unlocked');
+  };
+
+  const handleVpsPasswordChange = async () => {
+    setVpsPwMsg(null);
+    if (!vpsPwCurrent || vpsPwNew.length < 8 || vpsPwNew !== vpsPwConfirm) {
+      setVpsPwOk(false);
+      setVpsPwMsg('Fill in the current password and a new one (8+ characters, twice).');
+      return;
+    }
+    const res = await changeAccountPassword(vpsPwCurrent, vpsPwNew);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setVpsPwOk(false);
+      setVpsPwMsg(body?.error ?? `Change failed (HTTP ${res.status}).`);
+      return;
+    }
+    const body = (await res.json()) as { keysPreserved?: boolean; rearmKey?: string };
+    rememberReArmKey(body.rearmKey);
+    setVpsPwCurrent('');
+    setVpsPwNew('');
+    setVpsPwConfirm('');
+    setVaultLocked(false);
+    setVpsPwOk(true);
+    setVpsPwMsg(
+      body.keysPreserved === false
+        ? 'Password changed — saved API keys could not be carried over. Re-enter them below.'
+        : 'Password changed — saved API keys carried over.'
+    );
+    loadVpsSettings();
+    logger.action('ModelSettings', 'Changed account password');
   };
 
   const handleVpsSaveKey = async (id: KeySlotId) => {
@@ -618,6 +656,63 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
             {HINT_VPS}
           </p>
           {vpsKeysError && <p className="text-10 text-red-400 mt-2">{vpsKeysError}</p>}
+
+          <div className="mt-4" data-testid="vps-password-section">
+            <div className="flex items-center gap-1.5 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
+              <KeyRound className="w-3 h-3" />
+              Password
+            </div>
+            <p className="text-10 text-[#788fa8] leading-relaxed mb-2">
+              Changing it re-keys the vault — your saved API keys carry over.
+            </p>
+            <div className="space-y-1.5">
+              <input
+                type="password"
+                data-testid="vps-password-current"
+                placeholder="Current password"
+                autoComplete="current-password"
+                value={vpsPwCurrent}
+                onChange={(e) => setVpsPwCurrent(e.target.value)}
+                className="w-full rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
+              />
+              <div className="flex gap-1.5">
+                <input
+                  type="password"
+                  data-testid="vps-password-new"
+                  placeholder="New password (8+)"
+                  autoComplete="new-password"
+                  value={vpsPwNew}
+                  onChange={(e) => setVpsPwNew(e.target.value)}
+                  className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
+                />
+                <input
+                  type="password"
+                  data-testid="vps-password-confirm"
+                  placeholder="Repeat new"
+                  autoComplete="new-password"
+                  value={vpsPwConfirm}
+                  onChange={(e) => setVpsPwConfirm(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && vpsPwCurrent && vpsPwNew && vpsPwConfirm) {
+                      e.preventDefault();
+                      void handleVpsPasswordChange();
+                    }
+                  }}
+                  className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
+                />
+              </div>
+              <button
+                onClick={() => void handleVpsPasswordChange()}
+                data-testid="vps-password-save"
+                className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
+              >
+                Change password
+              </button>
+            </div>
+            {vpsPwMsg && (
+              <p className={`text-10 mt-2 ${vpsPwOk ? 'text-emerald-300' : 'text-red-400'}`}>{vpsPwMsg}</p>
+            )}
+          </div>
         </section>
       );
     };

@@ -264,6 +264,14 @@ export function putAccountKeys(slot: string, apiKey: string | null): Promise<Res
   });
 }
 
+export function changeAccountPassword(oldPassword: string, newPassword: string): Promise<Response> {
+  return apiFetch('/api/account/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ oldPassword, newPassword }),
+  });
+}
+
 export interface AdminUserRow {
   id: number;
   email: string;

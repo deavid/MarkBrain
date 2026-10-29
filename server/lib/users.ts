@@ -193,10 +193,11 @@ export function setUserEnabled(targetUserId: number, enabled: boolean): void {
  * this moment (unlocked in RAM, or `oldPassword` decrypts `user_secrets`):
  * the payload is re-encrypted under the new kdf_salt + password.
  */
-export function changeUserPassword(userId: number, newPassword: string, oldPassword?: string): void {
+export function changeUserPassword(userId: number, newPassword: string, oldPassword?: string): boolean {
   if (newPassword.length < 8) throw new Error('Password must be at least 8 characters.');
   const row = getRawUserById(userId);
   if (!row) throw new Error(`User not found: ${userId}`);
+  const hadSecrets = hasSecretsRow(userId);
 
   const newSalt = crypto.randomBytes(16);
   const newVaultKey = deriveVaultKey(newPassword, newSalt);
@@ -237,4 +238,7 @@ export function changeUserPassword(userId: number, newPassword: string, oldPassw
   } else {
     lockVault(userId);
   }
+  // No secrets row = nothing to lose. A row we could not decrypt = the keys are
+  // orphaned under the old salt — the caller must tell the user, not hide it.
+  return !hadSecrets || payload !== null;
 }

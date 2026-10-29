@@ -396,6 +396,41 @@ export function registerAccountRoutes(app: Express): void {
     res.json({ ok: true, keys: redactKeys(payload) });
   });
 
+  // ── POST /api/account/password (requireAuth) ─────────────────────────────
+  // Self-service password change for ANY signed-in account (owner included).
+  // Verifies the current password first (a typo must never reach the rotation),
+  // then re-keys the vault: keys carry over whether the vault is unlocked in
+  // RAM or decrypted with the old password. The session stays unlocked — the
+  // caller just proved knowledge of the new password, and design 25 wants the
+  // fresh re-arm key to ride the response.
+  app.post('/api/account/password', requireAuth, (req: Request, res: Response) => {
+    const { oldPassword, newPassword } = req.body ?? {};
+    if (typeof oldPassword !== 'string' || oldPassword.length === 0 || typeof newPassword !== 'string') {
+      res.status(400).json({ error: 'oldPassword and newPassword are required.' });
+      return;
+    }
+    if (loginRateLimited(req)) {
+      res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+      return;
+    }
+    const raw = getRawUserById(req.user!.id);
+    if (!raw || raw.enabled !== 1 || !verifyPassword(oldPassword, raw.password_hash)) {
+      recordLoginFailure(req);
+      res.status(401).json({ error: 'Current password is incorrect.' });
+      return;
+    }
+    clearLoginFailures(req);
+    let keysPreserved: boolean;
+    try {
+      keysPreserved = changeUserPassword(req.user!.id, newPassword, oldPassword);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Password change failed.' });
+      return;
+    }
+    unlockVaultWithPassword(req.user!.id, newPassword);
+    res.json({ ok: true, keysPreserved, rearmKey: reArmKeyFor(req.user!.id) });
+  });
+
   // ── Owner admin (requireAuth + requireOwner) ─────────────────────────────
   app.get('/api/admin/users', requireOwner, (_req: Request, res: Response) => {
     res.json({ users: listUsers() });

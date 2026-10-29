@@ -223,22 +223,28 @@ scp root@markbrain.yourdomain.com:/var/lib/markbrain/backup-*.sqlite ./
 
 **Change your password later:**
 
-Why is changing a password slightly different from creating the account? Because
-when you change your password, the server also has to **re-encrypt your saved
-API keys** under the new password — and encryption requires the new password
-itself (briefly, in RAM), not just its hash.
+Two different situations:
 
-To rotate it without putting the password in your local shell history, pipe it
-over SSH into the ephemeral file on the server, run the playbook with
-`rotate_owner_password=true`, and the playbook deletes the plaintext file right
-after re-keying:
+- **You know your current password** — change it in the app: open
+  **Model Settings → Keys → Password**, type the current and the new password.
+  The server verifies the old password and re-keys the vault, so your saved
+  API keys carry over. This works for every account, not just the owner.
+- **You lost your password** — no app can help you: the vault is encrypted
+  under the lost password, so the saved API keys cannot be recovered. Rotate
+  with the commands below and re-enter your keys afterwards.
+
+Why does rotation need the new password itself (briefly, in RAM), not just its
+hash? Because the new password becomes the new vault key material. To rotate
+without putting it in your local shell history, pipe it over SSH into the
+ephemeral file on the server, run the rotation, and the script deletes the
+plaintext file right after:
 
 ```bash
 # 1. type the new password on stdin, then press Enter and Ctrl-D
 ssh root@markbrain.yourdomain.com \
   'install -m 0600 /dev/stdin /etc/markbrain/secrets/owner-password'
 
-# 2. run the rotation (reads the file, re-encrypts the vault, deletes the file)
+# 2. rotate (reads the file, applies the new password, deletes the file)
 ssh root@markbrain.yourdomain.com \
   'cd /srv/markbrain && MARKBRAIN_DB_PATH=/var/lib/markbrain/markbrain.sqlite \
    npx tsx scripts/user-admin.ts passwd you@yourdomain.com \
@@ -247,7 +253,7 @@ ssh root@markbrain.yourdomain.com \
 ```
 
  The plaintext exists on the server for a few seconds inside a root-only `0600`
-file and in Node's memory while it re-encrypts your keys, and then it is gone.
+file and in Node's memory while the change is applied, and then it is gone.
 
 ---
 

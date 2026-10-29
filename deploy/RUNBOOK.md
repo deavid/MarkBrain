@@ -125,10 +125,19 @@ version in `package.json` and redeploy.
 
 ## Rotate owner password
 
-**The idea.** Creating an account needs only the verifier; *changing* a password
-needs the plaintext on both ends for a moment, because the vault must be
-re-encrypted under the new password (rotating from a hash alone would drop all
-saved API keys).
+**The idea.** Two very different situations:
+
+**You know the current password** — change it in the app: **Model Settings →
+Keys → Password**. You type the current and the new password; the server
+verifies the old one and re-keys the vault, so your saved API keys carry over.
+This works for any account, not just the owner — prefer it over everything
+below.
+
+**You lost the password** — no app can help you: the vault is encrypted under
+the lost password, so the saved API keys are gone no matter what. Rotate via
+the playbook (it needs the new password on the command line, because the vault
+must be re-keyed under it — a hash alone cannot do that) and plan to re-enter
+your API keys afterwards:
 
 ```bash
 ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml \
@@ -136,7 +145,7 @@ ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml \
 ```
 
 Or by hand on the server — write the new password into the ephemeral secrets
-file, re-key, delete the file (same `MARKBRAIN_DB_PATH` rule as in *Manage
+file, rotate, delete the file (same `MARKBRAIN_DB_PATH` rule as in *Manage
 users*):
 
 ```bash
@@ -148,7 +157,7 @@ cd /srv/markbrain && sudo env MARKBRAIN_DB_PATH=/var/lib/markbrain/markbrain.sql
 ```
 
 The plaintext exists on the server only inside that 0600 file for the duration
-of the change, and in Node's memory while the vault is re-keyed.
+of the change, and in Node's memory while the change is applied.
 
 ---
 

@@ -25,7 +25,7 @@ import { persistProjectSnapshot, attachPersistWorker } from '../application/pers
 import { useSessionMachine } from '../application/sessionMachine';
 import { loadProjectSnapshotIntoDomains, loadNewWorkspace } from '../application/snapshotLoader';
 import { useVpsDeltaSync } from '../application/useVpsDeltaSync';
-import { queueServerMutation } from '../application/serverMutationQueue';
+import { queueServerMutation, flushServerMutations } from '../application/serverMutationQueue';
 import { getWorkspaceMode, isOfflineReplica, type KnownReplica } from '../services/workspaceSession';
 import { initVpsSync, replayOutbox } from '../services/vpsSync';
 import { getAllRecords, OUTBOX_CHANGED_EVENT } from '../services/offlineOutbox';
@@ -119,7 +119,11 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setBackend,
     listUserProjects,
     workspace,
+    // Phase 1 of sign-out lives here (the flush needs the domains, which are
+    // declared below) — the ref is filled in once persistState exists.
+    flushPendingWrites: async () => flushRef.current(),
   });
+  const flushRef = useRef<() => void | Promise<void>>(() => {});
 
   // Manual refresh counter (declared before the load effect that consumes it).
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -223,6 +227,14 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [workspace, timeline, segmentation, artifacts, graph, versioning, threadRegistry]
   );
 
+  // Phase 1 of sign-out (flushPendingWrites → sessionMachine): drain the
+  // pending debounced save and any queued server mutations NOW, while the
+  // session is still valid — before disarm + logout.
+  flushRef.current = async () => {
+    await persistState();
+    if (activeProjectId) await flushServerMutations(activeProjectId);
+  };
+
   useEffect(
     () =>
       attachPersistWorker({
@@ -231,10 +243,11 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         artifacts,
         graph,
         threadRegistry,
+        workspace,
         persistState,
         hydratedRef,
       }),
-    [timeline, segmentation, artifacts, graph, persistState, threadRegistry]
+    [timeline, segmentation, artifacts, graph, persistState, threadRegistry, workspace]
   );
 
   const createCloudWorkspace = useCallback(

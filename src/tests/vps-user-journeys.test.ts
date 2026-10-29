@@ -523,3 +523,60 @@ describe('client — vpsStore.save on 404', () => {
     vi.unstubAllGlobals();
   });
 });
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Client-side: vpsStore.save on 401 (the sign-out race)
+ * Sign-out clears the session while a debounced save is still scheduled;
+ * the save MUST queue for replay (mirror already holds it) instead of
+ * throwing "could not save to the cloud" at the gate. Found live 2026-10-29.
+ * ─────────────────────────────────────────────────────────────────────────── */
+describe('client — vpsStore.save on 401 (sign-out race)', () => {
+  it('queues the edit for replay instead of throwing a save alarm', async () => {
+    // offlineOutbox reads the BARE localStorage global, not window.localStorage
+    const store: Record<string, string> = {};
+    const ls = {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => {
+        store[k] = v;
+      },
+      removeItem: (k: string) => {
+        delete store[k];
+      },
+      clear: () => {
+        for (const k of Object.keys(store)) delete store[k];
+      },
+    };
+    vi.stubGlobal('localStorage', ls);
+    vi.stubGlobal('window', { localStorage: ls, dispatchEvent: () => {} });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    );
+
+    const { vpsStore } = await import('../services/stores/vpsStore');
+    const { clearDirty, getAllRecords } = await import('../services/offlineOutbox');
+    clearDirty('proj-signout-race');
+
+    const snapshot = {
+      projectId: 'proj-signout-race',
+      turns: [],
+      chapters: [],
+      artifacts: [],
+      edges: [],
+      updatedAt: 9000,
+    } as ProjectSnapshot;
+
+    // no throw, no alarm — the edit is queued for the next sign-in
+    await expect(vpsStore.save(snapshot)).resolves.toBeUndefined();
+
+    const queued = getAllRecords().find((r) => r.projectId === 'proj-signout-race');
+    expect(queued).toBeDefined();
+
+    vi.unstubAllGlobals();
+  });
+});

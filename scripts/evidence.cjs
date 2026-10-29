@@ -1825,6 +1825,8 @@ async function main() {
       step('export', `downloaded ${download.suggestedFilename()} with full note + chat while VPS is dead`);
 
       // Sign out (the "keep" choice) via the Sidebar account menu: the copy stays!
+      // The new confirmation dialog must be accepted for the sign-out to proceed.
+      page2.on('dialog', (d) => d.accept());
       await page2.locator('[aria-label="Account and sync"]').first().click({ timeout: 5000 });
       await page2.getByRole('button', { name: /^Sign Out$/i }).first().click({ timeout: 5000 });
       await page2.getByRole('button', { name: /Use Local Workspace/ }).first().waitFor({ state: 'visible', timeout: 10_000 });

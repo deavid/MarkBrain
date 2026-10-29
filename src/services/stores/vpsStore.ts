@@ -116,6 +116,14 @@ async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
         offlineOutbox.clearDirty(snapshot.projectId);
         return;
       }
+      if (res.status === 401) {
+        // The session died under this save (sign-out raced the debounced
+        // save): the mirror already holds the write — queue for replay on
+        // the next sign-in instead of throwing a "could not save" alarm.
+        offlineOutbox.markDirty(snapshot.projectId, existing ?? null, snapshot, baseRevision);
+        logger.warn('VpsStore', `session gone: ${snapshot.projectId} queued for replay (baseRevision=${baseRevision})`);
+        return;
+      }
       if (!res.ok) throw new Error(`Project save failed: HTTP ${res.status}`);
       offlineOutbox.clearDirty(snapshot.projectId); // server confirmed → outbox entry gone
     } catch (err) {
@@ -147,6 +155,13 @@ async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project: snapshot }),
       });
+      if (res.status === 401) {
+        // Session died under this create: the mirror holds it; replay will
+        // POST it on the next sign-in.
+        offlineOutbox.markDirty(snapshot.projectId, null, snapshot, null);
+        logger.warn('VpsStore', `session gone: created ${snapshot.projectId} in mirror, queued for replay`);
+        return;
+      }
       if (!res.ok && res.status !== 409) throw new Error(`Project create failed: HTTP ${res.status}`);
       offlineOutbox.clearDirty(snapshot.projectId);
     } catch (err) {

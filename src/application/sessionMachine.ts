@@ -42,6 +42,9 @@ export interface SessionDeps {
   setBackend: (backend: StorageBackend) => void;
   listUserProjects: () => Promise<ProjectSnapshot[]>;
   workspace: IWorkspaceDomain;
+  /** Phase 1 of sign-out: drain pending writes NOW, while the session still
+   *  works (pending debounced save + queued server mutations). Best-effort. */
+  flushPendingWrites?: () => Promise<void>;
 }
 
 export interface SessionMachine {
@@ -205,31 +208,52 @@ export function useSessionMachine(deps: SessionDeps): SessionMachine {
     await loadUserCloudData();
   }, [loadUserCloudData, LOCAL_USER, setBackend]);
 
-  const signOutBase = useCallback(async (opts: { serverLogout: boolean }) => {
-    // Leaving Connected mode: best-effort server logout (skipped in offline
-    // replica mode — no network calls, there is no session to invalidate).
-    if (opts.serverLogout && getWorkspaceMode() === 'vps' && !isOfflineReplica()) {
-      try {
-        await authLogout();
-      } catch {
-        /* server unreachable — local cleanup still proceeds */
+  const signOutBase = useCallback(
+    async (opts: { serverLogout: boolean; flushWrites?: boolean }) => {
+      const leavingVps = getWorkspaceMode() === 'vps' && !isOfflineReplica();
+      if (leavingVps) {
+        // Phase 1 — FLUSH: drain pending writes NOW, while the session is
+        // still valid on the server. The wipe variant skips this: it is about
+        // to destroy the local copy on purpose.
+        if (opts.flushWrites) {
+          try {
+            await deps.flushPendingWrites?.();
+          } catch {
+            /* best-effort — logout never blocks on a failing flush */
+          }
+        }
+        // Phase 2 — DISARM: mode goes first, so the delta poller's per-pull
+        // guard and the save guard see no vps session from here on. Nothing
+        // new can start; a request already on the wire is the only survivor.
+        clearWorkspaceMode();
+        // Phase 3 — LOGOUT: invalidate the server session, then drop the
+        // local one. Skipped for keep/wipe variants (no server logout call).
+        if (opts.serverLogout) {
+          try {
+            await authLogout();
+          } catch {
+            /* server unreachable — local cleanup still proceeds */
+          }
+        }
+      } else {
+        clearWorkspaceMode();
       }
       clearVpsSession();
-    } else {
-      clearVpsSession();
-    }
-    forgetReArmKey();
-    setVaultLocked(true);
-    clearWorkspaceMode();
-    setCurrentUser(null);
-    setCloudProjectsCount(null);
-  }, []);
-
-  const signOut = useCallback(async () => signOutBase({ serverLogout: true }), [signOutBase]);
+      forgetReArmKey();
+      setVaultLocked(true);
+      setCurrentUser(null);
+      setCloudProjectsCount(null);
+    },
+    [deps.flushPendingWrites]
+  );
+  const signOut = useCallback(
+    async () => signOutBase({ serverLogout: true, flushWrites: true }),
+    [signOutBase]
+  );
 
   // Package 3 §3.6: 'keep' leaves the IndexedDB mirror + knownReplicas entry
   // alone so the gate offers "Open offline"; 'wipe' destroys both for good.
-  const signOutKeepReplica = useCallback(async () => signOutBase({ serverLogout: false }), [signOutBase]);
+  const signOutKeepReplica = useCallback(async () => signOutBase({ serverLogout: false, flushWrites: true }), [signOutBase]);
   const signOutWipeReplica = useCallback(async () => {
     const session = getVpsSession();
     if (session) {

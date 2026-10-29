@@ -576,6 +576,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                     <button
                       onClick={() => {
+                        if (!window.confirm('Sign out and ERASE the copy of your workspace on this device? Everything not synced to the server is lost. This cannot be undone.')) return;
                         logger.action('Sidebar', 'Sign out & wipe local copy');
                         setAccountOpen(false);
                         onSignOutWipeReplica?.();

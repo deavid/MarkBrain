@@ -224,6 +224,11 @@ export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
 
     const pull = async () => {
       if (cancelled || inFlight.current) return;
+      // Signed out mid-flight: the setup guard ran long ago (mode is not a
+      // dep) — every pull re-checks, so a dead session costs nothing instead
+      // of a 401 every 10 seconds.
+      if (getWorkspaceMode() !== 'vps' || isOfflineReplica() || !activeProjectId) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       inFlight.current = true;
       try {

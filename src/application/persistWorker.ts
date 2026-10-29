@@ -14,6 +14,7 @@ import type { IChapterSegmentationDomain } from '../domains/02-chapter-segmentat
 import type { ITopologicalGraphDomain } from '../domains/02-topological-graph';
 import type { ThreadRegistry } from '../domains/06-chat-threads';
 import type { ProjectSnapshot } from '../services/stores/projectStore';
+import { getWorkspaceMode, getVpsSession } from '../services/workspaceSession';
 import { logger } from '../utils/logger';
 import { notifyCritical } from '../utils/criticalNotifications';
 import { isSlowSaveSeam } from '../services/persistenceService';
@@ -41,6 +42,12 @@ export interface PersistDeps {
 let persistAttempts = 0;
 
 export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
+  // Disarmed (sign-out in progress or done): the shutdown flush already
+  // drained pending writes while the session was valid — anything scheduled
+  // after that is logout noise and would only hit a 401.
+  // (offline replicas keep a session object with an empty token — they are
+  // still "signed in" locally, so only a MISSING session disarms.)
+  if (getWorkspaceMode() === 'vps' && !getVpsSession()) return;
   const {
     workspace,
     timeline,
@@ -121,6 +128,10 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
 }
 
 export interface PersistWorkerDeps {
+  /** Emits projectMetaChanged (rename / color / description / capabilities)
+   * — metadata edits change NO other domain, so without this subscription a
+   * rename sat in RAM until an unrelated mutation happened to save. */
+  workspace: { subscribe: (cb: () => void) => () => void };
   timeline: IDialogueTimelineDomain;
   segmentation: IChapterSegmentationDomain;
   artifacts: IArtifactDocumentDomain;
@@ -156,6 +167,7 @@ export function attachPersistWorker(deps: PersistWorkerDeps): () => void {
   const unsubChapters = segmentation.subscribe(triggerDebouncedSave);
   const unsubGraph = graph.subscribe(triggerDebouncedSave);
   const unsubThreads = threadRegistry.subscribe(triggerDebouncedSave);
+  const unsubWorkspace = workspace.subscribe(triggerDebouncedSave);
 
   const flushPendingSave = () => {
     if (saveTimeout) {
@@ -179,5 +191,6 @@ export function attachPersistWorker(deps: PersistWorkerDeps): () => void {
     unsubChapters();
     unsubGraph();
     unsubThreads();
+    unsubWorkspace();
   };
 }

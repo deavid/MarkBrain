@@ -34,6 +34,9 @@ const POLL_MS = 10_000;
 export interface VpsDeltaSyncDeps {
   activeProjectId: string | null;
   lastRevisionRef: RefObject<number>;
+  /** Shared with persistWorker: temporarily cleared during mergeDeltaIntoDomains
+   * so merging server rows does not schedule a debounced PUT back to the server. */
+  hydratedRef?: { current: boolean };
   timeline: IDialogueTimelineDomain;
   artifacts: IArtifactDocumentDomain;
   segmentation: IChapterSegmentationDomain;
@@ -45,7 +48,10 @@ export interface VpsDeltaSyncDeps {
 
 /** test seam — exercised by src/tests/cuj-gap-sync.test.ts */
 export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDeltaSyncDeps): void {
-  const { timeline, artifacts, segmentation, graph, threadRegistry } = deps;
+  const { timeline, artifacts, segmentation, graph, threadRegistry, hydratedRef } = deps;
+  const wasHydrated = hydratedRef?.current;
+  if (hydratedRef) hydratedRef.current = false;
+  try {
 
   // Tombstones first — deletions win over same-batch upserts.
   for (const t of delta.tombstones) {
@@ -195,6 +201,9 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
   const knownFolders = new Set(threadRegistry.getFolders().map((f) => f.id));
   for (const incoming of delta.folders) {
     if (!knownFolders.has(incoming.id)) threadRegistry.createFolder(incoming.name);
+  }
+  } finally {
+    if (hydratedRef && wasHydrated !== undefined) hydratedRef.current = wasHydrated;
   }
 }
 

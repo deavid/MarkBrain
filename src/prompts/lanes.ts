@@ -155,14 +155,16 @@ export function fallbackQaPairs(sections: QaSectionPayload[]): GeneratedQaPair[]
 
 /* --------------------------------------------------------------------- tts */
 
-/** Strip markup so read-aloud speaks prose, not syntax. */
+/** Strip markup so read-aloud speaks prose, not syntax. NO truncation:
+ * a silent 1500-char clamp used to cut messages mid-word (the audio just
+ * ended at "Surve") — if a text is ever too long for the provider, the
+ * provider's error surfaces honestly instead of an invisible amputation. */
 export function cleanTtsText(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, ' [code specification block omitted] ')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
-    .replace(/[#*_~]/g, '')
-    .slice(0, 1500);
+    .replace(/[#*_~]/g, '');
 }
 
 export const TTS_ALLOWED_VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'] as const;

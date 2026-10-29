@@ -20,8 +20,27 @@ import { cleanTtsText, clampTtsVoice } from '../../src/prompts/lanes';
 
 const ALLOWED_VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
 
-function sendOgg(res: Response, filePath: string, cache: 'HIT' | 'MISS'): void {
-  const stat = fs.statSync(filePath);
+/** s16le mono PCM (base64) → a real RIFF/WAV file (base64), 24 kHz. */
+function pcmBase64ToWavBase64(pcmB64: string, sampleRate = 24000): string {
+  const pcm = Buffer.from(pcmB64, 'base64');
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16); // fmt chunk size
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28); // byte rate (16-bit mono)
+  header.writeUInt16LE(2, 32); // block align
+  header.writeUInt16LE(16, 34); // bits per sample
+  header.write('data', 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]).toString('base64');
+}
+
+function sendOgg(res: Response, filePath: string, cache: 'HIT' | 'MISS'): void {  const stat = fs.statSync(filePath);
   res.setHeader('Content-Type', 'audio/ogg');
   res.setHeader('Content-Length', String(stat.size));
   res.setHeader('X-Tts-Cache', cache);
@@ -70,7 +89,7 @@ export function registerTtsRoutes(app: Express): void {
 
       const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
       if (!inlineData?.data) {
-        return res.json({ fallback: true, cleanSpokenText });
+        return res.status(502).json({ error: 'The TTS provider returned no audio for this request.' });
       }
 
       // 3. Re-encode → cache → serve Ogg. Fallback: raw PCM JSON (no ffmpeg).
@@ -84,17 +103,31 @@ export function registerTtsRoutes(app: Express): void {
         res.setHeader('X-Tts-Cache', 'MISS');
         return res.end(ogg);
       } catch (encErr) {
-        logServer('warn', 'TTS:ENCODE', `Ogg encode unavailable — serving raw PCM JSON (${encErr instanceof Error ? encErr.message : encErr})`);
+        logServer('warn', 'TTS:ENCODE', `Ogg encode unavailable — serving WAV (${encErr instanceof Error ? encErr.message : encErr})`);
+        // Headerless PCM plays 2 seconds of garbage in a browser <audio>. Wrap
+        // it in a real RIFF/WAV container so the client caches a valid file.
         return res.json({
-          audioData: inlineData.data,
-          mimeType: inlineData.mimeType || 'audio/L16;rate=24000',
+          audioData: pcmBase64ToWavBase64(inlineData.data),
+          mimeType: 'audio/wav',
           cleanSpokenText,
         });
       }
     } catch (err: unknown) {
       if (err instanceof VaultLockedError || err instanceof NoKeyError) return sendVaultError(res, err);
       logServer('error', 'API:TTS', `Error in /api/tts: ${err instanceof Error ? err.message : err}`, err);
-      res.json({ fallback: true, cleanSpokenText });
+      const status =
+        typeof (err as { status?: unknown })?.status === 'number' &&
+        (err as { status: number }).status >= 400 &&
+        (err as { status: number }).status < 600
+          ? (err as { status: number }).status
+          : 502;
+      const raw = err instanceof Error ? err.message : 'TTS request failed';
+      const isQuota = status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(raw);
+      return res.status(isQuota ? 429 : status).json({
+        error: isQuota
+          ? 'TTS quota exhausted for the active API key (429). Switch to a key with TTS quota in Model Settings → Keys, or wait for the quota window to reset.'
+          : raw,
+      });
     }
   });
 }

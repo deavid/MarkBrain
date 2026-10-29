@@ -127,14 +127,20 @@ export interface PersistWorkerDeps {
   graph: ITopologicalGraphDomain;
   threadRegistry: ThreadRegistry;
   persistState: () => void | Promise<void>;
+  /** When provided, notifications fired while `hydratedRef.current === false`
+   * (initial snapshot hydration or incoming server delta merge) do NOT arm
+   * the 500ms save timer — otherwise every hydration/delta merge writes the
+   * server's own state back 500ms later. */
+  hydratedRef?: HydratedRef;
 }
 
 /** Returns the effect cleanup (clears the timer, removes listeners, unsubscribes). */
 export function attachPersistWorker(deps: PersistWorkerDeps): () => void {
-  const { timeline, segmentation, artifacts, graph, threadRegistry, persistState } = deps;
+  const { timeline, segmentation, artifacts, graph, threadRegistry, workspace, persistState, hydratedRef } = deps;
   let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const triggerDebouncedSave = () => {
+    if (hydratedRef && !hydratedRef.current) return;
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
       // Null it: a fired timer is not a pending save. Without this,

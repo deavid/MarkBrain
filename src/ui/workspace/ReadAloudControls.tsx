@@ -1,5 +1,5 @@
 import React, { useSyncExternalStore } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Pause, Play } from 'lucide-react';
 import {
   formatGainDb,
   formatTtsTime,
@@ -52,31 +52,41 @@ export const ReadAloudControls: React.FC = () => {
         </div>
       )}
 
-      {state.phase === 'playing' && state.seekable && state.duration > 0 && (
-        <div className="flex items-center gap-2" data-testid="tts-seek">
-          <span className="text-10 font-mono text-[#7dd3fc] tabular-nums shrink-0">
-            {formatTtsTime(state.currentTime)}
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={state.duration}
-            step={0.1}
-            value={Math.min(state.currentTime, state.duration)}
-            onChange={(e) => ttsTransport.seek(Number(e.target.value))}
-            aria-label="Play position"
-            title="Drag to fast-forward"
-            className="flex-1 min-w-14 h-6 min-h-[24px] accent-[#38bdf8] cursor-pointer"
-          />
-          <span className="text-10 font-mono text-ink-mute tabular-nums shrink-0">
-            {formatTtsTime(state.duration)}
-          </span>
-        </div>
-      )}
-
-      {state.phase === 'playing' && !state.seekable && (
-        <div className="text-10 font-mono text-ink-mute">
-          Live · browser speech has no timeline to seek
+      {state.phase === 'playing' && (
+        <div className="flex items-center gap-2" data-testid="tts-transport-buttons">
+          <button
+            type="button"
+            data-testid="tts-pause"
+            onClick={() => (state.paused ? ttsTransport.resume() : ttsTransport.pause())}
+            aria-label={state.paused ? 'Resume read-aloud' : 'Pause read-aloud'}
+            title={state.paused ? 'Resume' : 'Pause'}
+            className="p-1 rounded-lg bg-surface-2 hover:bg-surface-3 text-ink-dim hover:text-ink transition-colors cursor-pointer shrink-0"
+          >
+            {state.paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+          </button>
+          {state.seekable && state.duration > 0 ? (
+            <>
+              <span className="text-10 font-mono text-[#7dd3fc] tabular-nums shrink-0">
+                {formatTtsTime(state.currentTime)}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={state.duration}
+                step={0.1}
+                value={Math.min(state.currentTime, state.duration)}
+                onChange={(e) => ttsTransport.seek(Number(e.target.value))}
+                aria-label="Play position"
+                title="Drag to fast-forward"
+                className="flex-1 min-w-14 h-6 min-h-[24px] accent-[#38bdf8] cursor-pointer"
+              />
+              <span className="text-10 font-mono text-ink-mute tabular-nums shrink-0">
+                {formatTtsTime(state.duration)}
+              </span>
+            </>
+          ) : (
+            <span className="text-10 font-mono text-ink-mute">Live — no timeline</span>
+          )}
         </div>
       )}
     </div>

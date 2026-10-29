@@ -197,6 +197,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useVpsDeltaSync({
     activeProjectId: isOfflineReplica() ? null : activeProjectId ?? null,
     lastRevisionRef,
+    hydratedRef,
     timeline,
     segmentation,
     artifacts,
@@ -231,6 +232,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         graph,
         threadRegistry,
         persistState,
+        hydratedRef,
       }),
     [timeline, segmentation, artifacts, graph, persistState, threadRegistry]
   );

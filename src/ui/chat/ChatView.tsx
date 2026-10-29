@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
+import React, { useState, useRef, useEffect, useSyncExternalStore, useCallback } from 'react';
 import { isOnline, subscribeOnline } from '../../application/connectivity';
 import {
   Artifact,
@@ -66,6 +66,7 @@ import {
   tryReArmVault,
 } from '../../data/vaultReArm';
 import { getWorkspaceMode, isOfflineReplica } from '../../services/workspaceSession';
+import { ttsDeviceKey, getCachedTtsBlob, storeTtsAudio, hasCachedTts } from '../../data/ttsDeviceCache';
 import type { DraftProgress } from '../../application/draftQueue';
 import { getModelForSlot } from '../../data/modelConfig';
 import {
@@ -397,7 +398,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null);
   const online = useSyncExternalStore(subscribeOnline, isOnline);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [collapsedChapterIds, setCollapsedChapterIds] = useState<Record<string, boolean>>({});
   // Chapter body layers (description / summary) — COLLAPSED by default
@@ -537,14 +537,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }, [stagedCount]);
 
   // A thread/view switch unmounts the feed while audio may still be playing:
-  // pause it and idle the transport, or the sidebar card shows a track that
-  // no longer exists.
+  // idle the transport, or the sidebar card shows a track that no longer
+  // exists.
   useEffect(() => {
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
       ttsTransport.end();
     };
@@ -606,7 +602,32 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [composerPw, setComposerPw] = useState('');
   const [composerUnlockErr, setComposerUnlockErr] = useState('');
   const [composerUnlockBusy, setComposerUnlockBusy] = useState(false);
-
+  // Which messages have their audio ON THIS DEVICE (the offline playback set)?
+  const [cachedIds, setCachedIds] = useState<Set<string>>(new Set());
+  // Download failures must be VISIBLE — a silent no-op click is the bug David
+  // hit ("I had to click like 4 times to get the download to start").
+  const [ttsFailedIds, setTtsFailedIds] = useState<Set<string>>(new Set());
+  const ttsModelId = getModelForSlot('tts');
+  // Rescan when the thread, the voice, or the tts model changes. The signature
+  // (ids + voice + model) keeps the IDB scan from rerunning on every render.
+  const cachedScanSig = `${chapters.map((c) => c.turns.map((t) => t.id).join(',')).join('|')}|${chosenVoice}|${ttsModelId}`;
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const next = new Set<string>();
+      for (const grp of chapters) {
+        for (const t of grp.turns) {
+          if (!t.content) continue;
+          if (await hasCachedTts(await ttsDeviceKey(ttsModelId, chosenVoice, t.content))) next.add(t.id);
+        }
+      }
+      if (alive) setCachedIds(next);
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cachedScanSig]);
   // Local mode: derive the initial state from the browser vault (the bus has
   // no history across mounts; the VPS bus is fed by login + the delta poll).
   useEffect(() => {
@@ -768,153 +789,112 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   };
 
-  const handlePlayTTS = async (message: Turn) => {
-    // TTS is a server round-trip (/api/tts) — offline it cannot start. Stop
-    // always works (it is local), so the toggle still flips when playing.
-    if (!online && playingMessageId !== message.id) {
-      logger.warn('ChatView', 'TTS ignored while offline');
-      return;
-    }
-    logger.action('ChatView', 'Toggle TTS Audio playback', { messageId: message.id });
-    if (playingMessageId === message.id) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-      ttsTransport.end();
-      setPlayingMessageId(null);
-      return;
-    }
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
+  const stopPlayback = useCallback(() => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
     ttsTransport.end();
+    setPlayingMessageId(null);
+  }, []);
 
+  const handlePlayTTS = async (message: Turn) => {
+    if (playingMessageId === message.id) {
+      stopPlayback();
+      return;
+    }
+    const model = getModelForSlot('tts');
+    const key = await ttsDeviceKey(model, chosenVoice, message.content);
+
+    // David's law (2026-10-29): the device copy is the ONLY playback source.
+    // First click downloads and caches; the second plays with zero network.
+    const cached = await getCachedTtsBlob(key);
+    if (cached) {
+      const playFromCache = async () => {
+        try {
+          await ttsTransport.playDeviceBlob(cached, message.id, () => {
+            setPlayingMessageId(null);
+            ttsTransport.end();
+          });
+          setPlayingMessageId(message.id);
+          logger.action('ChatView', 'TTS playback started from device cache', {
+            messageId: message.id,
+            blobSize: cached.size,
+            blobType: cached.type,
+            duration: null,
+          });
+        } catch (err) {
+          logger.warn('ChatView', 'Cached audio playback failed', err);
+          ttsTransport.end();
+        }
+      };
+      void playFromCache();
+      return;
+    }
+
+    // Not on the device yet: this click DOWNLOADS AND CACHES (server
+    // generates on MISS, serves its disk cache on HIT). It does not play —
+    // the second click plays from the device.
+    if (!online) {
+      logger.warn('ChatView', 'Audio not cached on this device and offline — downloading needs a connection');
+      return;
+    }
     setTtsLoadingId(message.id);
     ttsTransport.begin(message.id);
-
+    setTtsFailedIds((prev) => {
+      const n = new Set(prev);
+      n.delete(message.id);
+      return n;
+    });
     try {
       const res = await tts({
         text: message.content,
         voice: chosenVoice,
-        model: getModelForSlot('tts'),
+        model,
       });
-
-      // 21F: VPS serves compact audio/ogg straight from the disk cache
-      // (X-Tts-Cache: HIT|MISS). Local/direct still answers JSON PCM.
+      if (!res.ok) {
+        let serverError = `HTTP ${res.status}`;
+        try {
+          const errBody = await res.json();
+          if (typeof errBody?.error === 'string' && errBody.error) {
+            serverError = errBody.error;
+          }
+        } catch {
+          /* non-JSON error body */
+        }
+        throw new Error(serverError);
+      }
       const contentType = res.headers.get('content-type') || '';
       if (contentType.startsWith('audio/ogg')) {
+        // 21F: the server did the encode — take the bytes, store them here.
         const blob = await res.blob();
-        const audioUrl = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl);
-        audioRef.current = audio;
-        ttsTransport.setAudio(audio);
-        audio.onended = () => {
-          setPlayingMessageId(null);
-          audioRef.current = null;
-          URL.revokeObjectURL(audioUrl);
-          ttsTransport.end();
-        };
-        audio.onerror = () => {
-          logger.warn('ChatView', 'TTS ogg playback failed, falling back to browser speech');
-          audioRef.current = null;
-          URL.revokeObjectURL(audioUrl);
-          ttsTransport.end();
-          fallbackSpeech(message.content, message.id);
-        };
-        try {
-          await audio.play();
-          ttsTransport.playing({
-            duration: Number.isFinite(audio.duration) ? audio.duration : 0,
-            seekable: true,
-          });
-          setPlayingMessageId(message.id);
-        } catch (playErr) {
-          logger.warn('ChatView', 'TTS ogg play() refused, falling back to web speech', playErr);
-          audioRef.current = null;
-          URL.revokeObjectURL(audioUrl);
-          ttsTransport.end();
-          fallbackSpeech(message.content, message.id);
-        }
+        await storeTtsAudio(key, blob);
+        setCachedIds((prev) => new Set(prev).add(message.id));
+        ttsTransport.end();
+        logger.action('ChatView', 'TTS audio downloaded and cached on device', { messageId: message.id });
         return;
       }
 
+      // Local/direct backend answers JSON PCM (base64 in JSON). The law is
+      // absolute — must be cached to play — so this click DOWNLOADS AND
+      // CACHES the PCM as a blob too. The second click plays it.
       const data = await res.json();
-
-      if (data.audioData) {
-        const audioUrl = `data:${data.mimeType || 'audio/wav'};base64,${data.audioData}`;
-        const audio = new Audio(audioUrl);
-        audioRef.current = audio;
-        // The transport owns the timeline (volume application + seek), ChatView
-        // owns which message and what happens next.
-        ttsTransport.setAudio(audio);
-        audio.onended = () => {
-          setPlayingMessageId(null);
-          audioRef.current = null;
-          ttsTransport.end();
-        };
-        audio.onerror = () => {
-          logger.warn('ChatView', 'TTS audio playback failed, falling back to browser speech synthesis');
-          audioRef.current = null;
-          ttsTransport.end();
-          fallbackSpeech(data.cleanSpokenText || message.content, message.id);
-        };
-        try {
-          await audio.play();
-          ttsTransport.playing({
-            duration: Number.isFinite(audio.duration) ? audio.duration : 0,
-            seekable: true,
-          });
-          setPlayingMessageId(message.id);
-        } catch (playErr) {
-          // Autoplay refusal must not leave a claimed element behind.
-          logger.warn('ChatView', 'TTS audio play() refused, falling back to web speech', playErr);
-          audioRef.current = null;
-          ttsTransport.end();
-          fallbackSpeech(data.cleanSpokenText || message.content, message.id);
-        }
-      } else {
-        fallbackSpeech(data.cleanSpokenText || message.content, message.id);
+      if (!data.audioData) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'no audio in TTS response');
       }
-    } catch (err) {
-      logger.warn('ChatView', 'TTS API request failed, falling back to web speech', err);
+      const bytes = Uint8Array.from(atob(data.audioData), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: data.mimeType || 'audio/wav' });
+      await storeTtsAudio(key, blob);
+      setCachedIds((prev) => new Set(prev).add(message.id));
       ttsTransport.end();
-      fallbackSpeech(message.content, message.id);
+      logger.action('ChatView', 'TTS audio downloaded and cached on device', { messageId: message.id });
+    } catch (err) {
+      // Download failed: SAY SO. Nothing plays un-cached — no speech
+      // fallback here, because playing would break the two-click law.
+      logger.warn('ChatView', 'TTS download failed — audio is not on this device', err);
+      ttsTransport.end();
+      setTtsFailedIds((prev) => new Set(prev).add(message.id));
     } finally {
       setTtsLoadingId(null);
-    }
-  };
-
-  const fallbackSpeech = (text: string, msgId: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.05;
-      utterance.pitch = 1.0;
-      // Volume from the shared control; a live utterance cannot be re-gained,
-      // so a drag mid-sentence applies to the next one.
-      utterance.volume = getTtsSnapshot().volume;
-      const stop = () => {
-        setPlayingMessageId(null);
-        ttsTransport.end();
-      };
-      utterance.onend = stop;
-      utterance.onerror = stop;
-      ttsTransport.setAudio(null);
-      window.speechSynthesis.speak(utterance);
-      setPlayingMessageId(msgId);
-      ttsTransport.playing({ seekable: false, duration: 0 });
-    } else {
-      setPlayingMessageId(null);
-      ttsTransport.end();
     }
   };
 
@@ -1681,16 +1661,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           {!offlineReplica && (
                           <button
                             onClick={() => handlePlayTTS(message)}
-                            disabled={isTtsLoading || (!online && !isPlaying)}
+                            disabled={isTtsLoading || (!online && !cachedIds.has(message.id) && !isPlaying)}
                             className={`p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer disabled:cursor-default ${
-                              isPlaying ? 'text-[#38bdf8]' : 'text-[#50637f] hover:text-[#9bb0d1]'
+                              isPlaying
+                                ? 'text-[#38bdf8]'
+                                : ttsFailedIds.has(message.id)
+                                  ? 'text-[#f28894] hover:text-[#ff8fa0]'
+                                  : cachedIds.has(message.id)
+                                    ? 'text-[#5ad49b] hover:text-[#7ee2b8]'
+                                    : 'text-[#50637f] hover:text-[#9bb0d1]'
                             }`}
                             title={
                               isPlaying
                                 ? 'Stop playback'
-                                : !online
-                                  ? 'Offline — audio needs a connection'
-                                  : `Play audio (TTS) — voice: ${chosenVoice}`
+                                : ttsFailedIds.has(message.id)
+                                  ? 'Audio download failed — click to retry'
+                                  : cachedIds.has(message.id)
+                                    ? `Play from this device (cached) — voice: ${chosenVoice}`
+                                    : 'First click downloads & caches — second click plays. Zero network on play.'
                             }
                           >
                             {isTtsLoading ? (

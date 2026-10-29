@@ -1049,15 +1049,9 @@ export default function App() {
                   onSummarizeChapter={handleSummarizeChapter}
                   onDeclareChapter={handleDeclareChapter}
                   onSetChapterGranularity={handleSetChapterGranularity}
-                  threadCapabilities={threadRegistry.getThread(activeThreadId)?.capabilities}
                   projectCapabilities={projectMeta.capabilities}
-                  onSetThreadCapabilities={(caps) => {
-                    logger.action('App', 'Set chat capabilities (this chat)', caps);
-                    threadRegistry.patch(activeThreadId, { capabilities: caps });
-                    triggerReRender();
-                  }}
                   onSetProjectCapabilities={(caps) => {
-                    logger.action('App', 'Set chat capabilities (all chats in project)', caps);
+                    logger.action('App', 'Set chat capabilities (project)', caps);
                     workspace.updateMetadata(activeProjectId, { capabilities: caps });
                     triggerReRender();
                   }}

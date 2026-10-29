@@ -206,9 +206,7 @@ interface ChatViewProps {
   /** Open the library straight into the Proximity lens (badge-aware attach). */
   onOpenArtifactsWithProximity?: () => void;
   /** Chat capability toggles (Package 2 §2.5): per-thread override vs project default. */
-  threadCapabilities?: Partial<ChatCapabilities>;
   projectCapabilities?: Partial<ChatCapabilities>;
-  onSetThreadCapabilities?: (caps: Partial<ChatCapabilities>) => void;
   onSetProjectCapabilities?: (caps: Partial<ChatCapabilities>) => void;
   /** Chapter controls (Package 2 §2.6): merge into the previous, move the seam, re-summarize with a steering note. */
   onMergeChapter?: (chapterId: string) => void;
@@ -267,9 +265,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onDraftTextChange,
   missingMatchCount = 0,
   onOpenArtifactsWithProximity,
-  threadCapabilities,
   projectCapabilities,
-  onSetThreadCapabilities,
   onSetProjectCapabilities,
   onMergeChapter,
   onShiftBoundary,
@@ -414,12 +410,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [summarizingIds, setSummarizingIds] = useState<Record<string, boolean>>({});
   const [summarizeErrorIds, setSummarizeErrorIds] = useState<Record<string, string>>({});
 
-  // Chat capability toggles (Package 2 §2.5): what the checkboxes show is the
-  // RESOLVED state — defaults ← project default ← this chat's override.
-  const resolvedCapabilities = resolveCapabilities(
-    { capabilities: threadCapabilities },
-    projectCapabilities
-  );
+  // Chat capability toggles: what the checkboxes show is the RESOLVED state —
+  // defaults ← project. One scope (2026-10-29): no per-chat overrides.
+  const resolvedCapabilities = resolveCapabilities(null, projectCapabilities);
   // Chapter header menu (Package 2 §2.6): which chapter's ⋯ menu is open, and
   // the steering-note input for "Regenerate summary".
   const [chapterMenuId, setChapterMenuId] = useState<string | null>(null);
@@ -1044,7 +1037,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <div className="flex items-center gap-2 min-w-0">
                   <CapabilitiesPopover
                     resolved={resolvedCapabilities}
-                    onSetThread={(caps) => onSetThreadCapabilities?.(caps)}
                     onSetProject={(caps) => onSetProjectCapabilities?.(caps)}
                   />
                   <button
@@ -2163,7 +2155,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
             <CapabilitiesPopover
               resolved={resolvedCapabilities}
-              onSetThread={(caps) => onSetThreadCapabilities?.(caps)}
               onSetProject={(caps) => onSetProjectCapabilities?.(caps)}
             />
             {/* [+] → the Artifacts folder IS the picker. The voice

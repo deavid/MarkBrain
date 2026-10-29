@@ -186,7 +186,7 @@ export const ProjectLauncher: React.FC<ProjectLauncherProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Novel Draft Notes"
+                  placeholder="e.g. Novel Draft"
                   value={newName}
                   onChange={(e) => handleNameChange(e.target.value)}
                   className="w-full bg-recess-1 rounded-xl px-3 py-2 text-xs text-ink placeholder-[#50637f] focus:outline-none shadow-well"

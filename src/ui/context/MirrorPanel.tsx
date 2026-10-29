@@ -376,7 +376,7 @@ export const MirrorPanel: React.FC<MirrorPanelProps> = ({
                   System message ({tb.systemTokens} tok)
                   {capabilities && (
                     <span data-testid="mirror-capabilities" className="ml-2 normal-case tracking-normal text-[#8ca3c7]">
-                      Capabilities: notes {capabilities.writeArtifacts ? 'ON' : 'OFF'} · chapters{' '}
+                      Capabilities: artifacts {capabilities.writeArtifacts ? 'ON' : 'OFF'} · chapters{' '}
                       {capabilities.autoChapter ? 'ON' : 'OFF'} · links {capabilities.graphLinks ? 'ON' : 'OFF'}
                     </span>
                   )}

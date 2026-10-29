@@ -1497,7 +1497,7 @@ async function main() {
   // ── J22 the chat only does what I allow ───────────────────────────────────
   await journey(page, '22-capability-toggles', 'Capability toggles change what the LLM receives — OFF means the block is gone, not hidden', async (page) => {
     const openPopover = async () => {
-      await page.locator('[aria-label="What the chat can do"]').first().click({ timeout: 5000 });
+      await page.locator('[aria-label="Chat behavior"]').first().click({ timeout: 5000 });
       await page.waitForTimeout(400);
     };
     const setCap = async (label, on) => {
@@ -1524,18 +1524,18 @@ async function main() {
       return t;
     };
 
-    await setCap('Write notes', true);   // baseline: notes ON
+    await setCap('Write artifacts', true);   // baseline: artifacts ON
     const withNotes = await rawPayload();
-    check(/<artifact_upsert/i.test(withNotes), 'notes ON: the artifact instructions are taught');
-    check(/Capabilities: notes ON/.test(withNotes), 'mirror states the resolved capabilities');
-    await shot(page, 'notes-on');
+    check(/<artifact_upsert/i.test(withNotes), 'artifacts ON: the artifact instructions are taught');
+    check(/Capabilities: artifacts ON/.test(withNotes), 'mirror states the resolved capabilities');
+    await shot(page, 'artifacts-on');
 
-    await setCap('Write notes', false);  // OFF must mean ABSENT
+    await setCap('Write artifacts', false);  // OFF must mean ABSENT
     const withoutNotes = await rawPayload();
-    check(!/<artifact_upsert/i.test(withoutNotes), 'notes OFF: no artifact instructions at all');
-    check(/Capabilities: notes OFF/.test(withoutNotes), 'the capability line flips too');
-    await shot(page, 'notes-off');
-    await setCap('Write notes', true);   // put it back for the next journeys
+    check(!/<artifact_upsert/i.test(withoutNotes), 'artifacts OFF: no artifact instructions at all');
+    check(/Capabilities: artifacts OFF/.test(withoutNotes), 'the capability line flips too');
+    await shot(page, 'artifacts-off');
+    await setCap('Write artifacts', true);   // put it back for the next journeys
 
     await setCap('Cut chapters', true);
     const withChapters = await rawPayload();

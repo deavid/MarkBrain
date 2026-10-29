@@ -430,7 +430,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
       <div className="bg-surface-2 rounded-xl p-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-11 font-mono text-ink-dim" data-testid="index-status">
-            Indexed: {indexedCount} / {artifacts.length} notes
+            Indexed: {indexedCount} / {artifacts.length} artifacts
           </span>
           <span className="flex-1" />
           <button
@@ -439,7 +439,7 @@ export const ArtifactsLibraryView: React.FC<ArtifactsLibraryViewProps> = ({
             onClick={() => onIndexAll(false)}
             data-testid="index-all-unindexed"
             className="min-h-[28px] px-2.5 rounded-full bg-veil-1 shadow-lift hover:bg-veil-2 text-10 font-mono text-ink-dim hover:text-ink transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
-            title="Generate Q&A + embeddings for notes that have none or whose text changed"
+            title="Generate Q&A + embeddings for artifacts that have none or whose text changed"
           >
             Index All Unindexed
           </button>

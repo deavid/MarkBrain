@@ -41,6 +41,7 @@ import { useDomains } from './domains/DomainRegistry';
 import { estimateArtifactCutTokens } from './domains/03-optical-compiler';
 import { isAttachmentStaged } from './domains/06-chat-threads';
 import { resolveCapabilities } from './domains/06-chat-threads/types';
+import { contentHash } from './utils/contentHash';
 import type { Granularity } from './domains/granularity';
 import { cycleGranularity } from './domains/granularity';
 import { useImportSession } from './ui/artifacts/import/useImportSession';
@@ -764,7 +765,12 @@ export default function App() {
   };
 
   // Session lives at App level: closing ImportModal keeps the queue processing.
-  const importSession = useImportSession(projectMeta, handleImportArtifact);
+  const importSession = useImportSession(projectMeta, handleImportArtifact, (content) => {
+    // Pre-LLM dedup: the landed body IS the file text, so the same content
+    // hash means this file was already imported — skip it, no model call.
+    const hash = contentHash(content);
+    return artifactsDomain.listArtifacts().some((a) => contentHash(a.current?.body || '') === hash);
+  });
 
   const { handleUpdateNodePosition, handleBatchUpdateNodePositions, handleAddEdge } =
     createGraphHandlers({ artifactsDomain, graph });

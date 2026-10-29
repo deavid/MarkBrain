@@ -6,6 +6,7 @@ import { logger } from '../../../utils/logger';
 import { ImportFlag, flagRelationship } from '../../../utils/importDetect';
 import { BatchRules, EMPTY_BATCH_RULES, applyImportRules } from '../../../utils/importRules';
 import { extractArtifactFromFile } from '../../../gateway/api';
+import { contentHash } from '../../../utils/contentHash';
 import { getModelForSlot } from '../../../data/modelConfig';
 
 // The session lives ABOVE ImportModal (owned by App) so closing the modal keeps
@@ -13,7 +14,7 @@ import { getModelForSlot } from '../../../data/modelConfig';
 // Instrumentation: one logger.action per add and per pump completion; per-row
 // problems are logger.warn only.
 
-export type ImportRowStatus = 'queued' | 'extracting' | 'landed' | 'failed' | 'canceled';
+export type ImportRowStatus = 'queued' | 'extracting' | 'landed' | 'failed' | 'canceled' | 'skipped';
 export type ImportLane = 'frontmatter' | 'ai';
 
 export interface ImportRow {
@@ -175,7 +176,10 @@ export interface ImportLandResult {
 
 export function useImportSession(
   project: ProjectMetadata,
-  landArtifact: (artifact: Artifact) => ImportLandResult
+  landArtifact: (artifact: Artifact) => ImportLandResult,
+  /** Pre-LLM dedup: has this exact content been landed before? (content hash
+   *  against the project's artifacts — the body IS the file text). */
+  isAlreadyImported: (content: string) => boolean
 ): ImportSessionApi {
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [running, setRunning] = useState(false);
@@ -190,9 +194,11 @@ export function useImportSession(
   const projectRef = useRef(project);
   const landRef = useRef(landArtifact);
   const rulesRef = useRef(rules);
+  const alreadyRef = useRef(isAlreadyImported);
   projectRef.current = project;
   landRef.current = landArtifact;
   rulesRef.current = rules;
+  alreadyRef.current = isAlreadyImported;
 
   const commit = useCallback((updater: (rs: ImportRow[]) => ImportRow[]) => {
     rowsRef.current = updater(rowsRef.current);
@@ -207,6 +213,7 @@ export function useImportSession(
     let landed = 0;
     let flagged = 0;
     let failed = 0;
+    let skipped = 0;
     try {
       for (;;) {
         if (cancelRef.current) break;
@@ -215,6 +222,15 @@ export function useImportSession(
         seen.add(next.id);
 
         try {
+          // Skip before ANY model call: identical content was already landed,
+          // and burning an LLM round-trip to re-discover that is waste.
+          if (alreadyRef.current(next.content)) {
+            skipped += 1;
+            commit((rs) =>
+              rs.map((r) => (r.id === next.id ? { ...r, status: 'skipped' as const } : r))
+            );
+            continue;
+          }
           const proj = projectRef.current;
           const parsed = parseYamlArtifactDoc(next.content, proj.id);
 
@@ -306,7 +322,7 @@ export function useImportSession(
       if (seen.size > 0) {
         logger.action(
           'ImportSession',
-          `Session processed ${seen.size} file(s): ${landed} landed, ${flagged} flagged, ${failed} failed`
+          `Session processed ${seen.size} file(s): ${landed} landed, ${flagged} flagged, ${skipped} skipped, ${failed} failed`
         );
       }
     }

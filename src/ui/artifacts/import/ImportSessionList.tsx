@@ -30,6 +30,7 @@ const STATUS_DOT: Record<ImportRow['status'], { color: string; label: string }> 
   landed: { color: 'bg-emerald-400', label: 'landed' },
   failed: { color: 'bg-red-400', label: 'failed' },
   canceled: { color: 'bg-[#3a4a63]', label: 'canceled' },
+  skipped: { color: 'bg-[#6ee7b7]', label: 'already imported' },
 };
 
 export const ImportSessionList: React.FC<ImportSessionListProps> = ({
@@ -61,7 +62,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
       acc.words += r.words;
       return acc;
     },
-    { queued: 0, extracting: 0, landed: 0, failed: 0, canceled: 0, words: 0 }
+    { queued: 0, extracting: 0, landed: 0, failed: 0, canceled: 0, skipped: 0, words: 0 }
   );
   const pending = counts.queued + counts.extracting;
   const tokens = rows.reduce((sum, r) => sum + estimateTokens(r.content), 0);
@@ -76,6 +77,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
       <div className="flex items-center justify-between gap-2 px-3 py-2 bg-surface-2 rounded-xl text-10 font-mono">
         <span className="text-[#6ee7b7]">
           {rows.length} file{rows.length === 1 ? '' : 's'} · {counts.landed} landed
+          {counts.skipped > 0 ? ` · ${counts.skipped} already imported` : ''}
           {counts.failed > 0 ? ` · ${counts.failed} failed` : ''}
           {counts.canceled > 0 ? ` · ${counts.canceled} canceled` : ''}
           {pending > 0 ? ` · ${pending} pending` : ''} · {counts.words} words · ~{tokens} tokens
@@ -137,7 +139,7 @@ export const ImportSessionList: React.FC<ImportSessionListProps> = ({
                 <span className="text-11 font-mono text-[#c2d1e0] truncate flex-1 min-w-0">
                   {row.fileName}
                 </span>
-                {(row.status === 'landed' || row.status === 'failed' || row.status === 'canceled') && (
+                {(row.status === 'landed' || row.status === 'failed' || row.status === 'canceled' || row.status === 'skipped') && (
                   <button
                     type="button"
                     onClick={(e) => {

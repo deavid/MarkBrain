@@ -65,7 +65,7 @@ import {
   rememberReArmKey,
   tryReArmVault,
 } from '../../data/vaultReArm';
-import { getWorkspaceMode } from '../../services/workspaceSession';
+import { getWorkspaceMode, isOfflineReplica } from '../../services/workspaceSession';
 import type { DraftProgress } from '../../application/draftQueue';
 import { getModelForSlot } from '../../data/modelConfig';
 import {
@@ -606,6 +606,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const chatModelId = getModelForSlot('chat') ?? '';
   const readiness = evaluateSendReadiness(chatModelId);
   const sendBlocked = !readiness.ok;
+  // Offline replica is a read-only mirror (decision 2026-10-29): the user can
+  // look, never touch — no sends, no unlocks, no server calls.
+  const offlineReplica = isOfflineReplica();
   const [composerUnlockOpen, setComposerUnlockOpen] = useState(false);
   const [composerPw, setComposerPw] = useState('');
   const [composerUnlockErr, setComposerUnlockErr] = useState('');
@@ -1013,6 +1016,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
               caption={trayCaption}
             />
 
+            {offlineReplica ? (
+              <div
+                data-testid="offline-readonly-strip"
+                className="rounded-2xl bg-recess-1 px-4 py-3 text-center text-11 font-mono text-ink-mute shadow-well"
+              >
+                Offline replica — read-only. Sign in to make changes.
+              </div>
+            ) : (
             <form
               onSubmit={handleSubmit}
               className="bg-veil-1 focus-within:bg-veil-2 rounded-2xl p-4 shadow-pop transition-colors space-y-3"
@@ -1109,6 +1120,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 )}
               </div>
             </form>
+            )}
           </div>
         </div>
       ) : (
@@ -1156,6 +1168,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     : 'flex-1 justify-center'
                 }`}
               >
+              {!offlineReplica && (
               <button
                 type="button"
                 onClick={handleAutoTitle}
@@ -1171,6 +1184,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <Sparkles className="w-4 h-4" />
                 )}
               </button>
+              )}
 
               {renamingTitle ? (
                 <input
@@ -1350,7 +1364,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     {/* Chapter actions (Package 2 §2.6): undo a cut, nudge the
                         seam, or re-run the summary with a steering note. The
                         existing per-message split control stays where it is. */}
-                    {(onMergeChapter || onShiftBoundary || onRecalibrateChapter) && (
+                    {(onMergeChapter || onShiftBoundary || onRecalibrateChapter) && !offlineReplica && (
                       <div className="relative shrink-0">
                         <button
                           type="button"
@@ -1589,7 +1603,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                 ? 'No summary yet — this chapter is sending only what exists.'
                                 : 'No description yet for this chapter.'}
                         </span>
-                        {!summarizingIds[chapter.id] && (
+                        {!summarizingIds[chapter.id] && !offlineReplica && (
                           <button
                             onClick={(e) => {
                               e.preventDefault();
@@ -1672,6 +1686,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           <span>•</span>
                           <span>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
 
+                          {!offlineReplica && (
                           <button
                             onClick={() => handlePlayTTS(message)}
                             disabled={isTtsLoading || (!online && !isPlaying)}
@@ -1694,7 +1709,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               <Volume2 className="w-3 h-3" />
                             )}
                           </button>
+                          )}
 
+                          {!offlineReplica && (
                           <button
                             onClick={() => {
                               setDeclaringMessageId(
@@ -1707,6 +1724,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           >
                             <BookmarkPlus className="w-3 h-3" />
                           </button>
+                          )}
 
                           {/* View + copy sit on BOTH roles and are always visible:
                               hover does not exist on a phone, and these two are
@@ -2027,7 +2045,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {isBlocked && (
+                    {isBlocked && !offlineReplica && (
                       <>
                         <button
                           type="button"
@@ -2134,6 +2152,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {totalMessagesCount > 0 && (
         <div className="p-2.5 sm:p-3 bg-surface-0 shrink-0 space-y-2">
+          {offlineReplica ? (
+            <div
+              data-testid="offline-readonly-strip-bottom"
+              className="rounded-2xl bg-recess-1 px-4 py-3 text-center text-11 font-mono text-ink-mute shadow-well max-w-4xl mx-auto"
+            >
+              Offline replica — read-only. Sign in to make changes.
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
             <CapabilitiesPopover
               resolved={resolvedCapabilities}
@@ -2216,6 +2242,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </button>
             )}
           </form>
+          )}
          </div>
       )}
 

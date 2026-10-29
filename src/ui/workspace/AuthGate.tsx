@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Brain, AlertCircle, Terminal, HardDrive, RefreshCw, ChevronDown, Server, CloudOff } from 'lucide-react';
+import { Brain, AlertCircle, Terminal, HardDrive, RefreshCw, ChevronDown, Server } from 'lucide-react';
 import { logger } from '../../utils/logger';
 import type { KnownReplica } from '../../services/workspaceSession';
 
@@ -26,7 +26,19 @@ export const AuthGate: React.FC<AuthGateProps> = ({
   knownReplicas = [],
   onOpenServerLogs,
 }) => {
-  const [email, setEmail] = useState('');
+  // "Remember email on this device": a tick the user gives, not a leak the
+  // gate prints — the replica card no longer shows anyone's address.
+  const REMEMBERED_EMAIL_KEY = 'markbrain.remembered-email';
+  const remembered = (() => {
+    try {
+      return localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  })();
+  const [email, setEmail] = useState(remembered);
+  const [rememberEmail, setRememberEmail] = useState(() => remembered !== '');
+  const [chooserOpen, setChooserOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [showUrl, setShowUrl] = useState(false);
   const [serverUrl, setServerUrl] = useState('');
@@ -34,6 +46,41 @@ export const AuthGate: React.FC<AuthGateProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const effectiveBaseUrl = showUrl ? serverUrl.trim().replace(/\/+$/, '') : '';
+
+  const openOffline = (replica: KnownReplica) => {
+    if (!onOpenOfflineReplica) return;
+    let host = replica.baseUrl;
+    try {
+      host = new URL(replica.baseUrl || window.location.origin).host;
+    } catch {
+      /* keep raw string */
+    }
+    logger.action('AuthGate', `Open offline replica: ${replica.email} @ ${host}`);
+    setErrorMessage(null);
+    void onOpenOfflineReplica(replica);
+  };
+
+  // Which copies live on THIS origin, and which one did the user name? The
+  // email field (typed or remembered) is what makes "the offline copy"
+  // mean something when several accounts share this device.
+  const offlineOrigin = (() => {
+    try {
+      return new URL(effectiveBaseUrl || window.location.origin).origin;
+    } catch {
+      return window.location.origin;
+    }
+  })();
+  const originReplicas = knownReplicas.filter((r) => {
+    try {
+      return new URL(r.baseUrl || window.location.origin).origin === offlineOrigin;
+    } catch {
+      return false;
+    }
+  });
+  const namedEmail = email.trim().toLowerCase();
+  const namedReplica = namedEmail
+    ? originReplicas.find((r) => r.email.toLowerCase() === namedEmail) ?? null
+    : null;
 
   const handleVpsLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,6 +93,12 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     try {
       logger.action('AuthGate', 'Sign in to Server submitted');
       await onVpsLogin(email.trim(), password, effectiveBaseUrl);
+      try {
+        if (rememberEmail) localStorage.setItem(REMEMBERED_EMAIL_KEY, email.trim());
+        else localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+      } catch {
+        /* storage unavailable — the tick just won't persist */
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sign-in failed.';
       setErrorMessage(msg);
@@ -111,6 +164,19 @@ export const AuthGate: React.FC<AuthGateProps> = ({
             className="w-full h-10 rounded-xl bg-surface-0 border border-line px-3 text-13 text-ink placeholder:text-ink-mute focus:outline-none focus:border-brand"
           />
 
+          <label
+            data-testid="remember-email"
+            className="flex items-center gap-2 text-11 text-ink-dim cursor-pointer select-none"
+          >
+            <input
+              type="checkbox"
+              checked={rememberEmail}
+              onChange={(e) => setRememberEmail(e.target.checked)}
+              className="w-3.5 h-3.5 cursor-pointer"
+            />
+            Remember email on this device
+          </label>
+
           <button
             type="button"
             data-testid="vps-login-url-toggle"
@@ -139,6 +205,63 @@ export const AuthGate: React.FC<AuthGateProps> = ({
           >
             {isLoading ? 'Signing in…' : 'Sign In'}
           </button>
+
+          {/* Offline entry — tied to the account in the email field. Many
+              accounts can keep copies on this device; the link names its
+              account when the email field tells it which one, and only
+              asks (inline, on click) when it genuinely cannot tell. */}
+          {onOpenOfflineReplica && originReplicas.length > 0 && !isLoading && (
+            namedReplica || originReplicas.length === 1 ? (
+              <button
+                type="button"
+                data-testid="open-offline-replica"
+                onClick={() => openOffline(namedReplica ?? originReplicas[0])}
+                className="text-10 font-mono text-ink-mute hover:text-ink-dim underline underline-offset-2 transition-colors cursor-pointer self-center"
+                title="Read-only copy of your workspace stored on this device"
+              >
+                {namedReplica
+                  ? `Open offline copy for ${namedReplica.email}`
+                  : 'Open offline copy'}
+              </button>
+            ) : chooserOpen ? (
+              <div className="self-center flex flex-col items-center gap-1" data-testid="offline-chooser">
+                {originReplicas.map((r) => {
+                  let host = r.baseUrl;
+                  try {
+                    host = new URL(r.baseUrl || window.location.origin).host;
+                  } catch {
+                    /* keep raw string */
+                  }
+                  return (
+                    <button
+                      key={r.email}
+                      type="button"
+                      onClick={() => openOffline(r)}
+                      className="text-10 font-mono text-ink-mute hover:text-ink underline underline-offset-2 transition-colors cursor-pointer"
+                    >
+                      Open {r.email} @ {host}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => setChooserOpen(false)}
+                  className="text-10 font-mono text-ink-mute/60 hover:text-ink-mute cursor-pointer"
+                >
+                  never mind
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setChooserOpen(true)}
+                className="text-10 font-mono text-ink-mute hover:text-ink-dim underline underline-offset-2 transition-colors cursor-pointer self-center"
+                title="Which account's copy?"
+              >
+                Open offline copy…
+              </button>
+            )
+          )}
         </form>
 
         {/* 2. Secondary — Local Workspace */}
@@ -157,48 +280,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({
             Stays in this browser only. Bring your own API key.
           </p>
         </div>
-
-        {/* 3. Offline replicas — copies of a server workspace already on this
-            device. Open them with no login: useful when the server is down or
-            unreachable (Package 3 §3.6). */}
-        {onOpenOfflineReplica && knownReplicas.length > 0 && (
-          <div className="w-full flex flex-col gap-2 rounded-2xl bg-surface-2 shadow-step p-4">
-            <div className="flex items-center gap-2 text-11 font-semibold uppercase tracking-wider text-ink-dim">
-              <CloudOff className="w-3.5 h-3.5 text-brand" />
-              Offline replicas on this device
-            </div>
-            {knownReplicas.map((replica) => {
-              let host = replica.baseUrl;
-              try {
-                host = new URL(replica.baseUrl || window.location.origin).host;
-              } catch {
-                /* keep raw string */
-              }
-              return (
-                <button
-                  key={`${replica.baseUrl}::${replica.email}`}
-                  type="button"
-                  data-testid="open-offline-replica"
-                  onClick={() => {
-                    logger.action('AuthGate', `Open offline replica: ${replica.email} @ ${host}`);
-                    setErrorMessage(null);
-                    void onOpenOfflineReplica(replica);
-                  }}
-                  className="w-full flex items-center justify-between gap-2 h-10 rounded-xl bg-surface-0 border border-line hover:border-brand px-3 text-13 text-ink transition-colors cursor-pointer"
-                >
-                  <span className="truncate">
-                    <span className="font-medium">{replica.email}</span>
-                    <span className="text-ink-mute"> @ {host}</span>
-                  </span>
-                  <span className="text-11 font-mono text-[#8ab1e0] shrink-0">Open offline</span>
-                </button>
-              );
-            })}
-            <p className="text-11 leading-relaxed text-ink-mute">
-              Works without the server. Changes stay on this device until you sign in and sync.
-            </p>
-          </div>
-        )}
 
         {errorMessage && (
           <div className="w-full p-3.5 rounded-xl bg-wash-danger space-y-2 text-xs text-red-300 animate-in fade-in duration-200">

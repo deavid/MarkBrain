@@ -716,6 +716,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ))}
                 </div>
 
+                {!isOfflineReplica() && (
                 <button
                   onClick={() => {
                     logger.action('Sidebar', 'Open Project Launcher from sidebar');
@@ -727,6 +728,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <Plus className="w-3 h-3 text-[#e05a66]" />
                   <span>Create / Switch in Deck</span>
                 </button>
+                )}
               </div>
             )}
           </div>
@@ -1303,7 +1305,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Block 3.5: Read-aloud voice (moved out of the chat composer —
-              on a 350px phone the composer belongs to typing, not settings) */}
+              on a 350px phone the composer belongs to typing, not settings).
+              Read-only replica: TTS is a server job — nothing to read aloud. */}
+          {!isOfflineReplica() && (
           <div className="rounded-xl bg-surface-2 p-1.5">
             <div className="flex items-center justify-between p-2.5">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -1344,6 +1348,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               })}
             </div>
           </div>
+          )}
 
           <div className="rounded-xl bg-surface-2 p-1.5">
             <button
@@ -1369,6 +1374,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Backup or restore project state, artifacts, chapters, and topological graphs.
                 </p>
                 <div className="grid grid-cols-2 gap-2 pt-1">
+                  {!isOfflineReplica() && (
                   <button
                     onClick={() => {
                       logger.action('Sidebar', 'Open Import Modal');
@@ -1379,6 +1385,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Upload className="w-3.5 h-3.5 text-[#e05a66]" />
                     <span>Import</span>
                   </button>
+                  )}
                   <button
                     onClick={() => {
                       logger.action('Sidebar', 'Open Export Modal');
@@ -1400,6 +1407,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Save className="w-3.5 h-3.5 text-[#5ad49b]" />
                     <span>Backup DB</span>
                   </button>
+                  {!isOfflineReplica() && (
                   <button
                     onClick={() => {
                       logger.action('Sidebar', 'Restore database from file');
@@ -1411,6 +1419,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <RotateCcw className="w-3.5 h-3.5 text-[#38bdf8]" />
                     <span>Restore DB</span>
                   </button>
+                  )}
                   <button
                     onClick={() => {
                       logger.action('Sidebar', 'Export plaintext backup (.tar.gz)');
@@ -1422,6 +1431,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <FileArchive className="w-3.5 h-3.5 text-[#5ad49b]" />
                     <span>Plaintext backup (.tar.gz)</span>
                   </button>
+                  {!isOfflineReplica() && (
                   <button
                     onClick={() => {
                       logger.action('Sidebar', 'Import plaintext archive');
@@ -1433,12 +1443,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <FolderInput className="w-3.5 h-3.5 text-[#38bdf8]" />
                     <span>Import plaintext</span>
                   </button>
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {onOpenCleanup && (
+          {onOpenCleanup && !isOfflineReplica() && (
             <button
               onClick={() => {
                 logger.action('Sidebar', 'Open Cleanup tool');

@@ -1699,7 +1699,7 @@ async function main() {
   });
 
   // ── J26 my data is readable AND exportable with the server gone ───────────
-  await journey(page, '26-offline-replica', 'Signed out + VPS dead: Open offline loads the real project & notes from IndexedDB and exports a .tar.gz with zero network calls', async (page) => {
+  await journey(page, '26-offline-replica', 'Signed out + VPS dead: Open offline loads the real project read-only (no composer) and exports a .tar.gz with zero network calls', async (page) => {
     // Fresh CONTEXT: this journey owns its device — no inherited workspace
     // mode, no inherited mirror, or the gate would never appear.
     const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
@@ -1775,9 +1775,11 @@ async function main() {
       }, APP);
 
       await page2.reload({ waitUntil: 'domcontentloaded' });
-      await page2.getByText('Offline replicas on this device').first().waitFor({ state: 'visible', timeout: 10_000 });
-      step('wait', 'AuthGate offers the offline replica');
-      check((await page2.evaluate(() => document.body.innerText)).includes('offline.cuj@example.com'), 'the replica is named');
+      await page2.locator('[data-testid="open-offline-replica"]').first().waitFor({ state: 'visible', timeout: 10_000 });
+      step('wait', 'AuthGate offers the offline copy');
+      const gateText = await page2.evaluate(() => document.body.innerText);
+      check(gateText.includes('Open offline copy'), 'the offline copy is offered — as a link, not a box');
+      check(!gateText.includes('offline.cuj@example.com'), 'the gate does not print the account email');
       await page2.screenshot({ path: path.join(J.dir, 'shots', '01-authgate-replicas.png') }).catch(() => {});
 
       // Now simulate the VPS being 100% DEAD: abort every /api/* request!
@@ -1788,11 +1790,12 @@ async function main() {
       });
 
       await page2.locator('[data-testid="open-offline-replica"]').first().click({ timeout: 5000 });
-      await page2.locator('textarea').first().waitFor({ state: 'visible', timeout: 15_000 });
+      await page2.locator('[data-testid="offline-readonly-strip"]').first().waitFor({ state: 'visible', timeout: 15_000 });
       await page2.waitForTimeout(1000);
 
       const wsText = await page2.evaluate(() => document.body.innerText);
       check(!wsText.includes('Use Local Workspace'), 'the gate is gone — the workspace opened from the device copy');
+      check((await page2.locator('textarea').count()) === 0, 'read-only: no composer is offered offline');
       check(wsText.includes('Offline Survival Project'), 'the real project loaded from the offline replica');
       check(wsText.includes('Can I still read this when the server dies?'), 'the chat history is visible');
       check(apiCallsAttempted.length === 0, `zero /api/* calls were made while opening offline (${apiCallsAttempted.length} seen)`);
@@ -1826,8 +1829,8 @@ async function main() {
       await page2.getByRole('button', { name: /^Sign Out$/i }).first().click({ timeout: 5000 });
       await page2.getByRole('button', { name: /Use Local Workspace/ }).first().waitFor({ state: 'visible', timeout: 10_000 });
       const gateTxt = await page2.evaluate(() => document.body.innerText);
-      check(/offline replicas on this device/i.test(gateTxt), 'signing out KEEPS the copy — the gate still offers it');
-      check(gateTxt.includes('offline.cuj@example.com'), 'the kept replica is still named');
+      check(gateTxt.includes('Open offline copy'), 'signing out KEEPS the copy — the gate offers it again');
+      check(!gateTxt.includes('offline.cuj@example.com'), 'the gate still does not print the account email');
       await page2.screenshot({ path: path.join(J.dir, 'shots', '03-after-signout-keep.png') }).catch(() => {});
     } finally {
       await page2.close();

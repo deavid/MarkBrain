@@ -14,6 +14,7 @@ import {
   type AccountSettingsResponse,
   type AdminUserRow,
 } from '../../gateway/api';
+import { isOfflineReplica } from '../../services/workspaceSession';
 import {
   DEFAULT_MODEL_SLOTS,
   MODEL_SLOTS,
@@ -147,6 +148,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
   const [resetPwValue, setResetPwValue] = useState('');
 
   const isOwner = mode === 'vps' && getVpsSession()?.isOwner === true;
+  // Offline replica: read-only mirror — the server-backed tabs (keys, users)
+  // have nothing to say offline, so they don't render at all.
+  const offlineReplica = isOfflineReplica();
 
   const refreshLocalVaultState = () => {
     setLocalVaultState(
@@ -214,8 +218,8 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
   // Lazy loads when a tab opens.
   useEffect(() => {
     if (!isOpen) return;
-    if (tab === 'keys' && mode === 'vps') loadVpsSettings();
-    if (tab === 'users' && isOwner) loadUsers();
+    if (tab === 'keys' && mode === 'vps' && !isOfflineReplica()) loadVpsSettings();
+    if (tab === 'users' && isOwner && !isOfflineReplica()) loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, tab, mode]);
 
@@ -524,9 +528,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     );
   };
 
-  const tabs: Array<'models' | 'keys' | 'users'> = isOwner
-    ? ['models', 'keys', 'users']
-    : ['models', 'keys'];
+  const tabs: Array<'models' | 'keys' | 'users'> = offlineReplica
+    ? ['models']
+    : mode === 'vps'
+      ? ['models', 'keys', 'users'] // every signed-in account: password lives in Users
+      : ['models', 'keys'];
 
   const renderKeysTab = () => {
     if (mode === 'vps') {
@@ -657,62 +663,6 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           </p>
           {vpsKeysError && <p className="text-10 text-red-400 mt-2">{vpsKeysError}</p>}
 
-          <div className="mt-4" data-testid="vps-password-section">
-            <div className="flex items-center gap-1.5 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
-              <KeyRound className="w-3 h-3" />
-              Password
-            </div>
-            <p className="text-10 text-[#788fa8] leading-relaxed mb-2">
-              Changing it re-keys the vault — your saved API keys carry over.
-            </p>
-            <div className="space-y-1.5">
-              <input
-                type="password"
-                data-testid="vps-password-current"
-                placeholder="Current password"
-                autoComplete="current-password"
-                value={vpsPwCurrent}
-                onChange={(e) => setVpsPwCurrent(e.target.value)}
-                className="w-full rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-              />
-              <div className="flex gap-1.5">
-                <input
-                  type="password"
-                  data-testid="vps-password-new"
-                  placeholder="New password (8+)"
-                  autoComplete="new-password"
-                  value={vpsPwNew}
-                  onChange={(e) => setVpsPwNew(e.target.value)}
-                  className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-                />
-                <input
-                  type="password"
-                  data-testid="vps-password-confirm"
-                  placeholder="Repeat new"
-                  autoComplete="new-password"
-                  value={vpsPwConfirm}
-                  onChange={(e) => setVpsPwConfirm(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && vpsPwCurrent && vpsPwNew && vpsPwConfirm) {
-                      e.preventDefault();
-                      void handleVpsPasswordChange();
-                    }
-                  }}
-                  className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-                />
-              </div>
-              <button
-                onClick={() => void handleVpsPasswordChange()}
-                data-testid="vps-password-save"
-                className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
-              >
-                Change password
-              </button>
-            </div>
-            {vpsPwMsg && (
-              <p className={`text-10 mt-2 ${vpsPwOk ? 'text-emerald-300' : 'text-red-400'}`}>{vpsPwMsg}</p>
-            )}
-          </div>
         </section>
       );
     };
@@ -879,9 +829,81 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     <section className="rounded-xl bg-recess-1 p-3" data-testid="users-panel">
       <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute mb-3">
         <Users className="w-3.5 h-3.5 text-[#38bdf8]" />
-        Users
+        Your account
       </div>
 
+      {/* The signed-in account, read-only — accounts are managed on the server. */}
+      <input
+        type="email"
+        data-testid="account-email"
+        value={getVpsSession()?.email ?? ''}
+        readOnly
+        className="w-full h-10 rounded-lg bg-surface-0 border border-line px-3 text-13 text-ink font-mono mb-3 cursor-default"
+      />
+      {/* Password — re-keys the vault; your saved API keys carry over. */}
+      <div className="mt-3" data-testid="vps-password-section">
+        <div className="flex items-center gap-1.5 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
+          <KeyRound className="w-3 h-3" />
+          Password
+        </div>
+        <p className="text-10 text-[#788fa8] leading-relaxed mb-2">
+          Changing it re-keys the vault — your saved API keys carry over.
+        </p>
+        <div className="space-y-1.5">
+          <input
+            type="password"
+            data-testid="vps-password-current"
+            placeholder="Current password"
+            autoComplete="current-password"
+            value={vpsPwCurrent}
+            onChange={(e) => setVpsPwCurrent(e.target.value)}
+            className="w-full rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
+          />
+          <div className="flex gap-1.5">
+            <input
+              type="password"
+              data-testid="vps-password-new"
+              placeholder="New password (8+)"
+              autoComplete="new-password"
+              value={vpsPwNew}
+              onChange={(e) => setVpsPwNew(e.target.value)}
+              className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
+            />
+            <input
+              type="password"
+              data-testid="vps-password-confirm"
+              placeholder="Repeat new"
+              autoComplete="new-password"
+              value={vpsPwConfirm}
+              onChange={(e) => setVpsPwConfirm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && vpsPwCurrent && vpsPwNew && vpsPwConfirm) {
+                  e.preventDefault();
+                  void handleVpsPasswordChange();
+                }
+              }}
+              className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
+            />
+          </div>
+          <button
+            onClick={() => void handleVpsPasswordChange()}
+            data-testid="vps-password-save"
+            className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
+          >
+            Change password
+          </button>
+        </div>
+        {vpsPwMsg && (
+          <p className={`text-10 mt-2 ${vpsPwOk ? 'text-emerald-300' : 'text-red-400'}`}>{vpsPwMsg}</p>
+        )}
+      </div>
+
+      {/* User management — owner only. */}
+      <div className="mt-4 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
+        Users
+      </div>
+      {isOwner && (
+      <>
       <div className="flex items-center gap-2 mb-3">
         <input
           type="email"
@@ -975,6 +997,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
           </div>
         ))}
       </div>
+      </>
+      )}
+
     </section>
   );
 

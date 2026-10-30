@@ -44,6 +44,9 @@ async function streamOpenRouterChat(
       messages,
       temperature: params.temperature ?? 0.7,
       stream: true,
+      // David 2026-10-30: every chat asks for LOW thinking effort. OpenRouter
+      // ignores the param for models without thinking — safe to always send.
+      reasoning: { effort: THINKING_EFFORT },
     }),
   });
   if (!res.ok || !res.body) {
@@ -73,6 +76,8 @@ async function streamOpenRouterChat(
   let raw = '';
   let usage: { input: number; output: number } | undefined;
   let wrote = false;
+  // Reasoning preview counter — EPHEMERAL, never part of the reply text.
+  let reasoningChars = 0;
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -92,6 +97,16 @@ async function streamOpenRouterChat(
           continue;
         }
         const delta = payload?.choices?.[0]?.delta?.content ?? '';
+        // Reasoning rides its own event (some models: reasoning_content) —
+        // a LIVE preview only; never enters raw (the reply text).
+        const reasoning =
+          payload?.choices?.[0]?.delta?.reasoning ??
+          payload?.choices?.[0]?.delta?.reasoning_content ??
+          '';
+        if (reasoning) {
+          reasoningChars += reasoning.length;
+          emit('reasoning', { delta: reasoning, chars: reasoningChars, timestamp: Date.now() });
+        }
         if (delta) {
           if (!wrote) {
             wrote = true;
@@ -124,6 +139,12 @@ async function streamOpenRouterChat(
 }
 
 const BASE = 'https://openrouter.ai/api/v1';
+
+/**
+ * David's decision 2026-10-30: every chat request asks for LOW thinking
+ * effort (mirror of the server adapter's THINKING_EFFORT).
+ */
+const THINKING_EFFORT = 'low';
 
 function headers(apiKey: string): Record<string, string> {
   return {

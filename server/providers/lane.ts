@@ -11,6 +11,7 @@
  * (prompt_tokens / completion_tokens) never leave the adapter (same law as
  * the chat route's raw usage normalization).
  */
+import type { ThinkingConfig } from '@google/genai';
 
 export interface LaneUsageMetadata {
   promptTokenCount?: number;
@@ -23,6 +24,13 @@ export interface LaneGenerateConfig {
   temperature?: number;
   /** Cooperative abort — both providers honor it (GoogleGenAI config has the same field). */
   abortSignal?: AbortSignal;
+  /**
+   * Gemini thinking controls (David 2026-10-30: LOW effort + thoughts
+   * streamed). OpenRouter ignores it — its adapter sends its own wire
+   * equivalent (`reasoning: { effort }`). The SDK's ThinkingConfig type so
+   * the facade assignability (GoogleGenAI ⇄ LaneAiSurface) holds.
+   */
+  thinkingConfig?: ThinkingConfig;
 }
 
 export interface LaneGenerateParams {
@@ -33,6 +41,12 @@ export interface LaneGenerateParams {
 
 export interface LaneTextChunk {
   text?: string;
+  /**
+   * The model's reasoning/thinking stream (David 2026-10-30: surfaced live as
+   * a preview, EPHEMERAL — never persisted, never part of any turn). A chunk
+   * may carry text, reasoning, or both.
+   */
+  reasoning?: string;
   usageMetadata?: LaneUsageMetadata;
 }
 

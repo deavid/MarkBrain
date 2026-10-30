@@ -180,6 +180,34 @@ describe('OpenRouterClient wire shape (fetch-stubbed)', () => {
     expect(isOpenRouterModel('gemini-3.8-flash')).toBe(false);
     expect(isOpenRouterModel('gemini-embedding-001')).toBe(false);
   });
+
+  it('reasoning rides the delta: reasoning-only, text+reasoning, reasoning_content fallback', () => {
+    // Reasoning-only delta — this is the model THINKING, not keepalive noise.
+    expect(
+      parseOpenAiSseData('{"choices":[{"delta":{"reasoning":"let me think"}}]}')
+    ).toEqual({ reasoning: 'let me think' });
+    // Text + reasoning on the same delta — both ride.
+    expect(
+      parseOpenAiSseData('{"choices":[{"delta":{"content":"Hi","reasoning":"why"}}]}')
+    ).toEqual({ text: 'Hi', reasoning: 'why' });
+    // Some models use reasoning_content instead of reasoning.
+    expect(
+      parseOpenAiSseData('{"choices":[{"delta":{"reasoning_content":"deep thought"}}]}')
+    ).toEqual({ reasoning: 'deep thought' });
+  });
+
+  it('the chat body asks for low thinking effort (David 2026-10-30)', async () => {
+    stubFetch(() =>
+      sseResponse(['data: {"choices":[{"delta":{"content":"x"}}]}', 'data: [DONE]'])
+    );
+    const client = new OpenRouterClient(OR_KEY);
+    await client.models.generateContentStream({
+      model: 'nvidia/nemotron-3.5-lightning:free',
+      contents: 'Say hi.',
+      config: { systemInstruction: 'Be brief.', temperature: 0.7 },
+    });
+    expect(captured[0].body.reasoning).toEqual({ effort: 'low' });
+  });
 });
 
 /* ── facade branching ─────────────────────────────────────────────────────── */

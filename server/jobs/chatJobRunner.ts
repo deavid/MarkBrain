@@ -34,6 +34,7 @@ import {
 } from '../db/projectRepo';
 import type { ChatJobSummary } from '../db/projectRepo';
 import { isOpenRouterModel } from '../providers/openrouter';
+import { streamFromModel } from '../providers/gemini';
 import {
   recordCallStart,
   recordCallAck,
@@ -306,13 +307,10 @@ export async function runJob(jobId: string): Promise<void> {
       },
     });
 
-    const stream = await client.models.generateContentStream({
-      model,
-      contents: job.compiled_prompt,
-      config: { systemInstruction, temperature: 0.7 },
-    });
+    // Same lane wrapper the direct chat route uses — it owns the thinking
+    // config (LOW effort + thoughts included) and the reasoning split.
+    const stream = await streamFromModel(client, model, job.compiled_prompt, systemInstruction, 0);
     recordCallAck(callLogId);
-
     // THE ACK BEFORE FIRST TOKEN (David 2026-10-25): the provider accepted
     // the stream — from here on "the model is thinking" is true. Zero bytes
     // before this point is CONNECTING, not thinking. Recorded on the context
@@ -331,6 +329,8 @@ export async function runJob(jobId: string): Promise<void> {
     // when it arrives, honest estimates otherwise. Zero-token turns are a lie.
     let usage: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } | null = null;
     let timeToFirstChunkMs: number | null = null;
+    // Reasoning preview counter — EPHEMERAL, never part of the committed pair.
+    let reasoningChars = 0;
     const jobStart = Date.now();
     // Accumulate RAW provider text and re-demux from raw each flush — demuxing
     // from previously-cleaned text eats the spaces at chunk boundaries.
@@ -341,6 +341,12 @@ export async function runJob(jobId: string): Promise<void> {
       // Usage often rides the FINAL chunk (no text, just the bill). Capture
       // it BEFORE the empty-text skip or the honest token count is lost.
       if (chunk.usageMetadata) usage = chunk.usageMetadata;
+      // Reasoning preview (David 2026-10-30): its own SSE event, live only.
+      // EPHEMERAL — never enters raw / partialText / the committed pair.
+      if (chunk.reasoning) {
+        reasoningChars += chunk.reasoning.length;
+        broadcast(ctx, 'reasoning', { type: 'reasoning', delta: chunk.reasoning, chars: reasoningChars });
+      }
       const text = chunk.text || '';
       if (!text) continue;
       if (timeToFirstChunkMs === null) {

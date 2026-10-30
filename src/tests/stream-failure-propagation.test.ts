@@ -280,3 +280,54 @@ describe('regenerate is queue-gated unpaired work (David 2026-10-25)', () => {
     expect(src).not.toContain('handleRetryThread');
   });
 });
+
+/* ── the reasoning lane (David 2026-10-30) ──────────────────────────────── */
+
+describe('reasoning events feed onReasoning — and NEVER the reply', () => {
+  beforeEach(() => chatStreamMock.mockReset());
+
+  it('delta + accumulated reasoning reach the callback; rawReply stays prose only', async () => {
+    chatStreamMock.mockResolvedValue(
+      sse([
+        frame('status', { state: 'connected', message: 'thinking', timestamp: 1, model: 'm' }),
+        frame('reasoning', { delta: 'hmm', chars: 3, timestamp: 2 }),
+        frame('reasoning', { delta: ' ok', chars: 6, timestamp: 3 }),
+        frame('chunk', { delta: 'Answer' }),
+        frame('complete', {
+          rawReply: 'Answer',
+          telemetry: {
+            model: 'm', inputTokens: 1, outputTokens: 1, totalTokens: 2, latencyMs: 1, timeToFirstChunkMs: 1, isFallback: false,
+          },
+        }),
+        frame('done', { success: true }),
+      ])
+    );
+    const onReasoning = vi.fn();
+    const result = await new StreamProtocolDomain().executeStreamingTurn({ model: 'm' }, { onReasoning });
+    expect(onReasoning).toHaveBeenCalledTimes(2);
+    expect(onReasoning).toHaveBeenNthCalledWith(1, 'hmm', 'hmm');
+    expect(onReasoning).toHaveBeenNthCalledWith(2, ' ok', 'hmm ok');
+    // THE EPHEMERAL LAW at the domain seam: reasoning never touches the turn.
+    expect(result.rawReply).toBe('Answer');
+    expect(result.cleanReply).toBe('Answer');
+  });
+
+  it('reasoning arriving mid-text keeps counting; the callback is optional', async () => {
+    chatStreamMock.mockResolvedValue(
+      sse([
+        frame('chunk', { delta: 'A' }),
+        frame('reasoning', { delta: 'late thought', chars: 12, timestamp: 2 }),
+        frame('chunk', { delta: 'B' }),
+        frame('complete', {
+          rawReply: 'AB',
+          telemetry: {
+            model: 'm', inputTokens: 1, outputTokens: 1, totalTokens: 2, latencyMs: 1, timeToFirstChunkMs: 1, isFallback: false,
+          },
+        }),
+        frame('done', { success: true }),
+      ])
+    );
+    const result = await new StreamProtocolDomain().executeStreamingTurn({ model: 'm' });
+    expect(result.rawReply).toBe('AB');
+  });
+});

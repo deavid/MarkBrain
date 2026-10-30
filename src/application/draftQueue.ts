@@ -35,6 +35,13 @@ export interface DraftProgress {
   firstTokenAt?: number;
   /** Clean partial length while writing. */
   chars?: number;
+  /**
+   * The model's thinking preview (David 2026-10-30) — EPHEMERAL, session
+   * only: progress is never persisted, so these die with the page. Reset
+   * (0/'') when the phase flips to writing.
+   */
+  reasoningPreview?: string;
+  reasoningChars?: number;
 }
 
 export interface DraftItem {
@@ -293,13 +300,19 @@ export class DraftQueue {
     const phaseChanged = phase !== (prev?.phase ?? 'queued');
     const firstTokenAt = partial.firstTokenAt ?? prev?.firstTokenAt;
     const chars = partial.chars ?? prev?.chars;
+    // The thinking preview (David 2026-10-30): explicit fields win, including
+    // the reset values (reasoningChars: 0 / reasoningPreview: '') — the
+    // writing transition passes them to clear the preview.
+    const reasoningChars = partial.reasoningChars ?? prev?.reasoningChars;
+    const reasoningPreview = partial.reasoningPreview ?? prev?.reasoningPreview;
     item.progress = {
       phase,
       since: partial.since ?? (phaseChanged || !prev ? Date.now() : prev.since),
       ...(firstTokenAt !== undefined ? { firstTokenAt } : {}),
       ...(chars !== undefined ? { chars } : {}),
-    };
-    this.emit();
+      ...(reasoningChars !== undefined ? { reasoningChars } : {}),
+      ...(reasoningPreview !== undefined ? { reasoningPreview } : {}),
+    };    this.emit();
   }
 
   markSending(id: string): void {

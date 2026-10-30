@@ -676,6 +676,9 @@ export class SendQueue {
                 phase: 'writing',
                 firstTokenAt: Date.now(),
                 chars: streamedContent.length,
+                // THE RESET: the thinking preview belongs to thinking.
+                reasoningChars: 0,
+                reasoningPreview: '',
               });
             }
             deps.triggerReRender();
@@ -689,11 +692,27 @@ export class SendQueue {
                 phase: 'writing',
                 firstTokenAt: Date.now(),
                 chars: accumulatedClean.length,
+                reasoningChars: 0,
+                reasoningPreview: '',
               });
             } else {
               this.drafts.setProgress(item.id, { chars: accumulatedClean.length });
             }
             deps.setStreamPhase('streaming');
+            deps.triggerReRender();
+          },
+          onReasoning: (_delta, accumulated) => {
+            // The thinking preview (David 2026-10-30): ticks only while the
+            // card is thinking; once text starts the writing partial takes
+            // over and late reasoning is ignored (never resurrects). In-memory
+            // only — progress is never persisted.
+            const current = this.drafts.getItem(item.id);
+            if (current?.progress?.phase !== 'writing') {
+              this.drafts.setProgress(item.id, {
+                reasoningPreview: accumulated,
+                reasoningChars: accumulated.length,
+              });
+            }
             deps.triggerReRender();
           },
           onTopicShift: (shift) => {
@@ -943,6 +962,8 @@ export class SendQueue {
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    // The thinking preview accumulator (David 2026-10-30) — session-local.
+    let reasoningAccum = '';
     for (;;) {
       const { done, value } = await reader.read();
       if (done) return false; // disconnect → caller re-attaches
@@ -993,9 +1014,26 @@ export class SendQueue {
               phase: 'writing',
               firstTokenAt: Date.now(),
               chars: (data.partialText ?? '').length,
+              // THE RESET: the thinking preview belongs to thinking.
+              reasoningChars: 0,
+              reasoningPreview: '',
             });
           } else {
             this.drafts.setProgress(item.id, { chars: (data.partialText ?? '').length });
+          }
+          deps.triggerReRender();
+        } else if (event === 'reasoning') {
+          // The thinking preview (David 2026-10-30) — the job stream mirrors
+          // the direct route's reasoning event. Live only: ticks while the
+          // card is thinking, ignored once writing started, never persisted,
+          // never part of the partial text.
+          const current = this.drafts.getItem(item.id);
+          if (current?.progress?.phase !== 'writing') {
+            reasoningAccum += String(data.delta ?? '');
+            this.drafts.setProgress(item.id, {
+              reasoningPreview: reasoningAccum,
+              ...(typeof data.chars === 'number' ? { reasoningChars: data.chars } : {}),
+            });
           }
           deps.triggerReRender();
         } else if (event === 'complete') {
@@ -1097,11 +1135,26 @@ export class SendQueue {
                 phase: 'writing',
                 firstTokenAt: Date.now(),
                 chars: acc.length,
+                // THE RESET: the thinking preview belongs to thinking.
+                reasoningChars: 0,
+                reasoningPreview: '',
               });
             } else {
               this.drafts.setProgress(item.id, { chars: acc.length });
             }
             deps.setStreamPhase('streaming');
+            deps.triggerReRender();
+          },
+          onReasoning: (_delta, accumulated) => {
+            // The thinking preview (David 2026-10-30) — same law as the send
+            // attempt: ticks while thinking, dead once writing starts.
+            const current = this.drafts.getItem(item.id);
+            if (current?.progress?.phase !== 'writing') {
+              this.drafts.setProgress(item.id, {
+                reasoningPreview: accumulated,
+                reasoningChars: accumulated.length,
+              });
+            }
             deps.triggerReRender();
           },
           onTopicShift: (shift) => {

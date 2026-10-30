@@ -23,6 +23,13 @@ import type {
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 
+/**
+ * David's decision 2026-10-30: every chat request asks for LOW thinking
+ * effort. OpenRouter ignores the `reasoning` param for models that do not
+ * support it, so it is safe to always send.
+ */
+export const THINKING_EFFORT = 'low';
+
 export function isOpenRouterModel(modelId: string): boolean {
   // OpenRouter ids are `vendor/model` — Gemini ids never carry a slash.
   return modelId.includes('/');
@@ -36,6 +43,9 @@ interface OpenAiUsage {
 
 interface OpenAiDelta {
   content?: string | null;
+  /** Reasoning/thinking tokens (some models: reasoning_content). */
+  reasoning?: string | null;
+  reasoning_content?: string | null;
 }
 
 interface OpenAiChunk {
@@ -75,6 +85,7 @@ function bodyOf(params: LaneGenerateParams, stream: boolean): string {
     model: params.model,
     messages,
     stream,
+    reasoning: { effort: THINKING_EFFORT },
     ...(params.config?.temperature !== undefined ? { temperature: params.config.temperature } : {}),
   });
 }
@@ -102,11 +113,14 @@ export function parseOpenAiSseData(data: string): LaneTextChunk | null {
   }
   const choice = payload.choices?.[0];
   const text = choice?.delta?.content ?? choice?.message?.content ?? '';
+  const reasoning = choice?.delta?.reasoning ?? choice?.delta?.reasoning_content ?? '';
   const usage = usageOf(payload.usage);
-  // A chunk with neither text nor usage is pure keepalive noise — null it.
-  if (!text && !usage) return null;
+  // No text, no reasoning and no usage is pure keepalive noise — null it.
+  // A reasoning-only chunk is the model THINKING, not noise: return it.
+  if (!text && !reasoning && !usage) return null;
   const chunk: LaneTextChunk = {};
   if (text) chunk.text = text;
+  if (reasoning) chunk.reasoning = reasoning;
   if (usage) chunk.usageMetadata = usage;
   return chunk;
 }

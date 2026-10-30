@@ -115,6 +115,11 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       let lastStatusTick = Date.now();
       let lastLogTick = Date.now();
       let usageMetadata: any = null;
+      // Reasoning preview counter (David 2026-10-30). EPHEMERAL: reasoning is
+      // never added to fullText, never persisted, never becomes a turn. The
+      // count keeps running even after text starts — the client decides what
+      // to show.
+      let reasoningChars = 0;
 
       for await (const chunk of responseStream) {
         if (isClientAborted) {
@@ -123,7 +128,22 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
           break;
         }
 
-        if (timeToFirstChunkMs === null) {
+        const chunkText = chunk.text || '';
+
+        // The model's thoughts ride their own event — a LIVE preview only.
+        if (chunk.reasoning) {
+          reasoningChars += chunk.reasoning.length;
+          sendSSE('reasoning', {
+            delta: chunk.reasoning,
+            chars: reasoningChars,
+            timestamp: Date.now(),
+          });
+        }
+
+        // "Writing" is honest only for visible TEXT: a reasoning-only chunk
+        // is still the thinking phase, so the first-chunk milestone (TTFC +
+        // the writing status) waits for the first text.
+        if (timeToFirstChunkMs === null && chunkText) {
           timeToFirstChunkMs = Date.now() - startTime;
           recordCallFirstToken(callLogId);
           logServer('success', 'STREAM:TTFC', `#${reqId} First chunk received in ${timeToFirstChunkMs}ms from ${usedModel}`);
@@ -136,7 +156,6 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
           });
         }
 
-        const chunkText = chunk.text || '';
         if (chunkText) {
           fullText += chunkText;
           chunkCount++;

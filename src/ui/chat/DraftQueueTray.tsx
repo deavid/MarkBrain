@@ -55,6 +55,17 @@ export const DraftPhaseChip: React.FC<{
     );
   }
   if (progress.phase === 'awaiting-first-token') {
+    // The thinking count ticks exactly like the writing count (David
+    // 2026-10-30). Zero reasoning → today's chip, unchanged.
+    const rChars = progress.reasoningChars ?? 0;
+    if (rChars > 0) {
+      return (
+        <>
+          {prefix}
+          {label} · {secs}s · {rChars.toLocaleString()} chars thinking
+        </>
+      );
+    }
     return (
       <>
         {prefix}
@@ -285,6 +296,20 @@ export const DraftQueueTray: React.FC<DraftQueueTrayProps> = ({
                 {d.partial}
               </div>
             )}
+            {/* The model's thinking, live (David 2026-10-30): same
+                partial-preview styling, thinking phase only — the reset to
+                writing clears it, so the card never shows two streams. */}
+            {isBusy &&
+              d.progress?.phase === 'awaiting-first-token' &&
+              (d.progress.reasoningChars ?? 0) > 0 &&
+              d.progress.reasoningPreview && (
+                <div
+                  className="mt-1.5 max-h-24 overflow-y-auto rounded bg-recess-1 px-2 py-1.5 text-11 text-ink-dim whitespace-pre-wrap"
+                  data-testid="draft-reasoning-preview"
+                >
+                  {d.progress.reasoningPreview}
+                </div>
+              )}
           </div>
         );
       })}

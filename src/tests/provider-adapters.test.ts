@@ -173,3 +173,87 @@ describe('stream vocabulary', () => {
     expect(data.telemetry.model).toBe('gemini-3.8-flash');
   });
 });
+
+/* ── the reasoning split (David 2026-10-30) ──────────────────────────────── */
+
+describe('reasoning: thoughts stream as their own event, never as reply text', () => {
+  function sseFetch(sse: string) {
+    const encoder = new TextEncoder();
+    fetchMock.mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(c) {
+            c.enqueue(encoder.encode(sse));
+            c.close();
+          },
+        }),
+        { status: 200 }
+      )
+    );
+  }
+
+  it('gemini: asks for LOW thinking effort + thoughts; thought parts ride `reasoning` only', async () => {
+    sseFetch(
+      'data: {"candidates":[{"content":{"parts":[{"text":"pondering","thought":true}]}}]}\n\n' +
+        'data: {"candidates":[{"content":{"parts":[{"text":"He"},{"text":" more","thought":true}]}}]}\n\n' +
+        'data: {"candidates":[{"content":{"parts":[{"text":"llo"}]}}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":2}}\n\n'
+    );
+    const res = await geminiAdapter.streamChat({
+      apiKey: 'AIza-test',
+      model: 'gemini-3.8-flash',
+      contents: 'prompt',
+    });
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    // LOW thinking effort rides generationConfig (David 2026-10-30).
+    expect(sent.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'low', includeThoughts: true });
+
+    const text = await res.text();
+    const reasoning = text
+      .split('\n\n')
+      .filter((f) => f.includes('event: reasoning'))
+      .map((f) => JSON.parse(f.split('data: ')[1]));
+    expect(reasoning).toEqual([
+      { delta: 'pondering', chars: 9, timestamp: expect.any(Number) },
+      { delta: ' more', chars: 14, timestamp: expect.any(Number) },
+    ]);
+    const chunkDeltas = text
+      .split('\n\n')
+      .filter((f) => f.includes('event: chunk'))
+      .map((f) => JSON.parse(f.split('data: ')[1]).delta);
+    expect(chunkDeltas).toEqual(['He', 'llo']); // thought text NEVER rides chunk
+    const complete = JSON.parse(
+      text.split('\n\n').find((f) => f.includes('event: complete'))!.split('data: ')[1]
+    );
+    expect(complete.rawReply).toBe('Hello'); // and never the reply
+  });
+
+  it('openrouter: body asks reasoning effort low; delta.reasoning / reasoning_content ride `reasoning`', async () => {
+    sseFetch(
+      'data: {"choices":[{"delta":{"reasoning":"let me think"}}]}\n\n' +
+        'data: {"choices":[{"delta":{"content":"Hi","reasoning_content":"why not"}}]}\n\n' +
+        'data: [DONE]\n\n'
+    );
+    const res = await openrouterAdapter.streamChat({
+      apiKey: 'sk-or-test',
+      model: 'nvidia/nemotron-3.5-lightning:free',
+      contents: 'prompt',
+    });
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(sent.reasoning).toEqual({ effort: 'low' });
+
+    const text = await res.text();
+    const reasoning = text
+      .split('\n\n')
+      .filter((f) => f.includes('event: reasoning'))
+      .map((f) => JSON.parse(f.split('data: ')[1]));
+    expect(reasoning).toEqual([
+      { delta: 'let me think', chars: 12, timestamp: expect.any(Number) },
+      { delta: 'why not', chars: 19, timestamp: expect.any(Number) },
+    ]);
+    const chunkDeltas = text
+      .split('\n\n')
+      .filter((f) => f.includes('event: chunk'))
+      .map((f) => JSON.parse(f.split('data: ')[1]).delta);
+    expect(chunkDeltas).toEqual(['Hi']);
+  });
+});

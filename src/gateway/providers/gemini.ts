@@ -38,7 +38,27 @@ function usageOf(payload: any): { input: number; output: number } | undefined {
 function textOf(payload: any): string {
   const parts = payload?.candidates?.[0]?.content?.parts;
   if (!Array.isArray(parts)) return '';
-  return parts.map((p: any) => p?.text ?? '').join('');
+  // Thought parts (thinking models, includeThoughts on) are the model's
+  // reasoning — EPHEMERAL preview material, never reply text.
+  return parts
+    .filter((p: any) => p?.thought !== true)
+    .map((p: any) => p?.text ?? '')
+    .join('');
+}
+
+/** Split a stream chunk's parts into visible text and reasoning (thought parts). */
+function splitParts(payload: any): { text: string; reasoning: string } {
+  const parts = payload?.candidates?.[0]?.content?.parts;
+  let text = '';
+  let reasoning = '';
+  if (Array.isArray(parts)) {
+    for (const p of parts as Array<{ text?: string; thought?: boolean }>) {
+      if (typeof p?.text !== 'string') continue;
+      if (p.thought === true) reasoning += p.text;
+      else text += p.text;
+    }
+  }
+  return { text, reasoning };
 }
 
 async function toError(res: Response): Promise<Response> {
@@ -73,7 +93,13 @@ async function streamGeminiChat(
         ...(params.systemInstruction
           ? { systemInstruction: { parts: [{ text: params.systemInstruction }] } }
           : {}),
-        generationConfig: { temperature: params.temperature ?? 0.7 },
+        generationConfig: {
+          temperature: params.temperature ?? 0.7,
+          // David 2026-10-30: LOW thinking effort, thoughts streamed — the
+          // reasoning rides its own SSE event as a live preview, never the
+          // reply text.
+          thinkingConfig: { thinkingLevel: 'low', includeThoughts: true },
+        },
       }),
     }
   );
@@ -105,6 +131,8 @@ async function streamGeminiChat(
   let raw = '';
   let usage: { input: number; output: number } | undefined;
   let wrote = false;
+  // Reasoning preview counter — EPHEMERAL, never part of the reply text.
+  let reasoningChars = 0;
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -123,7 +151,14 @@ async function streamGeminiChat(
         } catch {
           continue;
         }
-        const delta = textOf(payload);
+        const { text: delta, reasoning } = splitParts(payload);
+        // Reasoning rides its own event — a LIVE preview only; never enters
+        // raw (the reply text). The count keeps running even after text
+        // starts; the client decides what to show.
+        if (reasoning) {
+          reasoningChars += reasoning.length;
+          emit('reasoning', { delta: reasoning, chars: reasoningChars, timestamp: Date.now() });
+        }
         if (delta) {
           if (!wrote) {
             wrote = true;

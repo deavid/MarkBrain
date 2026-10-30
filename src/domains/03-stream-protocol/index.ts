@@ -40,6 +40,12 @@ export interface IStreamProtocolDomain {
       signal?: AbortSignal;
       onStatus?: (status: StreamStatusPayload) => void;
       onChunk?: (cleanDelta: string, accumulatedClean: string) => void;
+      /**
+       * The model's thinking stream (David 2026-10-30), as a LIVE preview
+       * only: (delta, accumulated). Reasoning never reaches the turn result,
+       * the planner, or chat storage.
+       */
+      onReasoning?: (delta: string, accumulated: string) => void;
       onArtifact?: (artifact: ExtractedArtifactUpsert) => void;
       onTopicShift?: (shift: ExtractedTopicShift) => void;
       onTelemetry?: (telemetry: BackendTelemetry) => void;
@@ -101,6 +107,12 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       signal?: AbortSignal;
       onStatus?: (status: StreamStatusPayload) => void;
       onChunk?: (cleanDelta: string, accumulatedClean: string) => void;
+      /**
+       * The model's thinking stream (David 2026-10-30), as a LIVE preview
+       * only: (delta, accumulated). Reasoning never reaches the turn result,
+       * the planner, or chat storage.
+       */
+      onReasoning?: (delta: string, accumulated: string) => void;
       onArtifact?: (artifact: ExtractedArtifactUpsert) => void;
       onTopicShift?: (shift: ExtractedTopicShift) => void;
       onTelemetry?: (telemetry: BackendTelemetry) => void;
@@ -108,6 +120,10 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
   ): Promise<StreamTurnResult> {
     let accumulatedRaw = '';
     let accumulatedClean = '';
+    // Reasoning (David 2026-10-30): a LOCAL accumulation feeding only the
+    // onReasoning callback — never accumulatedRaw/accumulatedClean, never
+    // the StreamTurnResult, never the planner or turns. EPHEMERAL.
+    let accumulatedReasoning = '';
     let finalResult: StreamTurnResult | null = null;
     // A provider failure rides inside an HTTP-200 SSE as status{state:'error'}
     // (the adapter wraps its own fetch) or as an 'error' event. Collecting it
@@ -166,6 +182,11 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
               accumulatedClean += cleanDelta;
               callbacks.onChunk?.(cleanDelta, accumulatedClean);
             }
+          } else if (eventName === 'reasoning') {
+            // The thinking preview (David 2026-10-30): local accumulation,
+            // callback only. Never accumulatedRaw/accumulatedClean.
+            accumulatedReasoning += data.delta || '';
+            callbacks.onReasoning?.(data.delta || '', accumulatedReasoning);
           } else if (eventName === 'complete') {
             // Client demux is the SOLE parser — server sends raw text + telemetry only.
             const parsed = this.demuxFullTurn(data.rawReply || accumulatedRaw);

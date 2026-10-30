@@ -7,7 +7,7 @@
  * break. The shape change is breaking → 3.0.0.
  */
 import { describe, it, expect } from 'vitest';
-import { exportToJSON } from '../utils/tokenCalculator';
+import { exportToJSON } from '../utils/projectExporters';
 
 describe('spec JSON export version', () => {
   it('declares 3.0.0 after the breaking shape change', () => {

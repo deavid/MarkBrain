@@ -22,6 +22,7 @@ import {
   setBackend,
 } from '../services/persistenceService';
 import { persistProjectSnapshot, attachPersistWorker } from '../application/persistWorker';
+import { requestSyncNow } from '../application/syncBus';
 import { useSessionMachine } from '../application/sessionMachine';
 import { loadProjectSnapshotIntoDomains, loadNewWorkspace } from '../application/snapshotLoader';
 import { useVpsDeltaSync } from '../application/useVpsDeltaSync';
@@ -189,7 +190,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const refreshFromServer = useCallback(async () => {
     if (getWorkspaceMode() !== 'vps' || isOfflineReplica()) return;
     await replayOutbox();
-    window.dispatchEvent(new Event('markbrain:sync-now'));
+    requestSyncNow();
     await loadUserCloudData();
     setRefreshNonce((n) => n + 1);
   }, [loadUserCloudData]);

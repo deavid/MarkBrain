@@ -18,7 +18,7 @@ import { resolveServerLaneKey, isVaultUnlocked } from '../lib/accountVault';
 import { readSettings } from './account';
 import { getDb } from '../db';
 import { logServer } from '../lib/log';
-import type { GeneratedQaPair } from '../../src/services/searchIndexStore';
+import { buildQaPrompt, parseQaPairs, fallbackQaPairs, type QaSectionPayload } from '../../src/prompts/lanes';
 import { tryRequireModelId, requireModelId, defaultModelFor } from '../lib/models';
 import { recordCallStart, recordCallEnd } from '../lib/callRecorder';
 
@@ -85,120 +85,6 @@ function quotaExplanation(
       };
 }
 
-interface SectionPayload {
-  id: string;
-  heading: string;
-  text: string;
-}
-
-/**
- * The requesting user's embed slot (Model Settings), validated against the
- * catalog. Falls back to the lane default if nothing is set — never env.
- */
-function userEmbedModelForSearch(userId: number): string {
-  try {
-    const { modelSlots } = readSettings(userId);
-    const id = modelSlots['embed'];
-    return typeof id === 'string' && id ? requireModelId(id, 'embed') : defaultModelFor('embed');
-  } catch {
-    return defaultModelFor('embed');
-  }
-}
-
-export function l2Normalize(v: number[]): number[] {
-  let sumSq = 0;
-  for (let i = 0; i < v.length; i++) sumSq += v[i] * v[i];
-  const norm = Math.sqrt(sumSq);
-  if (norm < 1e-12) return v;
-  return v.map((x) => x / norm);
-}
-
-function buildQaPrompt(title: string, subtitle: string | undefined, sections: SectionPayload[]): string {
-  const block = sections
-    .map((s) => `### ${s.heading}\n${s.text.slice(0, QA_MAX_CHARS_PER_SECTION)}`)
-    .join('\n\n---\n\n');
-
-  return `You are building a high-recall search index for the document "${title}".
-${subtitle ? `Document subtitle: ${subtitle}` : ''}
-
-Below are sections from the document. For EVERY concrete fact, rule, mechanic, number, visual detail, design philosophy, comparison or decision in these sections, write a Question-and-Answer entry that a human might ask in casual language when trying to recall or work with that detail.
-
-Rules:
-- Scale question count to the density of the text: roughly 1 Q&A per 300-600 characters of substantive text. Do not skip small concrete details (colors, timers, numbers, names, thresholds).
-- Write the question the way a person types in a chat, not how a document is phrased.
-- The answer must be short (1-2 sentences) and must come from the text.
-- The KW: line carries everyday synonyms and alternative words so keyword search can bridge vocabulary gaps (e.g. "flashlight, battery, duration").
-- Output ONLY repeatable blocks in exactly this format. No markdown fences, no JSON, no preamble:
-
-=== QA ===
-SECTION: <exact section heading from the document>
-Q: <natural question a human would type>
-A: <concise factual answer from the text, 1-2 sentences>
-KW: <comma-separated synonyms and related terms>
-
-Document sections:
-${block}`;
-}
-
-function parseQaPairs(raw: string, fallbackSections: SectionPayload[]): GeneratedQaPair[] {
-  const out: GeneratedQaPair[] = [];
-
-  const blockRe = /===\s*QA\s*===([\s\S]*?)(?====\s*QA\s*===|$)/gi;
-  const blocks: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = blockRe.exec(raw)) !== null) blocks.push(m[1]);
-
-  const takeBlock = (text: string, i: number) => {
-    const section =
-      /SECTION:\s*(.+)/i.exec(text)?.[1]?.trim() ||
-      fallbackSections[Math.min(i, fallbackSections.length - 1)]?.heading ||
-      'General';
-    const question = /(?:^|\n)\s*Q:\s*([\s\S]*?)(?=\n\s*A:|$)/i.exec(text)?.[1]?.trim();
-    const answer = /(?:^|\n)\s*A:\s*([\s\S]*?)(?=\n\s*KW:|$)/i.exec(text)?.[1]?.trim();
-    if (!question) return;
-    const kwLine = /(?:^|\n)\s*KW:\s*([\s\S]*?)$/i.exec(text)?.[1]?.trim() || '';
-    out.push({
-      id: `qa-${out.length}`,
-      sectionHeading: section,
-      question: question.replace(/\s+/g, ' ').trim(),
-      answer: (answer || '').replace(/\s+/g, ' ').trim(),
-      keywords: kwLine
-        .split(',')
-        .map((k) => k.trim())
-        .filter(Boolean)
-        .slice(0, 12),
-    });
-  };
-
-  if (blocks.length > 0) {
-    blocks.forEach(takeBlock);
-    if (out.length) return out;
-  }
-
-  // The model ignored the marker but still wrote Q:/A: pairs.
-  const loose = raw.split(/\n(?=\s*(?:SECTION:\s*)?(?:Q:))/i);
-  loose.forEach((chunk, i) => takeBlock(chunk, i));
-  return out;
-}
-
-/** Offline path: one deterministic pair per section so CI still exercises the UI. */
-function fallbackQaPairs(sections: SectionPayload[]): GeneratedQaPair[] {
-  return sections.map((s, i) => ({
-    id: `qa-${i}`,
-    sectionHeading: s.heading,
-    question: `What does "${s.heading}" cover?`,
-    answer: s.text.replace(/\s+/g, ' ').trim().slice(0, 300),
-    keywords: Array.from(
-      new Set(
-        s.heading
-          .toLowerCase()
-          .split(/[^a-z0-9.]+/)
-          .filter((w) => w.length > 3)
-      )
-    ).slice(0, 8),
-  }));
-}
-
 /**
  * Offline embeddings: a 768-dim unit vector derived from character trigrams.
  * Not semantic — its only job is to be deterministic, correctly shaped and
@@ -225,6 +111,28 @@ function fallbackEmbedding(text: string): number[] {
   return l2Normalize(vec);
 }
 
+/**
+ * The requesting user's embed slot (Model Settings), validated against the
+ * catalog. Falls back to the lane default if nothing is set — never env.
+ */
+function userEmbedModelForSearch(userId: number): string {
+  try {
+    const { modelSlots } = readSettings(userId);
+    const id = modelSlots['embed'];
+    return typeof id === 'string' && id ? requireModelId(id, 'embed') : defaultModelFor('embed');
+  } catch {
+    return defaultModelFor('embed');
+  }
+}
+
+export function l2Normalize(v: number[]): number[] {
+  let sumSq = 0;
+  for (let i = 0; i < v.length; i++) sumSq += v[i] * v[i];
+  const norm = Math.sqrt(sumSq);
+  if (norm < 1e-12) return v;
+  return v.map((x) => x / norm);
+}
+
 export function registerSearchIndexRoutes(app: Express): void {
   app.post('/api/search-index/generate-qa', async (req: Request, res: Response) => {
     // Resolved before the main try so its catch can name the model — but a
@@ -236,16 +144,16 @@ export function registerSearchIndexRoutes(app: Express): void {
       const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
       const subtitle =
         typeof req.body?.subtitle === 'string' ? req.body.subtitle.trim().slice(0, 400) : undefined;
-      const sections: SectionPayload[] = Array.isArray(req.body?.sections)
+      const sections: QaSectionPayload[] = Array.isArray(req.body?.sections)
         ? req.body.sections
             .filter(
-              (s: unknown): s is SectionPayload =>
+              (s: unknown): s is QaSectionPayload =>
                 !!s &&
-                typeof (s as SectionPayload).text === 'string' &&
-                (s as SectionPayload).text.trim().length > 0
+                typeof (s as QaSectionPayload).text === 'string' &&
+                (s as QaSectionPayload).text.trim().length > 0
             )
             .slice(0, QA_MAX_SECTIONS)
-            .map((s: SectionPayload, i: number) => ({
+            .map((s: QaSectionPayload, i: number) => ({
               id: s.id || `sec-${i}`,
               heading: (s.heading || '').trim().slice(0, 200) || 'General',
               text: s.text.slice(0, QA_MAX_CHARS_PER_SECTION),

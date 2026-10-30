@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { logServer } from '../lib/log';
 import { requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
+import { buildTitlePrompt, cleanupTitle } from '../../src/prompts/lanes';
 import { isOpenRouterModel } from '../providers/openrouter';
 import { recordCallStart, recordCallEnd } from '../lib/callRecorder';
 
@@ -26,30 +27,7 @@ app.post('/api/title-thread', async (req: Request, res: Response) => {
       return res.json({ title: null });
     }
 
-    const transcript = messages
-      .map((m: { role: string; content: string }) => `${m.role}: ${String(m.content || '').slice(0, 400)}`)
-      .join('\n')
-      .slice(0, 3000);
-
-    const stageHint =
-      Number(version) >= 2
-        ? 'More of the conversation is now known — pick the concrete topic that emerged, not just the opening question.'
-        : 'This is early in the conversation — capture the apparent topic from what is here.';
-
-    const prompt = `Give this conversation a title.
-
-${stageHint}
-Rules:
-- 2 to 6 words
-- Title Case
-- Concrete topic (what it is about), not a vague label
-- English only
-- No quotes, no colon, no trailing period, no "Chat about" / "Discussion of" prefixes
-
-Conversation:
-${transcript}
-
-Title:`;
+    const prompt = buildTitlePrompt(messages, version);
 
     const callLogId = recordCallStart({
       userId: req.user?.id ?? null,
@@ -72,15 +50,7 @@ Title:`;
       throw err;
     }
 
-    let title =
-      responseText
-        .trim()
-        .split('\n')[0]
-        .replace(/^["'“”«»]+/, '')
-        .replace(/["'“”«».!]+$/, '')
-        .trim()
-        .slice(0, 60);
-    if (!title) title = null as any;
+    const title = cleanupTitle(responseText || '');
 
     logServer('info', 'API:TITLE', `Thread title v${version} -> "${title}"`);
     res.json({ title });

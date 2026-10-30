@@ -70,7 +70,7 @@ import type { IndexAbortSignal } from './application/artifactIndexer';
 // Feature-slice modules — handlers/projections extracted from this file
 import { useContextPayload } from './ui/context/useContextPayload';
 import { groupTurnsByChapter } from './domains/02-chapter-segmentation';
-import type { ProjectExportInput } from './utils/tokenCalculator';
+import type { ProjectExportInput } from './utils/projectExporters';
 import { createWorkspaceHandlers } from './ui/workspace/createWorkspaceHandlers';
 import { useDatabaseTransfer } from './ui/workspace/useDatabaseTransfer';
 import { exportProjectTarGz } from './domains/plaintextTree';
@@ -839,7 +839,7 @@ export default function App() {
       tokenCeiling: currentContainer?.tokenCeiling || MAX_CONTEXT_TOKENS,
       // Project-default capability toggles (Package 2): the thread override
       // is applied per-send inside the queue.
-      capabilities: projectMeta.capabilities,
+      capabilities: resolveCapabilities(null, projectMeta.capabilities),
     }),
   };
 

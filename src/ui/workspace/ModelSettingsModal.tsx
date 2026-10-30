@@ -43,6 +43,7 @@ import {
   setVaultChatTier,
 } from '../../data/localKeyVault';
 import { rememberReArmKey, setVaultLocked } from '../../data/vaultReArm';
+import { requestSyncNow } from '../../application/syncBus';
 import { getWorkspaceMode, getVpsSession, patchVpsSession } from '../../services/workspaceSession';
 
 /**
@@ -331,7 +332,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     loadVpsSettings();
     logger.action('ModelSettings', 'VPS vault unlocked');
     // Confirm the fresh server state NOW — not on the next 10s poll.
-    window.dispatchEvent(new Event('markbrain:sync-now'));
+    requestSyncNow();
   };
 
   const handleVpsPasswordChange = async () => {
@@ -355,7 +356,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     setVpsPwConfirm('');
     setVaultLocked(false);
     setVpsPwOk(true);
-    window.dispatchEvent(new Event('markbrain:sync-now'));
+    requestSyncNow();
     setVpsPwMsg(
       body.keysPreserved === false
         ? 'Password changed — saved API keys could not be carried over. Re-enter them below.'

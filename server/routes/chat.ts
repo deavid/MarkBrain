@@ -3,7 +3,7 @@ import { streamFromModel } from '../providers/gemini';
 import type { LaneAiClient } from '../lib/accountVault';
 import { logServer } from '../lib/log';
 import { estimateTokens } from '../lib/tokens';
-import { DEFAULT_SYSTEM_INSTRUCTION, buildCompiledPrompt } from '../lib/prompt';
+import { DEFAULT_SYSTEM_INSTRUCTION, buildCompiledPrompt } from '../../src/prompts/prompt';
 import { DEFAULT_MODEL_ID, requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { isOpenRouterModel } from '../providers/openrouter';

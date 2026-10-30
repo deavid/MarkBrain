@@ -19,7 +19,7 @@ import {
 import type { LaneAiClient } from '../lib/accountVault';
 import { requireModelId } from '../lib/models';
 import { logServer } from '../lib/log';
-import { buildSummarizePrompt, DEFAULT_SYSTEM_INSTRUCTION } from '../lib/prompt';
+import { buildSummarizePrompt, DEFAULT_SYSTEM_INSTRUCTION } from '../../src/prompts/prompt';
 import { estimateTokens } from '../lib/tokens';
 import { parseSentinelBlocks } from '../../src/utils/sentinelParser';
 import { buildTitlePrompt, cleanupTitle } from '../../src/prompts/lanes';

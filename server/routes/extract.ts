@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { logServer } from '../lib/log';
-import { EXTRACT_READ_CHAR_CAP, buildExtractPrompt, readSentinelArtifact } from '../lib/prompt';
+import { EXTRACT_READ_CHAR_CAP, buildExtractPrompt, readSentinelArtifact } from '../../src/prompts/prompt';
 import { requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { isOpenRouterModel } from '../providers/openrouter';

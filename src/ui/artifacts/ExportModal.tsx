@@ -5,7 +5,7 @@ import {
   exportToMarkdown,
   exportToYAML,
   type ProjectExportInput,
-} from '../../utils/tokenCalculator';
+} from '../../utils/projectExporters';
 import { Download, Copy, Check, X, FileText, Code, FileJson, Archive } from 'lucide-react';
 
 interface ExportModalProps {

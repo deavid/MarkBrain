@@ -20,7 +20,7 @@ import {
   buildExtractPrompt,
   buildSummarizePrompt,
   readSentinelArtifact,
-} from '../../server/lib/prompt';
+} from '../../src/prompts/prompt';
 import { artifactXml } from '../domains/03-optical-compiler';
 import { getArtifactCut } from '../domains/01-artifact-document/ArtifactDocumentDomain';
 import { StreamProtocolDomain } from '../domains/03-stream-protocol';

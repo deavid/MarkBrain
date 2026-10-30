@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { serializeDatabase, parseDatabaseExport } from '../services/persistenceService';
-import { exportToJSON, exportToMarkdown, exportToYAML } from '../utils/tokenCalculator';
+import { exportToJSON, exportToMarkdown, exportToYAML } from '../utils/projectExporters';
 import { setKeySlot, getKeySlot } from '../data/keySlots';
 import { setByokEnabledForTests } from '../data/byokFlag';
 import {

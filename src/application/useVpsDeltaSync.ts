@@ -22,6 +22,7 @@ import type { IArtifactVersioningDomain } from '../domains/01-artifact-versionin
 import type { ThreadRegistry } from '../domains/06-chat-threads';
 import { reconcileThreadAttachments } from '../domains/06-chat-threads';
 import { flushServerMutations } from './serverMutationQueue';
+import { subscribeSyncNow } from './syncBus';
 import { setVaultLocked } from '../data/vaultReArm';
 import { setServerKeySnapshot } from '../data/sendReadiness';
 import { apiFetch } from '../gateway/api';
@@ -285,10 +286,11 @@ export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
     };
     const onFocus = () => void pull();
 
-    // Manual "sync now" (sidebar refresh button): same path as the wake poll,
-    // just user-triggered. Guarded — inFlight makes double-taps harmless.
+    // Manual "sync now" (sidebar refresh button, vault unlock, job done):
+    // same path as the wake poll, just triggered. Guarded — inFlight makes
+    // double-taps harmless.
     const onSyncNow = () => void pull();
-    window.addEventListener('markbrain:sync-now', onSyncNow);
+    const unsubscribeSyncNow = subscribeSyncNow(onSyncNow);
 
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
     if (typeof window !== 'undefined') window.addEventListener('focus', onFocus);
@@ -300,7 +302,7 @@ export function useVpsDeltaSync(deps: VpsDeltaSyncDeps): void {
       clearInterval(timer);
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
       if (typeof window !== 'undefined') window.removeEventListener('focus', onFocus);
-    window.removeEventListener('markbrain:sync-now', onSyncNow);
+      unsubscribeSyncNow();
     };
   }, [activeProjectId, lastRevisionRef]);
 }

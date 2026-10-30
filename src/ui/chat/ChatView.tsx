@@ -5,8 +5,8 @@ import {
   ChapterTurns,
   ExtractedArtifact,
   Turn,
-  getMellowPastelColor,
 } from '../../types';
+import { getMellowPastelColor } from '../../utils/pastelColor';
 import type { ProjectMetadata } from '../../domains/00-workspace/types';
 import {
   Sparkles,
@@ -72,6 +72,7 @@ import {
 import { getWorkspaceMode, isOfflineReplica } from '../../services/workspaceSession';
 import { ttsDeviceKey, getCachedTtsBlob, storeTtsAudio, hasCachedTts } from '../../data/ttsDeviceCache';
 import type { DraftProgress } from '../../application/draftQueue';
+import { requestSyncNow } from '../../application/syncBus';
 import { getModelForSlot } from '../../data/modelConfig';
 import {
   evaluateSendReadiness,
@@ -687,7 +688,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       setComposerUnlockOpen(false);
       // Confirm the fresh server state (keys configured, tier, lock) NOW —
       // not on the next 10s poll.
-      window.dispatchEvent(new Event('markbrain:sync-now'));
+      requestSyncNow();
     } catch {
       setComposerUnlockErr('Unlock failed — try again.');
     } finally {

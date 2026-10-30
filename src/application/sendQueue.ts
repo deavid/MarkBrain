@@ -19,12 +19,13 @@
  */
 import type { DomainContextValue } from '../domains/DomainRegistry';
 import {
-  getMellowPastelColor,
   type Artifact,
   type ExtractedArtifact,
   type ModelOption,
 } from '../types';
+import { getMellowPastelColor } from '../utils/pastelColor';
 import { estimateTokens } from '../utils/estimateTokens';
+import { requestSyncNow } from './syncBus';
 import type { TurnMeta } from '../domains/01-dialogue-timeline/types';
 import { serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 import { logger } from '../utils/logger';
@@ -383,7 +384,7 @@ export class SendQueue {
         .finally(() => {
           this.drafts.resolve(item.id);
           // Wake the delta poller so the pair lands now, not on the next tick.
-          if (typeof window !== 'undefined') window.dispatchEvent(new Event('focus'));
+          requestSyncNow(); // the server may have committed our job — pull NOW
           this.getDeps().triggerReRender();
           this.kick();
         });
@@ -885,7 +886,7 @@ export class SendQueue {
       if (!known) {
         // Completed and deleted server-side — the pair arrives via delta.
         this.drafts.resolve(item.id);
-        if (typeof window !== 'undefined') window.dispatchEvent(new Event('focus'));
+        requestSyncNow(); // the server may have committed our job — pull NOW
         return;
       }
       if (known.state === 'failed' || known.state === 'stopped') {
@@ -951,7 +952,7 @@ export class SendQueue {
         if (res.status === 404) {
           // Completed & deleted — commit is already in SQLite.
           this.drafts.resolve(item.id);
-          if (typeof window !== 'undefined') window.dispatchEvent(new Event('focus'));
+          requestSyncNow(); // the server may have committed our job — pull NOW
           deps.triggerReRender();
           return;
         }
@@ -1034,7 +1035,7 @@ export class SendQueue {
         } else if (event === 'complete') {
           this.drafts.resolve(item.id);
           deps.markThreadUnread(item.threadId);
-          if (typeof window !== 'undefined') window.dispatchEvent(new Event('focus')); // delta pull NOW
+          requestSyncNow(); // delta pull NOW
           deps.triggerReRender();
           return true;
         } else if (event === 'error') {

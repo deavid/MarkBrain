@@ -1,14 +1,13 @@
 import React, { useState } from 'react';
 import { ArrowUpRight, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Granularity } from '../../domains/granularity';
+import { GRANULARITY_LABEL, GRANULARITY_ORDER } from '../../domains/granularity';
 import {
-  GRANULARITY_LABEL,
-  GRANULARITY_ORDER,
   AttachmentVisualState,
   ATTACHMENT_STATE_PALETTE,
   getAttachmentStatePalette,
   getGranularityChipClass,
-} from '../../domains/granularity';
+} from './attachmentPalette';
 
 /**
  * The one attachment widget. Same visual object, same two verbs, on every

@@ -1,5 +1,5 @@
-import type { AttachmentVisualState } from '../../domains/granularity';
-import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
+import type { AttachmentVisualState } from './attachmentPalette';
+import { ATTACHMENT_STATE_PALETTE } from './attachmentPalette';
 
 /**
  * Numbers behind the orb and the 5px rail. The rail is the payload itself, in

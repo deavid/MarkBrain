@@ -1,16 +1,13 @@
 /**
  * Executable form of the colour law and the rail maths (design-docs/
  * 12_PLAN_OF_RECORD.md §1). This file is why the palette block in
- * domains/granularity.ts does not need to argue its own case in prose: a wrong
+ * ui/context/attachmentPalette.ts does not need to argue its own case in prose: a wrong
  * hue step, a bright row fill or a linear rail height fails here with a number.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import {
-  ATTACHMENT_STATE_PALETTE,
-  GRANULARITY_ORDER,
-  getGranularityChipClass,
-} from '../domains/granularity';
+import { GRANULARITY_ORDER } from '../domains/granularity';
+import { ATTACHMENT_STATE_PALETTE, getGranularityChipClass } from '../ui/context/attachmentPalette';
 import { computeRailHeightPct, RAIL_TOKEN_YARDSTICK } from '../ui/context/ambientTelemetry';
 import { formatAttachmentProvenance } from '../ui/context/AttachmentControls';
 import { resolveRetryAnchorIndex } from '../application/sendQueue';

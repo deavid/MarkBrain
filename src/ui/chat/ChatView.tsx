@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useSyncExternalStore, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { isOnline, subscribeOnline } from '../../application/connectivity';
 import {
   Artifact,
@@ -6,139 +6,27 @@ import {
   ExtractedArtifact,
   Turn,
 } from '../../types';
-import { getMellowPastelColor } from '../../utils/pastelColor';
 import type { ProjectMetadata } from '../../domains/00-workspace/types';
-import {
-  Sparkles,
-  Send,
-  Lock,
-  Loader2,
-  Volume2,
-  VolumeX,
-  ChevronDown,
-  ChevronUp,
-  BookmarkPlus,
-  Check,
-  Compass,
-  Square,
-  Terminal,
-  AlertCircle,
-  Cloud,
-  Brain,
-  Plus,
-  Pencil,
-  Code,
-  Copy,
-  MoreVertical,
-  FilePlus2,
-  Link2,
-  Unlink2,
-  ScrollText,
-} from 'lucide-react';import { logger } from '../../utils/logger';
-import { copyText } from '../../utils/clipboard';
-import { isChapterInProgress } from '../../domains/02-chapter-segmentation';
-import { getTtsSnapshot, ttsTransport } from '../context/ttsTransport';
-import { MessageBody } from './MessageBody';
-import { renderMarkdown } from '../../utils/markdown';
-import { flipMessageView, messageIsRaw } from './chatRenderMode';
-import type { ChatRenderMode } from './chatRenderMode';
-import { composerKeyAction, enterSendHint } from './sendOnEnter';
-import type { EnterSendMode } from './sendOnEnter';
-import { ThreadRuntime, ChatAttachment, isAttachmentStaged } from '../../domains/06-chat-threads';
+import { Loader2, Square, Brain } from 'lucide-react';
+import { logger } from '../../utils/logger';
+import { ChatAttachment, isAttachmentStaged } from '../../domains/06-chat-threads';
 import type { ChatCapabilities } from '../../domains/06-chat-threads/types';
 import { resolveCapabilities } from '../../domains/06-chat-threads/types';
-import { CapabilitiesPopover } from './CapabilitiesPopover';
-import type { Granularity, AttachmentVisualState } from '../../domains/granularity';
-import { GRANULARITY_LABEL, cutIncludes, getAttachmentStatePalette } from '../../domains/granularity';
-import {
-  AttachmentDot,
-  GranularityChips,
-  AttachmentRow,
-  StagedTray,
-  dotVerbLabel,
-  formatAttachmentProvenance,
-  formatTokens,
-} from '../context/AttachmentControls';
-import { tts, authUnlock } from '../../gateway/api';
-import { unlockLocalVault, hasSavedLocalVault, isLocalVaultUnlocked } from '../../data/localKeyVault';
-import {
-  isVaultLocked,
-  setVaultLocked,
-  subscribeVaultLock,
-  getReArmKey,
-  rememberReArmKey,
-  tryReArmVault,
-} from '../../data/vaultReArm';
-import { getWorkspaceMode, isOfflineReplica } from '../../services/workspaceSession';
-import { ttsDeviceKey, getCachedTtsBlob, storeTtsAudio, hasCachedTts } from '../../data/ttsDeviceCache';
+import type { ChatRenderMode } from './chatRenderMode';
+import type { EnterSendMode } from './sendOnEnter';
+import type { Granularity } from '../../domains/granularity';
+import { StagedTray } from '../context/AttachmentControls';
+import { isOfflineReplica } from '../../services/workspaceSession';
 import type { DraftProgress } from '../../application/draftQueue';
-import { requestSyncNow } from '../../application/syncBus';
-import { getModelForSlot } from '../../data/modelConfig';
-import {
-  evaluateSendReadiness,
-  subscribeReadiness,
-  getReadinessVersion,
-} from '../../data/sendReadiness';
+import { ArchiveBanner, ChatHeader } from './ChatHeader';
+import { ChapterSection } from './ChapterSection';
+import type { MessageBubbleSharedProps } from './MessageBubble';
+import { useMessageTts } from './useMessageTts';
+import { DraftPhaseChip, DraftQueueTray } from './DraftQueueTray';
+import { ComposerUnlockModal, HeroComposer, ThreadComposer, useComposer } from './ChatComposer';
 
-/** Ticking elapsed clock for a draft phase (design 23 §2.2) — cleans up. */
-function useElapsed(since: number | undefined): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (since === undefined) return;
-    setNow(Date.now());
-    const t = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(t);
-  }, [since]);
-  return since === undefined ? 0 : Math.max(0, Math.floor((now - (since ?? now)) / 1000));
-}
 
-const PHASE_LABEL: Record<string, string> = {
-  queued: 'QUEUED',
-  connecting: 'CONNECTING',
-  'awaiting-first-token': 'AWAITING FIRST TOKEN',
-  writing: 'WRITING',
-};
-
-/** The one phase chip: honest state + clock (+ chars once writing). */
-const DraftPhaseChip: React.FC<{
-  progress?: DraftProgress;
-  kind?: 'send' | 'regenerate';
-  fallback: string;
-}> = ({ progress, kind, fallback }) => {
-  const secs = useElapsed(progress ? (progress.phase === 'writing' ? progress.firstTokenAt ?? progress.since : progress.since) : undefined);
-  const prefix = kind === 'regenerate' ? 'REGENERATE · ' : '';
-  if (!progress) return <>{prefix}{fallback}</>;
-  const label = PHASE_LABEL[progress.phase] ?? String(progress.phase).toUpperCase();
-  if (progress.phase === 'queued') return <>{prefix}{label}</>;
-  if (progress.phase === 'writing') {
-    const chars = progress.chars ?? 0;
-    return (
-      <>
-        {prefix}
-        {label} · {secs}s · {chars.toLocaleString()} chars
-      </>
-    );
-  }
-  if (progress.phase === 'awaiting-first-token') {
-    return (
-      <>
-        {prefix}
-        {label} · {secs}s — the model is thinking; no text yet
-      </>
-    );
-  }
-  return (
-    <>
-      {prefix}
-      {label} · {secs}s
-    </>
-  );
-};
-
-/** How many lines the composer grows to fit before it starts scrolling. */
-const COMPOSER_MAX_LINES = 5;
-
-interface ChatViewProps {
+export interface ChatViewProps {
   project: ProjectMetadata;
   chapters: ChapterTurns[];
   onSendMessage: (text: string) => Promise<void>;
@@ -223,13 +111,6 @@ interface ChatViewProps {
   onRecalibrateChapter?: (chapterId: string, steeringPrompt?: string) => Promise<void>;
 }
 
-const CHAPTER_PASTEL_COLORS = [
-  { bgHeader: 'bg-surface-2', dot: '#7093be', text: 'text-[#8ab1e0]' }, // slate steel blue
-  { bgHeader: 'bg-surface-2', dot: '#5da88b', text: 'text-[#7ec2a6]' }, // mellow sage green
-  { bgHeader: 'bg-surface-1', dot: '#9d80ba', text: 'text-[#b9a1d4]' }, // dark muted mauve
-  { bgHeader: 'bg-surface-1', dot: '#b59765', text: 'text-[#d6be94]' }, // mellow dark amber
-  { bgHeader: 'bg-surface-2', dot: '#64a3ba', text: 'text-[#8ac5db]' }, // dark muted teal
-];
 
 export const ChatView: React.FC<ChatViewProps> = ({
   project,
@@ -281,113 +162,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onShiftBoundary,
   onRecalibrateChapter,
 }) => {
-  // Controlled when App lifts the draft; local fallback for uncontrolled mounts.
-  const [localDraft, setLocalDraft] = useState('');
-  const draftIsControlled = draftText !== undefined;
-  const inputText = draftIsControlled ? draftText : localDraft;
-  const setInputText = (value: string) => {
-    if (draftIsControlled) onDraftTextChange?.(value);
-    else setLocalDraft(value);
-  };
-  const [renamingTitle, setRenamingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState('');
-  const [titleBusy, setTitleBusy] = useState(false);
-  const [titleFlash, setTitleFlash] = useState<'ok' | 'fail' | null>(null);
   const [feedScrolled, setFeedScrolled] = useState(false);
-
-  // Per-message view overrides. Absent key = follow the sidebar's default, so
-  // changing the global switch still speaks for every bubble that was never
-  // individually flipped.
-  const [rawOverrides, setRawOverrides] = useState<Record<string, boolean>>({});
-  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-  const chatRenderRef = useRef<ChatRenderMode>(chatRender);
-
-  useEffect(() => {
-    if (chatRenderRef.current === chatRender) return;
-    chatRenderRef.current = chatRender;
-    setRawOverrides({});
-  }, [chatRender]);
-
-  const isMessageRaw = (messageId: string) => messageIsRaw(rawOverrides, messageId, chatRender);
-
-  const toggleMessageRaw = (message: Turn) => {
-    const next = !isMessageRaw(message.id);
-    logger.action('ChatView', `Message view: ${next ? 'raw source' : 'rendered markdown'}`, {
-      messageId: message.id,
-      role: message.role,
-    });
-    setRawOverrides((prev) => flipMessageView(prev, message.id, chatRender));
-  };
-
-  const handleCopyMessage = async (message: Turn) => {
-    const ok = await copyText(message.content);
-    if (!ok) {
-      logger.warn('ChatView', 'Clipboard write failed for message markdown', {
-        messageId: message.id,
-        role: message.role,
-      });
-      return;
-    }
-    logger.action('ChatView', 'Copied message markdown to clipboard', {
-      messageId: message.id,
-      role: message.role,
-      chars: message.content.length,
-    });
-    setCopiedMessageId(message.id);
-    window.setTimeout(() => {
-      setCopiedMessageId((current) => (current === message.id ? null : current));
-    }, 1600);
-  };
-
-  const startTitleRename = () => {
-    setTitleDraft(threadTitleState === 'placeholder' ? '' : threadTitle);
-    setRenamingTitle(true);
-    setTitleFlash(null);
-  };
-  const commitTitleRename = () => {
-    const next = titleDraft.trim();
-    setRenamingTitle(false);
-    if (!next || next === threadTitle) return;
-    logger.action('ChatView', 'Renamed thread from the chat title', { title: next });
-    onRenameTitle?.(next);
-  };
-  const cancelTitleRename = () => {
-    setRenamingTitle(false);
-    setTitleDraft('');
-  };
-  const handleAutoTitle = async () => {
-    if (titleBusy || !onSuggestTitle) return;
-    setTitleBusy(true);
-    setTitleFlash(null);
-    try {
-      const applied = await onSuggestTitle();
-      setTitleFlash(applied === false ? 'fail' : 'ok');
-    } catch {
-      setTitleFlash('fail');
-    } finally {
-      setTitleBusy(false);
-      window.setTimeout(() => setTitleFlash(null), 2600);
-    }
-  };
-
-  const [showPrompts, setShowPrompts] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const heroInputRef = useRef<HTMLTextAreaElement>(null);
-  const threadInputRef = useRef<HTMLTextAreaElement | null>(null);
   const prevMessagesCountRef = useRef<number>(0);
-
   const totalMessagesCount = (chapters || []).reduce(
     (acc, grp) => acc + (grp.turns ? grp.turns.length : 0),
     0
   );
-
-  useEffect(() => {
-    if (totalMessagesCount === 0 && heroInputRef.current) {
-      heroInputRef.current.focus();
-    }
-  }, [totalMessagesCount]);
-
   useEffect(() => {
     let timer: any = null;
     if (isLoading) {
@@ -402,11 +184,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
       if (timer) clearInterval(timer);
     };
   }, [isLoading]);
-
-  // ChatView only plays back with the voice chosen in the sidebar.
-  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
-  const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null);
   const online = useSyncExternalStore(subscribeOnline, isOnline);
+  // Per-message voice playback (device cache scan, download-and-cache, transport).
+  const { playingMessageId, ttsLoadingId, cachedIds, ttsFailedIds, handlePlayTTS } = useMessageTts(
+    chapters,
+    chosenVoice,
+    online
+  );
 
   const [collapsedChapterIds, setCollapsedChapterIds] = useState<Record<string, boolean>>({});
   // Chapter body layers (description / summary) — COLLAPSED by default
@@ -418,7 +202,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setCollapsedChapterLayers((prev) => ({ ...prev, [`${chapterId}:${layer}`]: !(prev[`${chapterId}:${layer}`] ?? true) }));
   const [summarizingIds, setSummarizingIds] = useState<Record<string, boolean>>({});
   const [summarizeErrorIds, setSummarizeErrorIds] = useState<Record<string, string>>({});
-
   // Chat capability toggles: what the checkboxes show is the RESOLVED state —
   // defaults ← project. One scope (2026-10-29): no per-chat overrides.
   const resolvedCapabilities = resolveCapabilities(null, projectCapabilities);
@@ -430,11 +213,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // Inline "Split Chapter" form state
   const [declaringMessageId, setDeclaringMessageId] = useState<string | null>(null);
   const [newChapterTitle, setNewChapterTitle] = useState('');
-
   const toggleCollapseChapter = (id: string) => {
     setCollapsedChapterIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
-
   // Design 23 §2.1.2: while the head draft is queued and nothing is sending,
   // the tray is THAT draft's editor — rows come from its snapshot. Otherwise
   // it shows the live staged set (arms the next send).
@@ -449,33 +230,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     : 'arms the next send · removable until then';
   const activeDraftForPhase =
     drafts.find((d) => d.state === 'sending') ?? drafts.find((d) => d.state === 'queued');
-  // VAULT_LOCKED unlock row state (design 23 §2.3) — per draft card.
-  const [unlockPw, setUnlockPw] = useState<Record<string, string>>({});
-  const [unlockErr, setUnlockErr] = useState<Record<string, string>>({});
-  const [unlockBusy, setUnlockBusy] = useState<Record<string, boolean>>({});
-  const handleUnlockDraft = async (d: { id: string }) => {
-    const pw = unlockPw[d.id] ?? '';
-    if (!pw) {
-      setUnlockErr((e) => ({ ...e, [d.id]: 'Enter your password.' }));
-      return;
-    }
-    setUnlockBusy((b) => ({ ...b, [d.id]: true }));
-    setUnlockErr((e) => ({ ...e, [d.id]: '' }));
-    try {
-      const ok =
-        getWorkspaceMode() === 'vps' ? (await authUnlock(pw)).ok : await unlockLocalVault(pw);
-      if (ok) {
-        onRetryDraft?.(d.id);
-        setUnlockPw((p) => ({ ...p, [d.id]: '' }));
-      } else {
-        setUnlockErr((e) => ({ ...e, [d.id]: 'Wrong password — try again.' }));
-      }
-    } catch {
-      setUnlockErr((e) => ({ ...e, [d.id]: 'Unlock failed — try again.' }));
-    } finally {
-      setUnlockBusy((b) => ({ ...b, [d.id]: false }));
-    }
-  };
   const committedAttachments = attachments.filter((a) => !isAttachmentStaged(a));
 
   const attachmentsOfTurn = (message: Turn, globalIndex: number): ChatAttachment[] =>
@@ -501,7 +255,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const titleFor = (artifactId: string) => artifactTitles[artifactId] || artifactId;
   const chapterList = chapters.map((entry) => entry.chapter);
   const subtitleFor = (artifactId: string) => artifactSubtitles[artifactId] || '';
-
   /**
    * Fill a missing layer WITHOUT touching the chosen cut. "Write it" is a
    * request for text, never a stealth change of what gets sent.
@@ -521,7 +274,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
       })
       .finally(() => setSummarizingIds((prev) => ({ ...prev, [chapterId]: false })));
   };
-
   /**
    * The chapter cut control: tapping a granularity unfolds the chapter AND, if
    * that layer does not exist yet, fires the summarize call — so the body is
@@ -536,7 +288,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (!missingLayer || chapter.turns.length === 0) return;
     triggerChapterSummarize(chapter.chapter.id);
   };
-
   // The tray moved into the feed, so a stage/unstage has to bring it into view.
   const stagedCount = stagedAttachments.length;
   useEffect(() => {
@@ -544,17 +295,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stagedCount]);
-
-  // A thread/view switch unmounts the feed while audio may still be playing:
-  // idle the transport, or the sidebar card shows a track that no longer
-  // exists.
-  useEffect(() => {
-    return () => {
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-      ttsTransport.end();
-    };
-  }, []);
-
   // Auto-scroll ONLY when a new message is appended (NOT on summary toggles or loading state)
   const isFirstMount = useRef(true);
   useEffect(() => {
@@ -569,366 +309,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
     prevMessagesCountRef.current = totalMessagesCount;
   }, [totalMessagesCount]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // design 25: a send that cannot work is never attempted — locked keys
-    // open the unlock popup; missing keys open Model Settings → Keys.
-    if (sendBlocked) {
-      void handlePadlockClick();
-      return;
-    }
-    if (!inputText.trim()) {
-      logger.warn('ChatView', 'Ignored empty submission attempt');
-      return;
-    }
-    if (isLoading) {
-      logger.warn('ChatView', 'Ignored submission while reasoning stream is active');
-      return;
-    }
-    const msg = inputText;
-    logger.action('ChatView', 'User sent message', { length: msg.length, snippet: msg.substring(0, 80) });
-    setInputText('');
-    setShowPrompts(false);
-    onSendMessage(msg);
-  };
-
-  /* ── design 25: proactive vault padlock ─────────────────────────────────── */
-  // The send button IS the lock indicator: locked keys show a padlock, and a
-  // locked send opens the unlock row instead of failing after the fact.
-  const vaultLocked = useSyncExternalStore(subscribeVaultLock, isVaultLocked);
-  // design 25 §1.1: "no key configured" is a SECOND blocked state — a send
-  // that cannot work is never attempted; the user is routed to Model
-  // Settings → Keys instead.
-  useSyncExternalStore(subscribeReadiness, getReadinessVersion);
-  const chatModelId = getModelForSlot('chat') ?? '';
-  const readiness = evaluateSendReadiness(chatModelId);
-  const sendBlocked = !readiness.ok;
   // Offline replica is a read-only mirror (decision 2026-10-29): the user can
   // look, never touch — no sends, no unlocks, no server calls.
   const offlineReplica = isOfflineReplica();
-  const [composerUnlockOpen, setComposerUnlockOpen] = useState(false);
-  const [composerPw, setComposerPw] = useState('');
-  const [composerUnlockErr, setComposerUnlockErr] = useState('');
-  const [composerUnlockBusy, setComposerUnlockBusy] = useState(false);
-  // Which messages have their audio ON THIS DEVICE (the offline playback set)?
-  const [cachedIds, setCachedIds] = useState<Set<string>>(new Set());
-  // Download failures must be VISIBLE — a silent no-op click is the bug David
-  // hit ("I had to click like 4 times to get the download to start").
-  const [ttsFailedIds, setTtsFailedIds] = useState<Set<string>>(new Set());
-  const ttsModelId = getModelForSlot('tts');
-  // Rescan when the thread, the voice, or the tts model changes. The signature
-  // (ids + voice + model) keeps the IDB scan from rerunning on every render.
-  const cachedScanSig = `${chapters.map((c) => c.turns.map((t) => t.id).join(',')).join('|')}|${chosenVoice}|${ttsModelId}`;
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      const next = new Set<string>();
-      for (const grp of chapters) {
-        for (const t of grp.turns) {
-          if (!t.content) continue;
-          if (await hasCachedTts(await ttsDeviceKey(ttsModelId, chosenVoice, t.content))) next.add(t.id);
-        }
-      }
-      if (alive) setCachedIds(next);
-    })();
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cachedScanSig]);
-  // Local mode: derive the initial state from the browser vault (the bus has
-  // no history across mounts; the VPS bus is fed by login + the delta poll).
-  useEffect(() => {
-    if (getWorkspaceMode() !== 'local') return;
-    setVaultLocked(hasSavedLocalVault() ? !isLocalVaultUnlocked() : false);
-  }, []);
 
-  const handlePadlockClick = async () => {
-    // No configured key: no send to unlock — route to Model Settings → Keys.
-    if (readiness.reason === 'no-key') {
-      onOpenKeySettings?.();
-      return;
-    }
-    // A tab holding a derived key re-arms silently — no password needed.
-    if (getWorkspaceMode() === 'vps' && getReArmKey()) {
-      if (await tryReArmVault()) return;
-    }
-    setComposerUnlockErr('');
-    setComposerUnlockOpen(true);
-  };
-
-  const handleComposerUnlock = async () => {
-    const pw = composerPw;
-    if (!pw) {
-      setComposerUnlockErr('Enter your password.');
-      return;
-    }
-    setComposerUnlockBusy(true);
-    setComposerUnlockErr('');
-    try {
-      if (getWorkspaceMode() === 'vps') {
-        const res = await authUnlock(pw);
-        if (!res.ok) {
-          setComposerUnlockErr('Wrong password — try again.');
-          return;
-        }
-        const body = (await res.json().catch(() => null)) as { rearmKey?: string } | null;
-        rememberReArmKey(body?.rearmKey);
-        setVaultLocked(false);
-      } else {
-        const ok = await unlockLocalVault(pw);
-        if (!ok) {
-          setComposerUnlockErr('Wrong passphrase — try again.');
-          return;
-        }
-        setVaultLocked(false);
-      }
-      setComposerPw('');
-      setComposerUnlockOpen(false);
-      // Confirm the fresh server state (keys configured, tier, lock) NOW —
-      // not on the next 10s poll.
-      requestSyncNow();
-    } catch {
-      setComposerUnlockErr('Unlock failed — try again.');
-    } finally {
-      setComposerUnlockBusy(false);
-    }
-  };
-
-  /** The shared unlock POPUP — opened by the padlock (design 25 §1). */
-  const composerUnlockRef = useRef<HTMLInputElement | null>(null);
-  useEffect(() => {
-    if (composerUnlockOpen) {
-      setComposerPw('');
-      setComposerUnlockErr('');
-      // Focus lands AFTER the overlay paints — a rAF keeps it reliable.
-      const id = requestAnimationFrame(() => composerUnlockRef.current?.focus());
-      return () => cancelAnimationFrame(id);
-    }
-  }, [composerUnlockOpen]);
-
-  const composerUnlockModal = vaultLocked && composerUnlockOpen ? (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      data-testid="composer-vault-unlock-row"
-      onClick={() => setComposerUnlockOpen(false)}
-    >
-      <div
-        className="rounded-2xl bg-surface-1 shadow-pop p-4 w-[320px] space-y-2"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2">
-          <Lock className="w-4 h-4 text-amber-400" />
-          <span className="text-xs font-semibold text-ink">Keys are locked</span>
-        </div>
-        <p className="text-11 text-ink-faint">
-          Enter your password to unlock. Sends are held until then.
-        </p>
-        <div className="flex items-center gap-2">
-          <input
-            ref={composerUnlockRef}
-            type="password"
-            data-testid="composer-vault-unlock-password"
-            value={composerPw}
-            onChange={(e) => setComposerPw(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void handleComposerUnlock();
-              }
-              if (e.key === 'Escape') setComposerUnlockOpen(false);
-            }}
-            placeholder="Password"
-            aria-label="Password to unlock your keys"
-            className="flex-1 rounded-lg bg-recess-1 shadow-well px-2.5 py-1.5 text-xs text-ink placeholder:text-ink-faint focus:outline-none"
-          />
-          <button
-            type="button"
-            data-testid="composer-vault-unlock"
-            onClick={() => void handleComposerUnlock()}
-            disabled={composerUnlockBusy}
-            className="rounded-lg bg-amber-500 hover:bg-amber-400 px-3 py-1.5 text-xs font-semibold text-[#231a02] disabled:opacity-50 cursor-pointer"
-          >
-            Unlock
-          </button>
-        </div>
-        {composerUnlockErr && <span className="text-11 text-red-400">{composerUnlockErr}</span>}
-      </div>
-    </div>
-  ) : null;
-
-  /**
-   * One keyboard contract for both composers. Shift+Enter and Ctrl/Cmd+Enter
-   * are fixed; only the bare Enter key answers to the `enterSend` preference.
-   * A 'newline' verdict deliberately does NOT preventDefault — the textarea
-   * inserts the break itself, which is the whole point.
-   */
-  /**
-   * Grow the composer to fit its text, up to COMPOSER_MAX_LINES.
-   *
-   * A textarea with rows={1} shows ONE row and scrolls the rest away, so a
-   * multi-line message was invisible while you typed it. This is deliberately
-   * capped: the composer belongs to typing, not to reading, so it opens small
-   * and never eats the thread.
-   */
-  const autoGrow = (el: HTMLTextAreaElement | null) => {
-    if (!el) return;
-    el.style.height = 'auto';
-    const cs = window.getComputedStyle(el);
-    const lineHeight = parseFloat(cs.lineHeight) || 22;
-    const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-    const max = lineHeight * COMPOSER_MAX_LINES + padY;
-    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
-  };
-
-  // Re-measure on every text change: paste, and the clear-after-send both land
-  // without an onChange we control.
-  useEffect(() => {
-    autoGrow(heroInputRef.current);
-    autoGrow(threadInputRef.current);
-  }, [inputText]);
-
-  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const action = composerKeyAction(
-      { key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing },
-      enterSend
-    );
-    if (action !== 'send') return;
-    e.preventDefault();
-    if (inputText.trim() && !isLoading) {
-      handleSubmit(e);
-    }
-  };
-
-  const stopPlayback = useCallback(() => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    ttsTransport.end();
-    setPlayingMessageId(null);
-  }, []);
-
-  /* ── receipts (2026-10-30): every parsed action of a reply is VISIBLE ──────
-   * The raw stream contains sentinels (<artifact_upsert>, <topic_shift>) that
-   * the pipeline strips and turns into real actions. Stripping them silently
-   * means two different raw messages can render as the same chat bubble —
-   * unacceptable: the proof of what the model DID lives here, as chips.
-   * Data is whatever the turn already carries (extractedArtifacts, meta
-   * attachments, chapter starts) — no extra fetch, works offline. */
-  const receiptsFor = (message: Turn) => {
-    const created = message.extractedArtifacts ?? [];
-    const linked = (message.meta?.attachments ?? [])
-      .map((a) => a.artifactId)
-      .filter((id, i, all) => all.indexOf(id) === i)
-      .filter((id) => !created.some((a) => a.id === id));
-    const chapter = chapters.find((c) => c.turns[0]?.id === message.id);
-    return { created, linked, chapter };
-  };
-  /** The VPS job behind a turn pair: turn ids embed it (turn-ai-job-…). */
-  const jobIdFor = (message: Turn): string | null =>
-    message.id.includes('-job-') ? message.id.replace(/^turn-(user|ai)-/, '') : null;
-
-  const handlePlayTTS = async (message: Turn) => {
-    if (playingMessageId === message.id) {
-      stopPlayback();
-      return;
-    }
-    const model = getModelForSlot('tts');
-    const key = await ttsDeviceKey(model, chosenVoice, message.content);
-
-    // David's law (2026-10-29): the device copy is the ONLY playback source.
-    // First click downloads and caches; the second plays with zero network.
-    const cached = await getCachedTtsBlob(key);
-    if (cached) {
-      const playFromCache = async () => {
-        try {
-          await ttsTransport.playDeviceBlob(cached, message.id, () => {
-            setPlayingMessageId(null);
-            ttsTransport.end();
-          });
-          setPlayingMessageId(message.id);
-          logger.action('ChatView', 'TTS playback started from device cache', {
-            messageId: message.id,
-            blobSize: cached.size,
-            blobType: cached.type,
-            duration: null,
-          });
-        } catch (err) {
-          logger.warn('ChatView', 'Cached audio playback failed', err);
-          ttsTransport.end();
-        }
-      };
-      void playFromCache();
-      return;
-    }
-
-    // Not on the device yet: this click DOWNLOADS AND CACHES (server
-    // generates on MISS, serves its disk cache on HIT). It does not play —
-    // the second click plays from the device.
-    if (!online) {
-      logger.warn('ChatView', 'Audio not cached on this device and offline — downloading needs a connection');
-      return;
-    }
-    setTtsLoadingId(message.id);
-    ttsTransport.begin(message.id);
-    setTtsFailedIds((prev) => {
-      const n = new Set(prev);
-      n.delete(message.id);
-      return n;
-    });
-    try {
-      const res = await tts({
-        text: message.content,
-        voice: chosenVoice,
-        model,
-      });
-      if (!res.ok) {
-        let serverError = `HTTP ${res.status}`;
-        try {
-          const errBody = await res.json();
-          if (typeof errBody?.error === 'string' && errBody.error) {
-            serverError = errBody.error;
-          }
-        } catch {
-          /* non-JSON error body */
-        }
-        throw new Error(serverError);
-      }
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.startsWith('audio/ogg')) {
-        // 21F: the server did the encode — take the bytes, store them here.
-        const blob = await res.blob();
-        await storeTtsAudio(key, blob);
-        setCachedIds((prev) => new Set(prev).add(message.id));
-        ttsTransport.end();
-        logger.action('ChatView', 'TTS audio downloaded and cached on device', { messageId: message.id });
-        return;
-      }
-
-      // Local/direct backend answers JSON PCM (base64 in JSON). The law is
-      // absolute — must be cached to play — so this click DOWNLOADS AND
-      // CACHES the PCM as a blob too. The second click plays it.
-      const data = await res.json();
-      if (!data.audioData) {
-        throw new Error(typeof data.error === 'string' ? data.error : 'no audio in TTS response');
-      }
-      const bytes = Uint8Array.from(atob(data.audioData), (c) => c.charCodeAt(0));
-      const blob = new Blob([bytes], { type: data.mimeType || 'audio/wav' });
-      await storeTtsAudio(key, blob);
-      setCachedIds((prev) => new Set(prev).add(message.id));
-      ttsTransport.end();
-      logger.action('ChatView', 'TTS audio downloaded and cached on device', { messageId: message.id });
-    } catch (err) {
-      // Download failed: SAY SO. Nothing plays un-cached — no speech
-      // fallback here, because playing would break the two-click law.
-      logger.warn('ChatView', 'TTS download failed — audio is not on this device', err);
-      ttsTransport.end();
-      setTtsFailedIds((prev) => new Set(prev).add(message.id));
-    } finally {
-      setTtsLoadingId(null);
-    }
-  };
+  // The composers (hero + footer) share one draft and one padlock state.
+  const composer = useComposer({
+    draftText,
+    onDraftTextChange,
+    isLoading,
+    onSendMessage,
+    onOpenKeySettings,
+    enterSend,
+  });
 
   const handleDeclareSubmit = (msgId: string) => {
     if (!newChapterTitle.trim()) return;
@@ -937,7 +330,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setDeclaringMessageId(null);
     setNewChapterTitle('');
   };
-
   const lastGroup = chapters[chapters.length - 1];
   const lastAssistantMessageId = (() => {
     for (let i = chapters.length - 1; i >= 0; i--) {
@@ -949,26 +341,44 @@ export const ChatView: React.FC<ChatViewProps> = ({
     return null;
   })();
 
+  // Everything a message bubble needs, threaded through the chapter sections.
+  const messageProps: MessageBubbleSharedProps = {
+    chatRender,
+    online,
+    offlineReplica,
+    chosenVoice,
+    playingMessageId,
+    ttsLoadingId,
+    cachedIds,
+    ttsFailedIds,
+    handlePlayTTS,
+    declaringMessageId,
+    setDeclaringMessageId,
+    newChapterTitle,
+    setNewChapterTitle,
+    handleDeclareSubmit,
+    chapters,
+    artifactTitles,
+    onOpenArtifact,
+    onOpenReceipts,
+    attachmentsOfTurn,
+    titleFor,
+    subtitleFor,
+    tokensFor,
+    onToggleAttachment,
+    onSetAttachmentGranularity,
+    onRegenerateLast,
+    lastAssistantMessageId,
+    isLoading,
+    draftCount: drafts.length,
+  };
+
+
   return (
+
     <div className="relative flex-1 flex flex-col min-h-0 min-w-0 w-full h-full bg-surface-0 text-ink select-text overflow-hidden pt-0 mt-0">
-      {/* Archived thread: readable, one click to continue */}
-      {threadArchived && (
-        <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-1.5 bg-surface-2 text-10 font-mono text-ink-mute shrink-0 animate-in fade-in duration-150">
-          <span className="truncate">
-            Archived — you can read it. Typing asks to unarchive first.
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              onUnarchive?.();
-              logger.action('ChatView', 'Unarchived thread from banner', { title: threadTitle });
-            }}
-            className="px-2.5 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink-dim hover:text-ink transition-colors cursor-pointer shrink-0"
-          >
-            Unarchive
-          </button>
-        </div>
-      )}
+
+      <ArchiveBanner threadArchived={threadArchived} threadTitle={threadTitle} onUnarchive={onUnarchive} />
 
       {/* No floating title pill any more: an 11px chip hovering over the text
           was not a title, and rename was a trip to the sidebar. The title is
@@ -1029,101 +439,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 Offline replica — read-only. Sign in to make changes.
               </div>
             ) : (
-            <form
-              onSubmit={handleSubmit}
-              className="bg-veil-1 focus-within:bg-veil-2 rounded-2xl p-4 shadow-pop transition-colors space-y-3"
-            >
-              <textarea
-                ref={(el) => { heroInputRef.current = el; autoGrow(el); }}
-                value={inputText}
-                onChange={(e) => { setInputText(e.target.value); autoGrow(e.target); }}
-                onKeyDown={handleComposerKeyDown}
-                placeholder="Pour it out before it evaporates — we'll organize later."
-                rows={3}
-                disabled={isLoading}
-                autoFocus
-                className="w-full bg-transparent text-xs sm:text-sm text-ink placeholder-[#50637f] focus:outline-none resize-none leading-relaxed font-sans"
-              />
 
-              <div className="flex items-center justify-between pt-3 text-xs">
-                <div className="flex items-center gap-2 min-w-0">
-                  <CapabilitiesPopover
-                    resolved={resolvedCapabilities}
-                    onSetProject={(caps) => onSetProjectCapabilities?.(caps)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      logger.action('ChatView', 'Open artifacts folder to attach (hero)', {
-                        matches: missingMatchCount,
-                      });
-                      if (missingMatchCount > 0 && onOpenArtifactsWithProximity) {
-                        onOpenArtifactsWithProximity();
-                      } else {
-                        onOpenArtifacts?.();
-                      }
-                    }}
-                    data-testid="open-artifacts"
-                    className="relative min-h-[30px] px-2.5 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-11 shrink-0"
-                    title="Attach artifacts from the library"
-                    aria-label="Attach artifacts"
-                  >
-                    <Plus className="w-3.5 h-3.5 shrink-0" />
-                    <span>Attach</span>
-                    {missingMatchCount > 0 && (
-                      <span
-                        data-testid="attach-match-badge"
-                        className="min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-9 font-mono font-bold flex items-center justify-center"
-                        title={`${missingMatchCount} unattached artifact${missingMatchCount === 1 ? '' : 's'} match this draft`}
-                      >
-                        {missingMatchCount}
-                      </span>
-                    )}
-                  </button>
-                  <span className="text-11 font-mono text-[#5b7394] hidden sm:inline">
-                    {enterSend === 'send' ? 'Enter sends' : 'Ctrl+Enter sends'}
-                  </span>
-                </div>
+            <HeroComposer
+              composer={composer}
+              enterSend={enterSend}
+              resolvedCapabilities={resolvedCapabilities}
+              onSetProjectCapabilities={onSetProjectCapabilities}
+              missingMatchCount={missingMatchCount}
+              onOpenArtifacts={onOpenArtifacts}
+              onOpenArtifactsWithProximity={onOpenArtifactsWithProximity}
+              isLoading={isLoading}
+              onStopGeneration={onStopGeneration}
+            />
 
-                {/* Stop is ALWAYS reachable while a stream runs (design 23 §2.4):
-                    a spinner that eats the only button is a trap — found live. */}
-                {isLoading && onStopGeneration ? (
-                  <button
-                    type="button"
-                    onClick={onStopGeneration}
-                    className="px-4 py-2 rounded-xl bg-[#dc2626] hover:bg-[#b91c1c] text-ink font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-red-900/30 cursor-pointer shrink-0"
-                    title="Stop generation"
-                  >
-                    <Square className="w-3.5 h-3.5 fill-current" />
-                    <span>Stop</span>
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    // design 25: when the send is blocked (locked keys or no
-                    // key), the padlock IS the affordance — it must stay
-                    // clickable with an empty composer, or an empty chat
-                    // leaves you no way to unlock at all.
-                    disabled={isLoading || (!sendBlocked && !inputText.trim())}
-                    title={
-                      readiness.reason === 'no-key'
-                        ? 'Add an API key to send — Model Settings → Keys'
-                        : readiness.reason === 'vault-locked'
-                          ? 'Keys locked — click to unlock'
-                          : undefined
-                    }
-                    className={
-                      sendBlocked
-                        ? 'px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 active:bg-amber-400 text-[#231a02] font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-amber-900/30 cursor-pointer'
-                        : 'px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-ink font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer'
-                    }
-                  >
-                    <span>Start Dialogue</span>
-                    {sendBlocked ? <Lock className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
-                  </button>
-                )}
-              </div>
-            </form>
             )}
           </div>
         </div>
@@ -1149,115 +477,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
               toolbar, and it is smaller overall. On short viewports (phone
               landscape) the whole row hides: every vertical pixel matters
               there, and a pinned title band is pure overhead. */}
-          {!threadArchived && (
-            <div
-              data-testid="thread-title-row"
-              data-scrolled={feedScrolled ? 'true' : 'false'}
-              className={`sticky top-0 z-20 flex justify-center gap-2 min-w-0 pl-16 pr-24 -mx-3 sm:-mx-6 transition-colors [@media(max-height:520px)]:hidden ${
-                // The scroller has NO top padding on purpose: a sticky box is
-                // clamped to its containing block, which starts below that
-                // padding — that WAS the gap. The in-flow (unscrolled) hero
-                // carries its own top padding instead, so the pinned pill's
-                // square shoulders sit truly flush at the window top.
-                feedScrolled ? '' : 'pt-3 sm:pt-4'
-              }`}
-            >
-              <div
-                className={`flex items-center gap-2 min-w-0 ${
-                  feedScrolled
-                    ? // Flush + SHORT: square shoulders hug the window top
-                      // (no gap possible — the top edge is a straight line),
-                      // the pill is as tall as its text plus a whisper.
-                      'max-w-[60%] rounded-t-none rounded-b-xl bg-surface-0/95 backdrop-blur-md px-2.5 pt-1 pb-1.5 shadow-sm'
-                    : 'flex-1 justify-center'
-                }`}
-              >
-              {!offlineReplica && (
-              <button
-                type="button"
-                onClick={handleAutoTitle}
-                disabled={titleBusy}
-                aria-busy={titleBusy}
-                aria-label="Generate a title from this conversation"
-                title="Generate a title from this conversation"
-                className="p-1.5 rounded-lg text-ink-faint hover:text-brand-gold hover:bg-surface-2 transition-colors cursor-pointer shrink-0 disabled:opacity-60"
-              >
-                {titleBusy ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-brand-gold" />
-                ) : (
-                  <Sparkles className="w-4 h-4" />
-                )}
-              </button>
-              )}
 
-              {renamingTitle ? (
-                <input
-                  autoFocus
-                  value={titleDraft}
-                  onChange={(e) => setTitleDraft(e.target.value)}
-                  onBlur={commitTitleRename}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === 'Enter') commitTitleRename();
-                    if (e.key === 'Escape') cancelTitleRename();
-                  }}
-                  placeholder="Name this conversation…"
-                  aria-label="Conversation title"
-                  className={`flex-1 min-w-0 bg-transparent font-semibold tracking-tight text-ink font-mono placeholder:text-ink-faint focus:outline-none border-b border-line pb-0.5 text-center ${
-                    feedScrolled ? 'text-xs' : 'text-xl sm:text-2xl'
-                  }`}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={startTitleRename}
-                  className="group flex items-center justify-center gap-2 min-w-0 flex-1 text-left cursor-text"
-                  title="Click to rename"
-                >
-                  {/* The hero's identity mark, compacted: the active header
-                      carries the project the way the empty state does, so the
-                      conversation is never anonymous and the identity sits in
-                      the middle of the row, far from both floating corners. */}
-                  <span
-                    aria-hidden="true"
-                    className={`rounded-lg flex items-center justify-center shrink-0 ${
-                      feedScrolled ? 'w-5 h-5' : 'w-7 h-7'
-                    }`}
-                    style={{ backgroundColor: `${project.color || '#3b82f6'}22` }}
-                  >
-                    <Brain
-                      className={feedScrolled ? 'w-3.5 h-3.5' : 'w-4 h-4'}
-                      style={{ color: project.color || '#3b82f6' }}
-                    />
-                  </span>
-                  <h1
-                    className={`truncate font-semibold tracking-tight font-mono ${
-                      feedScrolled ? 'text-xs' : 'text-xl sm:text-2xl'
-                    } ${
-                      threadTitleState === 'placeholder' || threadTitle === 'New thread'
-                        ? 'italic text-ink-mute'
-                        : 'text-ink'
-                    }`}
-                  >
-                    {threadTitle}
-                  </h1>
-                  <Pencil className="w-3 h-3 text-ink-faint opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                </button>
-              )}
+          <ChatHeader
+            project={project}
+            threadTitle={threadTitle}
+            threadTitleState={threadTitleState}
+            threadArchived={threadArchived}
+            onSuggestTitle={onSuggestTitle}
+            onRenameTitle={onRenameTitle}
+            feedScrolled={feedScrolled}
+            offlineReplica={offlineReplica}
+          />
 
-              {titleFlash && (
-                <span
-                  data-testid="title-flash"
-                  className={`text-10 font-mono shrink-0 animate-in fade-in duration-150 ${
-                    titleFlash === 'ok' ? 'text-brand-green' : 'text-[#f28894]'
-                  }`}
-                >
-                  {titleFlash === 'ok' ? 'Titled' : 'Needs a reply first'}
-                </span>
-              )}
-              </div>
-            </div>
-          )}
 
           {/* Clearance for the floating token orb — scrolls away with the
               content, never sticky, never fixed (phones need every pixel back
@@ -1267,738 +498,65 @@ export const ChatView: React.FC<ChatViewProps> = ({
             aria-hidden="true"
             className="h-2 shrink-0 -mt-2"
           />
-          {chapters.map(({ chapter, ongoing: isOngoing, granularity, turns }, chapterIndex) => {
-          const isCollapsed = collapsedChapterIds[chapter.id] ?? false;
+          {chapters.map((entry, chapterIndex) => {
+            const { chapter, ongoing: isOngoing, granularity, turns } = entry;
 
-          const chapColor = getMellowPastelColor(chapter.id || chapterIndex);
-          const pastel = CHAPTER_PASTEL_COLORS[chapterIndex % CHAPTER_PASTEL_COLORS.length];
+            return (
+              <ChapterSection
+                key={chapter.id}
+                chapters={chapters}
+                chapterIndex={chapterIndex}
+                chapter={chapter}
+                isOngoing={isOngoing}
+                granularity={granularity}
+                turns={turns}
+                chapterList={chapterList}
+                chapterTokens={chapterTokens}
+                isCollapsed={collapsedChapterIds[chapter.id] ?? false}
+                isLayerCollapsed={(layer) => isLayerCollapsed(chapter.id, layer)}
+                onToggleLayer={(layer) => toggleChapterLayer(chapter.id, layer)}
+                onToggleCollapse={() => toggleCollapseChapter(chapter.id)}
+                chapterMenuOpen={chapterMenuId === chapter.id}
+                onToggleMenu={() => {
+                  setSteerChapterId(null);
+                  setChapterMenuId(chapterMenuId === chapter.id ? null : chapter.id);
+                }}
+                onCloseMenu={() => setChapterMenuId(null)}
+                steerActive={steerChapterId === chapter.id}
+                steerText={steerText}
+                onSteerTextChange={setSteerText}
+                onSteerStart={() => {
+                  setSteerText('');
+                  setSteerChapterId(chapter.id);
+                }}
+                onSteerSubmit={() => {
+                  void onRecalibrateChapter?.(chapter.id, steerText.trim() || undefined);
+                  setSteerChapterId(null);
+                  setChapterMenuId(null);
+                }}
+                onSteerCancel={() => setSteerChapterId(null)}
+                summarizing={summarizingIds[chapter.id]}
+                summarizeError={summarizeErrorIds[chapter.id]}
+                onSummarize={() => triggerChapterSummarize(chapter.id)}
+                onSetCut={
+                  onSetChapterGranularity ? (g) => handleSetChapterCut(entry, g) : undefined
+                }
+                onMergeChapter={onMergeChapter}
+                onShiftBoundary={onShiftBoundary}
+                onRecalibrateChapter={onRecalibrateChapter}
+                offlineReplica={offlineReplica}
+                attachmentsOfChapter={attachmentsOfChapter}
+                titleFor={titleFor}
+                subtitleFor={subtitleFor}
+                tokensFor={tokensFor}
+                onToggleAttachment={onToggleAttachment}
+                onSetAttachmentGranularity={onSetAttachmentGranularity}
+                onOpenArtifact={onOpenArtifact}
+                messageProps={messageProps}
+              />
+            );
+          })}
 
-          return (
-            <section
-              key={chapter.id}
-              data-ongoing={isOngoing ? 'true' : undefined}
-              className={`transition-colors duration-200 relative rounded-2xl overflow-hidden bg-surface-1 shadow-step mb-5 ${
-                isOngoing ? 'mt-2' : ''
-              }`}
-            >
-              <div
-                style={{ backgroundColor: `${chapColor}16` }}
-                className="p-3 sm:p-3.5 space-y-1.5 transition-colors"
-              >
-                {/* Two rows on purpose: identity + inventory, then the cut. One
-                    row pushes the four words off a 350px screen. */}
-                <div className="flex items-center justify-between gap-2 min-w-0">
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
-                      style={{ backgroundColor: chapColor }}
-                      title={isOngoing ? 'Active Chapter' : 'Completed Chapter'}
-                    />
-
-                    <span
-                      style={{ color: chapColor }}
-                      className="text-10 font-mono uppercase tracking-wider shrink-0 font-semibold"
-                    >
-                      Chapter {chapterIndex + 1}
-                    </span>
-
-                    <h3 className="font-semibold text-xs sm:text-sm text-ink font-mono line-clamp-2 leading-snug">
-                      {chapter.title}
-                      {chapter.subtitle && (
-                        <span className="font-normal italic text-ink-dim ml-1.5">
-                          — {chapter.subtitle}
-                        </span>
-                      )}
-                    </h3>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-10 font-mono text-[#758ca8] tabular-nums">
-                      {turns.length} msg{turns.length !== 1 ? 's' : ''}
-                      {chapterTokens[chapter.id] !== undefined && (
-                        <>
-                          {' · '}
-                          <span className="text-[#b8cae4]">
-                            {formatTokens(chapterTokens[chapter.id])} tok
-                          </span>
-                        </>
-                      )}
-                    </span>
-
-                    {/* Regenerate. "Write it" only shows when a layer is MISSING;
-                        a stale summary had no affordance at all. Same call — the
-                        model's text overwrites what is there — so this is the
-                        button that was absent, not a second code path. Hidden for
-                        in-progress chapters: they send Full, so anything written
-                        now is stale before the next turn lands. */}
-                    {!isChapterInProgress(chapterList, chapterIndex) && (
-                      <button
-                        type="button"
-                        data-testid="chapter-regenerate"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          triggerChapterSummarize(chapter.id);
-                        }}
-                        disabled={summarizingIds[chapter.id]}
-                        title="Re-run the chapter summary — replaces the description and summary with fresh ones"
-                        className="min-h-[24px] px-2 rounded-lg text-10 font-mono text-[#8ca3c7] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default shrink-0"
-                      >
-                        {summarizingIds[chapter.id] ? 'Writing…' : 'Regenerate'}
-                      </button>
-                    )}
-
-                    {granularity !== 'title' && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          toggleCollapseChapter(chapter.id);
-                        }}
-                        className="min-w-[24px] min-h-[24px] p-1 rounded-lg hover:bg-surface-3 text-[#8ca3c7] transition-colors cursor-pointer"
-                        title={isCollapsed ? 'Expand the cut' : 'Fold this chapter'}
-                      >
-                        {isCollapsed ? (
-                          <ChevronDown className="w-4 h-4" />
-                        ) : (
-                          <ChevronUp className="w-4 h-4" />
-                        )}
-                      </button>
-                    )}
-
-                    {/* Chapter actions (Package 2 §2.6): undo a cut, nudge the
-                        seam, or re-run the summary with a steering note. The
-                        existing per-message split control stays where it is. */}
-                    {(onMergeChapter || onShiftBoundary || onRecalibrateChapter) && !offlineReplica && (
-                      <div className="relative shrink-0">
-                        <button
-                          type="button"
-                          data-testid={`chapter-menu-${chapter.id}`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setSteerChapterId(null);
-                            setChapterMenuId(chapterMenuId === chapter.id ? null : chapter.id);
-                          }}
-                          className="min-w-[24px] min-h-[24px] p-1 rounded-lg hover:bg-surface-3 text-[#8ca3c7] transition-colors cursor-pointer"
-                          title="Chapter actions"
-                          aria-label="Chapter actions"
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-                        {chapterMenuId === chapter.id && (
-                          <div
-                            data-testid={`chapter-menu-panel-${chapter.id}`}
-                            className="absolute z-50 right-0 top-full mt-1 w-60 rounded-xl bg-surface-2 shadow-pop border border-line p-1.5 space-y-0.5"
-                          >
-                            {onMergeChapter && chapterIndex > 0 && (
-                              <button
-                                type="button"
-                                data-testid={`chapter-merge-${chapter.id}`}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  onMergeChapter(chapter.id);
-                                  setChapterMenuId(null);
-                                }}
-                                className="block w-full text-left px-2 py-1.5 rounded-lg text-11 text-ink hover:bg-surface-3 transition-colors cursor-pointer"
-                              >
-                                Merge with previous chapter
-                              </button>
-                            )}
-                            {onShiftBoundary && chapterIndex > 0 && chapter.startIndex > 0 && (
-                              <button
-                                type="button"
-                                data-testid={`chapter-seam-up-${chapter.id}`}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  onShiftBoundary(chapter.id, chapter.startIndex - 1);
-                                  setChapterMenuId(null);
-                                }}
-                                className="block w-full text-left px-2 py-1.5 rounded-lg text-11 text-ink hover:bg-surface-3 transition-colors cursor-pointer"
-                              >
-                                Move seam up one message
-                              </button>
-                            )}
-                            {onShiftBoundary && (
-                              <button
-                                type="button"
-                                data-testid={`chapter-seam-down-${chapter.id}`}
-                                disabled={
-                                  chapters[chapterIndex + 1] !== undefined &&
-                                  chapters[chapterIndex + 1].chapter.startIndex <= chapter.startIndex + 1
-                                }
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  onShiftBoundary(chapter.id, chapter.startIndex + 1);
-                                  setChapterMenuId(null);
-                                }}
-                                className="block w-full text-left px-2 py-1.5 rounded-lg text-11 text-ink hover:bg-surface-3 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
-                              >
-                                Move seam down one message
-                              </button>
-                            )}
-                            {onRecalibrateChapter && !isChapterInProgress(chapterList, chapterIndex) && (
-                              steerChapterId === chapter.id ? (
-                                <div className="px-2 py-1.5 space-y-1.5" data-testid="chapter-steer-input">
-                                  <div className="text-10 text-ink-mute leading-snug">
-                                    What should the recap focus on? Optional.
-                                  </div>
-                                  <input
-                                    value={steerText}
-                                    onChange={(e) => setSteerText(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        void onRecalibrateChapter(chapter.id, steerText.trim() || undefined);
-                                        setSteerChapterId(null);
-                                        setChapterMenuId(null);
-                                      }
-                                    }}
-                                    placeholder="e.g. focus on the decisions made"
-                                    className="w-full bg-recess-1 rounded-lg px-2 py-1 text-11 text-ink placeholder:text-ink-faint focus:outline-none"
-                                  />
-                                  <div className="flex gap-1.5">
-                                    <button
-                                      type="button"
-                                      data-testid="chapter-steer-submit"
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        void onRecalibrateChapter(chapter.id, steerText.trim() || undefined);
-                                        setSteerChapterId(null);
-                                        setChapterMenuId(null);
-                                      }}
-                                      className="px-2 py-1 rounded-lg bg-surface-4 text-ink text-10 font-mono cursor-pointer"
-                                    >
-                                      Regenerate
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        setSteerChapterId(null);
-                                      }}
-                                      className="px-2 py-1 rounded-lg text-ink-mute text-10 font-mono hover:bg-surface-3 cursor-pointer"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  data-testid={`chapter-recalibrate-${chapter.id}`}
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    setSteerText('');
-                                    setSteerChapterId(chapter.id);
-                                  }}
-                                  className="block w-full text-left px-2 py-1.5 rounded-lg text-11 text-ink hover:bg-surface-3 transition-colors cursor-pointer"
-                                >
-                                  Regenerate summary…
-                                </button>
-                              )
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {onSetChapterGranularity &&
-                  (isChapterInProgress(chapterList, chapterIndex) ? (
-                    // The last chapters are still live: they always send Full,
-                    // so a cut would only promise layers nobody wrote.
-                    <div
-                      data-testid="chapter-in-progress"
-                      data-chapter-id={chapter.id}
-                      className="inline-flex items-center min-h-[24px] px-2 rounded-lg bg-recess-1 shadow-well text-10 font-mono text-ink-mute select-none"
-                      title="Still in progress — always sends Full, nothing to cut yet"
-                    >
-                      In progress · Full
-                    </div>
-                  ) : (
-                    <div data-testid="chapter-cut" data-chapter-id={chapter.id} className="max-w-full">
-                      <GranularityChips
-                        value={(chapter.granularity ?? granularity) as Granularity}
-                        label={`Send chapter ${chapterIndex + 1}`}
-                        compact
-                        onChange={(g) =>
-                          handleSetChapterCut(
-                            { chapter, index: chapterIndex, ongoing: isOngoing, granularity, turns },
-                            g
-                          )
-                        }
-                      />
-                    </div>
-                  ))}
-              </div>
-
-              {/* What you see is what you send: the body renders exactly the
-                  layers the current cut includes, in order — description,
-                  summary, then the verbatim turns at Full. Title renders none of
-                  them; the header IS the payload. */}
-              {!isCollapsed && granularity !== 'title' && (
-                <div
-                  data-testid="chapter-body"
-                  className="p-3 sm:p-4 space-y-2"
-                >
-                  {/* Each layer is gated on the SAME cutIncludes() the compiler
-                      uses. Dropping this guard lets the screen show prose the
-                      payload does not carry — the exact failure that made the
-                      chapter body untrustworthy. */}
-                  {cutIncludes(granularity, 'description') && chapter.description && (
-                    <div
-                      data-testid="chapter-layer-description"
-                      className="text-xs text-ink-dim leading-relaxed bg-recess-1 shadow-well p-3 rounded-lg"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleChapterLayer(chapter.id, 'description')}
-                        aria-expanded={!isLayerCollapsed(chapter.id, 'description')}
-                        className="w-full flex items-center justify-between gap-2 cursor-pointer"
-                      >
-                        <div className="font-semibold text-10 text-[#e2c328] mb-1 font-mono uppercase tracking-wider">
-                          Description
-                        </div>
-                        <span className="text-9 font-mono text-[#6b82a3] shrink-0">
-                          {isLayerCollapsed(chapter.id, 'description') ? '+ show' : '− hide'}
-                        </span>
-                      </button>
-                      {!isLayerCollapsed(chapter.id, 'description') && (
-                        <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.description) }} />
-                      )}
-                    </div>
-                  )}
-                  {cutIncludes(granularity, 'summary') && chapter.summary && (
-                    <div
-                      data-testid="chapter-layer-summary"
-                      className="text-xs text-ink-dim leading-relaxed bg-recess-1 shadow-well p-3 rounded-lg"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleChapterLayer(chapter.id, 'summary')}
-                        aria-expanded={!isLayerCollapsed(chapter.id, 'summary')}
-                        className="w-full flex items-center justify-between gap-2 cursor-pointer"
-                      >
-                        <div className="font-semibold text-10 text-[#f99014] mb-1 font-mono uppercase tracking-wider">
-                          Summary
-                        </div>
-                        <span className="text-9 font-mono text-[#6b82a3] shrink-0">
-                          {isLayerCollapsed(chapter.id, 'summary') ? '+ show' : '− hide'}
-                        </span>
-                      </button>
-                      {!isLayerCollapsed(chapter.id, 'summary') && (
-                        <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(chapter.summary) }} />
-                      )}
-                    </div>
-                  )}
-                  {/* Missing layer under a chosen cut = chrome, not content: a
-                      real gap, honestly named, with the call that fills it.
-                      At Full there is nothing to promise, so no chrome. */}
-                  {granularity !== 'full' &&
-                    ((cutIncludes(granularity, 'description') && !chapter.description) ||
-                      (cutIncludes(granularity, 'summary') && !chapter.summary)) && (
-                      <div className="flex items-center justify-between gap-3 text-11 text-ink-mute p-2.5 bg-recess-1 rounded-lg">
-                        <span className="font-mono">
-                          {summarizingIds[chapter.id]
-                            ? 'Writing summary…'
-                            : summarizeErrorIds[chapter.id]
-                              ? 'Summary request timed out or failed.'
-                              : cutIncludes(granularity, 'summary') && !chapter.summary
-                                ? 'No summary yet — this chapter is sending only what exists.'
-                                : 'No description yet for this chapter.'}
-                        </span>
-                        {!summarizingIds[chapter.id] && !offlineReplica && (
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              // Fill the layer; never change the cut.
-                              triggerChapterSummarize(chapter.id);
-                            }}
-                            className="text-10 font-mono px-2.5 py-1 rounded-lg bg-surface-3 text-ink-dim hover:bg-surface-4 hover:text-ink font-medium transition-colors cursor-pointer shrink-0"
-                          >
-                            {summarizeErrorIds[chapter.id] ? 'Retry' : 'Write it'}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                </div>
-              )}
-
-              {/* Compacted attachment strip — whenever this chapter's turns are
-                  not on screen (folded, or sent below Full), its committed
-                  attachments stay visible and steerable here. An attachment's
-                  cut is independent of the chapter's. It is the chapter's FOOTER
-                  on purpose: description and summary lead, attachments close. */}
-              {(() => {
-                const chapterAtts = attachmentsOfChapter(chapter);
-                const turnsHidden = isCollapsed || granularity !== 'full';
-                if (!turnsHidden || chapterAtts.length === 0) return null;
-                return (
-                  <div className="px-3 sm:px-4 py-2 bg-veil-1 flex flex-wrap gap-1.5">
-                    <div className="w-full shrink-0 text-9 font-mono uppercase tracking-wider text-[#556985]">
-                      Attached in this chapter (independent of the cut)
-                    </div>
-                    {chapterAtts.map((att) => (
-                      <AttachmentRow
-                        key={att.artifactId}
-                        artifactId={att.artifactId}
-                        state={att.granularity}
-                        title={titleFor(att.artifactId)}
-                        subtitle={subtitleFor(att.artifactId)}
-                        tokens={tokensFor(att.artifactId)}
-                        granularity={att.granularity}
-                        badge={formatAttachmentProvenance(att.turnIndex)?.badge}
-                        onToggle={
-                          onToggleAttachment ? () => onToggleAttachment(att.artifactId) : undefined
-                        }
-                        onSetGranularity={
-                          onSetAttachmentGranularity
-                            ? (g) => onSetAttachmentGranularity(att.artifactId, g)
-                            : undefined
-                        }
-                        onOpenDetail={onOpenArtifact ? () => onOpenArtifact(att.artifactId) : undefined}
-                        hideGranularityChips
-                        size="compact"
-                      />
-                    ))}
-                  </div>
-                );
-              })()}
-
-              {/* Messages Container — only when the cut actually includes the
-                  turns. At Title/Description/Summary the body above IS the
-                  payload, so rendering raw messages here would show the model
-                  text it never receives. */}
-              {!isCollapsed && granularity === 'full' && turns.length > 0 && (
-                <div className="p-3 sm:p-5 space-y-4">
-                  {turns.map((message, turnIdx) => {
-                    const globalTurnIndex = chapter.startIndex + turnIdx;
-                    const isUser = message.role === 'user';
-                    const isPlaying = playingMessageId === message.id;
-                    const isTtsLoading = ttsLoadingId === message.id;
-                    const isRaw = isMessageRaw(message.id);
-                    const isCopied = copiedMessageId === message.id;
-                    return (
-                      <div
-                        key={message.id}
-                        className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
-                      >
-                        <div className="flex items-center gap-2 mb-1 text-11 font-mono text-[#627794]">
-                          <span className={isUser ? 'text-[#8ab1e0]' : 'text-[#e05a66] font-semibold'}>
-                            {isUser ? 'You' : 'MarkBrain'}
-                          </span>
-                          <span>•</span>
-                          <span>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-
-                          {!offlineReplica && (
-                          <button
-                            onClick={() => handlePlayTTS(message)}
-                            disabled={isTtsLoading || (!online && !cachedIds.has(message.id) && !isPlaying)}
-                            className={`p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer disabled:cursor-default ${
-                              isPlaying
-                                ? 'text-[#38bdf8]'
-                                : ttsFailedIds.has(message.id)
-                                  ? 'text-[#f28894] hover:text-[#ff8fa0]'
-                                  : cachedIds.has(message.id)
-                                    ? 'text-[#5ad49b] hover:text-[#7ee2b8]'
-                                    : 'text-[#50637f] hover:text-[#9bb0d1]'
-                            }`}
-                            title={
-                              isPlaying
-                                ? 'Stop playback'
-                                : ttsFailedIds.has(message.id)
-                                  ? 'Audio download failed — click to retry'
-                                  : cachedIds.has(message.id)
-                                    ? `Play from this device (cached) — voice: ${chosenVoice}`
-                                    : 'First click downloads & caches — second click plays. Zero network on play.'
-                            }
-                          >
-                            {isTtsLoading ? (
-                              <Loader2 className="w-3 h-3 animate-spin text-[#38bdf8]" />
-                            ) : isPlaying ? (
-                              <VolumeX className="w-3 h-3" />
-                            ) : (
-                              <Volume2 className="w-3 h-3" />
-                            )}
-                          </button>
-                          )}
-
-                          {!offlineReplica && (
-                          <button
-                            onClick={() => {
-                              setDeclaringMessageId(
-                                declaringMessageId === message.id ? null : message.id
-                              );
-                              setNewChapterTitle('');
-                            }}
-                            className="p-1 rounded hover:bg-surface-2 text-[#50637f] hover:text-[#8ab1e0] transition-colors opacity-40 group-hover:opacity-100 cursor-pointer"
-                            title="Split into new chapter starting at this message"
-                          >
-                            <BookmarkPlus className="w-3 h-3" />
-                          </button>
-                          )}
-
-                          {!offlineReplica && getWorkspaceMode() === 'vps' && onOpenReceipts && jobIdFor(message) && (
-                          <button
-                            onClick={() => onOpenReceipts(jobIdFor(message)!)}
-                            className="p-1 rounded hover:bg-surface-2 text-[#50637f] hover:text-[#38bdf8] transition-colors opacity-40 group-hover:opacity-100 cursor-pointer"
-                            title="Exactly what was sent and what was received (raw provider payloads)"
-                          >
-                            <ScrollText className="w-3 h-3" />
-                          </button>
-                          )}
-
-                          {/* View + copy sit on BOTH roles and are always visible:
-                              hover does not exist on a phone, and these two are
-                              the whole point of the toggle. Nothing to read yet
-                              (a reply still thinking) → no controls. */}
-                          {message.content && (
-                            <>
-                              <button
-                                onClick={() => toggleMessageRaw(message)}
-                                aria-pressed={isRaw}
-                                className={`ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-10 font-mono transition-colors cursor-pointer ${
-                                  isRaw
-                                    ? 'bg-veil-2 text-ink shadow-lift font-semibold'
-                                    : 'text-[#50637f] hover:bg-surface-2 hover:text-[#9bb0d1]'
-                                }`}
-                                title={isRaw ? 'Show rendered markdown' : 'Show the raw markdown source'}
-                              >
-                                <Code className="w-3 h-3" />
-                                <span>Raw</span>
-                              </button>
-
-                              <button
-                                onClick={() => handleCopyMessage(message)}
-                                className={`p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer ${
-                                  isCopied ? 'text-[#5ad49b]' : 'text-[#50637f] hover:text-[#9bb0d1]'
-                                }`}
-                                title={isCopied ? 'Copied markdown' : 'Copy markdown'}
-                                aria-label={`Copy ${isUser ? 'your message' : 'this reply'} as markdown`}
-                              >
-                                {isCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                              </button>
-                            </>
-                          )}
-                        </div>
-
-                        {declaringMessageId === message.id && (
-                          <div className="w-full max-w-lg my-2 p-3 bg-surface-4 rounded-xl shadow-pop space-y-2 animate-in fade-in duration-150">
-                            <div className="text-10 font-mono text-[#38bdf8] uppercase tracking-wider font-semibold">
-                              Declare Chapter Split at this Message
-                            </div>
-                            <input
-                              type="text"
-                              value={newChapterTitle}
-                              onChange={(e) => setNewChapterTitle(e.target.value)}
-                              placeholder="New Chapter Title (e.g. On pricing)"
-                              className="w-full bg-recess-2 shadow-well rounded-lg px-2.5 py-1.5 text-xs text-ink placeholder:text-ink-faint focus:outline-none"
-                            />
-                            <div className="flex items-center justify-end gap-2 pt-1">
-                              <button
-                                onClick={() => setDeclaringMessageId(null)}
-                                className="px-2.5 py-1 text-xs font-mono text-[#7185a3] hover:text-ink cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => handleDeclareSubmit(message.id)}
-                                disabled={!newChapterTitle.trim()}
-                                className="px-3 py-1 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 text-ink rounded-lg text-xs font-mono font-medium shadow-md transition-colors cursor-pointer"
-                              >
-                                Split Chapter
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        <div
-                          className={`max-w-[92%] sm:max-w-[85%] rounded-2xl p-3 sm:p-4 text-xs sm:text-sm leading-relaxed ${
-                            isUser
-                              ? 'bg-veil-2 shadow-lift text-ink'
-                              : 'bg-recess-1 shadow-well text-ink'
-                          }`}
-                        >
-                          {message.content ? (
-                            <MessageBody content={message.content} raw={isRaw} tone={isUser ? 'raised' : 'sunken'} />
-                          ) : (
-                            <div className="flex items-center gap-2 text-xs font-mono text-[#38bdf8] py-1 animate-pulse">
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#38bdf8]" />
-                              <span>Thinking...</span>
-                            </div>
-                          )}
-
-                          {(() => {
-                            const { created, linked, chapter } = receiptsFor(message);
-                            if (isUser || (!created.length && !linked.length && !chapter && !(message.extractedLinks ?? []).length)) return null;
-                            return (
-                              <div className="mt-2 pt-2 flex flex-wrap items-center gap-1.5" data-testid="turn-receipts">
-                                {chapter && (
-                                  <span
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-3 text-10 font-mono text-[#d6be94]"
-                                    title={`This reply opened the chapter "${chapter.chapter.title}"`}
-                                  >
-                                    <BookmarkPlus className="w-3 h-3" /> Chapter: {chapter.chapter.title}
-                                  </span>
-                                )}
-                                {created.map((a) => (
-                                  <button
-                                    key={a.id}
-                                    type="button"
-                                    onClick={() => a.id && onOpenArtifact?.(a.id)}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-3 hover:bg-surface-4 text-10 font-mono text-[#5ad49b] transition-colors cursor-pointer"
-                                    title={`This reply created the artifact "${a.title}" — click to open it`}
-                                  >
-                                    <FilePlus2 className="w-3 h-3" /> Created: {a.title}
-                                  </button>
-                                ))}
-                                {linked.map((id) => (
-                                  <button
-                                    key={id}
-                                    type="button"
-                                    onClick={() => onOpenArtifact?.(id)}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-3 hover:bg-surface-4 text-10 font-mono text-[#8ab1e0] transition-colors cursor-pointer"
-                                    title={`This reply is attached to "${artifactTitles?.[id] ?? id}" — click to open it`}
-                                  >
-                                    <Link2 className="w-3 h-3" /> Linked: {artifactTitles?.[id] ?? `${id.slice(0, 10)}…`}
-                                  </button>
-                                ))}
-                                {(message.extractedLinks ?? []).map((l, i) => {
-                                  const from = (l.sourceId && artifactTitles?.[l.sourceId]) || l.sourceFile;
-                                  const to = (l.targetId && artifactTitles?.[l.targetId]) || l.targetFile;
-                                  const unresolved = !l.sourceId || !l.targetId;
-                                  const isUnlink = l.action === 'unlink';
-                                  const ignored = !l.applied;
-                                  return (
-                                    <button
-                                      key={`${l.action ?? 'link'}-${l.sourceFile}-${l.targetFile}-${l.kind}-${i}`}
-                                      type="button"
-                                      onClick={() => l.sourceId && onOpenArtifact?.(l.sourceId)}
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-3 text-10 font-mono transition-colors cursor-pointer ${
-                                        ignored ? 'text-[#7185a3]' : isUnlink ? 'text-[#f28894]' : 'text-[#b59765]'
-                                      }`}
-                                      title={
-                                        ignored
-                                          ? isUnlink
-                                            ? `The model asked to UNLINK ${l.sourceFile} → ${l.targetFile}, but it was IGNORED — 'Link artifacts' is OFF in Chat behavior`
-                                            : `The model asked to link ${l.sourceFile} → ${l.targetFile} (${l.kind}), but it was IGNORED — 'Link artifacts' is OFF in Chat behavior`
-                                          : unresolved
-                                            ? `The model asked to link ${l.sourceFile} → ${l.targetFile} (${l.kind}), but one side is not an artifact in this project`
-                                            : isUnlink
-                                              ? `This reply BROKE the link between "${from}" and "${to}" — click to open the source`
-                                              : `This reply linked "${from}" → ${l.kind} → "${to}" in the graph — click to open the source`
-                                      }
-                                    >
-                                      {isUnlink ? <Unlink2 className="w-3 h-3" /> : <Link2 className="w-3 h-3" />}
-                                      {isUnlink ? '' : unresolved ? '? ' : ignored ? '⨯ ' : ''}{from} {isUnlink ? '⫯' : '→'} {to}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            );
-                          })()}
-
-
-                          {message.meta && !isUser && (
-                            <div className="mt-2.5 pt-2 flex flex-wrap items-center justify-between gap-2 text-10 font-mono text-[#637894]">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[#38bdf8] font-semibold">{message.meta.model || '—'}</span>
-                                <span>•</span>
-                                <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.inputTokens ?? 0} in</span>
-                                <span>•</span>
-                                <span className="tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.outputTokens ?? 0} out</span>
-                                <span>•</span>
-                                <span className="text-[#a4bddf] font-semibold tabular-nums">{message.meta.isFallback ? 'est.' : ''} {message.meta.totalTokens ?? 0} total tok</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {message.meta.timeToFirstChunkMs != null && (
-                                  <span className="text-[#556985] tabular-nums">
-                                    first chunk {(message.meta.timeToFirstChunkMs / 1000).toFixed(2)}s
-                                  </span>
-                                )}
-                                {message.meta.latencyMs != null && (
-                                  <span className="text-[#556985] tabular-nums">
-                                    {(message.meta.latencyMs / 1000).toFixed(2)}s
-                                  </span>
-                                )}
-                                {onRegenerateLast && message.id === lastAssistantMessageId && (
-                                  <button
-                                    type="button"
-                                    data-testid="regenerate-last"
-                                    onClick={() => onRegenerateLast()}
-                                    disabled={isLoading || drafts.length > 0}
-                                    title={
-                                      drafts.length > 0
-                                        ? 'Available when the queue is empty'
-                                        : isLoading
-                                          ? 'Wait for the current reply'
-                                          : 'Ask for a new reply — replaces this one only if the new reply completes'
-                                    }
-                                    className="min-h-[22px] px-2 rounded-lg text-10 font-mono text-[#8ca3c7] hover:bg-surface-3 hover:text-ink transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default shrink-0"
-                                  >
-                                    Regenerate
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {message.meta?.isStreaming && (
-                            <div className="mt-2 flex items-center gap-2 text-11 font-mono text-[#38bdf8] animate-pulse">
-                              <Loader2 className="w-3 h-3 animate-spin text-[#38bdf8]" />
-                              <span className="capitalize">{message.meta.streamState || 'writing'}...</span>
-                            </div>
-                          )}
-
-
-
-                        </div>
-
-                        {/* Attachments welded to THIS turn — where the artifact
-                            entered the conversation. No ×: the turn already
-                            happened; only the cut stays steerable. */}
-                        {attachmentsOfTurn(message, globalTurnIndex).length > 0 && (
-                          <div className="max-w-[92%] sm:max-w-[85%] w-full mt-1.5 flex flex-wrap gap-1.5">
-                            <div className="w-full shrink-0 text-9 font-mono uppercase tracking-wider text-[#556985] px-0.5">
-                              {isUser ? 'Attached on this turn' : 'Attached by the AI'}
-                            </div>
-                            {attachmentsOfTurn(message, globalTurnIndex).map((att) => (
-                              <AttachmentRow
-                                key={att.artifactId}
-                                artifactId={att.artifactId}
-                                state={att.granularity}
-                                title={titleFor(att.artifactId)}
-                                subtitle={subtitleFor(att.artifactId)}
-                                tokens={tokensFor(att.artifactId)}
-                                granularity={att.granularity}
-                                badge={formatAttachmentProvenance(att.turnIndex)?.badge}
-                                onToggle={
-                                  onToggleAttachment
-                                    ? () => onToggleAttachment(att.artifactId)
-                                    : undefined
-                                }
-                                onSetGranularity={
-                                  onSetAttachmentGranularity
-                                    ? (g) => onSetAttachmentGranularity(att.artifactId, g)
-                                    : undefined
-                                }
-                                onOpenDetail={
-                                  onOpenArtifact ? () => onOpenArtifact(att.artifactId) : undefined
-                                }
-                                hideGranularityChips
-                                size="compact"
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          );
-        })}
 
         {isLoading && (
           <div className="flex items-center justify-between gap-3 text-xs font-mono text-ink-dim bg-surface-2 p-3 rounded-lg max-w-xl animate-in fade-in">
@@ -2070,177 +628,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </div>
       )}
 
-      {/* Draft queue (design-docs/18): unpaired asks live here — never in the
-          feed. A sending draft shows its streaming partial (the reply has not
-          earned a place in the conversation yet); a failed/stopped one offers
-          the three exits: Retry / Store as-is / Discard. */}
-      {drafts.length > 0 && (
-        <div className="mx-3 sm:mx-6 mb-2 space-y-1.5 shrink-0" data-testid="draft-queue">
-          {drafts.map((d) => {
-            const isBusy = d.state === 'sending';
-            const isBlocked = d.state === 'failed' || d.state === 'stopped';
-            return (
-              <div
-                key={d.id}
-                data-testid={`draft-${d.state}`}
-                className={`rounded-lg border px-3 py-2 text-11 font-mono ${
-                  isBlocked ? 'border-brand bg-red-500/[0.07]' : 'border-line bg-surface-2'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {isBlocked && <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
-                    <span
-                      data-testid="draft-phase-chip"
-                      className={`shrink-0 font-semibold uppercase tracking-wider text-10 ${
-                        isBlocked
-                          ? 'text-red-300'
-                          : isBusy
-                            ? 'text-[#38bdf8]'
-                            : 'text-ink-mute'
-                      }`}
-                    >
-                      {isBlocked ? (
-                        d.state === 'stopped'
-                          ? d.kind === 'regenerate'
-                            ? 'Regenerate stopped'
-                            : 'Stopped'
-                          : d.kind === 'regenerate'
-                            ? 'Regenerate failed'
-                            : 'Failed'
-                      ) : (
-                        <DraftPhaseChip
-                          progress={d.progress}
-                          kind={d.kind}
-                          fallback={
-                            isBusy
-                              ? d.kind === 'regenerate'
-                                ? 'Regenerating the reply'
-                                : 'Writing reply'
-                              : drafts.some(
-                                    (x) =>
-                                      x.id !== d.id &&
-                                      x.threadId === d.threadId &&
-                                      (x.state === 'failed' || x.state === 'stopped') &&
-                                      x.createdAt <= d.createdAt
-                                  )
-                                ? 'Queued — blocked by the failed draft above (choose Retry / Store as-is / Discard there)'
-                                : d.kind === 'regenerate'
-                                  ? 'Regenerate queued'
-                                  : 'Queued'
-                          }
-                        />
-                      )}
-                    </span>
-                    {isBlocked && d.reason && (
-                      <span className="truncate text-red-200/90">{d.reason}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {isBlocked && !offlineReplica && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => onRetryDraft?.(d.id)}
-                          data-testid="draft-retry"
-                          className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink font-semibold transition-colors cursor-pointer"
-                        >
-                          Retry
-                        </button>
-                        {d.partial && (
-                          <button
-                            type="button"
-                            onClick={() => onStoreAsIsDraft?.(d.id)}
-                            data-testid="draft-store-as-is"
-                            className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-[#38bdf8] transition-colors cursor-pointer"
-                          >
-                            Store as-is
-                          </button>
-                        )}
-                      </>
-                    )}
-                    {(isBlocked || d.state === 'queued') && (
-                      <button
-                        type="button"
-                        onClick={() => onDiscardDraft?.(d.id)}
-                        data-testid="draft-discard"
-                        className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-[#e0b96c] transition-colors cursor-pointer"
-                      >
-                        Discard
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-1 truncate text-ink-dim">{d.text}</div>
-                {/* Design 23 §2.1.3: the frozen payload, read-only — what this
-                    send actually carries. */}
-                {d.attachments && d.attachments.length > 0 && (
-                  <div className="mt-1 flex items-center gap-1.5 flex-wrap text-10 font-mono text-ink-dim">
-                    <span data-testid="draft-payload">
-                      {d.attachments.length} note{d.attachments.length === 1 ? '' : 's'} ·{' '}
-                      {formatTokens(
-                        d.attachments.reduce((sum, a) => sum + (tokensFor(a.artifactId) || 0), 0)
-                      )}{' '}
-                      tok riding this send
-                    </span>
-                    {d.attachments.map((a) => (
-                      <span
-                        key={a.artifactId}
-                        className="flex items-center gap-1 rounded bg-recess-1 px-1.5 py-0.5 text-9 text-ink-faint"
-                        title={titleFor(a.artifactId)}
-                      >
-                        <AttachmentDot
-                          state={a.turnIndex === null ? 'staged' : a.granularity}
-                          label={titleFor(a.artifactId)}
-                          size="sm"
-                        />
-                        <span className="max-w-[120px] truncate">{titleFor(a.artifactId)}</span>
-                        {GRANULARITY_LABEL[a.granularity]}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {isBlocked && d.errorCode === 'VAULT_LOCKED' && (
-                  <div
-                    className="mt-1.5 flex items-center gap-1.5 flex-wrap"
-                    data-testid="draft-vault-unlock-row"
-                  >
-                    <input
-                      type="password"
-                      data-testid="draft-vault-unlock-password"
-                      value={unlockPw[d.id] ?? ''}
-                      onChange={(e) => setUnlockPw((p) => ({ ...p, [d.id]: e.target.value }))}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') void handleUnlockDraft(d);
-                      }}
-                      placeholder="Password"
-                      aria-label="Password to unlock your keys"
-                      className="w-40 rounded-lg bg-recess-1 shadow-well px-2 py-1 text-11 text-ink placeholder:text-ink-faint focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handleUnlockDraft(d)}
-                      data-testid="draft-vault-unlock"
-                      disabled={unlockBusy[d.id]}
-                      className="px-2 py-1 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink font-semibold transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      {unlockBusy[d.id] ? 'Unlocking…' : 'Unlock & resend'}
-                    </button>
-                    {unlockErr[d.id] ? (
-                      <span className="text-red-300">{unlockErr[d.id]}</span>
-                    ) : null}
-                  </div>
-                )}
-                {d.partial && (isBusy || isBlocked) && (
-                  <div className="mt-1.5 max-h-24 overflow-y-auto rounded bg-recess-1 px-2 py-1.5 text-11 text-ink-dim whitespace-pre-wrap">
-                    {d.partial}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <DraftQueueTray
+        drafts={drafts}
+        offlineReplica={offlineReplica}
+        tokensFor={tokensFor}
+        titleFor={titleFor}
+        onRetryDraft={onRetryDraft}
+        onStoreAsIsDraft={onStoreAsIsDraft}
+        onDiscardDraft={onDiscardDraft}
+      />
+
 
       {totalMessagesCount > 0 && (
         <div className="p-2.5 sm:p-3 bg-surface-0 shrink-0 space-y-2">
@@ -2252,92 +649,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
               Offline replica — read-only. Sign in to make changes.
             </div>
           ) : (
-          <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
-            <CapabilitiesPopover
-              resolved={resolvedCapabilities}
-              onSetProject={(caps) => onSetProjectCapabilities?.(caps)}
-            />
-            {/* [+] → the Artifacts folder IS the picker. The voice
-                selector moved to the sidebar, where settings belong. */}
-            <button
-              type="button"
-              onClick={() => {
-                logger.action('ChatView', 'Open artifacts folder to attach', {
-                  matches: missingMatchCount,
-                });
-                if (missingMatchCount > 0 && onOpenArtifactsWithProximity) {
-                  onOpenArtifactsWithProximity();
-                } else {
-                  onOpenArtifacts?.();
-                }
-              }}
-              data-testid="open-artifacts"
-              className="relative h-full px-2.5 py-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-10 sm:text-xs shrink-0"
-              title="Attach artifacts from the library"
-              aria-label="Attach artifacts"
-            >
-              <Plus className="w-3.5 h-3.5 shrink-0" />
-              {missingMatchCount > 0 && (
-                <span
-                  data-testid="attach-match-badge"
-                  className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#67e8f9] text-[#06131f] text-9 font-mono font-bold flex items-center justify-center"
-                  title={`${missingMatchCount} unattached artifact${missingMatchCount === 1 ? '' : 's'} match this draft`}
-                >
-                  {missingMatchCount}
-                </span>
-              )}
-            </button>
-            <textarea
-              ref={(el) => { threadInputRef.current = el; autoGrow(el); }}
-              value={inputText}
-              onChange={(e) => { setInputText(e.target.value); autoGrow(e.target); }}
-              onKeyDown={handleComposerKeyDown}
-              placeholder="Keep typing…"
-              title={enterSendHint(enterSend)}
-              disabled={isLoading}
-              rows={1}
-              className="flex-1 bg-recess-1 shadow-well rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:bg-recess-2 transition-colors resize-none leading-relaxed overflow-y-auto max-h-[140px]"
-            />
 
-            {isLoading && onStopGeneration ? (
-              <button
-                type="button"
-                onClick={onStopGeneration}
-                className="px-4 py-2.5 rounded-xl bg-[#dc2626] hover:bg-[#b91c1c] text-ink transition-all shadow-md shadow-red-900/30 flex items-center gap-1.5 cursor-pointer font-mono text-xs font-semibold shrink-0"
-                title="Stop generation"
-              >
-                <Square className="w-3.5 h-3.5 fill-current" />
-                <span>Stop</span>
-              </button>
-            ) : (
-              <button
-                type="submit"
-                // Same law as the other composer: the blocked padlock (locked
-                // keys or no key) stays clickable with an empty input — it
-                // routes to the unlock popup or Model Settings → Keys.
-                disabled={!sendBlocked && !inputText.trim()}
-                className={
-                  sendBlocked
-                    ? 'px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 active:bg-amber-400 text-[#231a02] transition-all shadow-md shadow-amber-900/30 flex items-center justify-center cursor-pointer shrink-0'
-                    : 'px-4 py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 disabled:hover:bg-[#2563eb] text-ink transition-all shadow-md shadow-blue-900/25 flex items-center justify-center cursor-pointer shrink-0'
-                }
-                title={
-                  readiness.reason === 'no-key'
-                    ? 'Add an API key to send — Model Settings → Keys'
-                    : readiness.reason === 'vault-locked'
-                      ? 'Keys locked — click to unlock'
-                      : 'Send message'
-                }
-              >
-                {sendBlocked ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-              </button>
-            )}
-          </form>
+
+          <ThreadComposer
+            composer={composer}
+            enterSend={enterSend}
+            resolvedCapabilities={resolvedCapabilities}
+            onSetProjectCapabilities={onSetProjectCapabilities}
+            missingMatchCount={missingMatchCount}
+            onOpenArtifacts={onOpenArtifacts}
+            onOpenArtifactsWithProximity={onOpenArtifactsWithProximity}
+            isLoading={isLoading}
+            onStopGeneration={onStopGeneration}
+          />
           )}
+
          </div>
       )}
 
-      {composerUnlockModal}
+
+      <ComposerUnlockModal composer={composer} />
+
     </div>
   );
 };

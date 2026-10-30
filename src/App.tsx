@@ -24,12 +24,6 @@ import { loadChatRenderMode, saveChatRenderMode } from './ui/chat/chatRenderMode
 import type { ChatRenderMode } from './ui/chat/chatRenderMode';
 import { applyUiFontScale, loadUiFontScale, saveUiFontScale } from './ui/uiFontScale';
 import type { UiFontScale } from './ui/uiFontScale';
-import {
-  flushComposerDraftSave,
-  loadComposerDrafts,
-  registerComposerDraftFlush,
-  scheduleComposerDraftSave,
-} from './application/composerDrafts';
 import { loadEnterSendMode, saveEnterSendMode } from './ui/chat/sendOnEnter';
 import type { EnterSendMode } from './ui/chat/sendOnEnter';
 import { SaturationOrb } from './ui/context/SaturationOrb';
@@ -38,7 +32,6 @@ import { MirrorPanel } from './ui/context/MirrorPanel';
 import { logger } from './utils/logger';
 import { MAX_CONTEXT_TOKENS } from './utils/contextWindow';
 import { useDomains } from './domains/DomainRegistry';
-import { estimateArtifactCutTokens } from './domains/03-optical-compiler';
 import { isAttachmentStaged } from './domains/06-chat-threads';
 import { resolveCapabilities } from './domains/06-chat-threads/types';
 import { contentHash } from './utils/contentHash';
@@ -49,23 +42,10 @@ import { SendQueue } from './application/sendQueue';
 import { queueServerMutation } from './application/serverMutationQueue';
 import { getWorkspaceMode } from './services/workspaceSession';
 import type { SendQueueDeps } from './application/sendQueue';
-import { chatCancel, titleThread, models as fetchModels, embedTexts } from './gateway/api';
-import { loadSearchConfig, saveSearchConfig } from './domains/search/searchConfig';
-import type { SearchTestbedConfig } from './domains/search/searchConfig';
-import {
-  scoreArtifactsAgainstDraft,
-  countMissingMatches,
-  splitDraftIntoClauses,
-  l2Normalize,
-  indexStatusFor,
-} from './domains/search/draftSearchEngine';
-import { QueryVectorCache } from './domains/search/queryVectorCache';
-import type { QueryCacheHit } from './domains/search/queryVectorCache';
-import type { ArtifactMatchResult } from './domains/search/draftSearchEngine';
-import { loadProjectSearchIndex } from './services/searchIndexStore';
-import type { ArtifactSearchIndexRecord } from './services/searchIndexStore';
-import { indexProjectArtifacts, indexSingleArtifact, shouldIndexInBrowser } from './application/artifactIndexer';
-import type { IndexAbortSignal } from './application/artifactIndexer';
+import { chatCancel, titleThread, models as fetchModels } from './gateway/api';
+import { indexStatusFor } from './domains/search/draftSearchEngine';
+import { shouldIndexInBrowser } from './application/artifactIndexer';
+
 
 // Feature-slice modules — handlers/projections extracted from this file
 import { useContextPayload } from './ui/context/useContextPayload';
@@ -81,6 +61,10 @@ import { createCleanupHandlers } from './ui/cleanup/createCleanupHandlers';
 import { useThreadUi } from './ui/chat/useThreadUi';
 import { useThreadSwitcher } from './ui/chat/useThreadSwitcher';
 import { createSuggestTitle } from './ui/chat/createSuggestTitle';
+import { useProjectProjections } from './application/useProjectProjections';
+import { useComposerDrafts } from './application/useComposerDrafts';
+import { useDraftProximitySearch } from './application/useDraftProximitySearch';
+import { useSearchIndexing } from './application/useSearchIndexing';
 
 export default function App() {
   const {
@@ -290,55 +274,14 @@ export default function App() {
     tick,
     capabilities: resolvedCapabilities,
   });
-  // One measurer: the folder row, the chat tray and the chapter header all read
-  // the counts the compiler assembles — never a second estimator. Rows for
-  // artifacts already in this payload read live telemetry; untouched library
-  // artifacts are measured at Full, i.e. what staging them would cost.
-  const attachmentGranularityById = useMemo(() => {
-    const map = new Map<string, Granularity>();
-    for (const a of activeAttachments) map.set(a.artifactId, a.granularity);
-    return map;
-  }, [activeAttachments]);
 
-  const artifactTitles = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const a of artifactsDomain.listArtifacts()) map[a.id] = a.title;
-    return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artifactsDomain, tick]);
-
-  const artifactSubtitles = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const a of artifactsDomain.listArtifacts()) {
-      // A note without a hook still shows something useful: the old one-line
-      // description is what a reader recognises it by.
-      map[a.id] = a.current?.subtitle || a.current?.description || '';
-    }
-    return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artifactsDomain, tick]);
-
-  const tokensByArtifact = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const entry of compiledContext.telemetry.attachmentBreakdown ?? []) {
-      map[entry.artifactId] = entry.tokens;
-    }
-    // Artifacts not in this chat's payload: what staging them at Full would cost.
-    for (const art of artifactsDomain.listArtifacts()) {
-      if (map[art.id] !== undefined) continue;
-      map[art.id] = estimateArtifactCutTokens(art, 'full');
-    }
-    return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compiledContext, artifactsDomain, tick]);
-
-  const chapterTokens = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const entry of compiledContext.telemetry.chapterBreakdown ?? []) {
-      map[entry.chapterId] = entry.tokens;
-    }
-    return map;
-  }, [compiledContext]);
+  const {
+    attachmentGranularityById,
+    artifactTitles,
+    artifactSubtitles,
+    tokensByArtifact,
+    chapterTokens,
+  } = useProjectProjections({ artifactsDomain, compiledContext, activeAttachments, tick });
 
   const stagedAttachmentCount = activeAttachments.filter(isAttachmentStaged).length;
 
@@ -355,264 +298,39 @@ export default function App() {
   // ── Draft-proximity testbed (design-docs/15) ─────────────────────────────
   // LAW 4: the unsent draft lives HERE, keyed by thread. ChatView unmounts
   // when [+ Attach] opens the library; the query must survive that trip.
-  // AND it survives the page: restored from mode-scoped storage, saved
-  // debounced on every change, flushed when the page hides or unloads
-  // (composerDrafts.ts) — a phone killing the browser must not eat the text.
-  const [draftByThread, setDraftByThread] = useState<Record<string, string>>(() => loadComposerDrafts());
-  const draftText = draftByThread[activeThreadId] ?? '';
-  const handleDraftTextChange = (text: string) => {
-    setDraftByThread((prev) => ({ ...prev, [activeThreadId]: text }));
-  };
-  // Persist on every change (debounced inside scheduleComposerDraftSave).
-  // The effect sees the latest state, so no stale-closure races on fast typing.
-  useEffect(() => {
-    scheduleComposerDraftSave(draftByThread);
-  }, [draftByThread]);
-  // Mobile browsers kill pages without beforeunload — pagehide and
-  // visibilitychange→hidden are the hooks that do arrive.
-  useEffect(() => registerComposerDraftFlush(), []);
-  // A test query that is NOT the chat draft. Empty = "use the chat draft"
-  // (the default); anything typed here overrides it WITHOUT touching what is
-  // in the composer, so you can probe the library while a message is half-written.
-  // This is the fix for the proximity box: it used to bind straight to the
-  // draft and swap to a read-only <p> the instant it held a single character,
-  // which made it uneditable after the first keystroke.
-  const [searchQueryOverride, setSearchQueryOverride] = useState('');
-  const searchQuery = searchQueryOverride.trim() || draftText;
+  const { draftText, handleDraftTextChange } = useComposerDrafts(activeThreadId);
 
-  const [searchConfig, setSearchConfigState] = useState<SearchTestbedConfig>(() =>
-    loadSearchConfig()
-  );
-  const handleSearchConfigChange = (patch: Partial<SearchTestbedConfig>) => {
-    setSearchConfigState((prev) => {
-      const next = { ...prev, ...patch };
-      saveSearchConfig(next);
-      return next;
-    });
-  };
+  const {
+    searchQueryOverride,
+    setSearchQueryOverride,
+    searchConfig,
+    handleSearchConfigChange,
+    searchIndexMap,
+    setSearchIndexMap,
+    draftResults,
+    queryEmbedNote,
+    missingMatchCount,
+  } = useDraftProximitySearch({
+    draftText,
+    artifactsDomain,
+    projectId: projectMeta.id,
+    activeAttachments,
+    tick,
+  });
 
-  // LAW 2: records live in IndexedDB (markbrain-search-index), never in the
-  // project snapshot — this map is a read-only view of that database.
-  const [searchIndexMap, setSearchIndexMap] = useState<Map<string, ArtifactSearchIndexRecord>>(
-    () => new Map()
-  );
-  useEffect(() => {
-    let alive = true;
-    loadProjectSearchIndex(projectMeta.id)
-      .then((map) => {
-        if (alive) setSearchIndexMap(map);
-      })
-      .catch((e) => logger.warn('App', 'loadProjectSearchIndex failed', e));
-    return () => {
-      alive = false;
-    };
-  }, [projectMeta.id]);
-
-  const attachedArtifactIds = useMemo(
-    // "Already attached" means COMMITTED (design 15, live 2026-10-26): staged
-    // rows are not attached yet — David clicked attach-next and the row
-    // teleported to the ALREADY ATTACHED bucket. A staged row keeps its
-    // position in the suggested list (it wears the 'next send' badge) and
-    // only descends when the send commits it.
-    () => new Set(activeAttachments.filter((a) => !isAttachmentStaged(a)).map((a) => a.artifactId)),
-    [activeAttachments]
-  );
-
-  const [draftResults, setDraftResults] = useState<ArtifactMatchResult[]>([]);
-  // Query vectors keyed by the clause text they were embedded from: editing
-  // the draft invalidates them without an API call; typing back into cached
-  // text is a cache hit. The cache itself survives thread switches.
-  const [queryVectors, setQueryVectors] = useState<{
-    key: string;
-    vectors: Float32Array[];
-  } | null>(null);
-  // Near-duplicate rejection: the last few queries and their vectors. Two
-  // spellings of the same question must not cost two embed calls on a
-  // 1,000-request/day budget.
-  const queryVecCacheRef = useRef(new QueryVectorCache());
-  /** What the last query-embed decision was, so the panel can show its work. */
-  const [queryEmbedNote, setQueryEmbedNote] = useState<{
-    match: 'exact' | 'near' | 'fresh';
-    similarity?: number;
-    sourceText?: string;
-  } | null>(null);
-
-  const clauseKey = useMemo(
-    () => splitDraftIntoClauses(searchQuery, searchConfig.splitClauses).join('\n'),
-    [searchQuery, searchConfig.splitClauses]
-  );
-  const clauseVectors =
-    queryVectors && queryVectors.key === clauseKey ? queryVectors.vectors : null;
-  const needsQueryVec = searchConfig.vecSections || searchConfig.vecQa;
-
-  // Tier 1 — local re-score 350ms after the draft / flags / threshold / index /
-  // attachment set last moved. No API calls on this path, ever.
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (!searchQuery.trim()) {
-        setDraftResults([]);
-        return;
-      }
-      setDraftResults(
-        scoreArtifactsAgainstDraft({
-          draftText: searchQuery,
-          clauseVectors,
-          artifacts: artifactsDomain.listArtifacts(),
-          indexMap: searchIndexMap,
-          attachedArtifactIds,
-          config: searchConfig,
-        })
-      );
-    }, 350);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, searchConfig, searchIndexMap, attachedArtifactIds, clauseVectors, tick]);
-
-  // Tier 2 — one embed per 5s typing pause, only when a vec flag is on, the
-  // draft is long enough to be a real query, and its clause text is uncached.
-  useEffect(() => {
-    if (!needsQueryVec) return;
-    if (searchQuery.trim().length < 12) return;
-    const clauses = splitDraftIntoClauses(searchQuery, searchConfig.splitClauses);
-    if (clauses.length === 0) return;
-    const key = clauses.join('\n');
-    // 1. Exact, or 2. close enough to reuse on purpose. Only 3. costs a request.
-    const cached: QueryCacheHit | null = queryVecCacheRef.current.get(key, getModelForSlot('embed'));
-    if (cached) {
-      setQueryEmbedNote({
-        match: cached.match,
-        similarity: cached.similarity,
-        sourceText: cached.sourceText,
-      });
-      setQueryVectors((prev) => (prev && prev.key === key ? prev : { key, vectors: cached.vectors }));
-      return;
-    }
-    setQueryEmbedNote(null);
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      // Say it the moment it is SENT, not when it succeeds. A request that
-      // 429s still cost the budget — reporting only success would make a spent
-      // request look like no request at all.
-      if (!cancelled) setQueryEmbedNote({ match: 'fresh' });
-      embedTexts({ texts: clauses, taskType: 'RETRIEVAL_QUERY' })
-        .then(async (res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = (await res.json()) as { embeddings?: number[][] };
-          const vectors = (data.embeddings ?? []).map((v) => new Float32Array(l2Normalize(v)));
-          if (cancelled || vectors.length === 0) return;
-          queryVecCacheRef.current.set(key, vectors, getModelForSlot('embed'));
-          setQueryVectors({ key, vectors });
-        })
-        .catch((e) => {
-          if (!cancelled) logger.warn('App', 'Draft query embed failed', e);
-        });
-    }, 5000);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, needsQueryVec, searchConfig.splitClauses]);
-
-  const missingMatchCount = countMissingMatches(draftResults);
-
-  // The indexing runner: one document at a time, abortable, and the finished
-  // map is swapped in as a NEW Map so the 350ms tier re-scores on completion.
-  const [indexProgress, setIndexProgress] = useState<{
-    done: number;
-    total: number;
-    stage: string;
-  } | null>(null);
-  const indexAbortRef = useRef<IndexAbortSignal | null>(null);
-  // Failures stay on screen until the next run. A count that refuses to move is
-  // indistinguishable from a save that never happens unless the app says which.
-  const [indexFailures, setIndexFailures] = useState<{ title: string; message: string }[]>([]);
-
-  const handleIndexAll = (force: boolean) => {
-    if (!shouldIndexInBrowser()) return; // local mode: lexical only, 0 embed calls (21F §1)
-    if (indexAbortRef.current) return;
-    const signal: IndexAbortSignal = { aborted: false };
-    indexAbortRef.current = signal;
-    const arts = artifactsDomain.listArtifacts();
-    const mapCopy = new Map(searchIndexMap);
-    // Straggler guard. An overlapping step can still report AFTER this run has
-    // settled (a fetch that was already in flight when a sibling failed), and
-    // an unguarded setIndexProgress then repaints the line with nothing left to
-    // ever clear it — that is what left the UI stuck on "Indexing 16/16" after
-    // it had already gone back to normal.
-    let live = true;
-    setIndexFailures([]);
-    setIndexProgress({ done: 0, total: arts.length, stage: force ? 'Re-index requested' : 'Index requested' });
-    indexProjectArtifacts(projectMeta.id, arts, mapCopy, {
-      force,
-      signal,
-      onProgress: (done, total, stage) => {
-        if (live) setIndexProgress({ done, total, stage });
-      },
-      // Publish per DOCUMENT, not per run. `indexedCount` and the 350ms
-      // re-score both key off the Map's identity, so a single swap at the end
-      // froze the counter and the ranking for the entire job.
-      onIndexed: (record) => {
-        if (!live) return;
-        setSearchIndexMap((prev) => {
-          const next = new Map(prev);
-          next.set(record.artifactId, record);
-          return next;
-        });
-      },
-      onFailure: (title, message) => {
-        if (live) setIndexFailures((prev) => [...prev, { title, message }]);
-      },
-    })
-      .then((updated) => {
-        if (live) setSearchIndexMap(new Map(updated));
-      })
-      .catch((e) => logger.warn('App', 'indexProjectArtifacts failed', e))
-      .finally(() => {
-        live = false;
-        indexAbortRef.current = null;
-        setIndexProgress(null);
-      });
-  };
-
-  const handleStopIndexing = () => {
-    if (indexAbortRef.current) indexAbortRef.current.aborted = true;
-  };
-
-  // Single-document runner behind the detail modal's Q&A Index tab.
-  const [indexArtifactProgress, setIndexArtifactProgress] = useState<string | null>(null);
-  const handleIndexArtifact = (artifactId: string) => {
-    if (!shouldIndexInBrowser()) return; // local mode: lexical only (21F §1)
-    if (indexArtifactProgress || indexAbortRef.current) return;
-    const art = artifactsDomain.getArtifact(artifactId);
-    if (!art) return;
-    // Take the SAME lock the bulk runner uses. Without it one document from the
-    // detail modal could index alongside "Index All" — two writers on the same
-    // progress line and two Map swaps fighting each other, which is how you get
-    // a line that jumps backwards and then sticks.
-    const signal: IndexAbortSignal = { aborted: false };
-    indexAbortRef.current = signal;
-    let live = true;
-    setIndexArtifactProgress('Starting…');
-    indexSingleArtifact(projectMeta.id, art, (stage) => {
-      if (live) setIndexArtifactProgress(stage);
-    }, signal, searchIndexMap.get(art.id))
-      .then((record) => {
-        if (!live) return;
-        // Functional update: never clobber a concurrent bulk publish.
-        setSearchIndexMap((prev) => {
-          const next = new Map(prev);
-          next.set(record.artifactId, record);
-          return next;
-        });
-      })
-      .catch((e) => logger.warn('App', 'indexSingleArtifact failed', e))
-      .finally(() => {
-        live = false;
-        indexAbortRef.current = null;
-        setIndexArtifactProgress(null);
-      });
-  };
+  const {
+    indexProgress,
+    indexFailures,
+    handleIndexAll,
+    handleStopIndexing,
+    indexArtifactProgress,
+    handleIndexArtifact,
+  } = useSearchIndexing({
+    projectId: projectMeta.id,
+    artifactsDomain,
+    setSearchIndexMap,
+    searchIndexMap,
+  });
 
   // The [+ Attach] match badge routes straight into the Proximity lens.
   const [externalLens, setExternalLens] = useState<{ lens: LibraryLens; seq: number }>({

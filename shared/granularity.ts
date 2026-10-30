@@ -3,7 +3,7 @@
  * `title` carries the title AND the subtitle hook together: a 4-word name alone
  * says nothing, and the hook costs about 40 tokens.
  * Dependency-free so every domain, the server, and UI surfaces share one ordering.
- * (The UI palette stays in `src/domains/granularity.ts` — deliberate UI, anchored
+ * (The UI palette lives in `src/ui/context/attachmentPalette.ts` — deliberate UI, anchored
  * by design-doc 12 and `src/tests/attachment-palette.test.ts`.)
  */
 

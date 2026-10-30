@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { DomainContextValue } from '../../domains/DomainRegistry';
-import type { ChatAttachment, ChatCapabilities } from '../../domains/06-chat-threads';import type { AttachmentVisualState } from '../../domains/granularity';
-import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
+import type { ChatAttachment, ChatCapabilities } from '../../domains/06-chat-threads';import type { AttachmentVisualState } from './attachmentPalette';
+import { ATTACHMENT_STATE_PALETTE } from './attachmentPalette';
 import {
   AmbientTelemetryData,
   EdgeRailSegment,

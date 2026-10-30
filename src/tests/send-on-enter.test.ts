@@ -92,41 +92,45 @@ describe('enterSendHint', () => {
 });
 
 describe('the composers are wired to the one rule', () => {
-  const chatView = read('src/ui/chat/ChatView.tsx');
+  // Both composer forms now live in ChatComposer.tsx (extracted from ChatView).
+  const composers = read('src/ui/chat/ChatComposer.tsx');
 
   it('routes both composers through the shared handler', () => {
     // Hero composer + in-thread composer.
-    expect(chatView.match(/onKeyDown=\{handleComposerKeyDown\}/g) ?? []).toHaveLength(2);
+    expect(composers.match(/onKeyDown=\{handleComposerKeyDown\}/g) ?? []).toHaveLength(2);
   });
 
   it('keeps no inline Enter rule of its own', () => {
     // The old bug shape: `e.key === 'Enter' && !e.shiftKey` — which sends on
     // Ctrl+Enter's behalf by accident and can't be configured at all. (The
     // thread-title input's own Enter-to-rename is not a composer and is fine.)
-    expect(chatView).not.toMatch(/e\.key === 'Enter' && !e\.shiftKey/);
+    expect(composers).not.toMatch(/e\.key === 'Enter' && !e\.shiftKey/);
   });
 
   it('shows the hint that matches the current preference', () => {
-    expect(chatView).toMatch(/enterSend === 'send' \? 'Enter sends' : 'Ctrl\+Enter sends'/);
-    expect(chatView).toContain('title={enterSendHint(enterSend)}');
+    expect(composers).toMatch(/enterSend === 'send' \? 'Enter sends' : 'Ctrl\+Enter sends'/);
+    expect(composers).toContain('title={enterSendHint(enterSend)}');
   });
 });
 
 describe('the sidebar offers the switch (on every viewport)', () => {
+  // The preference panel lives in SidebarPreferencesPanel.tsx (extracted from
+  // Sidebar.tsx); Sidebar embeds it.
   const sidebar = read('src/ui/workspace/Sidebar.tsx');
+  const panel = read('src/ui/workspace/SidebarPreferencesPanel.tsx');
   const app = read('src/App.tsx');
 
   it('renders both choices', () => {
-    expect(sidebar).toContain('ENTER_SEND_CHOICES');
-    expect(sidebar).toContain('data-testid={`enter-send-${choice.mode}`}');
+    expect(panel).toContain('ENTER_SEND_CHOICES');
+    expect(panel).toContain('data-testid={`enter-send-${choice.mode}`}');
   });
 
   it('is not hidden behind a width condition', () => {
     // The whole point of the option: it must be reachable on a phone. The
     // drawer carries the same panel, so no `hidden`/viewport guard may wrap it.
-    const block = sidebar.slice(sidebar.indexOf('Send-on-Enter preference'));
-    const panel = block.slice(0, block.indexOf('Read-aloud voice'));
-    expect(panel).not.toMatch(/hidden|sm:|md:|lg:|min-width|matchMedia/);
+    const block = panel.slice(panel.indexOf('Send-on-Enter preference'));
+    const section = block.slice(0, block.indexOf('Read-aloud voice'));
+    expect(section).not.toMatch(/hidden|sm:|md:|lg:|min-width|matchMedia/);
   });
 
   it('persists through App, like the other reading preferences', () => {

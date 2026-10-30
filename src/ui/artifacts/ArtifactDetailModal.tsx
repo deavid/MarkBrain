@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Artifact } from '../../types';
 import type { Granularity } from '../../domains/granularity';
-import { GRANULARITY_LABEL, GRANULARITY_ORDER, getGranularityChipClass } from '../../domains/granularity';
+import { GRANULARITY_LABEL, GRANULARITY_ORDER } from '../../domains/granularity';
+import { getGranularityChipClass } from '../context/attachmentPalette';
 
 /** A metadata field card that starts COLLAPSED (2026-10-25: the description
  * and summary are long; opening the modal must not dump 10k tokens of text).

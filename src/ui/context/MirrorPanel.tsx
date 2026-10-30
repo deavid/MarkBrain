@@ -9,7 +9,7 @@ import { cutIncludes } from '../../domains/granularity';
 import { estimateTokens } from '../../utils/estimateTokens';
 import { saturationFillFraction } from '../../utils/contextWindow';
 import { renderMarkdown } from '../../utils/markdown';
-import { ATTACHMENT_STATE_PALETTE } from '../../domains/granularity';
+import { ATTACHMENT_STATE_PALETTE } from './attachmentPalette';
 import { isChapterInProgress } from '../../domains/02-chapter-segmentation';
 import { computeAmbientColor } from './ambientTelemetry';
 import {

@@ -48,7 +48,9 @@ import { getWorkspaceMode, getVpsSession, patchVpsSession } from '../../services
 
 /**
  * ModelSettingsModal — capability slots + Keys vault + Owner users
- * (design-docs/16 §3.1, D2/D7; 21C §4).
+ * (design-docs/16 §3.1, D2/D7; 21C §4). The tab bodies live in
+ * `src/ui/workspace/settings/` (ModelSlotsTab, KeyVaultTab, AccountAdminTab);
+ * this file owns their state, the effects that load it, and the shell.
  *
  * Models tab: one model per lane, writes straight to the mode-scoped
  * localStorage slot — next request on that lane picks it up.
@@ -74,43 +76,12 @@ interface ModelSettingsModalProps {
   }>;
 }
 
-interface SlotRow {
-  slot: ModelSlot;
-  label: string;
-  group: 'chat' | 'workhorse' | 'infra';
-}
 
-type ModalCatalogEntry = ModelSettingsModalProps['catalog'][number];
-
-const SLOT_ROWS: SlotRow[] = [
-  { slot: 'chat', label: 'Chat', group: 'chat' },
-  { slot: 'extract', label: 'Extract', group: 'workhorse' },
-  { slot: 'summarize', label: 'Summarize', group: 'workhorse' },
-  { slot: 'qaGen', label: 'Q&A gen', group: 'workhorse' },
-  { slot: 'title', label: 'Titles', group: 'workhorse' },
-  { slot: 'embed', label: 'Embeddings', group: 'infra' },
-  { slot: 'tts', label: 'Read-aloud', group: 'infra' },
-];
-
-function optionsFor(slot: ModelSlot, catalog: ModalCatalogEntry[]): ModalCatalogEntry[] {
-  return catalog.filter((m) => !m.capabilities || m.capabilities.includes(slot));
-}
-
-function keySlotPlaceholder(id: KeySlotId): string {
-  return id.startsWith('openrouter') ? 'sk-or-…' : 'AIza…';
-}
-
-/** Slot-shaped records are built from KEY_SLOTS so the 4-slot split (design-docs/24 §1) can't drift. */
-const emptyKeyRecord = (): Record<KeySlotId, string> =>
-  Object.fromEntries(KEY_SLOTS.map((id) => [id, ''])) as Record<KeySlotId, string>;
-const emptyShownRecord = (): Record<KeySlotId, boolean> =>
-  Object.fromEntries(KEY_SLOTS.map((id) => [id, false])) as Record<KeySlotId, boolean>;
-
-/** Honest tier copy (David 2026-10-25): tier is account-wide, not chat-only. */
-const TIER_HINT =
-  'PAID signs every lane — chat, extract, titles, embeddings, TTS — with the Paid key. FREE prefers the free key.';
-const HINT_VPS = TIER_HINT;
-const HINT_LOCAL = TIER_HINT;
+import { emptyKeyRecord, emptyShownRecord } from './settings/shared';
+import type { ModalCatalogEntry } from './settings/shared';
+import { ModelSlotsTab } from './settings/ModelSlotsTab';
+import { KeyVaultTab } from './settings/KeyVaultTab';
+import { AccountAdminTab } from './settings/AccountAdminTab';
 
 export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, onClose, catalog, initialTab }) => {
   const [slots, setSlots] = useState<ModelSlotConfig>(DEFAULT_MODEL_SLOTS);
@@ -443,569 +414,12 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     logger.action('ModelSettings', `Admin reset password for ${u.email}`);
   };
 
-  const renderRow = (row: SlotRow) => {
-    const options = optionsFor(row.slot, liveCatalog);
-    const isChat = row.group === 'chat';
-    if (!isChat) {
-      return (
-        <div
-          key={row.slot}
-          data-testid={`slot-${row.slot}`}
-          className="flex items-center justify-between gap-2"
-        >
-          <span className="text-10 font-mono uppercase tracking-wider text-ink-mute shrink-0">
-            {row.label}
-          </span>
-          <select
-            data-testid={`select-${row.slot}`}
-            value={slots[row.slot]}
-            onChange={(e) => setSlot(row.slot, e.target.value)}
-            className="shrink-0 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1 shadow-well cursor-pointer min-w-[10rem]"
-          >
-            {options.length === 0 && (
-              <option value={slots[row.slot]}>{slots[row.slot]} (not in catalog)</option>
-            )}
-            {options.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      );
-    }
-    return (
-      <div
-        key={row.slot}
-        data-testid={`slot-${row.slot}`}
-        className="rounded-xl p-3 bg-veil-1 shadow-lift"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-mono uppercase tracking-wider text-xs font-semibold text-ink">
-                {row.label}
-              </span>
-              <span className="text-9 font-mono px-1.5 py-0.5 rounded bg-veil-3 text-[#38bdf8]">
-                main
-              </span>
-            </div>
-          </div>
-          <select
-            data-testid={`select-${row.slot}`}
-            value={slots[row.slot]}
-            onChange={(e) => setSlot(row.slot, e.target.value)}
-            className="shrink-0 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well cursor-pointer min-w-[13rem]"
-          >
-            {options.length === 0 && (
-              <option value={slots[row.slot]}>{slots[row.slot]} (not in catalog)</option>
-            )}
-            {options.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-2 mt-2">
-          <span className="text-9 font-mono uppercase tracking-wider text-[#556985]">
-            Signing key
-          </span>
-          <span className="text-10 font-mono text-ink" data-testid="chat-key-choice">
-            {mode === 'vps'
-              ? 'server vault'
-              : chatKeyChoice === 'auto'
-                ? 'auto (first filled Gemini key)'
-                : KEY_SLOT_INFO[chatKeyChoice as KeySlotId]?.label ?? chatKeyChoice}
-          </span>
-          {mode !== 'vps' && bothGeminiKeys && (
-            <button
-              onClick={swapChatKey}
-              data-testid="swap-chat-key"
-              className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-10 font-mono text-[#38bdf8] shadow-well cursor-pointer"
-            >
-              {chatKeyChoice === 'gemini-paid' ? 'Use Free key' : 'Use Paid key'}
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   const tabs: Array<'models' | 'keys' | 'users'> = offlineReplica
     ? ['models']
     : mode === 'vps'
       ? ['models', 'keys', 'users'] // every signed-in account: password lives in Users
       : ['models', 'keys'];
-
-  const renderKeysTab = () => {
-    if (mode === 'vps') {
-      if (!vpsSettings || !vpsSettings.vaultUnlocked) {
-        return (
-          <section className="rounded-xl bg-recess-1 p-3" data-testid="vps-vault-locked">
-            <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
-              <Lock className="w-3.5 h-3.5 text-[#e0b96c]" />
-              Server vault locked
-            </div>
-            <p className="text-11 text-[#788fa8] leading-relaxed mb-3">
-              Server session keys are locked after a restart. Enter your password to unlock.
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="password"
-                data-testid="vps-vault-unlock-password"
-                autoComplete="current-password"
-                placeholder="Password"
-                value={vpsUnlockPw}
-                onChange={(e) => setVpsUnlockPw(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && vpsUnlockPw.trim()) {
-                    e.preventDefault();
-                    void handleVpsUnlock();
-                  }
-                }}
-                className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-              />
-              <button
-                onClick={handleVpsUnlock}
-                data-testid="vps-vault-unlock"
-                className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
-              >
-                Unlock
-              </button>
-            </div>
-            {vpsKeysError && <p className="text-10 text-red-400 mt-2">{vpsKeysError}</p>}
-          </section>
-        );
-      }
-      const keys = vpsSettings.keys;
-      const tier = vpsSettings.chatTier;
-      return (
-        <section className="rounded-xl bg-recess-1 p-3" data-testid="vps-keys-panel">
-          <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute">
-            <KeyRound className="w-3.5 h-3.5 text-[#e0b96c]" />
-            Keys
-          </div>
-          <p className="text-11 text-[#788fa8] leading-relaxed mt-1.5 mb-3">
-            Synced across all devices signed into {getVpsSession()?.email ?? 'your account'}.
-            Encrypted at rest on the server.
-          </p>
-
-          <div className="space-y-2">
-            {KEY_SLOTS.map((id) => {
-              const info = keys[id] ?? { configured: false, hint: null };
-              return (
-                <div key={id} data-testid={`key-slot-${id}`} className="flex items-center gap-2">
-                  <span className="w-28 shrink-0 text-10 font-mono text-ink-mute">
-                    {KEY_SLOT_INFO[id].label}
-                  </span>
-                  <span
-                    className="w-32 shrink-0 text-10 font-mono text-ink"
-                    data-testid={`vps-key-status-${id}`}
-                  >
-                    {info.configured ? `Configured (${info.hint})` : 'Not set'}
-                  </span>
-                  <input
-                    type={shownKeys[id] ? 'text' : 'password'}
-                    value={vpsSlotDrafts[id]}
-                    onChange={(e) =>
-                      setVpsSlotDrafts((prev) => ({ ...prev, [id]: e.target.value }))
-                    }
-                    placeholder={keySlotPlaceholder(id)}
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 pr-8 shadow-well"
-                  />
-                  <button
-                    onClick={() => toggleShown(id)}
-                    title={shownKeys[id] ? 'Hide key' : 'Show key'}
-                    className="text-ink-mute hover:text-ink cursor-pointer"
-                  >
-                    {shownKeys[id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                  <button
-                    onClick={() => handleVpsSaveKey(id)}
-                    data-testid={`vps-key-save-${id}`}
-                    className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-10 font-mono text-[#38bdf8] shadow-well cursor-pointer"
-                  >
-                    Save
-                  </button>
-                  {info.configured && (
-                    <button
-                      onClick={() => handleVpsClearKey(id)}
-                      data-testid={`vps-key-clear-${id}`}
-                      className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-10 font-mono text-[#f28894] shadow-well cursor-pointer"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex items-center gap-2 mt-3">
-            <span className="text-9 font-mono uppercase tracking-wider text-[#556985]">
-              Key tier
-            </span>
-            <div className="flex rounded-lg overflow-hidden shadow-well" data-testid="vps-chat-tier">
-              {(['free', 'paid'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => handleVpsTier(t)}
-                  className={`px-2.5 py-1 text-10 font-mono uppercase cursor-pointer ${
-                    tier === t ? 'bg-brand/90 text-white' : 'bg-surface-3 text-ink-mute hover:text-ink'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-          <p className="text-10 text-[#788fa8] font-mono mt-1.5">
-            {HINT_VPS}
-          </p>
-          {vpsKeysError && <p className="text-10 text-red-400 mt-2">{vpsKeysError}</p>}
-
-        </section>
-      );
-    };
-
-    // ── local mode ──
-    if (localVaultState === 'none') {
-      return (
-        <section className="rounded-xl bg-recess-1 p-3" data-testid="local-vault-create">
-          <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
-            <KeyRound className="w-3.5 h-3.5 text-[#e0b96c]" />
-            Local key vault
-          </div>
-          <p className="text-11 text-[#788fa8] leading-relaxed mb-3">
-            Set a passphrase to encrypt your API keys on this device.
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="password"
-              data-testid="local-vault-passphrase"
-              autoComplete="new-password"
-              placeholder="Passphrase"
-              value={localPassphrase}
-              onChange={(e) => setLocalPassphrase(e.target.value)}
-              className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-            />
-            <button
-              onClick={handleCreateVault}
-              data-testid="local-vault-create-submit"
-              className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
-            >
-              Create Vault
-            </button>
-          </div>
-          {localVaultError && <p className="text-10 text-red-400 mt-2">{localVaultError}</p>}
-        </section>
-      );
-    }
-
-    if (localVaultState === 'locked') {
-      return (
-        <section className="rounded-xl bg-recess-1 p-3" data-testid="local-vault-locked">
-          <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
-            <Lock className="w-3.5 h-3.5 text-[#e0b96c]" />
-            Your local key vault is locked
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="password"
-              data-testid="local-vault-passphrase"
-              autoComplete="current-password"
-              placeholder="Passphrase"
-              value={localPassphrase}
-              onChange={(e) => setLocalPassphrase(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void handleUnlockVault();
-              }}
-              className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-            />
-            <button
-              onClick={handleUnlockVault}
-              data-testid="local-vault-unlock"
-              className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
-            >
-              Unlock
-            </button>
-          </div>
-          <button
-            onClick={handleResetVault}
-            data-testid="local-vault-reset"
-            className="text-10 font-mono text-[#f28894] hover:underline mt-2 cursor-pointer"
-          >
-            Reset vault (forgotten passphrase — existing keys become unreadable)
-          </button>
-          {localVaultError && <p className="text-10 text-red-400 mt-2">{localVaultError}</p>}
-        </section>
-      );
-    }
-
-    // unlocked
-    return (
-      <section className="rounded-xl bg-recess-1 p-3" data-testid="local-vault-unlocked">
-        <div className="flex items-center justify-between text-10 font-mono uppercase tracking-wider text-ink-mute">
-          <span className="flex items-center gap-2">
-            <Unlock className="w-3.5 h-3.5 text-emerald-400" />
-            Keys — encrypted on this device
-          </span>
-          <button
-            onClick={handleLockVault}
-            data-testid="local-vault-lock"
-            className="px-2 py-1 rounded-lg bg-veil-2 hover:bg-veil-3 text-10 font-mono text-ink normal-case cursor-pointer"
-          >
-            Lock now
-          </button>
-        </div>
-        <p className="text-11 text-[#788fa8] leading-relaxed mt-1.5 mb-3">
-          Stored in this browser only, encrypted with your passphrase — never plaintext.
-          Empty slots are fine; those lanes will tell you a key is missing.
-        </p>
-        <div className="space-y-2">
-          {KEY_SLOTS.map((id) => (
-            <div key={id} data-testid={`key-slot-${id}`} className="flex items-center gap-2">
-              <span className="w-28 shrink-0 text-10 font-mono text-ink-mute">
-                {KEY_SLOT_INFO[id].label}
-              </span>
-              <div className="flex-1 relative">
-                <input
-                  type={shownKeys[id] ? 'text' : 'password'}
-                  value={keyValues[id]}
-                  onChange={(e) => commitKey(id, e.target.value)}
-                  placeholder={keySlotPlaceholder(id)}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="w-full rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 pr-8 shadow-well"
-                />
-                <button
-                  onClick={() => toggleShown(id)}
-                  title={shownKeys[id] ? 'Hide key' : 'Show key'}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-ink-mute hover:text-ink cursor-pointer"
-                >
-                  {shownKeys[id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-              {getKeySlot(id) !== null ? (
-                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              ) : (
-                <span className="w-3.5 shrink-0" />
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 mt-3">
-          <span className="text-9 font-mono uppercase tracking-wider text-[#556985]">
-            Key tier
-          </span>
-          <div className="flex rounded-lg overflow-hidden shadow-well" data-testid="local-chat-tier">
-            {(['free', 'paid'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => void handleLocalTier(t)}
-                className={`px-2.5 py-1 text-10 font-mono uppercase cursor-pointer ${
-                  localChatTier === t
-                    ? 'bg-brand/90 text-white'
-                    : 'bg-surface-3 text-ink-mute hover:text-ink'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-        <p className="text-10 text-[#788fa8] font-mono mt-1.5">
-          {HINT_LOCAL}
-        </p>
-        {listFilledKeySlots().length === 0 && (
-          <p className="text-10 text-[#788fa8] font-mono mt-2">
-            No keys configured — add one to talk to a model from this device.
-          </p>
-        )}
-      </section>
-    );
-  };
-
-  const renderUsersTab = () => (
-    <section className="rounded-xl bg-recess-1 p-3" data-testid="users-panel">
-      <div className="flex items-center gap-2 text-10 font-mono uppercase tracking-wider text-ink-mute mb-3">
-        <Users className="w-3.5 h-3.5 text-[#38bdf8]" />
-        Your account
-      </div>
-
-      {/* The signed-in account, read-only — accounts are managed on the server. */}
-      <input
-        type="email"
-        data-testid="account-email"
-        value={getVpsSession()?.email ?? ''}
-        readOnly
-        className="w-full h-10 rounded-lg bg-surface-0 border border-line px-3 text-13 text-ink font-mono mb-3 cursor-default"
-      />
-      {/* Password — re-keys the vault; your saved API keys carry over. */}
-      <div className="mt-3" data-testid="vps-password-section">
-        <div className="flex items-center gap-1.5 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
-          <KeyRound className="w-3 h-3" />
-          Password
-        </div>
-        <p className="text-10 text-[#788fa8] leading-relaxed mb-2">
-          Changing it re-keys the vault — your saved API keys carry over.
-        </p>
-        <div className="space-y-1.5">
-          <input
-            type="password"
-            data-testid="vps-password-current"
-            placeholder="Current password"
-            autoComplete="current-password"
-            value={vpsPwCurrent}
-            onChange={(e) => setVpsPwCurrent(e.target.value)}
-            className="w-full rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-          />
-          <div className="flex gap-1.5">
-            <input
-              type="password"
-              data-testid="vps-password-new"
-              placeholder="New password (8+)"
-              autoComplete="new-password"
-              value={vpsPwNew}
-              onChange={(e) => setVpsPwNew(e.target.value)}
-              className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-            />
-            <input
-              type="password"
-              data-testid="vps-password-confirm"
-              placeholder="Repeat new"
-              autoComplete="new-password"
-              value={vpsPwConfirm}
-              onChange={(e) => setVpsPwConfirm(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && vpsPwCurrent && vpsPwNew && vpsPwConfirm) {
-                  e.preventDefault();
-                  void handleVpsPasswordChange();
-                }
-              }}
-              className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-            />
-          </div>
-          <button
-            onClick={() => void handleVpsPasswordChange()}
-            data-testid="vps-password-save"
-            className="px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
-          >
-            Change password
-          </button>
-        </div>
-        {vpsPwMsg && (
-          <p className={`text-10 mt-2 ${vpsPwOk ? 'text-emerald-300' : 'text-red-400'}`}>{vpsPwMsg}</p>
-        )}
-      </div>
-
-      {/* User management — owner only. */}
-      <div className="mt-4 text-10 font-mono uppercase tracking-wider text-ink-mute mb-2">
-        Users
-      </div>
-      {isOwner && (
-      <>
-      <div className="flex items-center gap-2 mb-3">
-        <input
-          type="email"
-          placeholder="Email"
-          value={newUserEmail}
-          onChange={(e) => setNewUserEmail(e.target.value)}
-          className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-        />
-        <input
-          type="password"
-          placeholder="Initial password"
-          autoComplete="new-password"
-          value={newUserPassword}
-          onChange={(e) => setNewUserPassword(e.target.value)}
-          className="flex-1 rounded-lg bg-surface-3 text-ink font-mono text-11 px-2 py-1.5 shadow-well"
-        />
-        <button
-          onClick={handleAddUser}
-          data-testid="admin-add-user-submit"
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-brand/90 hover:bg-brand text-white text-11 font-mono cursor-pointer"
-        >
-          <Plus className="w-3 h-3" />
-          Add User
-        </button>
-      </div>
-
-      {usersError && <p className="text-10 text-red-400 mb-2">{usersError}</p>}
-
-      <div className="space-y-1.5">
-        {users === null && <p className="text-11 text-ink-mute">Loading users…</p>}
-        {users?.map((u) => (
-          <div
-            key={u.id}
-            data-testid={`admin-user-row-${u.id}`}
-            className="flex items-center gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5"
-          >
-            <span className="flex-1 text-11 font-mono text-ink truncate">{u.email}</span>
-            {u.isOwner && (
-              <span className="flex items-center gap-1 text-9 font-mono uppercase px-1.5 py-0.5 rounded bg-veil-3 text-[#e0b96c]">
-                <Shield className="w-3 h-3" />
-                Owner
-              </span>
-            )}
-            <span
-              className={`text-9 font-mono uppercase px-1.5 py-0.5 rounded ${
-                u.enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'
-              }`}
-            >
-              {u.enabled ? 'Enabled' : 'Disabled'}
-            </span>
-            {!u.isOwner && (
-              <>
-                <button
-                  onClick={() => void handleToggleUser(u)}
-                  data-testid={`admin-toggle-${u.id}`}
-                  className="px-2 py-0.5 rounded bg-veil-2 hover:bg-veil-3 text-10 font-mono text-ink cursor-pointer"
-                >
-                  {u.enabled ? 'Disable' : 'Enable'}
-                </button>
-                <button
-                  onClick={() => {
-                    setResetPwFor(resetPwFor === u.id ? null : u.id);
-                    setResetPwValue('');
-                  }}
-                  data-testid={`admin-reset-open-${u.id}`}
-                  className="px-2 py-0.5 rounded bg-veil-2 hover:bg-veil-3 text-10 font-mono text-[#8ab1e0] cursor-pointer"
-                >
-                  Reset Password
-                </button>
-              </>
-            )}
-            {resetPwFor === u.id && (
-              <div className="flex items-center gap-1 w-full">
-                <input
-                  type="password"
-                  placeholder="New password"
-                  autoComplete="new-password"
-                  value={resetPwValue}
-                  onChange={(e) => setResetPwValue(e.target.value)}
-                  className="flex-1 rounded bg-surface-3 text-ink font-mono text-10 px-2 py-1 shadow-well"
-                />
-                <button
-                  onClick={() => void handleResetPassword(u)}
-                  data-testid={`admin-reset-submit-${u.id}`}
-                  className="px-2 py-1 rounded bg-brand/90 text-white text-10 font-mono cursor-pointer"
-                >
-                  Save
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      </>
-      )}
-
-    </section>
-  );
 
   return (
     <div
@@ -1058,33 +472,76 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
             ))}
           </div>
 
+
           {tab === 'models' && (
-            <>
-              <section>
-                <div className="text-9 font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
-                  Chat
-                </div>
-                {SLOT_ROWS.filter((r) => r.group === 'chat').map(renderRow)}
-              </section>
-
-              <section>
-                <div className="text-9 font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
-                  Workhorse
-                </div>
-                <div className="space-y-1">{SLOT_ROWS.filter((r) => r.group === 'workhorse').map(renderRow)}</div>
-              </section>
-
-              <section>
-                <div className="text-9 font-mono uppercase tracking-wider text-[#556985] px-1 mb-1.5">
-                  Infrastructure
-                </div>
-                <div className="space-y-1">{SLOT_ROWS.filter((r) => r.group === 'infra').map(renderRow)}</div>
-              </section>
-            </>
+            <ModelSlotsTab
+              slots={slots}
+              liveCatalog={liveCatalog}
+              setSlot={setSlot}
+              mode={mode}
+              chatKeyChoice={chatKeyChoice}
+              bothGeminiKeys={bothGeminiKeys}
+              swapChatKey={swapChatKey}
+            />
           )}
 
-          {tab === 'keys' && renderKeysTab()}
-          {tab === 'users' && isOwner && renderUsersTab()}
+          {tab === 'keys' && (
+            <KeyVaultTab
+              mode={mode}
+              vpsSettings={vpsSettings}
+              vpsKeysError={vpsKeysError}
+              vpsUnlockPw={vpsUnlockPw}
+              setVpsUnlockPw={setVpsUnlockPw}
+              handleVpsUnlock={handleVpsUnlock}
+              vpsSlotDrafts={vpsSlotDrafts}
+              setVpsSlotDrafts={setVpsSlotDrafts}
+              handleVpsSaveKey={handleVpsSaveKey}
+              handleVpsClearKey={handleVpsClearKey}
+              handleVpsTier={handleVpsTier}
+              shownKeys={shownKeys}
+              toggleShown={toggleShown}
+              localVaultState={localVaultState}
+              localPassphrase={localPassphrase}
+              setLocalPassphrase={setLocalPassphrase}
+              localVaultError={localVaultError}
+              localChatTier={localChatTier}
+              keyValues={keyValues}
+              commitKey={commitKey}
+              handleCreateVault={handleCreateVault}
+              handleUnlockVault={handleUnlockVault}
+              handleResetVault={handleResetVault}
+              handleLockVault={handleLockVault}
+              handleLocalTier={handleLocalTier}
+            />
+          )}
+
+          {tab === 'users' && isOwner && (
+            <AccountAdminTab
+              users={users}
+              vpsPwCurrent={vpsPwCurrent}
+              setVpsPwCurrent={setVpsPwCurrent}
+              vpsPwNew={vpsPwNew}
+              setVpsPwNew={setVpsPwNew}
+              vpsPwConfirm={vpsPwConfirm}
+              setVpsPwConfirm={setVpsPwConfirm}
+              vpsPwMsg={vpsPwMsg}
+              vpsPwOk={vpsPwOk}
+              handleVpsPasswordChange={handleVpsPasswordChange}
+              newUserEmail={newUserEmail}
+              setNewUserEmail={setNewUserEmail}
+              newUserPassword={newUserPassword}
+              setNewUserPassword={setNewUserPassword}
+              usersError={usersError}
+              handleAddUser={handleAddUser}
+              handleToggleUser={handleToggleUser}
+              handleResetPassword={handleResetPassword}
+              resetPwFor={resetPwFor}
+              setResetPwFor={setResetPwFor}
+              resetPwValue={resetPwValue}
+              setResetPwValue={setResetPwValue}
+            />
+          )}
+
         </div>
       </div>
     </div>

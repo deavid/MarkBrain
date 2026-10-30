@@ -22,7 +22,10 @@ export interface PurgeDeps {
   versioning: IArtifactVersioningDomain;
   graph: ITopologicalGraphDomain;
   threadRegistry: ThreadRegistry;
-  workspace?: IWorkspaceDomain;
+  /** REQUIRED (live 2026-10-30): without it the server delete is silently
+   * skipped and the artifact resurrects on refresh. TypeScript enforces it —
+   * every caller must pass the workspace domain. */
+  workspace: IWorkspaceDomain;
 }
 
 export function purgeArtifact(deps: PurgeDeps, artifactId: string): void {
@@ -49,9 +52,9 @@ export function purgeArtifact(deps: PurgeDeps, artifactId: string): void {
   threadRegistry.purgeArtifact(artifactId);
   versioning.purgeArtifact(artifactId);
   // Explicit delete must reach the VPS — snapshot saves are upsert-only, so
-  // without this the artifact resurrects on refresh (live 2026-10-26).
-  if (deps.workspace) {
-    queueServerMutation(deps.workspace.getActiveProjectId(), { op: 'deleteArtifact', artifactId });
-  }
+  // without this the artifact resurrects on refresh (live 2026-10-26). The
+  // workspace is REQUIRED by the type (live 2026-10-30: call sites omitted it
+  // and the optional guard silently no-oped).
+  queueServerMutation(deps.workspace.getActiveProjectId(), { op: 'deleteArtifact', artifactId });
   artifactsDomain.deleteArtifact(artifactId);
 }

@@ -391,7 +391,7 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
   // Focus scrub on top of the shared cascade — every deletion path leaves the
   // workspace the same way (edges, attachments, history, the artifact itself).
   const scrubReferencesTo = (deletedId: string) => {
-    purgeArtifact({ artifactsDomain, versioning, graph, threadRegistry }, deletedId);
+    purgeArtifact({ artifactsDomain, versioning, graph, threadRegistry, workspace }, deletedId);
     if (selectedArtifactId === deletedId) setSelectedArtifactId(null);
     if (triageFocusId === deletedId) setTriageFocusId(null);
   };

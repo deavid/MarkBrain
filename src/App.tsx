@@ -514,6 +514,7 @@ export default function App() {
     versioning,
     graph,
     threadRegistry,
+    workspace,
     deleteThread,
     triggerReRender,
     onArtifactPurged: (id) => {

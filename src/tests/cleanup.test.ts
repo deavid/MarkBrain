@@ -10,6 +10,7 @@ import type { UniversalArtifactDocument } from '../domains/01-artifact-document'
 import { ArtifactVersioningDomain } from '../domains/01-artifact-versioning';
 import { TopologicalGraphDomain } from '../domains/02-topological-graph';
 import { purgeArtifact } from '../application/purgeArtifactEverywhere';
+import type { IWorkspaceDomain } from '../domains/00-workspace';
 
 const thread = (
   id: string,
@@ -220,7 +221,10 @@ describe('purge cascade', () => {
       threads: [thread('t1', 'active', ['a1', 'a2']), thread('t2', 'archived', ['a1'])],
     });
 
-    purgeArtifact({ artifactsDomain, versioning, graph, threadRegistry }, 'a1');
+    purgeArtifact(
+      { artifactsDomain, versioning, graph, threadRegistry, workspace: { getActiveProjectId: () => 'p1' } as unknown as IWorkspaceDomain },
+      'a1'
+    );
 
     expect(artifactsDomain.getArtifact('a1')).toBeNull();
     expect(artifactsDomain.getArtifact('a3')?.graph?.relationships).toEqual([

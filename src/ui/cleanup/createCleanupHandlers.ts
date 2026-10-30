@@ -1,4 +1,5 @@
 import type { DomainContextValue } from '../../domains/DomainRegistry';
+import type { IWorkspaceDomain } from '../../domains/00-workspace';
 import type { CleanupPlan } from '../../application/cleanupPlan';
 import type { ArtifactLifecycle } from '../../domains/01-artifact-document';
 import { purgeArtifact } from '../../application/purgeArtifactEverywhere';
@@ -9,6 +10,8 @@ export interface CleanupHandlerParams {
   versioning: DomainContextValue['versioning'];
   graph: DomainContextValue['graph'];
   threadRegistry: DomainContextValue['threadRegistry'];
+  /** REQUIRED for purgeArtifact — the VPS delete mutation (live 2026-10-30). */
+  workspace: IWorkspaceDomain;
   /** Registry delete + live-domain swap (DomainRegistry.deleteThread). */
   deleteThread: (threadId: string) => void;
   triggerReRender: () => void;
@@ -21,6 +24,7 @@ export function createCleanupHandlers(params: CleanupHandlerParams) {
     versioning,
     graph,
     threadRegistry,
+    workspace,
     deleteThread,
     triggerReRender,
     onArtifactPurged,
@@ -43,7 +47,7 @@ export function createCleanupHandlers(params: CleanupHandlerParams) {
     // deletions that follow can never unload a live thread into a half-purged
     // reference. A plan that is already empty is a no-op by construction.
     plan.artifactsToDelete.forEach((id) => {
-      purgeArtifact({ artifactsDomain, versioning, graph, threadRegistry }, id);
+      purgeArtifact({ artifactsDomain, versioning, graph, threadRegistry, workspace }, id);
       onArtifactPurged(id);
     });
     [...plan.threadsToDelete, ...plan.cascadeThreads].forEach((id) => deleteThread(id));

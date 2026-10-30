@@ -62,6 +62,31 @@ describe('resolveCapabilities — DEFAULT ← project ← thread', () => {
   });
 });
 
+describe('the voice law — the reply is written to be spoken (David, 2026-10-30)', () => {
+  it('the client system instruction always carries the voice law, capability or not', () => {
+    const off = buildSystemInstruction({ autoChapter: false, writeArtifacts: false, graphLinks: false });
+    const all = buildSystemInstruction({ autoChapter: true, writeArtifacts: true, graphLinks: true });
+    for (const sys of [off, all]) {
+      // Writing for the ear: the TTS contract.
+      expect(sys).toContain('read aloud');
+      // Intentional music: varied sentence length, the short punch.
+      expect(sys).toContain('short one');
+      // Clausal chaining over machine joints.
+      expect(sys).toContain('Furthermore');
+      // No throat-clearing.
+      expect(sys).toContain('In conclusion');
+      // The playback self-check.
+      expect(sys).toContain('play the reply back');
+    }
+  });
+
+  it('the server fallback instruction carries the same voice law (parity)', async () => {
+    const { DEFAULT_SYSTEM_INSTRUCTION } = await import('../../shared/prompts/prompt');
+    expect(DEFAULT_SYSTEM_INSTRUCTION).toContain('read aloud');
+    expect(DEFAULT_SYSTEM_INSTRUCTION).toContain('Furthermore');
+  });
+});
+
 describe('compiler — capability blocks in the system instruction', () => {
   it('all three OFF → none of the schema words appear at all', () => {
     const sys = buildSystemInstruction({

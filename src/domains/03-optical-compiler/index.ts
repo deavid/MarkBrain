@@ -12,6 +12,7 @@ import { IDialogueTimelineDomain, Turn } from '../01-dialogue-timeline';
 import type { ChatAttachment, ChatCapabilities } from '../06-chat-threads';
 import { DEFAULT_CHAT_CAPABILITIES } from '../06-chat-threads';
 import { Granularity, cutIncludes } from '../granularity';
+import { VOICE_LAW } from '../../../shared/prompts/prompt';
 import { logger } from '../../utils/logger';
 import { estimateTokens } from '../../utils/estimateTokens';
 import { MAX_CONTEXT_TOKENS } from '../../utils/contextWindow';
@@ -160,7 +161,7 @@ export function buildSystemInstruction(capabilities: ChatCapabilities): string {
   const functional = blocks.length
     ? `${blocks.join('\n\n')}\n\n`
     : '';
-  return `${BASE_PERSONA}\n${functional}${STYLE_LAW}`;
+  return `${BASE_PERSONA}\n\n${VOICE_LAW}\n${functional}${STYLE_LAW}`;
 }
 
 export function artifactXml(

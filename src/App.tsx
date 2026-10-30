@@ -823,6 +823,7 @@ export default function App() {
     versioning,
     compiler,
     stream,
+    graph,
     triggerReRender,
     setStreamingStatus,
     setStreamPhase,

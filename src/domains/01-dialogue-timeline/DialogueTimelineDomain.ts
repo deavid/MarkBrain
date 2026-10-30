@@ -33,17 +33,22 @@ export class DialogueTimelineDomain implements IDialogueTimelineDomain {
     role: 'user' | 'assistant' | 'system',
     content: string,
     extractedArtifacts?: any[],
-    meta?: any
+    meta?: any,
+    /**
+     * Optional explicit id (Phase 3): the commit planner decides the pair's
+     * turn ids up front so client and server agree on them. Absent → the
+     * historical generated id (every pre-existing caller is unchanged).
+     */
+    id?: string
   ): Turn {
     const turn: Turn = {
-      id: `turn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: id ?? `turn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       role,
       content,
       timestamp: Date.now(),
       extractedArtifacts,
       meta,
-    };
-    this.turns.push(turn);
+    };    this.turns.push(turn);
     logger.info('Timeline', `Appended turn [${role}] #${this.turns.length}`, { id: turn.id, role, length: content.length, meta });
     this.emit({ type: 'turnAppended', turn });
     return turn;

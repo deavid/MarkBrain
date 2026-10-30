@@ -6,7 +6,7 @@ export interface IDialogueTimelineDomain {
   getTurnSlice(startIndex: number, endIndex?: number): Turn[];
   count(): number;
 
-  appendTurn(role: 'user' | 'assistant' | 'system', content: string, extractedArtifacts?: any[], meta?: any): Turn;
+  appendTurn(role: 'user' | 'assistant' | 'system', content: string, extractedArtifacts?: any[], meta?: any, id?: string): Turn;
   updateTurn(id: string, partial: Partial<Turn>): void;
   loadTurns(turns: Turn[]): void;
   clear(): void;

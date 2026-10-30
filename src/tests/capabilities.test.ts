@@ -25,6 +25,7 @@ import { ArtifactDocumentDomain } from '../domains/01-artifact-document';
 import { ChapterSegmentationDomain } from '../domains/02-chapter-segmentation';
 import { DialogueTimelineDomain } from '../domains/01-dialogue-timeline';
 import { SendQueue } from '../application/sendQueue';
+import { planTurnCommit } from '../../shared/turnCommit/planTurnCommit';
 import type { ExtractedTopicShift } from '../domains/03-stream-protocol';
 import { initDb, closeDbForTests, getDb } from '../../server/db';
 
@@ -106,61 +107,70 @@ describe('compiler — capability blocks in the system instruction', () => {
   });
 });
 
-describe('client apply path — rogue blocks are ignored when OFF', () => {
+describe('client apply path — rogue blocks are ignored when OFF (Phase 3: via the shared planner)', () => {
+  function planWith(autoChapter: boolean) {
+    return planTurnCommit({
+      kind: 'send',
+      threadId: 'thread-1',
+      pairKey: 'pair-1',
+      projectId: 'p1',
+      askText: 'ask',
+      cleanReply: 'reply',
+      artifactUpserts: [],
+      topicShift: { title: 'Rogue Chapter', subtitle: 'nope' },
+      links: [],
+      unlinks: [],
+      stagedAttachments: [],
+      capabilities: { ...DEFAULT_CHAT_CAPABILITIES, autoChapter },
+      now: 1,
+      ids: { userTurnId: 'u', assistantTurnId: 'a' },
+      state: { artifacts: [], edges: [], threadTurnsCount: 2, chapters: [] },
+    });
+  }
+
   function makeDeps() {
     const upsertBoundary = vi.fn();
     const deps = {
       threadRegistry: {
         getActiveThreadId: () => 'other-thread', // force the INACTIVE branch: calls land on the registry stub
+        appendInactiveTurn: vi.fn(() => ({ id: 't' })),
         upsertChapterAtBoundaryInactive: upsertBoundary,
+        commitStagedAttachments: vi.fn(() => 0),
+        attachArtifact: vi.fn(),
+        ensureAttached: vi.fn(),
+        patch: vi.fn(),
       },
-      timeline: { getTurns: () => [] },
+      timeline: { appendTurn: vi.fn(() => ({ id: 't' })), updateTurn: vi.fn() },
+      artifacts: { upsertArtifact: vi.fn() },
+      versioning: { recordSnapshot: vi.fn() },
+      segmentation: { upsertChapterAtBoundary: vi.fn() },
+      triggerReRender: vi.fn(),
     };
     const queue = new SendQueue(() => deps as never);
     return { queue, upsertBoundary, deps };
   }
 
-  it('autoChapter OFF → a rogue <topic_shift> opens NO chapter', () => {
-    const { queue, upsertBoundary } = makeDeps();
+  it('autoChapter OFF → the planner emits NO chapter op, a rogue shift applies nothing', () => {
+    const plan = planWith(false);
+    expect(plan.chapterOp).toBeNull();
+    const { queue, upsertBoundary, deps } = makeDeps();
     (queue as unknown as {
-      applyBufferedShifts: (
-        chain: unknown,
-        threadId: string,
-        shifts: ExtractedTopicShift[],
-        askIndex: number
-      ) => void;
-    }).applyBufferedShifts(
-      {
-        deps: {} as never,
-        ctx: { projectId: 'p1', capabilities: { ...DEFAULT_CHAT_CAPABILITIES, autoChapter: false } },
-      },
-      'thread-1',
-      [{ title: 'Rogue Chapter', subtitle: 'nope' } as ExtractedTopicShift],
-      2
-    );
+      applyTurnCommitPlan: (deps: unknown, threadId: string, plan: unknown) => void;
+    }).applyTurnCommitPlan(deps, 'thread-1', plan);
     expect(upsertBoundary).not.toHaveBeenCalled();
   });
 
-  it('autoChapter ON → the shift applies as before', () => {
+  it('autoChapter ON → the shift applies as before (askIndex = the ask)', () => {
+    const plan = planWith(true);
+    expect(plan.chapterOp).not.toBeNull();
+    expect(plan.chapterOp!.askIndex).toBe(2);
     const { queue, upsertBoundary, deps } = makeDeps();
     (queue as unknown as {
-      applyBufferedShifts: (
-        chain: unknown,
-        threadId: string,
-        shifts: ExtractedTopicShift[],
-        askIndex: number
-      ) => void;
-    }).applyBufferedShifts(
-      {
-        deps,
-        ctx: { projectId: 'p1', capabilities: { ...DEFAULT_CHAT_CAPABILITIES, autoChapter: true } },
-      },
-      'thread-1',
-      [{ title: 'Real Chapter', subtitle: 'yep' } as ExtractedTopicShift],
-      2
-    );
+      applyTurnCommitPlan: (deps: unknown, threadId: string, plan: unknown) => void;
+    }).applyTurnCommitPlan(deps, 'thread-1', plan);
     expect(upsertBoundary).toHaveBeenCalledTimes(1);
-    expect(upsertBoundary.mock.calls[0][1]).toBe('Real Chapter');
+    expect(upsertBoundary.mock.calls[0][1]).toBe('Rogue Chapter');
+    expect(upsertBoundary.mock.calls[0][2]).toBe(2);
   });
 });
 

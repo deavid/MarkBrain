@@ -26,7 +26,7 @@ import {
 import { getMellowPastelColor } from '../utils/pastelColor';
 import { estimateTokens } from '../utils/estimateTokens';
 import { requestSyncNow } from './syncBus';
-import type { TurnMeta } from '../domains/01-dialogue-timeline/types';
+import type { Turn, TurnMeta } from '../domains/01-dialogue-timeline/types';
 import { serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
 import { logger } from '../utils/logger';
 import { placeholderTitle, sampleTurnsForTitle, titlePipelineStep } from '../domains/06-chat-threads';
@@ -65,6 +65,8 @@ export function vpsPhaseFor(serverState: string): 'queued' | 'connecting' | 'awa
 import { isLocalVaultLockedError, resolveLaneKey } from '../data/keySlots';
 import { isVaultLocked, getReArmKey, tryReArmVault } from '../data/vaultReArm';
 import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../domains/03-stream-protocol';
+import type { ExtractedLink, ExtractedUnlink } from '../../shared/stream/types';
+import { planTurnCommit, type TurnCommitPlan } from '../../shared/turnCommit/planTurnCommit';
 
 /** App render values, snapshotted once when an attempt starts (see the header). */
 export interface TurnSendContext {
@@ -85,6 +87,13 @@ export interface SendQueueDeps
     DomainContextValue,
     'threadRegistry' | 'timeline' | 'segmentation' | 'artifacts' | 'versioning' | 'compiler' | 'stream'
   > {
+  /**
+   * Phase 3: the commit planner needs the graph's edges (unlink matching).
+   * Optional only so legacy test mocks keep compiling — App always passes it;
+   * absent means "no edges known", which only softens unlink resolution.
+   */
+  graph?: DomainContextValue['graph'];
+
   triggerReRender: () => void;
   setStreamingStatus: (status: string | null) => void;
   setStreamPhase: (phase: 'waiting' | 'streaming' | null) => void;
@@ -413,9 +422,9 @@ export class SendQueue {
       streamState: 'completed',
     };
     if (item.kind === 'regenerate' && item.targetTurnId) {
-      this.commitRegenerate(chain, item, item.partial, artifacts, shifts, meta);
+      this.commitRegenerate(chain, item, item.partial, artifacts, shifts, [], [], meta);
     } else {
-      this.commitPair(chain, item, item.partial, artifacts, shifts, meta);
+      this.commitPair(chain, item, item.partial, artifacts, shifts, [], [], meta);
     }
     this.drafts.resolve(item.id);
     this.maybeRetitle(chain, item.threadId);
@@ -519,12 +528,14 @@ export class SendQueue {
     role: 'user' | 'assistant' | 'system',
     content: string,
     extractedArtifacts?: ExtractedArtifact[],
-    meta?: TurnMeta
+    meta?: TurnMeta,
+    /** Explicit turn id (Phase 3) — the planner decided the pair's ids. */
+    id?: string
   ) {
     if (this.isActiveThread(deps, threadId)) {
-      return deps.timeline.appendTurn(role, content, extractedArtifacts, meta);
+      return deps.timeline.appendTurn(role, content, extractedArtifacts, meta, id);
     }
-    const turn = deps.threadRegistry.appendInactiveTurn(threadId, role, content, extractedArtifacts, meta);
+    const turn = deps.threadRegistry.appendInactiveTurn(threadId, role, content, extractedArtifacts, meta, id);
     if (!turn) throw new Error(`appendInactiveTurn failed for thread ${threadId}`);
     return turn;
   }
@@ -533,7 +544,13 @@ export class SendQueue {
     deps: SendQueueDeps,
     threadId: string,
     turnId: string,
-    partial: { content?: string; extractedArtifacts?: ExtractedArtifact[]; meta?: TurnMeta }
+    partial: {
+      content?: string;
+      timestamp?: number;
+      extractedArtifacts?: ExtractedArtifact[];
+      extractedLinks?: Turn['extractedLinks'];
+      meta?: TurnMeta;
+    }
   ) {
     if (this.isActiveThread(deps, threadId)) deps.timeline.updateTurn(turnId, partial);
     else deps.threadRegistry.updateInactiveTurn(threadId, turnId, partial);
@@ -756,7 +773,7 @@ export class SendQueue {
         prose ||
         `Extracted ${bufferedArtifacts.length} note${bufferedArtifacts.length === 1 ? '' : 's'}.`;
 
-      this.commitPair(chain, item, replyText, bufferedArtifacts, bufferedShifts, {
+      this.commitPair(chain, item, replyText, bufferedArtifacts, bufferedShifts, result.links ?? [], result.unlinks ?? [], {
         model: result.telemetry?.model || ctx.model.name,
         inputTokens: estPrompt,
         outputTokens: estCand,
@@ -793,61 +810,52 @@ export class SendQueue {
     replyText: string,
     bufferedArtifacts: ExtractedArtifactUpsert[],
     bufferedShifts: ExtractedTopicShift[],
+    links: ExtractedLink[],
+    unlinks: ExtractedUnlink[],
     meta: TurnMeta
   ): void {
     const deps = chain.deps;
     const threadId = item.threadId;
+    const now = Date.now();
+    const rand = () => Math.random().toString(36).slice(2, 6);
 
-    const userTurn = this.appendTurnToThread(deps, threadId, 'user', item.text);
-    const userTurnIndex = this.turnsOf(deps, threadId).length - 1;
-    const committedAttachments = deps.threadRegistry.commitStagedAttachments(
+    // Phase 3: the DECISIONS live in the shared pure planner — the same code
+    // the server commit path runs. This side only gathers the world as the
+    // live domains see it and applies the returned plan.
+    const plan = planTurnCommit({
+      kind: 'send',
       threadId,
-      userTurnIndex,
-      userTurn.id
-    );
-    if (committedAttachments > 0) {
-      logger.info(
-        'App',
-        `Committed ${committedAttachments} staged attachment(s) to turn ${userTurnIndex}`,
-        { threadId }
-      );
-    }
-
-    const extractedList: ExtractedArtifact[] = bufferedArtifacts.map((u) => ({
-      id: u.id,
-      title: u.title,
-      type: u.type,
-      code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
-      category: u.type === 'chapter' ? 'chapter' : 'note',
-      subtitle: u.content.subtitle,
-      description: u.content.description,
-      summary: u.content.summary,
-      content: u.content.body,
-      isHighConcept: false,
-    }));
-    const assistantTurn = this.appendTurnToThread(deps, threadId, 'assistant', replyText, extractedList, meta);
-
-    // Artifacts land with the pair (discarding a draft drops them too).
-    this.applyBufferedArtifacts(chain, threadId, bufferedArtifacts, userTurnIndex + 1, assistantTurn.id);
-
-    // AI-attachment law: the reply's extracted artifacts are ATTACHMENTS on
-    // the reply — committed, Full by default, steerable, compiled into every
-    // next context call, never re-staged (2026-10-25).
-    for (const art of extractedList) {
-      if (art.id) deps.threadRegistry.ensureAttached(threadId, art.id, userTurnIndex + 1, assistantTurn.id);
-    }
-
-    // Topic shifts land after the pair: the new chapter starts after it.
-    this.applyBufferedShifts(chain, threadId, bufferedShifts, userTurnIndex);
-
-    deps.threadRegistry.patch(threadId, { lastOutcome: 'ok', lastActivityAt: Date.now() });
-    deps.triggerReRender();
+      pairKey: item.id,
+      projectId: chain.ctx.projectId,
+      askText: item.text,
+      cleanReply: replyText,
+      artifactUpserts: bufferedArtifacts,
+      topicShift: bufferedShifts.length ? bufferedShifts[bufferedShifts.length - 1] : null,
+      links,
+      unlinks,
+      stagedAttachments: deps.threadRegistry.getStagedAttachments(threadId),
+      capabilities: chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES,
+      telemetry: meta,
+      now,
+      ids: {
+        userTurnId: `turn-${now}-${rand()}`,
+        assistantTurnId: `turn-${now + 1}-${rand()}`,
+      },
+      state: {
+        artifacts: deps.artifacts.listArtifacts(),
+        edges: deps.graph?.listEdges() ?? [],
+        threadTurnsCount: this.turnsOf(deps, threadId).length,
+        chapters: this.chaptersOf(deps, threadId),
+      },
+    });
+    this.applyTurnCommitPlan(deps, threadId, plan);
     logger.info('App', 'Pair committed', {
       threadId,
       model: meta.model,
       totalTokens: meta.totalTokens,
-      artifacts: extractedList.length,
+      artifacts: plan.assistantTurn.extractedArtifacts?.length ?? 0,
       topicShifts: bufferedShifts.length,
+      receipts: plan.receipts.length,
     });
   }
 
@@ -1164,7 +1172,7 @@ export class SendQueue {
         result.telemetry?.inputTokens ?? Math.max(1, estimateTokens(compiled.compiledPrompt || ''));
       const estCand =
         result.telemetry?.outputTokens ?? Math.max(1, estimateTokens(prose));
-      this.commitRegenerate(chain, item, prose, bufferedArtifacts, bufferedShifts, {
+      this.commitRegenerate(chain, item, prose, bufferedArtifacts, bufferedShifts, result.links ?? [], result.unlinks ?? [], {
         model: result.telemetry?.model || ctx.model.name,
         inputTokens: estPrompt,
         outputTokens: estCand,
@@ -1200,6 +1208,8 @@ export class SendQueue {
     replyText: string,
     bufferedArtifacts: ExtractedArtifactUpsert[],
     bufferedShifts: ExtractedTopicShift[],
+    links: ExtractedLink[],
+    unlinks: ExtractedUnlink[],
     meta: TurnMeta
   ): void {
     const deps = chain.deps;
@@ -1207,182 +1217,143 @@ export class SendQueue {
     const targetTurnId = item.targetTurnId!;
     const turns = this.turnsOf(deps, threadId);
     const targetIndex = turns.findIndex((t) => t.id === targetTurnId);
+    const targetTurnIndex = targetIndex >= 0 ? targetIndex : turns.length - 1;
 
-    const extractedList: ExtractedArtifact[] = bufferedArtifacts.map((u) => ({
-      id: u.id,
-      title: u.title,
-      type: u.type,
-      code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
-      category: u.type === 'chapter' ? 'chapter' : 'note',
-      subtitle: u.content.subtitle,
-      description: u.content.description,
-      summary: u.content.summary,
-      content: u.content.body,
-      isHighConcept: false,
-    }));
-    this.updateTurnInThread(deps, threadId, targetTurnId, {
-      content: replyText,
-      extractedArtifacts: extractedList,
-      meta,
-    });
-    this.applyBufferedArtifacts(
-      chain,
+    // Phase 3: same planner as send and as the server — the plan merges into
+    // the existing turn doc (the ask and the turn id stay: same pair).
+    const plan = planTurnCommit({
+      kind: 'regenerate',
       threadId,
-      bufferedArtifacts,
-      targetIndex >= 0 ? targetIndex : turns.length - 1,
-      targetTurnId
-    );
-    // AI-attachment law on regenerate too: new extractions attach to the
-    // replaced reply (existing entries keep the user's granularity).
-    for (const art of extractedList) {
-      if (art.id) {
-        deps.threadRegistry.ensureAttached(
-          threadId,
-          art.id,
-          targetIndex >= 0 ? targetIndex : turns.length - 1,
-          targetTurnId
-        );
-      }
-    }
-    // The regenerated pair is the thread's last two turns — the cut applies
-    // at its ask, exactly as a fresh send's would.
-    this.applyBufferedShifts(chain, threadId, bufferedShifts, Math.max(0, this.turnsOf(deps, threadId).length - 2));
-    deps.threadRegistry.patch(threadId, { lastOutcome: 'ok', lastActivityAt: Date.now() });
-    deps.triggerReRender();
+      pairKey: item.id,
+      projectId: chain.ctx.projectId,
+      targetTurnId,
+      targetTurnIndex,
+      existingAssistantTurn: turns[targetIndex] ?? null,
+      askText: turns[targetIndex - 1]?.role === 'user' ? turns[targetIndex - 1].content : item.text,
+      cleanReply: replyText,
+      artifactUpserts: bufferedArtifacts,
+      topicShift: bufferedShifts.length ? bufferedShifts[bufferedShifts.length - 1] : null,
+      links,
+      unlinks,
+      stagedAttachments: [],
+      capabilities: chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES,
+      telemetry: meta,
+      now: Date.now(),
+      ids: { userTurnId: '', assistantTurnId: targetTurnId },
+      state: {
+        artifacts: deps.artifacts.listArtifacts(),
+        edges: deps.graph?.listEdges() ?? [],
+        threadTurnsCount: turns.length,
+        chapters: this.chaptersOf(deps, threadId),
+      },
+    });
+    this.applyTurnCommitPlan(deps, threadId, plan);
     logger.info('App', 'Pair reply replaced (regenerate)', {
       threadId,
       turnId: targetTurnId,
       model: meta.model,
+      receipts: plan.receipts.length,
     });
   }
 
-  /** Artifacts extracted during an attempt land ONLY when the work commits. */
-  private applyBufferedArtifacts(
-    chain: QueueChain,
-    threadId: string,
-    bufferedArtifacts: ExtractedArtifactUpsert[],
-    assistantTurnIndex: number,
-    assistantTurnId: string
-  ): void {
-    const deps = chain.deps;
-    // Package 2 §2.4: a capability that is OFF means its XML block was never
-    // taught — a rogue block that slipped through the demuxer is IGNORED here.
-    if (!(chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES).writeArtifacts) {
-      if (bufferedArtifacts.length) {
-        logger.info('App', `Dropped ${bufferedArtifacts.length} buffered note(s) — note writing is switched off for this chat`);
-      }
-      return;
-    }
-    for (const u of bufferedArtifacts) {
-      const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
-      const existing = deps.artifacts.getArtifact(code) || deps.artifacts.getArtifact(u.id);
-      let artifactId = existing?.id || u.id || '';
-      if (existing) {
-        // Revision of the OLD state FIRST (full title + layers snapshot), so
-        // History can show and revert what the chat just overwrote…
-        deps.versioning.recordSnapshot(existing.id, {
-          actor: 'ai',
-          changeSummary: `Update from chat: ${u.content.description}`,
-          provenance: { threadId, turnId: assistantTurnId, turnIndex: assistantTurnIndex },
-          title: existing.title,
-          layers: { ...existing.current },
-        });
-        // …then actually apply the update. (Bug 2026-10-27: the revision was
-        // recorded but the upsert was forgotten — existing notes never
-        // changed on the client path, the reply just claimed they had.)
-        const savedExisting = deps.artifacts.upsertArtifact({
-          ...existing,
-          title: u.title || existing.title,
-          current: {
-            subtitle: u.content.subtitle,
-            description: u.content.description,
-            summary: u.content.summary,
-            body: u.content.body,
-          },
-          updatedAt: Date.now(),
-          // The AI rewrote every layer, so nothing is stale anymore.
-          layersStaleAt: undefined,
-        });
-        artifactId = savedExisting.id;
-      } else {
-        const now = Date.now();
-        const newArtifact: Artifact = {
-          id: u.id || `art-${now}`,
-          workspaceId: chain.ctx.projectId,
-          code,
-          title: u.title || 'Extracted note',
-          type: u.type === 'chapter' ? 'chapter' : 'document',
-          category: u.type === 'chapter' ? 'chapter' : 'note',
-          color: getMellowPastelColor(code),
-          isHighConcept: false,
-          current: {
-            subtitle: u.content.subtitle || '',
-            description: u.content.description || '',
-            summary: u.content.summary || '',
-            body: u.content.body || `# ${u.title}`,
-          },
-          tags: ['chat-extracted', u.type || 'note'],
-          createdAt: now,
-          updatedAt: now,
-          graph: { is_high_concept: false, x: 300, y: 200 },
-        };
-        const saved = deps.artifacts.upsertArtifact({
-          ...newArtifact,
-          yamlDocument: serializeArtifactToYamlDoc(newArtifact),
-        });
-        artifactId = saved.id;
-        // Initial revision (v1): the note's birth state, with chat provenance.
-        deps.versioning.recordSnapshot(saved.id, {
-          actor: 'ai',
-          changeSummary: `Created from chat: ${u.content.description}`,
-          provenance: { threadId, turnId: assistantTurnId, turnIndex: assistantTurnIndex },
-          title: saved.title,
-          layers: { ...saved.current },
-        });
-      }
-      if (artifactId) {
-        deps.threadRegistry.attachArtifact(threadId, artifactId, 'full', assistantTurnIndex, assistantTurnId);
-      }
-    }
-  }
-
-  /** Topic shifts land after the committed work — never mid-attempt. */
   /**
-   * Topic-shift chapter law (David 2026-10-25):
-   *   1. LAST shift wins — one reply may carry several sentinels.
-   *   2. The cut applies at the human ask that caused the change (askIndex),
-   *      not after the reply.
-   *   3. A cut that already exists at that index is RETITLED, never duplicated.
+   * The client applier (Phase 3): executes a TurnCommitPlan through the live
+   * domains. The planner decided EVERYTHING; this only performs the writes in
+   * the plan's order — turns, artifacts (revision first), attachments, the
+   * topic-shift chapter, then the thread touch.
    */
-  private applyBufferedShifts(
-    chain: QueueChain,
+  private applyTurnCommitPlan(
+    deps: SendQueueDeps,
     threadId: string,
-    bufferedShifts: ExtractedTopicShift[],
-    askIndex: number
+    plan: TurnCommitPlan
   ): void {
-    const deps = chain.deps;
-    // Package 2 §2.4: autoChapter OFF = no model-cut chapters, even if a rogue
-    // <topic_shift> arrived. Manual splits stay unaffected.
-    if (!(chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES).autoChapter) return;
-    const shift = bufferedShifts[bufferedShifts.length - 1];
-    if (!shift) return;
-    if (this.isActiveThread(deps, threadId)) {
-      deps.segmentation.upsertChapterAtBoundary(
-        shift.title,
-        askIndex,
-        shift.subtitle,
-        shift.description,
-        shift.summary
+    if (plan.userTurn) {
+      // Explicit ids: the planner decided the pair's ids up front.
+      this.appendTurnToThread(deps, threadId, 'user', plan.userTurn.content, undefined, undefined, plan.userTurn.id);
+      const committedAttachments = deps.threadRegistry.commitStagedAttachments(
+        threadId,
+        plan.userTurnIndex,
+        plan.userTurn.id
+      );
+      if (committedAttachments > 0) {
+        logger.info(
+          'App',
+          `Committed ${committedAttachments} staged attachment(s) to turn ${plan.userTurnIndex}`,
+          { threadId }
+        );
+      }
+      this.appendTurnToThread(
+        deps,
+        threadId,
+        'assistant',
+        plan.assistantTurn.content,
+        plan.assistantTurn.extractedArtifacts,
+        plan.assistantTurn.meta as TurnMeta,
+        plan.assistantTurn.id
       );
     } else {
-      deps.threadRegistry.upsertChapterAtBoundaryInactive(
+      // Regenerate: replace the reply on the SAME turn doc.
+      this.updateTurnInThread(deps, threadId, plan.assistantTurn.id, {
+        content: plan.assistantTurn.content,
+        timestamp: plan.assistantTurn.timestamp,
+        extractedArtifacts: plan.assistantTurn.extractedArtifacts,
+        extractedLinks: plan.assistantTurn.extractedLinks,
+        meta: plan.assistantTurn.meta as TurnMeta,
+      });
+    }
+
+    // Artifacts land with the pair (discarding a draft drops them too). The
+    // revision is recorded BEFORE the upsert — old state on update, birth
+    // state on create — and only NEW notes get a yaml document serialized
+    // (the update path keeps the stored one, as before).
+    for (const op of plan.artifactOps) {
+      deps.versioning.recordSnapshot(op.artifact.id, op.revision);
+      deps.artifacts.upsertArtifact(
+        op.isNew ? { ...op.artifact, yamlDocument: serializeArtifactToYamlDoc(op.artifact) } : op.artifact
+      );
+      deps.threadRegistry.attachArtifact(
         threadId,
-        shift.title,
-        askIndex,
-        shift.subtitle,
-        shift.description,
-        shift.summary
+        op.artifact.id,
+        'full',
+        plan.assistantTurnIndex,
+        plan.assistantTurn.id
       );
     }
+
+    // AI-attachment law: the reply's extracted artifacts are ATTACHMENTS on
+    // the reply — committed, Full by default, steerable, compiled into every
+    // next context call, never re-staged (2026-10-25).
+    for (const art of plan.assistantTurn.extractedArtifacts ?? []) {
+      if (art.id) deps.threadRegistry.ensureAttached(threadId, art.id, plan.assistantTurnIndex, plan.assistantTurn.id);
+    }
+
+    // Topic shifts land after the pair: the new chapter starts after it.
+    if (plan.chapterOp) {
+      const { shift, askIndex } = plan.chapterOp;
+      if (this.isActiveThread(deps, threadId)) {
+        deps.segmentation.upsertChapterAtBoundary(
+          shift.title,
+          askIndex,
+          shift.subtitle,
+          shift.description,
+          shift.summary
+        );
+      } else {
+        deps.threadRegistry.upsertChapterAtBoundaryInactive(
+          threadId,
+          shift.title,
+          askIndex,
+          shift.subtitle,
+          shift.description,
+          shift.summary
+        );
+      }
+    }
+
+    deps.threadRegistry.patch(threadId, {
+      lastOutcome: plan.threadTouch.lastOutcome,
+      lastActivityAt: plan.threadTouch.lastActivityAt,
+    });
+    deps.triggerReRender();
   }
 }

@@ -62,6 +62,13 @@ export interface StreamTurnResult {
   artifacts: ExtractedArtifactUpsert[];
   topicShift?: ExtractedTopicShift;
   telemetry?: BackendTelemetry;
+  /**
+   * Graph asks the demuxer parsed out of the reply (Phase 3: local-mode links
+   * now reach the commit planner — previously only the server path applied
+   * them and the client dropped every <link>/<unlink> on the floor).
+   */
+  links?: ExtractedLink[];
+  unlinks?: ExtractedUnlink[];
 }
 
 export interface StreamProtocolEvents {

@@ -175,6 +175,8 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
               artifacts: parsed.artifactUpserts,
               topicShift: parsed.topicShift,
               telemetry: data.telemetry,
+              links: parsed.links,
+              unlinks: parsed.unlinks,
             };
 
             if (finalResult.telemetry) {
@@ -214,6 +216,8 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
           rawReply: accumulatedRaw,
           artifacts: demuxed.artifactUpserts,
           topicShift: demuxed.topicShift,
+          links: demuxed.links,
+          unlinks: demuxed.unlinks,
           telemetry: {
             model: payload.model || 'gemini-3.5-flash-lite',
             inputTokens: estPrompt,

@@ -83,7 +83,8 @@ function makeDeps() {
       declareNewChapter: vi.fn(),
       upsertChapterAtBoundary: vi.fn(),
     } as never,
-    artifacts: { getArtifact: () => null, upsertArtifact: vi.fn((a: unknown) => a) } as never,
+    artifacts: { getArtifact: () => null, listArtifacts: () => [], upsertArtifact: vi.fn((a: unknown) => a) } as never,
+    graph: { listEdges: () => [] } as never,
     versioning: { recordRevision: vi.fn() } as never,
     compiler: {
       compile: (args: { attachments: unknown }) => {

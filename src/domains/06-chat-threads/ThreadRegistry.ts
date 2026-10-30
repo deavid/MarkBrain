@@ -672,13 +672,15 @@ export class ThreadRegistry {
     role: 'user' | 'assistant' | 'system',
     content: string,
     extractedArtifacts?: any[],
-    meta?: any
+    meta?: any,
+    /** Optional explicit id (Phase 3) — see DialogueTimelineDomain.appendTurn. */
+    id?: string
   ): Turn | null {
     if (threadId === this.activeId) return null;
     const target = this.getInactiveContent(threadId);
     if (!target) return null;
     const turn: Turn = {
-      id: `turn-${Date.now()}-${rand()}`,
+      id: id ?? `turn-${Date.now()}-${rand()}`,
       role,
       content,
       timestamp: Date.now(),

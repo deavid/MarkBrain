@@ -24,11 +24,13 @@ import type { UniversalArtifactDocument } from '../../shared/types/artifact';
 import type { ArtifactRevision } from '../../shared/types/artifactRevision';
 import type { SemanticEdge } from '../../shared/types/graph';
 import { artifactFileName } from '../../shared/artifactFileName';
-import type { ChatThread, ThreadFolder, ChatCapabilities } from '../../shared/types/threads';
+import type { ChatThread, ThreadFolder, ChatCapabilities, ChatAttachment } from '../../shared/types/threads';
 import {
   DEFAULT_CHAT_CAPABILITIES,
   resolveCapabilities,
 } from '../../shared/types/threads';
+import type { ExtractedUnlink } from '../../shared/stream/types';
+import { planTurnCommit } from '../../shared/turnCommit/planTurnCommit';
 
 export type ProjectSnapshotWithRevision = ProjectSnapshot & { revision: number };
 
@@ -862,6 +864,12 @@ export interface CommitJobInput {
  * ONE transaction commits the job's result (21E §2.3.5): pair (or regenerate
  * replacement), buffered artifacts, topic-shift chapters, thread touch, and
  * a revision bump — then the chat_jobs row is deleted by the caller.
+ *
+ * Phase 3: the DECISIONS live in the shared pure planner
+ * (shared/turnCommit/planTurnCommit.ts) — the same code the client
+ * sendQueue path runs. This function gathers the state, builds the request,
+ * and APPLIES the returned plan inside the transaction (same revision-bump /
+ * rollback semantics as before).
  */
 export function commitJobPairTransaction(input: CommitJobInput): {
   revision: number;
@@ -895,21 +903,13 @@ export function commitJobPairTransaction(input: CommitJobInput): {
       input.projectId
     );
 
-    let userTurnId = '';
-    let assistantTurnId = '';
-    // Index of the assistant turn WITHIN the thread — revision provenance.
-    let revisionTurnIndex: number | null = null;
     const now = Date.now();
     const caps = resolveCapabilities(null, input.capabilities ?? DEFAULT_CHAT_CAPABILITIES);
 
-    // Graph-link demux (David's receipts law, 2026-10-30): the model emits
-    // <link source target kind /> tags when graphLinks is ON, but NOTHING
-    // applied them — the tags rode the stored reply verbatim (invisible in
-    // rendered Markdown, "XML flying" in Raw view), the edges table stayed
-    // empty. Parse, strip from the stored prose, and — when the capability
-    // is on — resolve the file slugs to artifact ids and write REAL edges.
-    const LINK_RE = /<link\b[^>]*\/?>(?:\s*<\/link>)?/gi;
-    const ATTR_RE = /\b(source|target|kind)\s*=\s*"([^"]*)"/i;
+    // Graph-link fallback (David's receipts law, 2026-10-30): the runner hands
+    // the commit the DEMUXED clean text plus the PARSED links; paths that
+    // receive un-demuxed text fall back to parsing here. The planner strips
+    // any residual tags from the stored reply again defensively.
     const parseLinks = (text: string): Array<{ source: string; target: string; kind: string }> => {
       const out: Array<{ source: string; target: string; kind: string }> = [];
       for (const tag of text.match(/<link\b[^>]*>/gi) ?? []) {
@@ -920,387 +920,212 @@ export function commitJobPairTransaction(input: CommitJobInput): {
       }
       return out;
     };
-    const parsedLinks = (input.links && input.links.length > 0)
-      ? input.links
-      : parseLinks(input.replyText);
-    const cleanReply = input.replyText.replace(/<link\b[^>]*>(?:\s*<\/link>)?\s*/gi, '');
+    const links = input.links && input.links.length > 0 ? input.links : parseLinks(input.replyText);
 
+    /* ── Gather the state the planner needs (pure reads, inside the tx) ── */
+    const stateArtifacts: Array<Pick<UniversalArtifactDocument, 'id' | 'code' | 'title'>> = [];
+    for (const row of db
+      .prepare('SELECT artifact_id, doc_json FROM artifacts WHERE user_id = ? AND project_id = ?')
+      .all(input.userId, input.projectId) as Array<{ artifact_id: string; doc_json: string }>) {
+      try {
+        const doc = JSON.parse(row.doc_json) as { id?: string; code?: string; title?: string };
+        if (doc.id) stateArtifacts.push({ id: doc.id, code: doc.code ?? '', title: doc.title ?? '' });
+      } catch {
+        /* thin row */
+      }
+    }
+    const stateEdges: SemanticEdge[] = [];
+    for (const row of db
+      .prepare('SELECT edge_json FROM edges WHERE user_id = ? AND project_id = ?')
+      .all(input.userId, input.projectId) as Array<{ edge_json: string }>) {
+      try {
+        const e = JSON.parse(row.edge_json) as SemanticEdge;
+        if (e && e.id && e.sourceId && e.targetId) stateEdges.push(e);
+      } catch {
+        /* thin row */
+      }
+    }
+    const chapterRows = db
+      .prepare(
+        'SELECT chapter_id, doc_json, order_index FROM chapters WHERE user_id = ? AND project_id = ? AND chapter_thread_id = ? ORDER BY order_index ASC'
+      )
+      .all(input.userId, input.projectId, input.threadId) as Array<{
+      chapter_id: string;
+      doc_json: string;
+      order_index: number;
+    }>;
+    const stateChapters: ChapterPartition[] = [];
+    const chapterOrder = new Map<string, number>();
+    for (const r of chapterRows) {
+      const doc = parseJson<ChapterPartition | null>(r.doc_json, null);
+      if (doc) {
+        stateChapters.push(doc);
+        chapterOrder.set(doc.id, r.order_index);
+      }
+    }
+    const threadTurnsCount = (db
+      .prepare('SELECT COUNT(*) AS n FROM turns WHERE user_id = ? AND project_id = ? AND thread_id = ?')
+      .get(input.userId, input.projectId, input.threadId) as { n: number }).n;
+
+    /* ── Regenerate: the current turn doc + its index within the thread ── */
+    let existingAssistantTurn: Turn | null = null;
+    let targetSeq = 0;
+    let targetTurnIndex = Math.max(0, threadTurnsCount - 1);
     if (input.kind === 'regenerate' && input.targetTurnId) {
-      assistantTurnId = input.targetTurnId;
       const row = db
         .prepare('SELECT doc_json, seq FROM turns WHERE user_id = ? AND project_id = ? AND turn_id = ?')
         .get(input.userId, input.projectId, input.targetTurnId) as { doc_json: string; seq: number } | undefined;
-      let turnDoc: Turn;
+      targetSeq = row?.seq ?? 0;
       try {
-        turnDoc = JSON.parse(row?.doc_json ?? 'null');
+        existingAssistantTurn = row?.doc_json ? (JSON.parse(row.doc_json) as Turn) : null;
       } catch {
-        turnDoc = null as unknown as Turn;
+        existingAssistantTurn = null;
       }
-      if (!turnDoc) {
-        turnDoc = {
+      if (!existingAssistantTurn) {
+        existingAssistantTurn = {
           id: input.targetTurnId,
           role: 'assistant',
-          content: cleanReply,
+          content: '',
           timestamp: now,
           threadId: input.threadId,
-        };
-      } else {
-        turnDoc = {
-          ...turnDoc,
-          content: cleanReply,
-          timestamp: now,
-          extractedArtifacts: input.artifacts.map((u) => ({
-            id: u.id,
-            title: u.title,
-            type: u.type,
-            code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
-            category: u.type === 'chapter' ? 'chapter' : 'note',
-            subtitle: u.content.subtitle,
-            description: u.content.description,
-            summary: u.content.summary,
-            content: u.content.body,
-            isHighConcept: false,
-          })),
-          meta: { ...(turnDoc.meta ?? {}), ...(input.telemetry ?? {}) },
         };
       }
       // The replaced turn's index WITHIN its thread (AI-attachment law) —
       // count the thread's turns that precede it by seq.
-      const seqBefore = row?.seq ?? 0;
-      const regenIndex = (db
+      targetTurnIndex = (db
         .prepare(
           'SELECT COUNT(*) AS n FROM turns WHERE user_id = ? AND project_id = ? AND thread_id = ? AND seq < ?'
         )
-        .get(input.userId, input.projectId, input.threadId, seqBefore) as { n: number }).n;
-      if (Array.isArray(turnDoc.extractedArtifacts)) {
-        for (const ea of turnDoc.extractedArtifacts) {
-          (ea as { turnIndex?: number }).turnIndex = regenIndex;
-        }
-      }
-      upsertTurn(db, input.userId, input.projectId, turnDoc, row?.seq ?? 0, newRev);
-      userTurnId = ''; // regenerate replaces the reply; the ask turn already exists
-      revisionTurnIndex = regenIndex;
-    } else {
-      userTurnId = `turn-user-${input.pairKey}`;
-      assistantTurnId = `turn-ai-${input.pairKey}`;
+        .get(input.userId, input.projectId, input.threadId, targetSeq) as { n: number }).n;
+    }
+
+    /* ── Plan (pure, shared with the client) ── */
+    const plan = planTurnCommit({
+      kind: input.kind,
+      threadId: input.threadId,
+      pairKey: input.pairKey,
+      projectId: input.projectId,
+      targetTurnId: input.targetTurnId,
+      existingAssistantTurn,
+      targetTurnIndex,
+      askText: input.askText,
+      cleanReply: input.replyText,
+      artifactUpserts: input.artifacts,
+      topicShift: input.shifts.length > 0 ? input.shifts[input.shifts.length - 1] : null,
+      links,
+      unlinks: (input.unlinks ?? []) as ExtractedUnlink[],
+      stagedAttachments: (input.stagedAttachments ?? []) as ChatAttachment[],
+      capabilities: caps,
+      telemetry: {
+        ...(input.telemetry ?? {}),
+        model: input.model,
+        isFallback: Boolean(input.isFallbackPartial),
+      },
+      now,
+      ids: {
+        userTurnId: `turn-user-${input.pairKey}`,
+        assistantTurnId: input.targetTurnId ?? `turn-ai-${input.pairKey}`,
+      },
+      state: {
+        artifacts: stateArtifacts,
+        edges: stateEdges,
+        threadTurnsCount,
+        chapters: stateChapters,
+      },
+    });
+
+    /* ── Apply the plan: same transaction, same revision-bump/rollback ── */
+    if (plan.userTurn) {
       const seqRow = db
         .prepare('SELECT COALESCE(MAX(seq), -1) AS m FROM turns WHERE user_id = ? AND project_id = ?')
         .get(input.userId, input.projectId) as { m: number };
       const base = seqRow.m + 1;
-      const attachments = input.stagedAttachments;
-      // Attachment provenance — mirror of ThreadRegistry.commitStagedAttachments:
-      // the index WITHIN the thread + the user turn id. Without these the
-      // client hydrates the staged set at provenance -1 ("unknown") and the
-      // message renders with NO attachment chips while the LLM clearly got
-      // the context (found live 2026-10-25).
-      const threadTurnCount = db
-        .prepare('SELECT COUNT(*) AS n FROM turns WHERE user_id = ? AND project_id = ? AND thread_id = ?')
-        .get(input.userId, input.projectId, input.threadId) as { n: number };
-      const userTurnIndex = threadTurnCount.n;
-      revisionTurnIndex = userTurnIndex + 1;
-      upsertTurn(
-        db,
-        input.userId,
-        input.projectId,
-        {
-          id: userTurnId,
-          role: 'user',
-          content: input.askText,
-          timestamp: now,
-          threadId: input.threadId,
-          meta: attachments.length
-            ? ({
-                attachments: attachments.map((a) => ({
-                  ...(a as Record<string, unknown>),
-                  turnIndex: userTurnIndex,
-                  turnId: userTurnId,
-                })),
-              } as Turn['meta'])
-            : undefined,
-        },
-        base,
-        newRev
-      );
-      upsertTurn(
-        db,
-        input.userId,
-        input.projectId,
-        {
-          id: assistantTurnId,
-          role: 'assistant',
-          content: cleanReply,
-          timestamp: now + 1,
-          threadId: input.threadId,
-          // Mirror of the client's local commitPair: the extracted artifacts
-          // ride the turn so the chat renders them under the reply (live
-          // 2026-10-25: the artifacts landed in the table but the message
-          // showed nothing — the client's cards read the turn, not the table).
-          // turnIndex = the assistant turn's index WITHIN the thread — the
-          // AI-attachment law: clients weld these into the registry as
-          // committed attachments (steerable granularity, compiled into the
-          // next context calls, never re-staged).
-          extractedArtifacts: input.artifacts.map((u) => ({
-            id: u.id,
-            title: u.title,
-            type: u.type,
-            code: u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
-            category: u.type === 'chapter' ? 'chapter' : 'note',
-            subtitle: u.content.subtitle,
-            description: u.content.description,
-            summary: u.content.summary,
-            content: u.content.body,
-            isHighConcept: false,
-            turnIndex: userTurnIndex + 1,
-          })),
-          meta: {
-            model: input.model,
-            isFallback: Boolean(input.isFallbackPartial),
-            isStreaming: false,
-            streamState: 'completed',
-            ...(input.telemetry ?? {}),
-          } as Turn['meta'],
-        },
-        base + 1,
-        newRev
-      );
+      upsertTurn(db, input.userId, input.projectId, plan.userTurn, base, newRev);
+      upsertTurn(db, input.userId, input.projectId, plan.assistantTurn, base + 1, newRev);
+    } else {
+      // Regenerate replaces the reply in place — same seq, same id.
+      upsertTurn(db, input.userId, input.projectId, plan.assistantTurn, targetSeq, newRev);
     }
 
-    // Buffered artifacts → artifacts table (mirror of sendQueue.applyBufferedArtifacts).
-    const turnCount =
-      (db.prepare('SELECT COUNT(*) AS n FROM turns WHERE user_id = ? AND project_id = ? AND thread_id = ?').get(
-        input.userId,
-        input.projectId,
-        input.threadId
-      ) as { n: number }).n;
-    // Package 2 §2.4: writeArtifacts OFF = rogue <artifact_upsert> blocks are
-    // dropped at commit, never written — same gate as the client path.
-    if (caps.writeArtifacts) {
-    for (const u of input.artifacts) {
-      const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
-      const now2 = Date.now();
-      const doc = {
-        id: u.id || `art-${now2}`,
-        workspaceId: input.projectId,
-        code,
-        title: u.title || 'Extracted note',
-        type: u.type === 'chapter' ? 'chapter' : 'document',
-        category: u.type === 'chapter' ? 'chapter' : 'note',
-        color: '#e05a66',
-        isHighConcept: false,
-        current: {
-          subtitle: u.content.subtitle || '',
-          description: u.content.description || '',
-          summary: u.content.summary || '',
-          body: u.content.body || `# ${u.title}`,
-        },
-        tags: ['chat-extracted', u.type || 'note'],
-        createdAt: now2,
-        updatedAt: now2,
-        graph: { is_high_concept: false, x: 300, y: 200 },
-      };
-      // Package 1 §1.5: record the artifact's history in the SAME transaction
-      // as the pair commit — old state for existing notes, birth state for new
-      // ones — so the server path and the client path tell the same story.
+    // Package 1 §1.5: record the artifact's history in the SAME transaction
+    // as the pair commit — old state for existing notes, birth state for new
+    // ones. recordServerArtifactRevision snapshots from the DB, which still
+    // holds the pre-upsert state — exactly the revision the plan carries.
+    for (const op of plan.artifactOps) {
       recordServerArtifactRevision(
         db,
         input.userId,
         input.projectId,
-        doc as unknown as UniversalArtifactDocument,
-        {
-          threadId: input.threadId,
-          turnId: input.targetTurnId ?? assistantTurnId,
-          turnIndex: revisionTurnIndex,
-        },
+        op.artifact,
+        op.revision.provenance,
         newRev
       );
-      upsertArtifact(db, input.userId, input.projectId, doc as unknown as UniversalArtifactDocument, newRev);
-      }
+      upsertArtifact(db, input.userId, input.projectId, op.artifact, newRev);
     }
 
-    // Topic-shift chapter law (David 2026-10-25):
-    //   1. LAST shift wins — a reply that walks through sub-topics opens the
-    //      chapter it ENDED on, not the first one it mentioned.
-    //   2. The cut applies at the message that CAUSED it: the human ask of
-    //      this pair (thread index turnCount - 2), not after the reply.
-    //   3. If a chapter boundary already exists at that index (client-declared
-    //      genesis, a previous commit's cut, a re-emitted sentinel on
-    //      regenerate), REPLACE that chapter's title/metadata — never open a
-    //      duplicate with the same start.
-    if (caps.autoChapter && input.shifts.length > 0) {
-      const shift = input.shifts[input.shifts.length - 1];
-      const askIndex = Math.max(0, turnCount - 2);
-      const rows = db
-        .prepare(
-          'SELECT chapter_id, doc_json, order_index FROM chapters WHERE user_id = ? AND project_id = ? AND chapter_thread_id = ? ORDER BY order_index ASC'
-        )
-        .all(input.userId, input.projectId, input.threadId) as Array<{
-        chapter_id: string;
-        doc_json: string;
-        order_index: number;
-      }>;
-      const parsed = rows
-        .map((r) => ({ row: r, doc: parseJson<ChapterPartition | null>(r.doc_json, null) }))
-        .filter((r): r is { row: typeof rows[number]; doc: ChapterPartition } => Boolean(r.doc));
-
-      const boundary = parsed.find((r) => r.doc.startIndex === askIndex);
-      if (boundary) {
-        // A cut already exists here — the shift retitles it, nothing opens.
-        boundary.doc.title = shift.title;
-        boundary.doc.subtitle = shift.subtitle ?? boundary.doc.subtitle ?? '';
-        boundary.doc.description = shift.description ?? boundary.doc.description ?? '';
-        boundary.doc.summary = shift.summary ?? boundary.doc.summary ?? '';
-        boundary.doc.status = 'active';
-        boundary.doc.endIndex = undefined;
-        upsertChapter(db, input.userId, input.projectId, boundary.doc, boundary.row.order_index, newRev);
-      } else {
-        const last = parsed[parsed.length - 1];
-        if (last && last.doc.status === 'active' && (last.doc.endIndex ?? Infinity) > askIndex) {
-          last.doc.status = 'completed';
-          last.doc.endIndex = askIndex;
-          upsertChapter(db, input.userId, input.projectId, last.doc, last.row.order_index, newRev);
-        }
-        const chId = `ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    if (plan.chapterOp) {
+      const { boundaryToRetitle, chapterToSeal, create } = plan.chapterOp;
+      if (boundaryToRetitle) {
+        // A cut already exists here — the plan already retitled the doc;
+        // upsert it at its own order slot, never duplicate.
         upsertChapter(
           db,
           input.userId,
           input.projectId,
-          {
-            id: chId,
-            workspaceId: input.projectId,
-            threadId: input.threadId,
-            title: shift.title,
-            subtitle: shift.subtitle,
-            description: shift.description,
-            summary: shift.summary,
-            status: 'active',
-            startIndex: askIndex,
-            createdAt: Date.now(),
-          } as ChapterPartition,
-          parsed.length,
+          boundaryToRetitle,
+          chapterOrder.get(boundaryToRetitle.id) ?? stateChapters.length,
           newRev
         );
+      } else {
+        if (chapterToSeal) {
+          const sealed = stateChapters.find((c) => c.id === chapterToSeal.id);
+          if (sealed) {
+            sealed.status = 'completed';
+            sealed.endIndex = chapterToSeal.endIndex;
+            upsertChapter(
+              db,
+              input.userId,
+              input.projectId,
+              sealed,
+              chapterOrder.get(sealed.id) ?? stateChapters.length,
+              newRev
+            );
+          }
+        }
+        if (create) {
+          // The planner stays deterministic: the id is assigned HERE.
+          const chId = `ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+          upsertChapter(
+            db,
+            input.userId,
+            input.projectId,
+            { ...create, id: chId },
+            stateChapters.length,
+            newRev
+          );
+        }
       }
     }
 
-    // Graph links: resolve the file slugs to artifact ids (existing rows plus
-    // anything this commit just wrote — a reply may create AND link a note),
-    // upsert real edges — and ride the receipts on the assistant turn
-    // REGARDLESS of the capability: an ignored attempt the user cannot see is
-    // the "XML flying, nothing applied" bug that started this (David's
-    // receipts law: no receipt, no action). The receipt records whether the
-    // link was applied or ignored so the chat can say WHY.
-    if (parsedLinks.length > 0 || (input.unlinks?.length ?? 0) > 0) {
-      // Resolve the way the substrate NAMES notes: the model links by the
-      // exact file names the payload taught it (artifactFileName's title
-      // slug). The resolver must slugify IDENTICALLY — a half-slug (spaces
-      // not dashed) matched nothing live: 1/14 links resolved.
-      const fileKey = (s: string) => s.trim().replace(/\.md$/i, '').toLowerCase();
-      const codeMap = new Map<string, string>();
-      for (const row of db
-        .prepare('SELECT artifact_id, doc_json FROM artifacts WHERE user_id = ? AND project_id = ?')
-        .all(input.userId, input.projectId) as Array<{ artifact_id: string; doc_json: string }>) {
-        try {
-          const doc = JSON.parse(row.doc_json) as { code?: string; title?: string };
-          codeMap.set(fileKey(artifactFileName({ code: doc.code ?? '', title: doc.title ?? '' })), row.artifact_id);
-          if (doc.code) codeMap.set(fileKey(doc.code), row.artifact_id);
-        } catch {
-          /* thin row */
-        }
-      }
-      for (const u of input.artifacts) {
-        const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
-        codeMap.set(fileKey(artifactFileName({ code, title: u.title })), u.id);
-        codeMap.set(fileKey(code), u.id);
-      }
-      const receipts: Turn['extractedLinks'] = [];
-      let edgesWritten = 0;
-      for (const l of parsedLinks) {
-        const sourceId = codeMap.get(fileKey(l.source)) ?? null;
-        const targetId = codeMap.get(fileKey(l.target)) ?? null;
-        const applied = caps.graphLinks && Boolean(sourceId) && Boolean(targetId) && sourceId !== targetId;
-        receipts.push({
-          action: 'link' as const,
-          sourceFile: l.source,
-          targetFile: l.target,
-          kind: l.kind,
-          sourceId,
-          targetId,
-          applied,
-        });
-        if (!applied) continue;
-        upsertEdge(
-          db,
-          input.userId,
-          input.projectId,
-          {
-            id: `edge-${sourceId}-${targetId}-${l.kind}`,
-            sourceId: sourceId!,
-            targetId: targetId!,
-            kind: l.kind,
-          },
-          newRev
-        );
-        edgesWritten += 1;
-      }
-      // UNLINK apply: same gate, opposite effect — delete the matching edge
-      // rows (kind narrows; absent = every kind between the pair), tombstone
-      // each so the delta tells other clients, receipt with the WHY.
-      for (const u of input.unlinks ?? []) {
-        const sourceId = codeMap.get(fileKey(u.source)) ?? null;
-        const targetId = codeMap.get(fileKey(u.target)) ?? null;
-        let applied = false;
-        if (caps.graphLinks && sourceId && targetId) {
-          const rows = db
-            .prepare('SELECT edge_id, edge_json FROM edges WHERE user_id = ? AND project_id = ?')
-            .all(input.userId, input.projectId) as Array<{ edge_id: string; edge_json: string }>;
-          for (const row of rows) {
-            let e: { sourceId?: string; targetId?: string; kind?: string };
-            try {
-              e = JSON.parse(row.edge_json);
-            } catch {
-              continue;
-            }
-            if (e.sourceId !== sourceId || e.targetId !== targetId) continue;
-            if (u.kind && e.kind !== u.kind) continue;
-            db.prepare('DELETE FROM edges WHERE user_id = ? AND project_id = ? AND edge_id = ?').run(
-              input.userId,
-              input.projectId,
-              row.edge_id
-            );
-            recordTombstone(db, input.userId, input.projectId, 'edge', row.edge_id, newRev);
-            applied = true;
-          }
-        }
-        receipts.push({
-          action: 'unlink' as const,
-          sourceFile: u.source,
-          targetFile: u.target,
-          kind: u.kind ?? '',
-          sourceId,
-          targetId,
-          applied,
-        });
-      }
-      if (receipts.length > 0) {
-        const turnRow = db
-          .prepare('SELECT doc_json FROM turns WHERE user_id = ? AND project_id = ? AND turn_id = ?')
-          .get(input.userId, input.projectId, assistantTurnId) as { doc_json: string } | undefined;
-        if (turnRow?.doc_json) {
-          try {
-            const doc = JSON.parse(turnRow.doc_json) as Turn;
-            doc.extractedLinks = receipts;
-            db.prepare('UPDATE turns SET doc_json = ? WHERE user_id = ? AND project_id = ? AND turn_id = ?').run(
-              JSON.stringify(doc),
-              input.userId,
-              input.projectId,
-              assistantTurnId
-            );
-          } catch {
-            /* never fail the pair over receipts */
-          }
-        }
-        logServer('info', 'JOBS', `Pair committed with ${edgesWritten} graph link(s), ${receipts.length} receipt(s)`);
-      }
+    for (const e of plan.edgeUpserts) {
+      upsertEdge(db, input.userId, input.projectId, e, newRev);
+    }
+    for (const edgeId of plan.edgeDeletes) {
+      db.prepare('DELETE FROM edges WHERE user_id = ? AND project_id = ? AND edge_id = ?').run(
+        input.userId,
+        input.projectId,
+        edgeId
+      );
+      recordTombstone(db, input.userId, input.projectId, 'edge', edgeId, newRev);
+    }
+    if (plan.receipts.length > 0) {
+      // Receipts ride the assistant turn doc itself (written by upsertTurn
+      // above) — no second UPDATE, nothing left that can fail the pair.
+      logServer(
+        'info',
+        'JOBS',
+        `Pair committed with ${plan.edgeUpserts.length} graph link(s), ${plan.receipts.length} receipt(s)`
+      );
     }
 
     // Touch the thread (preview + lastOutcome) so the sidebar reflects the pair.
@@ -1310,9 +1135,9 @@ export function commitJobPairTransaction(input: CommitJobInput): {
     if (threadRow?.doc_json && threadRow.doc_json !== '{}') {
       try {
         const threadDoc = JSON.parse(threadRow.doc_json) as Record<string, unknown>;
-        threadDoc.lastOutcome = 'ok';
-        threadDoc.lastActivityAt = now;
-        threadDoc.preview = input.askText.slice(0, 100);
+        threadDoc.lastOutcome = plan.threadTouch.lastOutcome;
+        threadDoc.lastActivityAt = plan.threadTouch.lastActivityAt;
+        threadDoc.preview = plan.threadTouch.preview;
         db.prepare(
           'UPDATE threads SET doc_json = ?, updated_at = ?, revision = ? WHERE user_id = ? AND project_id = ? AND thread_id = ?'
         ).run(JSON.stringify(threadDoc), now, newRev, input.userId, input.projectId, input.threadId);
@@ -1321,10 +1146,15 @@ export function commitJobPairTransaction(input: CommitJobInput): {
       }
     }
 
-    return { revision: newRev, userTurnId, assistantTurnId };
+    return {
+      revision: newRev,
+      userTurnId: plan.userTurn?.id ?? '',
+      assistantTurnId: plan.assistantTurn.id,
+    };
   });
   return tx();
 }
+
 
 /** Only rows with revision > sinceRevision (21D §2.5). */
 export function getProjectDelta(userId: number, projectId: string, sinceRevision: number): ProjectDeltaResponse | null {

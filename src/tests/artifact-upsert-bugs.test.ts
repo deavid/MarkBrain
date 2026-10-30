@@ -18,6 +18,7 @@ import { SendQueue } from '../application/sendQueue';
 import { ArtifactVersioningDomain } from '../domains/01-artifact-versioning/ArtifactVersioningDomain';
 import type { ExtractedArtifactUpsert } from '../domains/03-stream-protocol';
 import type { UniversalArtifactDocument } from '../domains/01-artifact-document/types';
+import { planTurnCommit } from '../../shared/turnCommit/planTurnCommit';
 import { initDb, closeDbForTests, getDb } from '../../server/db';
 
 process.env.MARKBRAIN_OWNER_EMAIL = 'owner@example.com';
@@ -42,6 +43,49 @@ const EXISTING_ART: UniversalArtifactDocument = {
   updatedAt: 1,
 };
 
+/**
+ * Phase 3 seam: the old applyBufferedArtifacts private method is gone — the
+ * decisions live in the shared planner and the writes in the client applier.
+ * These tests plan with the artifact state visible to the commit, then apply
+ * the plan through SendQueue's applier, exactly as commitPair does.
+ */
+function planAndApply(
+  deps: Record<string, unknown>,
+  artifacts: UniversalArtifactDocument[],
+  buffered: ExtractedArtifactUpsert[],
+  turnIndex: number,
+  turnId: string
+) {
+  const plan = planTurnCommit({
+    kind: 'send',
+    threadId: 'thread-1',
+    pairKey: 'pair-1',
+    projectId: 'proj-1',
+    askText: 'ask',
+    cleanReply: 'reply',
+    artifactUpserts: buffered,
+    topicShift: null,
+    links: [],
+    unlinks: [],
+    stagedAttachments: [],
+    capabilities: { autoChapter: false, writeArtifacts: true, graphLinks: false },
+    telemetry: { model: 'm', inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    now: 12345,
+    ids: { userTurnId: 'turn-user-1', assistantTurnId: turnId },
+    state: {
+      artifacts,
+      edges: [],
+      threadTurnsCount: turnIndex - 1,
+      chapters: [],
+    },
+  });
+  const queue = new SendQueue(() => deps as never);
+  (queue as unknown as {
+    applyTurnCommitPlan: (deps: unknown, threadId: string, plan: unknown) => void;
+  }).applyTurnCommitPlan(deps, 'thread-1', plan);
+  return plan;
+}
+
 function makeUpsert(id: string, body: string): ExtractedArtifactUpsert {
   return {
     id,
@@ -56,36 +100,25 @@ function makeUpsert(id: string, body: string): ExtractedArtifactUpsert {
   } as ExtractedArtifactUpsert;
 }
 
-describe('client path — applyBufferedArtifacts on an existing artifact', () => {
+describe('client path — chat-extracted artifact upsert (planner + applier)', () => {
   it('upserts the new layers AND records a revision of the old state with provenance', () => {
     const versioning = new ArtifactVersioningDomain();
     const upsertArtifact = vi.fn((doc: UniversalArtifactDocument) => doc);
     const deps = {
-      artifacts: {
-        getArtifact: vi.fn((idOrCode: string) =>
-          idOrCode === 'note-one' || idOrCode === 'art-1' ? EXISTING_ART : undefined
-        ),
-        upsertArtifact,
-      },
+      artifacts: { upsertArtifact },
       versioning,
-      threadRegistry: { attachArtifact: vi.fn() },
+      threadRegistry: {
+        getActiveThreadId: () => 'thread-1',
+        commitStagedAttachments: vi.fn(() => 0),
+        attachArtifact: vi.fn(),
+        ensureAttached: vi.fn(),
+        patch: vi.fn(),
+      },
+      timeline: { appendTurn: vi.fn(() => ({ id: 't' })), updateTurn: vi.fn() },
+      segmentation: { upsertChapterAtBoundary: vi.fn() },
+      triggerReRender: vi.fn(),
     };
-    const queue = new SendQueue(() => deps as never);
-    (queue as unknown as {
-      applyBufferedArtifacts: (
-        chain: unknown,
-        threadId: string,
-        buffered: ExtractedArtifactUpsert[],
-        turnIndex: number,
-        turnId: string
-      ) => void;
-    }).applyBufferedArtifacts(
-      { deps: deps as never, ctx: { projectId: 'proj-1' } },
-      'thread-1',
-      [makeUpsert('note-one', 'new body')],
-      3,
-      'turn-ai-9'
-    );
+    planAndApply(deps, [EXISTING_ART], [makeUpsert('note-one', 'new body')], 3, 'turn-ai-9');
 
     // THE BUG: the upsert must actually apply the new layers.
     expect(upsertArtifact).toHaveBeenCalledTimes(1);
@@ -118,29 +151,20 @@ describe('client path — applyBufferedArtifacts on an existing artifact', () =>
   it('a NEW artifact gets its v1 birth revision with provenance', () => {
     const versioning = new ArtifactVersioningDomain();
     const deps = {
-      artifacts: {
-        getArtifact: vi.fn(() => undefined),
-        upsertArtifact: vi.fn((doc: UniversalArtifactDocument) => doc),
-      },
+      artifacts: { upsertArtifact: vi.fn((doc: UniversalArtifactDocument) => doc) },
       versioning,
-      threadRegistry: { attachArtifact: vi.fn() },
+      threadRegistry: {
+        getActiveThreadId: () => 'thread-1',
+        commitStagedAttachments: vi.fn(() => 0),
+        attachArtifact: vi.fn(),
+        ensureAttached: vi.fn(),
+        patch: vi.fn(),
+      },
+      timeline: { appendTurn: vi.fn(() => ({ id: 't' })), updateTurn: vi.fn() },
+      segmentation: { upsertChapterAtBoundary: vi.fn() },
+      triggerReRender: vi.fn(),
     };
-    const queue = new SendQueue(() => deps as never);
-    (queue as unknown as {
-      applyBufferedArtifacts: (
-        chain: unknown,
-        threadId: string,
-        buffered: ExtractedArtifactUpsert[],
-        turnIndex: number,
-        turnId: string
-      ) => void;
-    }).applyBufferedArtifacts(
-      { deps: deps as never, ctx: { projectId: 'proj-1' } },
-      'thread-1',
-      [makeUpsert('art-new-1', 'born body')],
-      0,
-      'turn-ai-1'
-    );
+    planAndApply(deps, [], [makeUpsert('art-new-1', 'born body')], 0, 'turn-ai-1');
     const history = versioning.getHistory('art-new-1');
     expect(history).toHaveLength(1);
     expect(history[0].version).toBe(1);

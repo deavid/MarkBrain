@@ -4,8 +4,9 @@
  * Connected mode only: whenever the tab regains focus (phone screen wake /
  * window focus) or every 10s while visible, ask the server for rows newer
  * than `lastRevisionRef.current`. A non-empty delta is merged straight into
- * the live domains and the cursor advances — sub-100-byte polls when nothing
- * changed (`since === revision` → empty arrays).
+ * the live domains — per thread, since the domains store every thread's
+ * content keyed by threadId (Phase 4) — and the cursor advances:
+ * sub-100-byte polls when nothing changed (`since === revision` → empty arrays).
  *
  * No provider calls, no save triggered by the merge itself: the persist
  * worker only fires on real domain mutations, and the merged rows are
@@ -59,7 +60,15 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
     if (t.entityType === 'artifact') artifacts.deleteArtifact(t.entityId);
     if (t.entityType === 'chapter') segmentation.loadChapters(segmentation.listChapters().filter((c) => c.id !== t.entityId));
     if (t.entityType === 'edge') graph.loadEdges(graph.listEdges().filter((e) => e.id !== t.entityId));
-    if (t.entityType === 'thread') threadRegistry.deleteThread(t.entityId);
+    if (t.entityType === 'thread') {
+      threadRegistry.deleteThread(t.entityId);
+      // Phase 4: content lives per thread in the domains — the dead thread's
+      // bucket goes with it (the active thread's stays visible, as before).
+      if (t.entityId !== threadRegistry.getActiveThreadId()) {
+        timeline.forgetThread(t.entityId);
+        segmentation.forgetThread(t.entityId);
+      }
+    }
     if (t.entityType === 'folder') threadRegistry.deleteFolder(t.entityId);
   }
 
@@ -78,30 +87,13 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
   // routed PER THREAD. Found live 2026-10-25: every thread's chapters were
   // loaded into the active thread's segmentation, so the strip rendered other
   // threads' windows against this timeline ("Genesis Chapter" twice with the
-  // same contents — the second copy was another thread's chapter).
+  // same contents — the second copy was another thread's chapter). Phase 4:
+  // the domain stores chapters per threadId, so ONE uniform call routes every
+  // row — no 'own' vs 'others' split.
   if (delta.chapters.length > 0) {
     const activeThreadId = threadRegistry.getActiveThreadId();
-    const own = delta.chapters.filter((c) => !c.threadId || c.threadId === activeThreadId);
-    const others = new Map<string, Array<(typeof delta.chapters)[number]>>();
     for (const ch of delta.chapters) {
-      if (ch.threadId && ch.threadId !== activeThreadId) {
-        const list = others.get(ch.threadId) ?? [];
-        list.push(ch);
-        others.set(ch.threadId, list);
-      }
-    }
-    if (own.length > 0) {
-      const merged = [...segmentation.listChapters()];
-      for (const incoming of own) {
-        const idx = merged.findIndex((c) => c.id === incoming.id);
-        if (idx >= 0) merged[idx] = incoming;
-        else merged.push(incoming);
-      }
-      merged.sort((a, b) => a.startIndex - b.startIndex);
-      segmentation.loadChapters(merged);
-    }
-    for (const [threadId, list] of others) {
-      threadRegistry.mergeInactiveChapters(threadId, list);
+      segmentation.mergeChaptersFor(ch.threadId ?? activeThreadId, [ch]);
     }
   }
 
@@ -120,21 +112,30 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
   // domain dedupes), so the 10s poll and re-hydrates never duplicate rows.
   if (delta.revisions) deps.versioning.loadHistory(delta.revisions);
 
-  // Turns: merge the active thread's list by id, preserving local order and
-  // appending genuinely-new rows (server seq order arrives sorted).
+  // Turns: merge by id PER THREAD (the domains store turns per threadId).
+  // The active thread keeps its exact law — existing rows stay in place,
+  // genuinely-new rows are appended sorted by timestamp. Other threads' rows
+  // now land in their own buckets instead of being skipped until rehydrate.
   if (delta.turns.length > 0) {
     const activeThreadId = threadRegistry.getActiveThreadId();
-    const local = timeline.getTurns();
-    const merged = [...local];
-    const additions = [];
+    const byThread = new Map<string, ProjectDeltaResponse['turns']>();
     for (const incoming of delta.turns) {
-      if ((incoming.threadId ?? activeThreadId) !== activeThreadId) continue; // other lane → registry cache on next hydrate
-      const idx = merged.findIndex((t) => t.id === incoming.id);
-      if (idx >= 0) merged[idx] = incoming;
-      else additions.push(incoming);
+      const tid = incoming.threadId ?? activeThreadId;
+      const list = byThread.get(tid) ?? [];
+      list.push(incoming);
+      byThread.set(tid, list);
     }
-    additions.sort((a, b) => a.timestamp - b.timestamp);
-    timeline.loadTurns([...merged, ...additions]);
+    for (const [threadId, list] of byThread) {
+      const merged = [...timeline.turnsFor(threadId)];
+      const additions: ProjectDeltaResponse['turns'] = [];
+      for (const incoming of list) {
+        const idx = merged.findIndex((t) => t.id === incoming.id);
+        if (idx >= 0) merged[idx] = incoming;
+        else additions.push(incoming);
+      }
+      additions.sort((a, b) => a.timestamp - b.timestamp);
+      timeline.loadTurnsFor(threadId, [...merged, ...additions]);
+    }
   }
 
   // Attachment provenance from server-committed pairs (design 23 §2.5, live

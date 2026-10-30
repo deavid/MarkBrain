@@ -114,8 +114,8 @@ describe('client path — chat-extracted artifact upsert (planner + applier)', (
         ensureAttached: vi.fn(),
         patch: vi.fn(),
       },
-      timeline: { appendTurn: vi.fn(() => ({ id: 't' })), updateTurn: vi.fn() },
-      segmentation: { upsertChapterAtBoundary: vi.fn() },
+      timeline: { turnsFor: () => [], appendTurnFor: vi.fn(() => ({ id: 't' })), updateTurnFor: vi.fn() },
+      segmentation: { chaptersFor: () => [], upsertChapterAtBoundaryFor: vi.fn() },
       triggerReRender: vi.fn(),
     };
     planAndApply(deps, [EXISTING_ART], [makeUpsert('note-one', 'new body')], 3, 'turn-ai-9');
@@ -160,8 +160,8 @@ describe('client path — chat-extracted artifact upsert (planner + applier)', (
         ensureAttached: vi.fn(),
         patch: vi.fn(),
       },
-      timeline: { appendTurn: vi.fn(() => ({ id: 't' })), updateTurn: vi.fn() },
-      segmentation: { upsertChapterAtBoundary: vi.fn() },
+      timeline: { turnsFor: () => [], appendTurnFor: vi.fn(() => ({ id: 't' })), updateTurnFor: vi.fn() },
+      segmentation: { chaptersFor: () => [], upsertChapterAtBoundaryFor: vi.fn() },
       triggerReRender: vi.fn(),
     };
     planAndApply(deps, [], [makeUpsert('art-new-1', 'born body')], 0, 'turn-ai-1');

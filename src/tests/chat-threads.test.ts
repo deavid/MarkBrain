@@ -78,7 +78,14 @@ describe('ThreadRegistry', () => {
 
     expect(reg.getActiveThreadId()).toBe('B');
     expect(active.turns.map((t) => t.id)).toEqual(['b1']);
-    expect(reg.getInactiveContent('A')!.turns.map((t) => t.id)).toEqual(['a1', 'orphan']);
+    // Phase 4: every thread's content comes back from hydrate, tagged —
+    // the domains (loadAllTurns) own the per-thread storage now.
+    expect(active.allTurns.map((t) => `${t.id}:${t.threadId}`).sort()).toEqual([
+      'a1:A',
+      'b1:B',
+      'orphan:A', // unknown threadId → fallback thread (first in the snapshot)
+    ]);
+    expect(active.allChapters.map((c) => `${c.id}:${c.threadId}`).sort()).toEqual(['cA:A', 'cB:B']);
   });
 
   it('falls back to the most recently active thread when persisted id is unknown', () => {
@@ -96,35 +103,37 @@ describe('ThreadRegistry', () => {
     expect(reg.getActiveThreadId()).toBe('new');
   });
 
-  it('select() round-trips: flush live → cache, pop incoming', () => {
+  it('select() just re-points the open thread; content stays per thread (Phase 4)', () => {
     const reg = new ThreadRegistry();
     reg.hydrate({ projectId: 'proj-1', threads: [], turns: [turn('t1', 'user', 'main')], chapters: [chapter('c1')] });
     const firstId = reg.getActiveThreadId();
 
     const second = reg.createThread({ title: 'Second' });
-    const incoming = reg.select(second.id, {
-      turns: [turn('t1', 'user', 'main')],
-      chapters: [chapter('c1')],
-    });
-    expect(incoming).not.toBeNull();
-    expect(incoming!.turns).toHaveLength(0); // fresh thread: empty content
-    expect(incoming!.chapters[0].title).toBe('Genesis Chapter');
+    expect(reg.select(second.id)).toBe(true);
     expect(reg.getActiveThreadId()).toBe(second.id);
+    // Already open / unknown → no-op.
+    expect(reg.select(second.id)).toBe(false);
+    expect(reg.select('ghost')).toBe(false);
 
-    // Switch back: second thread's (empty) live content flushed, first popped.
-    const back = reg.select(firstId, { turns: [], chapters: [chapter('cX')] });
-    expect(back!.turns.map((t) => t.id)).toEqual(['t1']);
-    expect(reg.getInactiveContent(second.id)!.turns).toHaveLength(0);
+    // Switch back: the first thread is still known, nothing was lost.
+    expect(reg.select(firstId)).toBe(true);
+    expect(reg.getActiveThreadId()).toBe(firstId);
   });
 
-  it('compose() merges live + cached content and tags every row with threadId', () => {
+  it('compose() re-groups the domains per-thread content and tags every row', () => {
     const reg = new ThreadRegistry();
-    reg.hydrate({ projectId: 'proj-1', threads: [], turns: [turn('live', 'user', 'x')], chapters: [chapter('c1')] });
+    const timeline = new DialogueTimelineDomain('proj-1');
+    const segmentation = new ChapterSegmentationDomain('proj-1');
+    const content = reg.hydrate({ projectId: 'proj-1', threads: [], turns: [turn('live', 'user', 'x')], chapters: [chapter('c1')] });
+    timeline.setActiveThread(reg.getActiveThreadId());
+    segmentation.setActiveThread(reg.getActiveThreadId());
+    timeline.loadAllTurns(content.allTurns);
+    segmentation.loadAllChapters(content.allChapters);
     const other = reg.createThread({ title: 'Other' });
-    // background content for the inactive thread
-    reg.appendInactiveTurn(other.id, 'user', 'background msg');
+    // Background content rides the timeline domain, keyed by thread.
+    timeline.appendTurnFor(other.id, 'user', 'background msg');
 
-    const composed = reg.compose([turn('live', 'user', 'x')], [chapter('c1')]);
+    const composed = reg.compose(timeline.allTurns(), segmentation.allChapters());
     expect(composed.threads).toHaveLength(2);
     expect(composed.activeThreadId).toBe(reg.getActiveThreadId());
     expect(composed.turns).toHaveLength(2);
@@ -133,28 +142,26 @@ describe('ThreadRegistry', () => {
     expect(composed.chapters.every((c) => !!c.threadId)).toBe(true);
   });
 
-  it('background append/update/declareChapter work off the live domains', () => {
+  it('background writes go through the thread-keyed domains, per thread', () => {
     const reg = new ThreadRegistry();
+    const timeline = new DialogueTimelineDomain('proj-1');
+    const segmentation = new ChapterSegmentationDomain('proj-1');
     reg.hydrate({ projectId: 'proj-1', threads: [], turns: [], chapters: [] });
     const t = reg.createThread({ title: 'Bg' });
 
-    const appended = reg.appendInactiveTurn(t.id, 'user', 'queued thought');
-    expect(appended).not.toBeNull();
-    reg.updateInactiveTurn(t.id, appended!.id, { content: 'edited' });
-    expect(reg.getInactiveContent(t.id)!.turns[0].content).toBe('edited');
+    const appended = timeline.appendTurnFor(t.id, 'user', 'queued thought');
+    timeline.updateTurnFor(t.id, appended.id, { content: 'edited' });
+    expect(timeline.turnsFor(t.id)[0].content).toBe('edited');
 
     // second turn so the chapter boundary has an index to seal at
-    reg.appendInactiveTurn(t.id, 'assistant', 'reply');
-    const chap = reg.declareChapterInactive(t.id, 'New Chapter', 2, 'topic');
-    expect(chap).not.toBeNull();
-    const content = reg.getInactiveContent(t.id)!;
-    expect(content.chapters).toHaveLength(2);
-    expect(content.chapters[0].status).toBe('completed');
-    expect(content.chapters[0].endIndex).toBe(2);
-    expect(content.chapters[1].startIndex).toBe(2);
-
-    // active-thread guards: mutations routed at the live thread are no-ops
-    expect(reg.appendInactiveTurn(reg.getActiveThreadId(), 'user', 'x')).toBeNull();
+    timeline.appendTurnFor(t.id, 'assistant', 'reply');
+    const chap = segmentation.declareChapterFor(t.id, 'New Chapter', 2, 'topic');
+    expect(chap.threadId).toBe(t.id);
+    const chapters = segmentation.chaptersFor(t.id);
+    expect(chapters).toHaveLength(2);
+    expect(chapters[0].status).toBe('completed');
+    expect(chapters[0].endIndex).toBe(2);
+    expect(chapters[1].startIndex).toBe(2);
   });
 
   it('deleteThread: inactive deletion keeps active; active deletion falls back + discards live', () => {
@@ -164,16 +171,14 @@ describe('ThreadRegistry', () => {
     const second = reg.createThread({ title: 'Second' });
 
     // delete inactive → no switch
-    expect(reg.deleteThread(second.id)).toBeNull();
+    reg.deleteThread(second.id);
     expect(reg.getThread(second.id)).toBeNull();
     expect(reg.getActiveThreadId()).toBe(activeId);
 
-    // delete active → fallback, live content discarded (not flushed)
-    const incoming = reg.deleteThread(activeId);
-    expect(incoming).not.toBeNull();
+    // delete active → fallback, the dead thread's content is dropped by the caller
+    reg.deleteThread(activeId);
     expect(reg.getThread(activeId)).toBeNull();
     expect(reg.getActiveThreadId()).not.toBe(activeId);
-    expect(incoming!.turns).toHaveLength(0);
   });
 
   it('applyAutoTitle: respects manual lock and version monotonicity', () => {

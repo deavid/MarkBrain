@@ -140,21 +140,6 @@ export function makeDefaultThread(): ChatThread {
   });
 }
 
-export function makeGenesisChapter(projectId: string, threadId: string) {
-  return {
-    id: `chap-genesis-${threadId}`,
-    workspaceId: projectId,
-    threadId,
-    title: 'Genesis Chapter',
-    description: '',
-    summary: '',
-    granularity: 'full' as const,
-    status: 'active' as const,
-    startIndex: 0,
-    createdAt: Date.now(),
-  };
-}
-
 export function placeholderTitle(text: string): string {
   const clean = (text || '').replace(/\s+/g, ' ').trim();
   if (!clean) return 'New thread';

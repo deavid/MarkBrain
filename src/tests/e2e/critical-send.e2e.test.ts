@@ -229,11 +229,7 @@ function makeClientDeps(
       unstageArtifact: vi.fn(),
       setAttachmentGranularity: vi.fn(),
       commitStagedAttachments: () => 0,
-      getInactiveContent: () => null,
-      appendInactiveTurn: () => null,
-      updateInactiveTurn: vi.fn(),
       attachArtifact: vi.fn(),
-      declareChapterInactive: vi.fn(),
       applyAutoTitle: () => true,
     } as never,
     timeline: {
@@ -243,10 +239,17 @@ function makeClientDeps(
         turns.push(t);
         return t;
       },
+      turnsFor: () => turns,
+      appendTurnFor: (_threadId: string, role: string, content: string) => {
+        const t = { id: `t${++turnN}`, role, content, timestamp: Date.now() };
+        turns.push(t);
+        return t;
+      },
       updateTurn: vi.fn(),
+      updateTurnFor: vi.fn(),
       count: () => turns.length,
     } as never,
-    segmentation: { listChapters: () => [], declareNewChapter: vi.fn() } as never,
+    segmentation: { listChapters: () => [], chaptersFor: () => [], declareNewChapter: vi.fn(), upsertChapterAtBoundaryFor: vi.fn() } as never,
     artifacts: { getArtifact: () => null, upsertArtifact: vi.fn((a: unknown) => a) } as never,
     versioning: { recordRevision: vi.fn() } as never,
     // The compiler is client-side logic, unit-tested elsewhere; here it passes

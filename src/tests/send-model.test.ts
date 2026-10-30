@@ -61,27 +61,32 @@ function makeDeps() {
       unstageArtifact: vi.fn(),
       setAttachmentGranularity: vi.fn(),
       commitStagedAttachments: () => 0,
-      getInactiveContent: () => null,
-      appendInactiveTurn: () => null,
-      updateInactiveTurn: vi.fn(),
       attachArtifact: vi.fn(),
-      declareChapterInactive: vi.fn(),
       applyAutoTitle: () => true,
     } as never,
     timeline: {
       getTurns: () => turns,
+      turnsFor: () => turns,
       appendTurn: (role: string, content: string) => {
         const t = { id: `t${++turnN}`, role, content, timestamp: Date.now() };
         turns.push(t);
         return t;
       },
+      appendTurnFor: (_threadId: string, role: string, content: string) => {
+        const t = { id: `t${++turnN}`, role, content, timestamp: Date.now() };
+        turns.push(t);
+        return t;
+      },
       updateTurn: vi.fn(),
+      updateTurnFor: vi.fn(),
       count: () => turns.length,
     } as never,
     segmentation: {
       listChapters: () => [],
+      chaptersFor: () => [],
       declareNewChapter: vi.fn(),
       upsertChapterAtBoundary: vi.fn(),
+      upsertChapterAtBoundaryFor: vi.fn(),
     } as never,
     artifacts: { getArtifact: () => null, listArtifacts: () => [], upsertArtifact: vi.fn((a: unknown) => a) } as never,
     graph: { listEdges: () => [] } as never,
@@ -185,10 +190,11 @@ describe('topic-shift chapter law on the client (David 2026-10-25)', () => {
 
     const seg = deps.segmentation as unknown as {
       declareNewChapter: ReturnType<typeof vi.fn>;
-      upsertChapterAtBoundary: ReturnType<typeof vi.fn>;
+      upsertChapterAtBoundaryFor: ReturnType<typeof vi.fn>;
     };
-    expect(seg.upsertChapterAtBoundary).toHaveBeenCalledTimes(1);
-    expect(seg.upsertChapterAtBoundary).toHaveBeenCalledWith('Beta', 0, undefined, 'second', undefined);
+    // Phase 4: one uniform call — the thread id leads, then the shift's layers.
+    expect(seg.upsertChapterAtBoundaryFor).toHaveBeenCalledTimes(1);
+    expect(seg.upsertChapterAtBoundaryFor).toHaveBeenCalledWith('T1', 'Beta', 0, undefined, 'second', undefined);
     expect(seg.declareNewChapter).not.toHaveBeenCalled();
   });
 });

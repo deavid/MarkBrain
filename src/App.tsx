@@ -641,7 +641,7 @@ export default function App() {
   // Package 28 §3.5: single-project plaintext backup, assembled exactly like
   // the persist worker assembles a save (compose re-flattens the threads).
   const handleExportProjectTarGz = useCallback(async () => {
-    const composed = threadRegistry.compose(timeline.getTurns(), segmentation.listChapters());
+    const composed = threadRegistry.compose(timeline.allTurns(), segmentation.allChapters());
     const container = workspace.getProject(projectMeta.id);
     const snapshot = {
       projectId: projectMeta.id,

@@ -9,7 +9,7 @@ import { ArtifactDocumentDomain } from '../domains/01-artifact-document';
 import type { UniversalArtifactDocument } from '../domains/01-artifact-document';
 import { ArtifactVersioningDomain } from '../domains/01-artifact-versioning';
 import { TopologicalGraphDomain } from '../domains/02-topological-graph';
-import { purgeArtifact } from '../ui/artifacts/purgeArtifact';
+import { purgeArtifact } from '../application/purgeArtifactEverywhere';
 
 const thread = (
   id: string,

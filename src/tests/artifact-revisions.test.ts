@@ -141,10 +141,11 @@ describe('persistence integration — revisions ride the snapshot', () => {
     } as unknown as ProjectSnapshot;
     hydrateProjectFromSnapshot('proj-1', snap, {
       threadRegistry: {
-        hydrate: vi.fn(() => ({ chapters: [], threads: [], folders: [], turns: [], activeThreadId: null })),
+        hydrate: vi.fn(() => ({ chapters: [], threads: [], folders: [], turns: [], activeThreadId: null, allTurns: [], allChapters: [] })),
+        getActiveThreadId: () => 'th1',
       } as never,
-      timeline: { loadTurns: vi.fn() } as never,
-      segmentation: { loadChapters: vi.fn() } as never,
+      timeline: { setActiveThread: vi.fn(), loadAllTurns: vi.fn() } as never,
+      segmentation: { setActiveThread: vi.fn(), loadAllChapters: vi.fn() } as never,
       artifacts: { loadArtifacts: vi.fn() } as never,
       graph: { loadEdges: vi.fn() } as never,
       versioning,
@@ -169,8 +170,8 @@ describe('persistence integration — revisions ride the snapshot', () => {
         getActiveProjectId: () => 'proj-1',
         getProject: () => ({ metadata: { name: 'P', codeName: 'p', description: '', color: '#000' } }),
       } as never,
-      timeline: { getTurns: () => [] } as never,
-      segmentation: { listChapters: () => [] } as never,
+      timeline: { allTurns: () => [] } as never,
+      segmentation: { allChapters: () => [] } as never,
       artifacts: { listArtifacts: () => [] } as never,
       graph: { listEdges: () => [] } as never,
       versioning,

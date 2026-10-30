@@ -1,19 +1,21 @@
 /**
- * The one door an artifact leaves a project through.
+ * The one door an artifact leaves a project through — EVERYWHERE at once.
+ * (Phase 4: moved out of src/ui — cross-domain deletion surgery is not the
+ * UI's job; the UI handlers just call it.)
  *
  * Five places hold a reference to an artifact id: surviving artifacts'
  * relationship edges, the semantic graph's edges, every thread's attachments,
  * the revision history, and the artifact map itself. Deleting out of the
  * artifact map alone leaves the other four pointing at a ghost.
  */
-import type { IArtifactDocumentDomain } from '../../domains/01-artifact-document';
-import type { IArtifactVersioningDomain } from '../../domains/01-artifact-versioning';
-import type { ITopologicalGraphDomain } from '../../domains/02-topological-graph';
-import type { ThreadRegistry } from '../../domains/06-chat-threads';
-import type { IWorkspaceDomain } from '../../domains/00-workspace';
-import type { Artifact } from '../../types';
-import { serializeArtifactToYamlDoc } from '../../utils/yamlArtifactParser';
-import { queueServerMutation } from '../../application/serverMutationQueue';
+import type { IArtifactDocumentDomain } from '../domains/01-artifact-document';
+import type { IArtifactVersioningDomain } from '../domains/01-artifact-versioning';
+import type { ITopologicalGraphDomain } from '../domains/02-topological-graph';
+import type { ThreadRegistry } from '../domains/06-chat-threads';
+import type { IWorkspaceDomain } from '../domains/00-workspace';
+import type { Artifact } from '../types';
+import { serializeArtifactToYamlDoc } from '../utils/yamlArtifactParser';
+import { queueServerMutation } from './serverMutationQueue';
 
 export interface PurgeDeps {
   artifactsDomain: IArtifactDocumentDomain;

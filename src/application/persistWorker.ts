@@ -89,7 +89,9 @@ export async function persistProjectSnapshot(deps: PersistDeps): Promise<void> {
     const container = workspace.getProject(activeId);
     // Threads: compose re-flattens live (active thread) + cached (inactive)
     // content and tags every turn/chapter with its threadId.
-    const composed = threadRegistry.compose(timeline.getTurns(), segmentation.listChapters());
+    // Threads: compose re-groups the domains' per-thread content (Phase 4)
+    // and tags every row with its threadId — the snapshot shape is unchanged.
+    const composed = threadRegistry.compose(timeline.allTurns(), segmentation.allChapters());
     payload = {
       turns: composed.turns,
       chapters: composed.chapters,

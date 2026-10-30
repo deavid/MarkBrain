@@ -24,7 +24,9 @@ export interface HydrationDeps {
 }
 
 /**
- * Loads the ACTIVE thread's content into the live domains, then opens the save gate.
+ * Loads every thread's content into the thread-keyed live domains (turns and
+ * chapters are stored PER THREAD — Phase 4), names the active thread, then
+ * opens the save gate.
  */
 export function hydrateProjectFromSnapshot(
   projectId: string,
@@ -32,7 +34,7 @@ export function hydrateProjectFromSnapshot(
   deps: HydrationDeps
 ): void {
   const { threadRegistry, timeline, segmentation, artifacts, graph, versioning, hydratedRef } = deps;
-  const activeContent = threadRegistry.hydrate({
+  const content = threadRegistry.hydrate({
     projectId,
     threads: snap?.threads as any,
     folders: snap?.folders as any,
@@ -40,8 +42,12 @@ export function hydrateProjectFromSnapshot(
     chapters: (snap?.chapters as any) || [],
     activeThreadId: snap?.activeThreadId,
   });
-  timeline.loadTurns(activeContent.turns);
-  segmentation.loadChapters(activeContent.chapters);
+  // Thread switch = naming the active thread, never swapping arrays. Every
+  // thread's content loads into the per-thread buckets (Phase 4).
+  timeline.setActiveThread(threadRegistry.getActiveThreadId());
+  segmentation.setActiveThread(threadRegistry.getActiveThreadId());
+  timeline.loadAllTurns(content.allTurns);
+  segmentation.loadAllChapters(content.allChapters);
   artifacts.loadArtifacts(snap?.artifacts || []);
   graph.loadEdges(snap?.edges || []);
   // Merge (never wipe): an artifact whose incoming list is empty or missing

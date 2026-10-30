@@ -9,7 +9,7 @@ import { ChapterSegmentationDomain, IChapterSegmentationDomain } from './02-chap
 import { StreamProtocolDomain, IStreamProtocolDomain } from './03-stream-protocol';
 import { ChapterRecalibrationDomain, IChapterRecalibrationDomain } from './03-chapter-recalibration';
 import { OpticalCompilerDomain, IOpticalCompilerDomain } from './03-optical-compiler';
-import { ThreadRegistry, ThreadContent } from './06-chat-threads';
+import { ThreadRegistry } from './06-chat-threads';
 import { logger } from '../utils/logger';
 import {
   saveProjectSnapshot,
@@ -289,13 +289,11 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const selectThread = useCallback(
     (threadId: string) => {
-      const incoming = threadRegistry.select(threadId, {
-        turns: timeline.getTurns(),
-        chapters: segmentation.listChapters(),
-      });
-      if (!incoming) return;
-      timeline.loadTurns(incoming.turns);
-      segmentation.loadChapters(incoming.chapters);
+      if (!threadRegistry.select(threadId)) return;
+      // Thread switch = naming the active thread — content never moves. The
+      // segmentation domain keeps every thread's Genesis floor on first touch.
+      timeline.setActiveThread(threadId);
+      segmentation.setActiveThread(threadId);
       logger.action('DomainRegistry', `Switched to thread ${threadId}`);
     },
     [threadRegistry, timeline, segmentation]
@@ -303,13 +301,9 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const createThread = useCallback((): string => {
     const thread = threadRegistry.createThread();
-    const incoming = threadRegistry.select(thread.id, {
-      turns: timeline.getTurns(),
-      chapters: segmentation.listChapters(),
-    });
-    if (incoming) {
-      timeline.loadTurns(incoming.turns);
-      segmentation.loadChapters(incoming.chapters);
+    if (threadRegistry.select(thread.id)) {
+      timeline.setActiveThread(thread.id);
+      segmentation.setActiveThread(thread.id);
     }
     logger.action('DomainRegistry', `Created thread ${thread.id}`);
     return thread.id;
@@ -320,15 +314,16 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Explicit delete must reach the VPS — the snapshot save is upsert-only,
       // so without this the row resurrects on refresh (live 2026-10-26).
       queueServerMutation(workspace.getActiveProjectId(), { op: 'deleteThread', threadId });
-      const incoming = threadRegistry.deleteThread(threadId);
-      if (incoming) {
-        // Active thread died — live domains load the fallback thread's content.
-        timeline.loadTurns(incoming.turns);
-        segmentation.loadChapters(incoming.chapters);
-      }
+      threadRegistry.deleteThread(threadId);
+      // The dead thread's content goes with it — buckets are per thread.
+      timeline.forgetThread(threadId);
+      segmentation.forgetThread(threadId);
+      const activeId = threadRegistry.getActiveThreadId();
+      timeline.setActiveThread(activeId);
+      segmentation.setActiveThread(activeId);
       logger.action('DomainRegistry', `Deleted thread ${threadId}`);
     },
-    [threadRegistry, timeline, segmentation]
+    [threadRegistry, timeline, segmentation, workspace]
   );
 
   const value = useMemo<DomainContextValue>(

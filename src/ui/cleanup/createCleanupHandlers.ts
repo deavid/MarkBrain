@@ -1,7 +1,7 @@
 import type { DomainContextValue } from '../../domains/DomainRegistry';
 import type { CleanupPlan } from '../../application/cleanupPlan';
 import type { ArtifactLifecycle } from '../../domains/01-artifact-document';
-import { purgeArtifact } from '../artifacts/purgeArtifact';
+import { purgeArtifact } from '../../application/purgeArtifactEverywhere';
 import { logger } from '../../utils/logger';
 
 export interface CleanupHandlerParams {

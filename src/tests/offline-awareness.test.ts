@@ -35,11 +35,7 @@ function makeDeps(overrides: Partial<SendQueueDeps> = {}) {
       getAttachments: () => [],
       commitStagedAttachments: () => 0,
       getStagedAttachments: () => [],
-      getInactiveContent: () => null,
-      appendInactiveTurn: () => null,
-      updateInactiveTurn: vi.fn(),
       attachArtifact: vi.fn(),
-      declareChapterInactive: vi.fn(),
       applyAutoTitle: () => true,
     } as never,
     timeline: {
@@ -49,10 +45,17 @@ function makeDeps(overrides: Partial<SendQueueDeps> = {}) {
         turns.push(t);
         return t;
       },
+      turnsFor: () => turns,
+      appendTurnFor: (_threadId: string, role: string, content: string, _e?: unknown, meta?: unknown) => {
+        const t = { id: `t${++turnN}`, role, content, timestamp: Date.now(), meta };
+        turns.push(t);
+        return t;
+      },
       updateTurn: vi.fn(),
+      updateTurnFor: vi.fn(),
       count: () => turns.length,
     } as never,
-    segmentation: { listChapters: () => [], declareNewChapter: vi.fn() } as never,
+    segmentation: { listChapters: () => [], chaptersFor: () => [], declareNewChapter: vi.fn(), upsertChapterAtBoundaryFor: vi.fn() } as never,
     artifacts: { getArtifact: () => null, listArtifacts: () => [], upsertArtifact: vi.fn((a: any) => a) } as never,
     versioning: { recordRevision: vi.fn() } as never,
     graph: { listEdges: () => [] } as never,

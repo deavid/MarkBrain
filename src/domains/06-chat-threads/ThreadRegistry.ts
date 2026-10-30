@@ -1,7 +1,7 @@
 import type { Turn } from '../01-dialogue-timeline';
 import type { ChapterPartition } from '../02-chapter-segmentation';
 import type { Granularity } from '../granularity';
-import { cycleGranularity, normalizeGranularity } from '../granularity';
+import { normalizeGranularity } from '../granularity';
 import {
   ChatAttachment,
   ChatThread,
@@ -9,8 +9,10 @@ import {
   isAttachmentStaged,
   makeDefaultThread,
   makeGenesisChapter,
-  makeThreadId,
 } from './types';
+import { ThreadMetaStore } from './ThreadMetaStore';
+import { ThreadAttachmentLedger } from './ThreadAttachmentLedger';
+import { ThreadTitlePolicy } from './ThreadTitlePolicy';
 
 export interface ThreadContent {
   turns: Turn[];
@@ -26,7 +28,15 @@ export interface ThreadHydrateInput {
   activeThreadId?: string;
 }
 
-const rand = () => Math.random().toString(36).slice(2, 6);
+/**
+ * What hydrate hands back: the ACTIVE thread's content (loaded into the live
+ * domains exactly as before) PLUS every thread's tagged content, which the
+ * caller loads into the thread-keyed domains via loadAllTurns/loadAllChapters.
+ */
+export interface ThreadHydrateResult extends ThreadContent {
+  allTurns: Turn[];
+  allChapters: ChapterPartition[];
+}
 
 /**
  * Legacy and foreign snapshots: attachment arrays may be absent or half-formed.
@@ -75,7 +85,7 @@ function normalizeAttachments(raw: unknown): ChatAttachment[] {
           : -1;
     out.push({
       artifactId: item.artifactId,
-      granularity: normalizeGranularity(item.granularity, 'full'),
+      granularity: normalizeGranularity(item.granularity as Granularity, 'full'),
       addedAt: typeof item.addedAt === 'number' ? item.addedAt : Date.now(),
       turnIndex,
       turnId: typeof item.turnId === 'string' ? item.turnId : null,
@@ -85,285 +95,158 @@ function normalizeAttachments(raw: unknown): ChatAttachment[] {
 }
 
 /**
- * Owner of thread/folder metadata plus the content of every INACTIVE thread in
- * the active project.
+ * Hydrate, select, compose: the whole thread picture. A thin facade over the
+ * single-phrase modules it composes — the metadata store (threads, folders,
+ * the open thread), the attachment ledger, and the title state.
  *
- * The split-brain invariant — the whole design in four lines:
- *   - the LIVE domains hold ONLY the active thread's turns and chapters;
- *     this registry's inactive map holds everyone else's;
- *   - `select()` flushes live → cache for the outgoing thread and hands the
- *     incoming thread's content to the live domains;
- *   - `compose()` re-flattens both halves for the snapshot save.
- *
- * Background generation writes through the appendInactiveTurn /
- * updateInactiveTurn / declareChapterInactive methods, with the same Turn and
- * Chapter shapes, so a later select() is seamless. Writing an inactive thread
- * through the live domains instead would corrupt the visible conversation.
+ * Phase 4: this registry no longer owns ANY thread content. Turns and
+ * chapters live per-thread in DialogueTimelineDomain and
+ * ChapterSegmentationDomain; hydrate hands every thread's tagged content to
+ * the caller (loadAllTurns / loadAllChapters), select just re-points the
+ * domains, and compose re-groups the domains' allTurns/allChapters into the
+ * unchanged snapshot shape.
  */
 export class ThreadRegistry {
-  private threads: ChatThread[] = [];
-  private folders: ThreadFolder[] = [];
-  private activeId = '';
+  private store = new ThreadMetaStore();
+  private attachmentsLedger = new ThreadAttachmentLedger(this.store);
+  private titles = new ThreadTitlePolicy(this.store);
   private projectId = '';
-  private inactive = new Map<string, ThreadContent>();
-  private listeners: Set<() => void> = new Set();
 
   subscribe(cb: () => void): () => void {
-    this.listeners.add(cb);
-    return () => this.listeners.delete(cb);
-  }
-
-  private emit(): void {
-    this.listeners.forEach((l) => l());
+    return this.store.subscribe(cb);
   }
 
   getThreads(): ChatThread[] {
-    return [...this.threads];
+    return this.store.getThreads();
   }
 
   getFolders(): ThreadFolder[] {
-    return [...this.folders];
+    return this.store.getFolders();
   }
 
   getActiveThreadId(): string {
-    return this.activeId;
+    return this.store.getActiveThreadId();
   }
 
   getThread(id: string): ChatThread | null {
-    return this.threads.find((t) => t.id === id) || null;
+    return this.store.getThread(id);
   }
 
-  /** A copy: callers may sort or splice it without touching registry state. */
   getAttachments(threadId?: string): ChatAttachment[] {
-    const id = threadId || this.activeId;
-    return [...(this.getThread(id)?.attachments || [])];
+    return this.attachmentsLedger.getAttachments(threadId);
   }
 
-  /** Staged attachments (`turnIndex === null`) — the ones about to ride the next send. */
   getStagedAttachments(threadId?: string): ChatAttachment[] {
-    return this.getAttachments(threadId).filter(isAttachmentStaged);
+    return this.attachmentsLedger.getStagedAttachments(threadId);
   }
 
-  /** Idempotent: re-attaching never resets the granularity nor moves the turn anchor. */
   attachArtifact(
     threadId: string,
     artifactId: string,
-    granularity: Granularity = 'full',
-    turnIndex: number | null = null,
-    turnId: string | null = null
+    granularity?: Granularity,
+    turnIndex?: number | null,
+    turnId?: string | null
   ): ChatAttachment | null {
-    const idx = this.threads.findIndex((t) => t.id === threadId);
-    if (idx === -1 || !artifactId) return null;
-    const thread = this.threads[idx];
-    const existing = thread.attachments.find((a) => a.artifactId === artifactId);
-    if (existing) return existing;
-    const attachment: ChatAttachment = {
-      artifactId,
-      granularity,
-      addedAt: Date.now(),
-      turnIndex,
-      turnId,
-    };
-    this.threads[idx] = {
-      ...thread,
-      attachments: [...thread.attachments, attachment],
-      updatedAt: Date.now(),
-    };
-    this.emit();
-    return attachment;
+    return this.attachmentsLedger.attachArtifact(threadId, artifactId, granularity, turnIndex ?? null, turnId ?? null);
   }
 
-  stageArtifact(
-    threadId: string,
-    artifactId: string,
-    granularity: Granularity = 'full'
-  ): ChatAttachment | null {
-    return this.attachArtifact(threadId, artifactId, granularity, null, null);
+  stageArtifact(threadId: string, artifactId: string, granularity?: Granularity): ChatAttachment | null {
+    return this.attachmentsLedger.stageArtifact(threadId, artifactId, granularity);
   }
 
-  /** Removes a STAGED attachment. A committed one is a no-op: the turn already happened. Returns true when something was removed. */
   unstageArtifact(threadId: string, artifactId: string): boolean {
-    const idx = this.threads.findIndex((t) => t.id === threadId);
-    if (idx === -1) return false;
-    const thread = this.threads[idx];
-    const target = thread.attachments.find((a) => a.artifactId === artifactId);
-    if (!target || !isAttachmentStaged(target)) return false;
-    this.threads[idx] = {
-      ...thread,
-      attachments: thread.attachments.filter((a) => a.artifactId !== artifactId),
-      updatedAt: Date.now(),
-    };
-    this.emit();
-    return true;
+    return this.attachmentsLedger.unstageArtifact(threadId, artifactId);
   }
 
-  /** Not in chat → stage at Full; staged → unstage; committed → cycle granularity. */
   toggleStageOrCycleAttachment(threadId: string, artifactId: string): void {
-    const idx = this.threads.findIndex((t) => t.id === threadId);
-    if (idx === -1 || !artifactId) return;
-    const thread = this.threads[idx];
-    const existing = thread.attachments.find((a) => a.artifactId === artifactId);
-    if (!existing) {
-      this.stageArtifact(threadId, artifactId, 'full');
-      return;
-    }
-    if (isAttachmentStaged(existing)) {
-      this.unstageArtifact(threadId, artifactId);
-      return;
-    }
-    this.setAttachmentGranularity(threadId, artifactId, cycleGranularity(existing.granularity));
+    return this.attachmentsLedger.toggleStageOrCycleAttachment(threadId, artifactId);
   }
 
-  /** Welds all staged attachments (`turnIndex === null`) to `turnIndex`/`turnId`. */
-  commitStagedAttachments(
-    threadId: string,
-    turnIndex: number | null,
-    turnId: string | null = null
-  ): number {
-    const idx = this.threads.findIndex((t) => t.id === threadId);
-    if (idx === -1) return 0;
-    const thread = this.threads[idx];
-    const staged = thread.attachments.filter(isAttachmentStaged);
-    if (staged.length === 0) return 0;
-    this.threads[idx] = {
-      ...thread,
-      attachments: thread.attachments.map((a) =>
-        isAttachmentStaged(a) ? { ...a, turnIndex, turnId } : a
-      ),
-      updatedAt: Date.now(),
-    };
-    this.emit();
-    return staged.length;
+  commitStagedAttachments(threadId: string, turnIndex: number | null, turnId?: string | null): number {
+    return this.attachmentsLedger.commitStagedAttachments(threadId, turnIndex, turnId ?? null);
   }
 
-  /**
-   * Welds ONE attachment to its provenance — the VPS delta mirror of
-   * commitStagedAttachments. When a pair commits SERVER-side, the delta turn
-   * arrives with meta.attachments carrying turnId + turnIndex; the registry's
-   * staged entries must follow (live 2026-10-25: they stayed `null`, so the
-   * staged tray never emptied and the chips never rendered on the turn).
-   * Unknown artifact ids are ignored (purged elsewhere), non-staged entries
-   * keep their granularity.
-   */
-  commitAttachment(
-    threadId: string,
-    artifactId: string,
-    turnIndex: number | null,
-    turnId: string | null = null
-  ): boolean {
-    const idx = this.threads.findIndex((t) => t.id === threadId);
-    if (idx === -1 || !artifactId) return false;
-    const thread = this.threads[idx];
-    const att = thread.attachments.find((a) => a.artifactId === artifactId);
-    if (!att || !isAttachmentStaged(att)) return false;
-    this.threads[idx] = {
-      ...thread,
-      attachments: thread.attachments.map((a) =>
-        a.artifactId === artifactId ? { ...a, turnIndex, turnId } : a
-      ),
-      updatedAt: Date.now(),
-    };
-    this.emit();
-    return true;
+  commitAttachment(threadId: string, artifactId: string, turnIndex: number | null, turnId?: string | null): boolean {
+    return this.attachmentsLedger.commitAttachment(threadId, artifactId, turnIndex, turnId ?? null);
   }
 
-  /**
-   * The AI-attachment law (David 2026-10-25: "it is an attachment. It is the
-   * same thing"): artifacts the model extracted during its reply are attached
-   * to that reply's turn — committed provenance, Full granularity by default,
-   * steerable afterwards, compiled into every next context call, and NEVER
-   * re-staged (already attached). Idempotent: an entry that already exists
-   * keeps the user's granularity choices; a STAGED entry (user armed it
-   * before the reply landed) is welded to the turn instead of duplicated.
-   */
   ensureAttached(
     threadId: string,
     artifactId: string,
     turnIndex: number | null,
-    turnId: string | null = null,
-    granularity: Granularity = 'full'
+    turnId?: string | null,
+    granularity?: Granularity
   ): boolean {
-    const idx = this.threads.findIndex((t) => t.id === threadId);
-    if (idx === -1 || !artifactId) return false;
-    const thread = this.threads[idx];
-    const existing = thread.attachments.find((a) => a.artifactId === artifactId);
-    if (existing) {
-      if (!isAttachmentStaged(existing)) return false; // committed — nothing to do
-      return this.commitAttachment(threadId, artifactId, turnIndex, turnId);
-    }
-    this.threads[idx] = {
-      ...thread,
-      attachments: [
-        ...thread.attachments,
-        { artifactId, granularity, addedAt: Date.now(), turnIndex, turnId },
-      ],
-      updatedAt: Date.now(),
-    };
-    this.emit();
-    return true;
+    return this.attachmentsLedger.ensureAttached(threadId, artifactId, turnIndex, turnId ?? null, granularity);
   }
 
-  setAttachmentGranularity(
-    threadId: string,
-    artifactId: string,
-    granularity: Granularity
-  ): void {
-    const idx = this.threads.findIndex((t) => t.id === threadId);
-    if (idx === -1) return;
-    const thread = this.threads[idx];
-    if (!thread.attachments.some((a) => a.artifactId === artifactId)) return;
-    this.threads[idx] = {
-      ...thread,
-      attachments: thread.attachments.map((a) =>
-        a.artifactId === artifactId ? { ...a, granularity } : a
-      ),
-      updatedAt: Date.now(),
-    };
-    this.emit();
+  setAttachmentGranularity(threadId: string, artifactId: string, granularity: Granularity): void {
+    return this.attachmentsLedger.setAttachmentGranularity(threadId, artifactId, granularity);
   }
 
-  /** Garbage collection on artifact deletion — NOT a user-facing "detach". */
   purgeArtifact(artifactId: string): void {
-    let changed = false;
-    this.threads = this.threads.map((t) => {
-      if (!t.attachments.some((a) => a.artifactId === artifactId)) return t;
-      changed = true;
-      return { ...t, attachments: t.attachments.filter((a) => a.artifactId !== artifactId) };
-    });
-    if (changed) this.emit();
+    return this.attachmentsLedger.purgeArtifact(artifactId);
   }
 
-  /** Null for the active thread. */
-  getInactiveContent(threadId: string): ThreadContent | null {
-    if (threadId === this.activeId) return null;
-    let content = this.inactive.get(threadId);
-    if (!content) {
-      content = { turns: [], chapters: [makeGenesisChapter(this.projectId, threadId)] };
-      this.inactive.set(threadId, content);
-    }
-    return content;
+  applyAutoTitle(threadId: string, title: string, version: number): boolean {
+    return this.titles.applyAutoTitle(threadId, title, version);
   }
 
-  /** Replaces registry state from a snapshot and returns the active thread's content. Backfills missing threads with "Main". */
-  hydrate(input: ThreadHydrateInput): ThreadContent {
+  forceAutoTitle(threadId: string, title: string): boolean {
+    return this.titles.forceAutoTitle(threadId, title);
+  }
+
+  patch(threadId: string, partial: Partial<ChatThread>): void {
+    return this.store.patch(threadId, partial);
+  }
+
+  rename(threadId: string, title: string): void {
+    return this.store.rename(threadId, title);
+  }
+
+  createFolder(name: string): ThreadFolder {
+    return this.store.createFolder(name);
+  }
+
+  renameFolder(folderId: string, name: string): void {
+    return this.store.renameFolder(folderId, name);
+  }
+
+  deleteFolder(folderId: string): void {
+    return this.store.deleteFolder(folderId);
+  }
+
+  moveThreadToFolder(threadId: string, folderId: string | null): void {
+    return this.store.moveThreadToFolder(threadId, folderId);
+  }
+
+  setThreadLifecycle(threadId: string, lifecycle: ChatThread['lifecycle']): void {
+    return this.store.setThreadLifecycle(threadId, lifecycle);
+  }
+
+  reorderFolderBefore(dragId: string, targetId: string): void {
+    return this.store.reorderFolderBefore(dragId, targetId);
+  }
+
+  /** Replaces registry metadata from a snapshot and returns every thread's content. Backfills missing threads with "Main". */
+  hydrate(input: ThreadHydrateInput): ThreadHydrateResult {
     this.projectId = input.projectId;
-    this.inactive.clear();
 
     const rawThreads = (input.threads || []).filter((t) => t && t.id);
-    this.threads =
+    let threads =
       rawThreads.length > 0
         ? rawThreads.map((t) => ({ ...t, attachments: normalizeAttachments(t.attachments) }))
         : [makeDefaultThread()];
-    this.folders = (input.folders || []).map((f) => ({ ...f }));
+    const folders = (input.folders || []).map((f) => ({ ...f }));
     // Normalize dangling folder references (folder deleted elsewhere, bad import)
-    const folderIds = new Set(this.folders.map((f) => f.id));
-    this.threads = this.threads.map((t) => ({
+    const folderIds = new Set(folders.map((f) => f.id));
+    threads = threads.map((t) => ({
       ...t,
       folderId: t.folderId && folderIds.has(t.folderId) ? t.folderId : null,
     }));
 
-    const known = new Set(this.threads.map((t) => t.id));
-    const fallbackId = this.threads[0].id;
+    const known = new Set(threads.map((t) => t.id));
+    const fallbackId = threads[0].id;
     const tag = <T extends { threadId?: string }>(item: T): T =>
       item.threadId && known.has(item.threadId) ? item : { ...item, threadId: fallbackId };
 
@@ -394,7 +277,7 @@ export class ThreadRegistry {
       }
     }
     if (provenance.size > 0) {
-      this.threads = this.threads.map((t) => {
+      threads = threads.map((t) => {
         let changed = false;
         const attachments = t.attachments.map((a) => {
           if (!isAttachmentStaged(a)) return a;
@@ -433,7 +316,7 @@ export class ThreadRegistry {
       }
     }
     if (aiAttached.size > 0) {
-      this.threads = this.threads.map((t) => {
+      threads = threads.map((t) => {
         let changed = false;
         let attachments = t.attachments.map((a) => {
           if (!isAttachmentStaged(a)) return a;
@@ -456,337 +339,109 @@ export class ThreadRegistry {
       });
     }
 
-    const preferred = this.threads.find(
+    const preferred = threads.find(
       (t) => t.id === input.activeThreadId && t.lifecycle === 'active'
     );
-    const mostRecent = this.threads
+    const mostRecent = threads
       .filter((t) => t.lifecycle === 'active')
       .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
-    const active = preferred || mostRecent || this.threads[0];
-    this.activeId = active.id;
+    const active = preferred || mostRecent || threads[0];
+    this.store.install(threads, folders, active.id);
 
-    const contentOf = (id: string): ThreadContent => {
-      const turns = allTurns.filter((t) => (t as any).threadId === id);
-      let chapters = allChapters.filter((c) => (c as any).threadId === id);
-      if (chapters.length === 0) chapters = [makeGenesisChapter(this.projectId, id)];
-      return { turns, chapters };
-    };
-
-    const activeContent = contentOf(active.id);
-    for (const t of this.threads) {
-      if (t.id === active.id) continue;
-      this.inactive.set(t.id, contentOf(t.id));
+    // Every thread's content, in registry order, tagged with its threadId.
+    // A thread with no chapters keeps its Genesis chapter — the invariant the
+    // old per-thread cache enforced, now delivered to the thread-keyed domains.
+    const turnsByThread = new Map<string, Turn[]>();
+    for (const turn of allTurns) {
+      const list = turnsByThread.get(turn.threadId!) ?? [];
+      list.push(turn);
+      turnsByThread.set(turn.threadId!, list);
     }
-    return activeContent;
+    const chaptersByThread = new Map<string, ChapterPartition[]>();
+    for (const chapter of allChapters) {
+      const list = chaptersByThread.get(chapter.threadId!) ?? [];
+      list.push(chapter);
+      chaptersByThread.set(chapter.threadId!, list);
+    }
+    const orderedTurns: Turn[] = [];
+    const orderedChapters: ChapterPartition[] = [];
+    for (const t of threads) {
+      orderedTurns.push(...(turnsByThread.get(t.id) ?? []));
+      const chapters = chaptersByThread.get(t.id) ?? [];
+      orderedChapters.push(...(chapters.length > 0 ? chapters : [makeGenesisChapter(this.projectId, t.id)]));
+    }
+
+    return {
+      turns: turnsByThread.get(active.id) ?? [],
+      chapters:
+        (chaptersByThread.get(active.id)?.length ?? 0) > 0
+          ? chaptersByThread.get(active.id)!
+          : [makeGenesisChapter(this.projectId, active.id)],
+      allTurns: orderedTurns,
+      allChapters: orderedChapters,
+    };
   }
 
-  /** Flattens live + cached turns/chapters into snapshot arrays tagged with `threadId`. */
-  compose(activeTurns: Turn[], activeChapters: ChapterPartition[]): {
+  /**
+   * Re-groups the domains' flattened content into the snapshot arrays, tagged
+   * with threadId — the SAME shape as always (persistWorker, plaintext export
+   * and the tests read it). A registry thread with no chapters on record
+   * keeps its Genesis chapter.
+   */
+  compose(allTurns: Turn[], allChapters: ChapterPartition[]): {
     threads: ChatThread[];
     folders: ThreadFolder[];
     activeThreadId: string;
     turns: Turn[];
     chapters: ChapterPartition[];
   } {
+    const activeId = this.getActiveThreadId();
+    const turnsByThread = new Map<string, Turn[]>();
+    for (const turn of allTurns) {
+      const tid = turn.threadId ?? activeId; // untagged turns belong to the open thread
+      const list = turnsByThread.get(tid) ?? [];
+      list.push(turn);
+      turnsByThread.set(tid, list);
+    }
+    const chaptersByThread = new Map<string, ChapterPartition[]>();
+    for (const chapter of allChapters) {
+      const tid = chapter.threadId ?? activeId;
+      const list = chaptersByThread.get(tid) ?? [];
+      list.push(chapter);
+      chaptersByThread.set(tid, list);
+    }
+
     const turns: Turn[] = [];
     const chapters: ChapterPartition[] = [];
-    for (const t of this.threads) {
-      const content =
-        t.id === this.activeId
-          ? { turns: activeTurns, chapters: activeChapters }
-          : this.inactive.get(t.id) || {
-              turns: [],
-              chapters: [makeGenesisChapter(this.projectId, t.id)],
-            };
-      content.turns.forEach((turn) => turns.push({ ...turn, threadId: t.id }));
-      content.chapters.forEach((chap) => chapters.push({ ...chap, threadId: t.id }));
+    for (const t of this.getThreads()) {
+      turnsByThread.get(t.id)?.forEach((turn) => turns.push({ ...turn, threadId: t.id }));
+      const threadChapters = chaptersByThread.get(t.id) ?? [];
+      (threadChapters.length > 0
+        ? threadChapters
+        : [makeGenesisChapter(this.projectId, t.id)]
+      ).forEach((chap) => chapters.push({ ...chap, threadId: t.id }));
     }
     return {
-      threads: this.threads,
-      folders: this.folders,
-      activeThreadId: this.activeId,
+      threads: this.getThreads(),
+      folders: this.getFolders(),
+      activeThreadId: activeId,
       turns,
       chapters,
     };
   }
 
-  /** Flushes `live` into the outgoing thread's cache; returns the incoming thread's content. Null = no-op. */
-  select(threadId: string, live: ThreadContent): ThreadContent | null {
-    if (threadId === this.activeId) return null;
-    if (!this.threads.some((t) => t.id === threadId)) return null;
-    this.inactive.set(this.activeId, { turns: live.turns, chapters: live.chapters });
-    this.activeId = threadId;
-    let incoming = this.inactive.get(threadId);
-    this.inactive.delete(threadId);
-    if (!incoming) {
-      incoming = { turns: [], chapters: [makeGenesisChapter(this.projectId, threadId)] };
-    }
-    this.emit();
-    return incoming;
+  /** Switches the open thread. False = no-op (already open, or unknown id). The caller re-points the domains. */
+  select(threadId: string): boolean {
+    return this.store.select(threadId);
   }
 
-  /** Creates a thread without selecting it; seeds its cache with a genesis chapter. */
+  /** Creates a thread without selecting it; the caller seeds its genesis chapter. */
   createThread(partial: Partial<ChatThread> = {}): ChatThread {
-    const thread: ChatThread = {
-      id: makeThreadId(),
-      folderId: null,
-      title: 'New thread',
-      titleState: 'placeholder',
-      titleVersion: 0,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      lastActivityAt: Date.now(),
-      lifecycle: 'active',
-      lastOutcome: 'ok',
-      preview: '',
-      attachments: [],
-      ...partial,
-    };
-    this.threads.unshift(thread);
-    this.inactive.set(thread.id, {
-      turns: [],
-      chapters: [makeGenesisChapter(this.projectId, thread.id)],
-    });
-    this.emit();
-    return thread;
+    return this.store.createThread(partial);
   }
 
-  /** Discards live content if the active thread is deleted; returns the fallback thread's content. Null when no switch is needed. */
-  deleteThread(threadId: string): ThreadContent | null {
-    const idx = this.threads.findIndex((t) => t.id === threadId);
-    if (idx === -1) return null;
-    this.threads.splice(idx, 1);
-    this.inactive.delete(threadId);
-
-    if (this.activeId !== threadId) {
-      this.emit();
-      return null;
-    }
-
-    let next =
-      this.threads
-        .filter((t) => t.lifecycle === 'active')
-        .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0] || null;
-    if (!next) {
-      next = makeDefaultThread();
-      this.threads.push(next);
-    }
-    this.activeId = next.id;
-    let incoming = this.inactive.get(next.id);
-    this.inactive.delete(next.id);
-    if (!incoming) {
-      incoming = { turns: [], chapters: [makeGenesisChapter(this.projectId, next.id)] };
-    }
-    this.emit();
-    return incoming;
-  }
-
-  /** Shallow merge of metadata. Not for turns, chapters or attachments. */
-  patch(threadId: string, partial: Partial<ChatThread>): void {
-    const idx = this.threads.findIndex((t) => t.id === threadId);
-    if (idx === -1) return;
-    this.threads[idx] = { ...this.threads[idx], ...partial, updatedAt: Date.now() };
-    this.emit();
-  }
-
-  /** Manual rename → permanent lock. */
-  rename(threadId: string, title: string): void {
-    const clean = title.replace(/\s+/g, ' ').trim();
-    if (!clean) return;
-    this.patch(threadId, { title: clean, titleState: 'manual' });
-  }
-
-  createFolder(name: string): ThreadFolder {
-    const folder: ThreadFolder = {
-      id: `folder-${Date.now().toString(36)}-${rand()}`,
-      name: name.replace(/\s+/g, ' ').trim() || 'New Folder',
-      order: this.folders.reduce((max, f) => Math.max(max, f.order), -1) + 1,
-    };
-    this.folders.push(folder);
-    this.emit();
-    return folder;
-  }
-
-  renameFolder(folderId: string, name: string): void {
-    const clean = name.replace(/\s+/g, ' ').trim();
-    if (!clean) return;
-    const idx = this.folders.findIndex((f) => f.id === folderId);
-    if (idx === -1) return;
-    this.folders[idx] = { ...this.folders[idx], name: clean };
-    this.emit();
-  }
-
-  /** Deletes the folder; its threads return to Inbox (`folderId = null`). */
-  deleteFolder(folderId: string): void {
-    this.folders = this.folders.filter((f) => f.id !== folderId);
-    this.threads = this.threads.map((t) =>
-      t.folderId === folderId ? { ...t, folderId: null, updatedAt: Date.now() } : t
-    );
-    this.emit();
-  }
-
-  moveThreadToFolder(threadId: string, folderId: string | null): void {
-    if (folderId !== null && !this.folders.some((f) => f.id === folderId)) return;
-    this.patch(threadId, { folderId });
-  }
-
-  setThreadLifecycle(threadId: string, lifecycle: ChatThread['lifecycle']): void {
-    this.patch(threadId, { lifecycle });
-  }
-
-  reorderFolderBefore(dragId: string, targetId: string): void {
-    if (dragId === targetId) return;
-    const ordered = [...this.folders].sort((a, b) => a.order - b.order);
-    const from = ordered.findIndex((f) => f.id === dragId);
-    const to = ordered.findIndex((f) => f.id === targetId);
-    if (from === -1 || to === -1) return;
-    const [moved] = ordered.splice(from, 1);
-    const newTo = ordered.findIndex((f) => f.id === targetId);
-    ordered.splice(newTo === -1 ? ordered.length : newTo, 0, moved);
-    ordered.forEach((f, i) => (f.order = i));
-    this.folders = ordered;
-    this.emit();
-  }
-
-  /** Never downgrades a newer title version and never touches a manual lock. */
-  applyAutoTitle(threadId: string, title: string, version: number): boolean {
-    const thread = this.getThread(threadId);
-    if (!thread || thread.titleState === 'manual') return false;
-    if (version <= thread.titleVersion) return false;
-    const clean = title.replace(/\s+/g, ' ').trim();
-    if (!clean) return false;
-    this.patch(threadId, { title: clean, titleState: 'auto', titleVersion: version });
-    return true;
-  }
-
-  /** Explicit user action: overrides even a manual lock and sets `titleVersion = 2`. */
-  forceAutoTitle(threadId: string, title: string): boolean {
-    const clean = title.replace(/\s+/g, ' ').trim();
-    if (!clean || !this.getThread(threadId)) return false;
-    this.patch(threadId, { title: clean, titleState: 'auto', titleVersion: 2 });
-    return true;
-  }
-
-  appendInactiveTurn(
-    threadId: string,
-    role: 'user' | 'assistant' | 'system',
-    content: string,
-    extractedArtifacts?: any[],
-    meta?: any,
-    /** Optional explicit id (Phase 3) — see DialogueTimelineDomain.appendTurn. */
-    id?: string
-  ): Turn | null {
-    if (threadId === this.activeId) return null;
-    const target = this.getInactiveContent(threadId);
-    if (!target) return null;
-    const turn: Turn = {
-      id: id ?? `turn-${Date.now()}-${rand()}`,
-      role,
-      content,
-      timestamp: Date.now(),
-      extractedArtifacts,
-      meta,
-      threadId,
-    };
-    target.turns.push(turn);
-    this.emit();
-    return turn;
-  }
-
-  updateInactiveTurn(threadId: string, turnId: string, partial: Partial<Turn>): void {
-    if (threadId === this.activeId) return;
-    const target = this.getInactiveTurns(threadId);
-    if (!target) return;
-    const idx = target.findIndex((t) => t.id === turnId);
-    if (idx === -1) return;
-    target[idx] = { ...target[idx], ...partial };
-    this.emit();
-  }
-
-  /**
-   * Topic-shift law for inactive threads (mirror of the segmentation domain's
-   * upsertChapterAtBoundary): a cut that already exists at startIndex is
-   * retitled, never duplicated.
-   */
-  upsertChapterAtBoundaryInactive(
-    threadId: string,
-    title: string,
-    startIndex: number,
-    subtitle?: string,
-    description?: string,
-    summary?: string
-  ): ChapterPartition | null {
-    if (threadId === this.activeId) return null;
-    const target = this.getInactiveContent(threadId);
-    if (!target) return null;
-    const existing = target.chapters.find((c) => c.startIndex === startIndex);
-    if (existing) {
-      existing.title = title;
-      existing.subtitle = subtitle || existing.subtitle || '';
-      existing.description = description || existing.description || '';
-      existing.summary = summary || existing.summary || '';
-      existing.status = 'active';
-      existing.endIndex = undefined;
-      this.emit();
-      return existing;
-    }
-    return this.declareChapterInactive(threadId, title, startIndex, subtitle, description, summary);
-  }
-
-  /** Server delta merge: chapters of an INACTIVE thread land in its cache (by id). */
-  mergeInactiveChapters(threadId: string, incoming: ChapterPartition[]): void {
-    if (threadId === this.activeId || incoming.length === 0) return;
-    const target = this.getInactiveContent(threadId);
-    if (!target) return; // unknown thread — hydration owns it on first switch
-    const merged = [...target.chapters];
-    for (const ch of incoming) {
-      const idx = merged.findIndex((c) => c.id === ch.id);
-      if (idx >= 0) merged[idx] = ch;
-      else merged.push(ch);
-    }
-    merged.sort((a, b) => a.startIndex - b.startIndex);
-    target.chapters = merged;
-    this.emit();
-  }
-
-  declareChapterInactive(
-    threadId: string,
-    title: string,
-    startIndex: number,
-    subtitle?: string,
-    description?: string,
-    summary?: string
-  ): ChapterPartition | null {
-    if (threadId === this.activeId) return null;
-    const target = this.getInactiveContent(threadId);
-    if (!target) return null;
-    target.chapters.forEach((c) => {
-      if (c.status === 'active') {
-        c.status = 'completed';
-        if (c.endIndex === undefined) c.endIndex = startIndex;
-        // The cut is untouched: sealing a window never downgrades what is sent.
-      }
-    });
-    const chapter: ChapterPartition = {
-      id: `chap-${Date.now()}-${rand()}`,
-      workspaceId: this.projectId,
-      threadId,
-      title,
-      subtitle: subtitle || '',
-      description: description || '',
-      summary: summary || '',
-      granularity: 'full',
-      status: 'active',
-      startIndex,
-      createdAt: Date.now(),
-    };
-    target.chapters.push(chapter);
-    this.emit();
-    return chapter;
-  }
-
-  private getInactiveTurns(threadId: string): Turn[] | null {
-    const target = this.getInactiveContent(threadId);
-    return target ? target.turns : null;
+  /** Deletes a thread; deleting the open one falls back (the caller re-points the domains and seeds genesis). */
+  deleteThread(threadId: string): void {
+    return this.store.deleteThread(threadId);
   }
 }

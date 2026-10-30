@@ -3,7 +3,7 @@ import type { Artifact } from '../../types';
 import type { Granularity } from '../../domains/granularity';
 import { serializeArtifactToYamlDoc } from '../../utils/yamlArtifactParser';
 import { detectImportFlag, flagRelationship, ImportFlag } from '../../utils/importDetect';
-import { purgeArtifact } from './purgeArtifact';
+import { purgeArtifact } from '../../application/purgeArtifactEverywhere';
 import { queueServerMutation } from '../../application/serverMutationQueue';
 import { apiFetch } from '../../gateway/api';
 import { logger } from '../../utils/logger';

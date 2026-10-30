@@ -150,6 +150,7 @@ function makeStubs(seed: {
     turns: [...(seed.turns ?? [])] as Array<Record<string, unknown>>,
     artifacts: [...(seed.artifacts ?? [])] as Array<Record<string, unknown>>,
     chapters: [...(seed.chapters ?? [])] as Array<Record<string, unknown>>,
+    mergedChapters: [] as Array<{ threadId: string; chapters: Array<Record<string, unknown>> }>,
     edges: [...(seed.edges ?? [])] as Array<Record<string, unknown>>,
     threads: [...(seed.threads ?? [])] as Array<Record<string, unknown>>,
     folders: [...(seed.folders ?? [])] as Array<{ id: string; name: string }>,
@@ -158,19 +159,32 @@ function makeStubs(seed: {
     deletedThreads: [] as string[],
     deletedFolders: [] as string[],
     createdThreads: [] as unknown[],
-    mergedInactiveChapters: [] as Array<{ threadId: string; chapters: Array<Record<string, unknown>> }>,
+    chaptersByThread: {} as Record<string, Array<Record<string, unknown>>>,
+    turnsByThread: {} as Record<string, Array<Record<string, unknown>>>,
     committedAttachments: [] as Array<{ threadId: string; artifactId: string; turnIndex: number | null; turnId: string | null }>,
     aiAttached: [] as Array<{ threadId: string; artifactId: string; turnIndex: number | null; turnId: string | null }>,
     patchedThreads: [] as Array<{ id: string; patch: unknown }>,
     createdFolders: [] as string[],
   };
+  state.turnsByThread[state.activeThreadId] = [...state.turns];
+  state.chaptersByThread[state.activeThreadId] = [...state.chapters];
   const deps = {
     activeProjectId: 'p1',
     lastRevisionRef: { current: 0 },
     timeline: {
-      getTurns: () => state.turns,
+      // Phase 4: turns live PER THREAD in the timeline domain.
+      getTurns: () => state.turnsByThread[state.activeThreadId] ?? [],
+      turnsFor: (tid: string) => state.turnsByThread[tid] ?? [],
       loadTurns: (t: Array<Record<string, unknown>>) => {
+        state.turnsByThread[state.activeThreadId] = t;
         state.turns = t;
+      },
+      loadTurnsFor: (threadId: string, t: Array<Record<string, unknown>>) => {
+        state.turnsByThread[threadId] = t;
+        if (threadId === state.activeThreadId) state.turns = t;
+      },
+      forgetThread: (threadId: string) => {
+        delete state.turnsByThread[threadId];
       },
     },
     artifacts: {
@@ -184,9 +198,27 @@ function makeStubs(seed: {
       },
     },
     segmentation: {
-      listChapters: () => state.chapters,
+      // Phase 4: chapters live PER THREAD in the segmentation domain.
+      listChapters: () => state.chaptersByThread[state.activeThreadId] ?? [],
+      chaptersFor: (tid: string) => state.chaptersByThread[tid] ?? [],
       loadChapters: (c: Array<Record<string, unknown>>) => {
+        state.chaptersByThread[state.activeThreadId] = c;
         state.chapters = c;
+      },
+      forgetThread: (threadId: string) => {
+        delete state.chaptersByThread[threadId];
+      },
+      mergeChaptersFor: (threadId: string, incoming: Array<Record<string, unknown>>) => {
+        const merged = [...(state.chaptersByThread[threadId] ?? [])];
+        for (const ch of incoming) {
+          const idx = merged.findIndex((c) => c.id === ch.id);
+          if (idx >= 0) merged[idx] = ch;
+          else merged.push(ch);
+        }
+        merged.sort((a, b) => (a as { startIndex: number }).startIndex - (b as { startIndex: number }).startIndex);
+        state.chaptersByThread[threadId] = merged;
+        if (threadId === state.activeThreadId) state.chapters = merged;
+        state.mergedChapters.push({ threadId, chapters: incoming });
       },
     },
     graph: {
@@ -216,9 +248,6 @@ function makeStubs(seed: {
         state.folders = state.folders.filter((f) => f.id !== id);
       },
       getFolders: () => state.folders,
-      mergeInactiveChapters: (threadId: string, chapters: Array<Record<string, unknown>>) => {
-        state.mergedInactiveChapters.push({ threadId, chapters });
-      },
       ensureAttached: (
         threadId: string,
         artifactId: string,
@@ -295,7 +324,7 @@ describe('G6 — useVpsDeltaSync mergeDeltaIntoDomains', () => {
     expect(state.deletedFolders).toEqual(['fold-1']);
   });
 
-  it('chapters route PER THREAD: other threads go to the registry cache, never the active strip', () => {
+  it('chapters route PER THREAD: other threads land in their own bucket, never the active strip', () => {
     // Live bug 2026-10-25: every thread's chapters were loaded into the active
     // segmentation → the strip rendered other threads' windows against this
     // timeline ("Genesis Chapter" twice with duplicated contents).
@@ -317,11 +346,33 @@ describe('G6 — useVpsDeltaSync mergeDeltaIntoDomains', () => {
     );
     expect(state.chapters.map((c) => c.id)).toEqual(['ch-own', 'ch-legacy']);
     expect(state.chapters.some((c) => c.id === 'ch-foreign')).toBe(false);
-    expect(state.mergedInactiveChapters).toEqual([
+    // The foreign row merged into ITS OWN thread's bucket — one uniform call.
+    expect((state.chaptersByThread['thread-other'] ?? []).map((c) => c.id)).toEqual(['ch-foreign']);
+    // One uniform call per delta row, in delta order; the legacy row (no
+    // threadId) routes to the active thread like the rest.
+    expect(state.mergedChapters).toEqual([
+      {
+        threadId: 'thread-active',
+        chapters: [
+          { id: 'ch-own', startIndex: 0, threadId: 'thread-active', workspaceId: 'p1', title: 'Own', status: 'active', createdAt: 1 },
+        ],
+      },
+      {
+        threadId: 'thread-active',
+        chapters: [
+          { id: 'ch-own', startIndex: 0, workspaceId: 'p1', title: 'Own v2', status: 'active', createdAt: 2 },
+        ],
+      },
       {
         threadId: 'thread-other',
         chapters: [
           { id: 'ch-foreign', startIndex: 0, threadId: 'thread-other', workspaceId: 'p1', title: 'Foreign', status: 'active', createdAt: 3 },
+        ],
+      },
+      {
+        threadId: 'thread-active',
+        chapters: [
+          { id: 'ch-legacy', startIndex: 3, workspaceId: 'p1', title: 'Legacy', status: 'active', createdAt: 4 },
         ],
       },
     ]);
@@ -355,7 +406,7 @@ describe('G6 — useVpsDeltaSync mergeDeltaIntoDomains', () => {
     expect(state.edges.map((e) => `${e.id}:${e.kind}`)).toEqual(['edge-1:new', 'edge-2:added']);
   });
 
-  it('turns merge into the active thread preserving order; other-lane turns are skipped', () => {
+  it('turns merge by id PER THREAD; the active lane keeps its exact order law', () => {
     const { state, deps } = makeStubs({
       activeThreadId: 'thread-active',
       turns: [
@@ -381,6 +432,9 @@ describe('G6 — useVpsDeltaSync mergeDeltaIntoDomains', () => {
     expect(state.turns[2].content).toBe('early');
     expect(state.turns[3].content).toBe('c');
     expect(state.turns.some((t) => t.id === 't-other')).toBe(false);
+    // Phase 4: the other lane's turn lands in ITS OWN bucket (previously it
+    // was skipped entirely and only a rehydrate could recover it).
+    expect((state.turnsByThread['thread-other'] ?? []).map((t) => t.id)).toEqual(['t-other']);
   });
 
   it('server attachment provenance commits registry staged entries (tray empties, chips render)', () => {

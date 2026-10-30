@@ -504,56 +504,14 @@ export class SendQueue {
     }
   }
 
-  // Live domains hold ONLY the active thread's turns/chapters; background
-  // jobs write through the registry into the inactive thread's cached content.
-  private isActiveThread(deps: SendQueueDeps, threadId: string): boolean {
-    return threadId === deps.threadRegistry.getActiveThreadId();
-  }
-
+  // Phase 4: the domains store EVERY thread's content per threadId — one
+  // uniform write/read path, no active-vs-inactive fork anywhere.
   private turnsOf(deps: SendQueueDeps, threadId: string) {
-    return this.isActiveThread(deps, threadId)
-      ? deps.timeline.getTurns()
-      : deps.threadRegistry.getInactiveContent(threadId)?.turns ?? [];
+    return deps.timeline.turnsFor(threadId);
   }
 
   private chaptersOf(deps: SendQueueDeps, threadId: string) {
-    return this.isActiveThread(deps, threadId)
-      ? deps.segmentation.listChapters()
-      : deps.threadRegistry.getInactiveContent(threadId)?.chapters ?? [];
-  }
-
-  private appendTurnToThread(
-    deps: SendQueueDeps,
-    threadId: string,
-    role: 'user' | 'assistant' | 'system',
-    content: string,
-    extractedArtifacts?: ExtractedArtifact[],
-    meta?: TurnMeta,
-    /** Explicit turn id (Phase 3) — the planner decided the pair's ids. */
-    id?: string
-  ) {
-    if (this.isActiveThread(deps, threadId)) {
-      return deps.timeline.appendTurn(role, content, extractedArtifacts, meta, id);
-    }
-    const turn = deps.threadRegistry.appendInactiveTurn(threadId, role, content, extractedArtifacts, meta, id);
-    if (!turn) throw new Error(`appendInactiveTurn failed for thread ${threadId}`);
-    return turn;
-  }
-
-  private updateTurnInThread(
-    deps: SendQueueDeps,
-    threadId: string,
-    turnId: string,
-    partial: {
-      content?: string;
-      timestamp?: number;
-      extractedArtifacts?: ExtractedArtifact[];
-      extractedLinks?: Turn['extractedLinks'];
-      meta?: TurnMeta;
-    }
-  ) {
-    if (this.isActiveThread(deps, threadId)) deps.timeline.updateTurn(turnId, partial);
-    else deps.threadRegistry.updateInactiveTurn(threadId, turnId, partial);
+    return deps.segmentation.chaptersFor(threadId);
   }
 
   private noteSendIntent(deps: SendQueueDeps, threadId: string, text: string) {
@@ -1269,7 +1227,7 @@ export class SendQueue {
   ): void {
     if (plan.userTurn) {
       // Explicit ids: the planner decided the pair's ids up front.
-      this.appendTurnToThread(deps, threadId, 'user', plan.userTurn.content, undefined, undefined, plan.userTurn.id);
+      deps.timeline.appendTurnFor(threadId, 'user', plan.userTurn.content, undefined, undefined, plan.userTurn.id);
       const committedAttachments = deps.threadRegistry.commitStagedAttachments(
         threadId,
         plan.userTurnIndex,
@@ -1282,8 +1240,7 @@ export class SendQueue {
           { threadId }
         );
       }
-      this.appendTurnToThread(
-        deps,
+      deps.timeline.appendTurnFor(
         threadId,
         'assistant',
         plan.assistantTurn.content,
@@ -1293,7 +1250,7 @@ export class SendQueue {
       );
     } else {
       // Regenerate: replace the reply on the SAME turn doc.
-      this.updateTurnInThread(deps, threadId, plan.assistantTurn.id, {
+      deps.timeline.updateTurnFor(threadId, plan.assistantTurn.id, {
         content: plan.assistantTurn.content,
         timestamp: plan.assistantTurn.timestamp,
         extractedArtifacts: plan.assistantTurn.extractedArtifacts,
@@ -1330,24 +1287,15 @@ export class SendQueue {
     // Topic shifts land after the pair: the new chapter starts after it.
     if (plan.chapterOp) {
       const { shift, askIndex } = plan.chapterOp;
-      if (this.isActiveThread(deps, threadId)) {
-        deps.segmentation.upsertChapterAtBoundary(
-          shift.title,
-          askIndex,
-          shift.subtitle,
-          shift.description,
-          shift.summary
-        );
-      } else {
-        deps.threadRegistry.upsertChapterAtBoundaryInactive(
-          threadId,
-          shift.title,
-          askIndex,
-          shift.subtitle,
-          shift.description,
-          shift.summary
-        );
-      }
+      // One uniform topic-shift law — active and background threads alike.
+      deps.segmentation.upsertChapterAtBoundaryFor(
+        threadId,
+        shift.title,
+        askIndex,
+        shift.subtitle,
+        shift.description,
+        shift.summary
+      );
     }
 
     deps.threadRegistry.patch(threadId, {

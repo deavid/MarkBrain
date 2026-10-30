@@ -20,9 +20,12 @@ const makeDeps = (loadProjectSnapshot: (id: string) => Promise<ProjectSnapshot |
   ({
     activeProjectId: 'proj-1',
     loadProjectSnapshot,
-    threadRegistry: { hydrate: vi.fn(() => ({ turns: [], chapters: [] })) },
-    timeline: { loadTurns: vi.fn() },
-    segmentation: { loadChapters: vi.fn() },
+    threadRegistry: {
+      hydrate: vi.fn(() => ({ turns: [], chapters: [], allTurns: [], allChapters: [] })),
+      getActiveThreadId: () => 'th1',
+    },
+    timeline: { setActiveThread: vi.fn(), loadAllTurns: vi.fn() },
+    segmentation: { setActiveThread: vi.fn(), loadAllChapters: vi.fn() },
     artifacts: { loadArtifacts: vi.fn() },
     graph: { loadEdges: vi.fn() },
     // Package 1: revision history rides the snapshot — the loader merges it.
@@ -56,7 +59,7 @@ describe('loadProjectSnapshotIntoDomains — error vs absent', () => {
 
     expect(deps.hydratedRef.current).toBe(false); // save gate closed
     expect(deps.threadRegistry.hydrate).not.toHaveBeenCalled(); // no empty hydrate
-    expect(deps.timeline.loadTurns).not.toHaveBeenCalled();
+    expect(deps.timeline.loadAllTurns).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(String(errorSpy.mock.calls[0]?.[1])).toContain('Snapshot load failed');
   });
@@ -68,7 +71,7 @@ describe('loadProjectSnapshotIntoDomains — error vs absent', () => {
 
     expect(deps.hydratedRef.current).toBe(true); // genuinely-new project → gate open
     expect(deps.threadRegistry.hydrate).toHaveBeenCalledTimes(1);
-    expect(deps.timeline.loadTurns).toHaveBeenCalledWith([]);
+    expect(deps.timeline.loadAllTurns).toHaveBeenCalledWith([]);
     expect(errorSpy).not.toHaveBeenCalled();
   });
 

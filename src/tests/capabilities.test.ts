@@ -132,18 +132,17 @@ describe('client apply path — rogue blocks are ignored when OFF (Phase 3: via 
     const upsertBoundary = vi.fn();
     const deps = {
       threadRegistry: {
-        getActiveThreadId: () => 'other-thread', // force the INACTIVE branch: calls land on the registry stub
-        appendInactiveTurn: vi.fn(() => ({ id: 't' })),
-        upsertChapterAtBoundaryInactive: upsertBoundary,
+        getActiveThreadId: () => 'thread-1',
         commitStagedAttachments: vi.fn(() => 0),
         attachArtifact: vi.fn(),
         ensureAttached: vi.fn(),
         patch: vi.fn(),
       },
-      timeline: { appendTurn: vi.fn(() => ({ id: 't' })), updateTurn: vi.fn() },
+      // Phase 4: the applier writes through the thread-keyed domain methods.
+      timeline: { turnsFor: () => [], appendTurnFor: vi.fn(() => ({ id: 't' })), updateTurnFor: vi.fn() },
       artifacts: { upsertArtifact: vi.fn() },
       versioning: { recordSnapshot: vi.fn() },
-      segmentation: { upsertChapterAtBoundary: vi.fn() },
+      segmentation: { chaptersFor: () => [], upsertChapterAtBoundaryFor: upsertBoundary },
       triggerReRender: vi.fn(),
     };
     const queue = new SendQueue(() => deps as never);

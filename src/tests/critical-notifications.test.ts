@@ -126,8 +126,8 @@ describe('the app layer reports its failures', () => {
         getActiveProjectId: () => 'p1',
         getProject: () => ({ metadata: { name: 'P', codeName: 'P', description: '', color: '#000' } }),
       },
-      timeline: { getTurns: () => [] },
-      segmentation: { listChapters: () => [] },
+      timeline: { allTurns: () => [] },
+      segmentation: { allChapters: () => [] },
       artifacts: { listArtifacts: () => [] },
       graph: { listEdges: () => [] },
       // Package 1: revisions ride the snapshot payload.

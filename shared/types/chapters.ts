@@ -17,6 +17,22 @@ export interface ChapterPartition {
   createdAt: number;
 }
 
+/** Every thread starts with one open chapter covering turn 0 — the Genesis floor. */
+export function makeGenesisChapter(projectId: string, threadId: string) {
+  return {
+    id: `chap-genesis-${threadId}`,
+    workspaceId: projectId,
+    threadId,
+    title: 'Genesis Chapter',
+    description: '',
+    summary: '',
+    granularity: 'full' as const,
+    status: 'active' as const,
+    startIndex: 0,
+    createdAt: Date.now(),
+  };
+}
+
 export type SegmentationEvent =
   | { type: 'chapterDeclared'; chapter: ChapterPartition }
   | { type: 'chapterSplit'; oldChapterId: string; newChapter: ChapterPartition }

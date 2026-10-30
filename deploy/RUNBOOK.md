@@ -112,8 +112,15 @@ Safe to run at any time, as often as you like. What it does, in order: builds
 the app locally (with a guard against secrets leaking into the bundle), rsyncs
 it to `/srv/markbrain/`, installs Node dependencies on the server, seeds the
 owner account if it does not exist yet, installs the systemd unit and Caddy
-config, restarts the service only if the unit changed, and blocks until
-`/api/health` answers 200. Your data in `/var/lib/markbrain/` is never touched.
+config, restarts the service, and blocks until `/api/health` answers 200. Your
+data in `/var/lib/markbrain/` is never touched.
+
+The restart is unconditional and not optional: rsynced files only take effect
+at process startup, so without it the old process would keep answering `/api/*`
+from memory while Caddy serves the fresh `dist/` from disk — client and server
+drift apart and half the app behaves like the previous version. After the
+restart the vault starts locked; an open tab re-arms silently from its saved
+re-arm key, otherwise you type the password once.
 
 Note on dependencies: the repo has no `package-lock.json`, so `npm install`
 re-resolves from `package.json` on every deploy (this is also why dev

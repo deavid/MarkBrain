@@ -269,6 +269,17 @@
         enabled: true
         state: started
 
+    - name: 12b. Restart the service — the old process keeps serving the code it
+        #    loaded at startup, so rsynced files stay INERT until restart.
+        #    Without this, a deploy ships a new dist/ (Caddy serves it from disk)
+        #    while the OLD server keeps answering /api/* from memory: the client
+        #    and server drift apart and 'partially working' is exactly what you
+        #    see. Unconditional on purpose — an extra restart is cheap and the
+        #    vault re-arms from the tab's saved key (design 25).
+      systemd:
+        name: markbrain
+        state: restarted
+
     - name: 13. Wait for health check on 127.0.0.1:{{ markbrain_port }}/api/health
       uri:
         url: "http://127.0.0.1:{{ markbrain_port }}/api/health"

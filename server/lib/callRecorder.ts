@@ -24,7 +24,7 @@ import {
   type ApiCallLog,
   type ApiCallLogRequest,
   type ApiCallStatus,
-} from '../../src/domains/callLogTypes';
+} from '../../shared/types/callLog';
 
 /** Cap what a single row can hold — a runaway model reply must not bloat the DB. */
 const RESPONSE_CAP = 200_000;

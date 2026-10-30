@@ -19,12 +19,14 @@ import {
 import type { LaneAiClient } from '../lib/accountVault';
 import { requireModelId } from '../lib/models';
 import { logServer } from '../lib/log';
-import { buildSummarizePrompt, DEFAULT_SYSTEM_INSTRUCTION } from '../../src/prompts/prompt';
+import { buildSummarizePrompt, DEFAULT_SYSTEM_INSTRUCTION } from '../../shared/prompts/prompt';
 import { estimateTokens } from '../lib/tokens';
-import { parseSentinelBlocks } from '../../src/utils/sentinelParser';
-import { buildTitlePrompt, cleanupTitle } from '../../src/prompts/lanes';
-import { StreamProtocolDomain } from '../../src/domains/03-stream-protocol';
-import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../../src/domains/03-stream-protocol/types';
+import { parseSentinelBlocks } from '../../shared/utils/sentinelParser';
+import { buildTitlePrompt, cleanupTitle } from '../../shared/prompts/lanes';
+// The pure XML demuxer from the client/server contract layer — the same code
+// the client's StreamProtocolDomain runs, minus the event-handler plumbing.
+import { demuxFullTurn } from '../../shared/stream/demuxer';
+import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../../shared/stream/types';
 import {
   commitJobPairTransaction,
   bumpProjectRevision,
@@ -38,7 +40,7 @@ import {
   recordCallFirstToken,
   recordCallEnd,
 } from '../lib/callRecorder';
-import type { ApiCallKind } from '../../src/domains/callLogTypes';
+import type { ApiCallKind } from '../../shared/types/callLog';
 
 export type JobState = 'queued' | 'sending' | 'completed' | 'failed' | 'stopped';
 
@@ -318,7 +320,11 @@ export async function runJob(jobId: string): Promise<void> {
     ctx.connected = true;
     broadcast(ctx, 'status', { type: 'status', state: 'connected' });
 
-    const domain = new StreamProtocolDomain();
+    const demuxTurn = (rawText: string) =>
+      demuxFullTurn(rawText, {
+        onLegacyParseError: (e) =>
+          logServer('warn', 'JOB:STREAM', 'Legacy topic_shift JSON parse failed — shift ignored', e),
+      });
     let seenArtifacts = 0;
     let lastCleanLen = 0;
     // Token telemetry (mirror of the client stream path): real provider usage
@@ -342,7 +348,7 @@ export async function runJob(jobId: string): Promise<void> {
         recordCallFirstToken(callLogId);
       }
       raw += text;
-      const demuxed = domain.demuxFullTurn(raw);
+      const demuxed = demuxTurn(raw);
       // Live partial = prose without sentinel blocks; buffers ride alongside.
       ctx.cleanText = demuxed.cleanText;
       persistPartial(ctx);
@@ -367,7 +373,7 @@ export async function runJob(jobId: string): Promise<void> {
       return;
     }
 
-    const finalDemux = domain.demuxFullTurn(raw);
+    const finalDemux = demuxTurn(raw);
     const clean = finalDemux.cleanText.trim();
     const artifacts = finalDemux.artifactUpserts;
     if (!clean && artifacts.length === 0) {

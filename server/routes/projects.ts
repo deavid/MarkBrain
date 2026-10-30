@@ -15,7 +15,7 @@ import {
   createProjectForUser,
   type AtomicMutation,
 } from '../db/projectRepo';
-import type { ProjectSnapshot } from '../../src/services/stores/projectStore';
+import type { ProjectSnapshot } from '../../shared/types/projectSnapshot';
 
 function isSnapshot(body: unknown): body is ProjectSnapshot {
   const s = body as ProjectSnapshot;

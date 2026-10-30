@@ -27,7 +27,7 @@ import { setVaultLocked } from '../data/vaultReArm';
 import { setServerKeySnapshot } from '../data/sendReadiness';
 import { apiFetch } from '../gateway/api';
 import { getWorkspaceMode, getVpsSession, isOfflineReplica, rememberReplica } from '../services/workspaceSession';
-import type { ProjectDeltaResponse } from '../../server/db/projectRepo';
+import type { ProjectDeltaResponse } from '../../shared/types/projectDelta';
 import { logger } from '../utils/logger';
 
 const POLL_MS = 10_000;

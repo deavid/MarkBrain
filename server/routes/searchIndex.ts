@@ -10,15 +10,15 @@
 import type { Express, Request, Response } from 'express';
 import { aiForRequest, geminiAiForRequest, embedClientForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { getIndexStatus } from '../jobs/serverArtifactIndexer';
-import { QueryVectorCache } from '../../src/domains/search/queryVectorCache';
-import { tokenizeForFts, cosineSimilarity } from '../../src/domains/search/draftSearchEngine';
+import { QueryVectorCache } from '../../shared/search/queryVectorCache';
+import { tokenizeForFts, cosineSimilarity } from '../../shared/search/searchPrimitives';
 import { GoogleGenAI } from '@google/genai';
 import { OpenRouterClient, isOpenRouterModel } from '../providers/openrouter';
 import { resolveServerLaneKey, isVaultUnlocked } from '../lib/accountVault';
 import { readSettings } from './account';
 import { getDb } from '../db';
 import { logServer } from '../lib/log';
-import { buildQaPrompt, parseQaPairs, fallbackQaPairs, type QaSectionPayload } from '../../src/prompts/lanes';
+import { buildQaPrompt, parseQaPairs, fallbackQaPairs, type QaSectionPayload } from '../../shared/prompts/lanes';
 import { tryRequireModelId, requireModelId, defaultModelFor } from '../lib/models';
 import { recordCallStart, recordCallEnd } from '../lib/callRecorder';
 

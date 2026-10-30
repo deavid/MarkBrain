@@ -11,13 +11,12 @@
  * Store: artifact_index (keyPath 'key'), index 'byProject' on projectId.
  */
 
-export interface GeneratedQaPair {
-  id: string;
-  sectionHeading: string;
-  question: string;
-  answer: string;
-  keywords: string[];
-}
+// GeneratedQaPair lives in the client/server contract layer (shared/types/qa.ts)
+// — the server QA job speaks the same shape — and is re-exported here so every
+// existing client import is unchanged.
+import type { GeneratedQaPair } from '../../shared/types/qa';
+
+export type { GeneratedQaPair };
 
 export interface ArtifactSearchIndexRecord {
   key: string;

@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { logServer } from '../lib/log';
 import { requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
-import { buildTitlePrompt, cleanupTitle } from '../../src/prompts/lanes';
+import { buildTitlePrompt, cleanupTitle } from '../../shared/prompts/lanes';
 import { isOpenRouterModel } from '../providers/openrouter';
 import { recordCallStart, recordCallEnd } from '../lib/callRecorder';
 

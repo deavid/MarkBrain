@@ -16,7 +16,7 @@ import {
   encodePcmToOgg,
   storeCachedTtsAudio,
 } from '../lib/ttsCache';
-import { cleanTtsText, clampTtsVoice } from '../../src/prompts/lanes';
+import { cleanTtsText, clampTtsVoice } from '../../shared/prompts/lanes';
 
 const ALLOWED_VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
 

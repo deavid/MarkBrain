@@ -65,7 +65,7 @@ const { mergeDeltaIntoDomains } = await import('../application/useVpsDeltaSync')
 const { vpsStore } = await import('../services/stores/vpsStore');
 const { serializeDatabase, parseDatabaseExport } = await import('../services/persistenceService');
 const ws = await import('../services/workspaceSession');
-import type { ProjectDeltaResponse } from '../../server/db/projectRepo';
+import type { ProjectDeltaResponse } from '../../shared/types/projectDelta';
 import type { VpsDeltaSyncDeps } from '../application/useVpsDeltaSync';
 import type { DatabaseExport } from '../services/persistenceService';
 

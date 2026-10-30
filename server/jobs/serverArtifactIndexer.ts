@@ -14,9 +14,9 @@ import { getDb } from '../db/index';
 import { resolveServerLaneKey, isVaultUnlocked, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { requireModelId, defaultModelFor } from '../lib/models';
 import { logServer } from '../lib/log';
-import { splitArtifactIntoSections } from '../../src/utils/sectionChunker';
-import { buildQaPrompt, parseQaPairs, type QaSectionPayload } from '../../src/prompts/lanes';
-import type { UniversalArtifactDocument } from '../../src/domains/01-artifact-document/types';
+import { splitArtifactIntoSections } from '../../shared/utils/sectionChunker';
+import { buildQaPrompt, parseQaPairs, type QaSectionPayload } from '../../shared/prompts/lanes';
+import type { UniversalArtifactDocument } from '../../shared/types/artifact';
 
 const EMBED_BATCH_LIMIT = 80;
 const QA_MODEL_ID = 'gemini-3.5-flash-lite';

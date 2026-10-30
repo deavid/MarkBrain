@@ -15,43 +15,24 @@ import { createHash } from 'node:crypto';
 import { getDb } from './index';
 import { logServer } from '../lib/log';
 import { enqueueIndex, deleteIndexRows } from '../jobs/serverArtifactIndexer';
-import type { ProjectSnapshot } from '../../src/services/stores/projectStore';
-import type { Turn } from '../../src/domains/01-dialogue-timeline/types';
-import type { ChapterPartition } from '../../src/domains/02-chapter-segmentation/types';
-import type { UniversalArtifactDocument } from '../../src/domains/01-artifact-document/types';
-import type { ArtifactRevision } from '../../src/domains/01-artifact-versioning/types';
-import type { SemanticEdge } from '../../src/domains/02-topological-graph/types';
-import { artifactFileName } from '../../src/domains/03-optical-compiler/index';
-import type { ChatThread, ThreadFolder, ChatCapabilities } from '../../src/domains/06-chat-threads/types';
+// All entity shapes come from the client/server contract layer (shared/).
+import type { ProjectSnapshot } from '../../shared/types/projectSnapshot';
+import type { ProjectDeltaResponse } from '../../shared/types/projectDelta';
+import type { Turn } from '../../shared/types/timeline';
+import type { ChapterPartition } from '../../shared/types/chapters';
+import type { UniversalArtifactDocument } from '../../shared/types/artifact';
+import type { ArtifactRevision } from '../../shared/types/artifactRevision';
+import type { SemanticEdge } from '../../shared/types/graph';
+import { artifactFileName } from '../../shared/artifactFileName';
+import type { ChatThread, ThreadFolder, ChatCapabilities } from '../../shared/types/threads';
 import {
   DEFAULT_CHAT_CAPABILITIES,
   resolveCapabilities,
-} from '../../src/domains/06-chat-threads/types';
+} from '../../shared/types/threads';
 
 export type ProjectSnapshotWithRevision = ProjectSnapshot & { revision: number };
 
-export interface ProjectDeltaResponse {
-  projectId: string;
-  revision: number;
-  projectMeta?: {
-    name: string;
-    codeName: string;
-    description: string;
-    color: string;
-    activeThreadId?: string;
-    updatedAt: number;
-  };
-  threads: ChatThread[];
-  folders: ThreadFolder[];
-  turns: Turn[];
-  chapters: ChapterPartition[];
-  artifacts: UniversalArtifactDocument[];
-  edges: SemanticEdge[];
-  /** Artifact revision rows newer than the cursor, keyed by artifact id. */
-  revisions?: Record<string, ArtifactRevision[]>;
-  tombstones: Array<{ entityType: string; entityId: string }>;
-  activeJobs: unknown[]; // populated in Phase 5 (21E)
-}
+export type { ProjectDeltaResponse };
 
 export type AtomicMutation =
   | { op: 'upsertArtifact'; artifact: UniversalArtifactDocument }

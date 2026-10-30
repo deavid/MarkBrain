@@ -1,8 +1,8 @@
 import type { Express, Request, Response } from 'express';
 import { logServer } from '../lib/log';
 import { estimateTokens } from '../lib/tokens';
-import { buildSummarizePrompt } from '../../src/prompts/prompt';
-import { parseSentinelBlocks } from '../../src/utils/sentinelParser';
+import { buildSummarizePrompt } from '../../shared/prompts/prompt';
+import { parseSentinelBlocks } from '../../shared/utils/sentinelParser';
 import { requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { isOpenRouterModel } from '../providers/openrouter';

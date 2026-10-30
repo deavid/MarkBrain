@@ -901,6 +901,9 @@ export class SendQueue {
             model: ctx.model.id,
             compiledPrompt: compiled.compiledPrompt,
             systemInstruction: compiled.systemInstruction,
+            // The commit gates on the job's stored capabilities — the fresh
+            // compile taught per the CURRENT ones. They must agree.
+            capabilities: chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES,
           }),
         });
         if (!retryRes.ok) throw new Error(`Retry failed (HTTP ${retryRes.status})`);

@@ -46,6 +46,23 @@ export interface Turn {
   timestamp: number;
   threadId?: string;
   extractedArtifacts?: ExtractedArtifact[];
+  /**
+   * Graph links the model asked for in THIS reply (<link source target kind/>),
+   * resolved server-side to artifact ids where possible. The receipt of the
+   * action — links that were silently dropped before (live 2026-10-30).
+   */
+  extractedLinks?: Array<{
+    action?: 'link' | 'unlink';
+    sourceFile: string;
+    targetFile: string;
+    kind: string;
+    sourceId: string | null;
+    targetId: string | null;
+    /** True when the link actually became an edge (capability on, both sides
+     * resolved). False = the model ASKED but it was ignored — the receipt must
+     * still show, with the reason. */
+    applied: boolean;
+  }>;
   meta?: TurnMeta;
 }
 

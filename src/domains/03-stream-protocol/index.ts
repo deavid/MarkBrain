@@ -3,6 +3,7 @@ import {
   ExtractedTopicShift,
   ExtractedArtifactUpsert,
   ExtractedLink,
+  ExtractedUnlink,
   StreamStatusPayload,
   BackendTelemetry,
   StreamTurnResult,
@@ -18,6 +19,7 @@ export interface IStreamProtocolDomain {
     topicShift?: ExtractedTopicShift;
     artifactUpserts: ExtractedArtifactUpsert[];
     links: ExtractedLink[];
+    unlinks: ExtractedUnlink[];
   };
   executeStreamingTurn(
     payload: {
@@ -55,6 +57,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
     const clean = chunk
       .replace(/<topic_shift[\s\S]*?\/>/gi, '')
       .replace(/<link[\s\S]*?\/>/gi, '')
+      .replace(/<unlink[\s\S]*?\/>/gi, '')
       .replace(/<artifact_upsert[\s\S]*?<\/artifact_upsert>/gi, '');
     if (clean) {
       this.handlers.onProseChunk?.forEach((fn) => fn(clean));
@@ -66,6 +69,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
     let clean = rawText;
     const artifactUpserts: ExtractedArtifactUpsert[] = [];
     const links: ExtractedLink[] = [];
+    const unlinks: ExtractedUnlink[] = [];
     let topicShift: ExtractedTopicShift | undefined;
 
     // LAST SHIFT WINS (David 2026-10-25): a reply may carry several
@@ -124,6 +128,18 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       };
       links.push(link);
       this.handlers.onLinkDetected?.forEach((fn) => fn(link));
+    }
+
+    // UNLINK: break a link the model can see (kind optional — omit to remove
+    // every link between the pair, whatever its kind).
+    const unlinkRegex = /<unlink\s+source=["']([^"']+)["']\s+target=["']([^"']+)["'](?:\s+kind=["']([^"']+)["'])?\s*\/?>/gi;
+    let unlinkMatch: RegExpExecArray | null;
+    while ((unlinkMatch = unlinkRegex.exec(clean)) !== null) {
+      unlinks.push({
+        source: unlinkMatch[1],
+        target: unlinkMatch[2],
+        kind: unlinkMatch[3] ?? null,
+      });
     }
 
     const upsertRegex = /<(?:artifact_upsert|artifact)\b([^>]*)>([\s\S]*?)<\/(?:artifact_upsert|artifact)>/gi;
@@ -219,6 +235,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       .replace(/<topic_shift[\s\S]*?\/>/gi, '')
       .replace(/```topic_shift[\s\S]*?```/gi, '')
       .replace(/<link[\s\S]*?\/>/gi, '')
+      .replace(/<unlink[\s\S]*?\/>/gi, '')
       .replace(/<(?:artifact_upsert|artifact)\b[^>]*>[\s\S]*?<\/(?:artifact_upsert|artifact)>/gi, '')
       .replace(/```artifact\s*[\s\S]*?```/gi, '')
       .trim();
@@ -228,6 +245,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       topicShift,
       artifactUpserts,
       links,
+      unlinks,
     };
   }
 

@@ -198,15 +198,15 @@ function rowToApiCallLog(row: CallLogRow, truncate: boolean): ApiCallLog {
 }
 
 /** Newest first, optionally paginated by `before` (a t_send boundary). List view truncates the heavy text fields. */
-export function listCallLogs(userId: number, limit = 50, before?: number): ApiCallLog[] {
+export function listCallLogs(userId: number, limit = 50, before?: number, jobId?: string): ApiCallLog[] {
   try {
     const rows = getDb()
       .prepare(
         `SELECT ${SELECT_COLS} FROM api_call_logs
-         WHERE user_id IS ? AND (? IS NULL OR t_send < ?)
+         WHERE user_id IS ? AND (? IS NULL OR t_send < ?) AND (? IS NULL OR job_id = ?)
          ORDER BY t_send DESC, rowid DESC LIMIT ?`
       )
-      .all(userId, before ?? null, before ?? null, Math.max(1, Math.min(limit, 200))) as CallLogRow[];
+      .all(userId, before ?? null, before ?? null, jobId ?? null, jobId ?? null, Math.max(1, Math.min(limit, 200))) as CallLogRow[];
     return rows.map((r) => rowToApiCallLog(r, true));
   } catch (err) {
     logServer('warn', 'CALLLOG', `listCallLogs failed: ${err instanceof Error ? err.message : err}`);

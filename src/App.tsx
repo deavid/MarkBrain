@@ -233,6 +233,8 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isMirrorOpen, setIsMirrorOpen] = useState(false);
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
+  /** Per-message receipts: open the flight recorder pre-filtered to one job. */
+  const [serverLogsJob, setServerLogsJob] = useState<string | undefined>(undefined);
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
   const [modelSettingsTab, setModelSettingsTab] = useState<'models' | 'keys' | 'users'>('models');
   const [isCleanupOpen, setIsCleanupOpen] = useState(false);
@@ -867,7 +869,8 @@ export default function App() {
         />
         <ServerLogsModal
           isOpen={isServerLogsOpen}
-          onClose={() => setIsServerLogsOpen(false)}
+          onClose={() => { setIsServerLogsOpen(false); setServerLogsJob(undefined); }}
+          initialJobFilter={serverLogsJob}
         />
         <CriticalNotifications />
       </>
@@ -893,7 +896,8 @@ export default function App() {
         {dbImportInput}{plaintextImportInput}
         <ServerLogsModal
           isOpen={isServerLogsOpen}
-          onClose={() => setIsServerLogsOpen(false)}
+          onClose={() => { setIsServerLogsOpen(false); setServerLogsJob(undefined); }}
+          initialJobFilter={serverLogsJob}
         />
         <CriticalNotifications />
       </>
@@ -1035,6 +1039,7 @@ export default function App() {
                   streamingStatus={isChatLoading ? streamingStatus : null}
                   streamPhase={isChatLoading ? streamPhase : null}
                   onStopGeneration={handleStopGeneration}
+                  onOpenReceipts={(jobId) => { setServerLogsJob(jobId); setIsServerLogsOpen(true); }}
                   threadTitle={threadRegistry.getThread(activeThreadId)?.title || 'New thread'}
                   threadTitleState={threadRegistry.getThread(activeThreadId)?.titleState || 'placeholder'}
                   threadArchived={threadRegistry.getThread(activeThreadId)?.lifecycle === 'archived'}
@@ -1166,7 +1171,8 @@ export default function App() {
       {/* Live Server Telemetry & Logs Modal */}
       <ServerLogsModal
         isOpen={isServerLogsOpen}
-        onClose={() => setIsServerLogsOpen(false)}
+        onClose={() => { setIsServerLogsOpen(false); setServerLogsJob(undefined); }}
+        initialJobFilter={serverLogsJob}
       />
 
       {/* Capability-slot model picker (design-docs/16 §3.1) */}

@@ -13,6 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 import { getDb } from './index';
+import { logServer } from '../lib/log';
 import { enqueueIndex, deleteIndexRows } from '../jobs/serverArtifactIndexer';
 import type { ProjectSnapshot } from '../../src/services/stores/projectStore';
 import type { Turn } from '../../src/domains/01-dialogue-timeline/types';
@@ -20,6 +21,7 @@ import type { ChapterPartition } from '../../src/domains/02-chapter-segmentation
 import type { UniversalArtifactDocument } from '../../src/domains/01-artifact-document/types';
 import type { ArtifactRevision } from '../../src/domains/01-artifact-versioning/types';
 import type { SemanticEdge } from '../../src/domains/02-topological-graph/types';
+import { artifactFileName } from '../../src/domains/03-optical-compiler/index';
 import type { ChatThread, ThreadFolder, ChatCapabilities } from '../../src/domains/06-chat-threads/types';
 import {
   DEFAULT_CHAT_CAPABILITIES,
@@ -843,6 +845,16 @@ export interface CommitJobInput {
   }>;
   shifts: Array<{ title: string; subtitle?: string; description?: string; summary?: string }>;
   /**
+   * Parsed <link> tags from the demuxer (chatJobRunner passes finalDemux.links).
+   * THE data path for graph links: the runner hands the commit the DEMUXED
+   * clean text (tags already stripped), so re-parsing replyText finds nothing —
+   * the parsed links must ride this field. Absent → fall back to parsing
+   * replyText (paths that receive un-demuxed text).
+   */
+  links?: Array<{ source: string; target: string; kind: string }>;
+  /** Parsed <unlink> tags — break the link(s) between a pair (kind narrows). */
+  unlinks?: Array<{ source: string; target: string; kind: string | null }>;
+  /**
    * Resolved chat capabilities the job ran with (Package 2 §2.4). Absent →
    * DEFAULT_CHAT_CAPABILITIES. A capability that is OFF means its buffered
    * blocks are IGNORED at commit, exactly like the client apply path.
@@ -907,6 +919,30 @@ export function commitJobPairTransaction(input: CommitJobInput): {
     // Index of the assistant turn WITHIN the thread — revision provenance.
     let revisionTurnIndex: number | null = null;
     const now = Date.now();
+    const caps = resolveCapabilities(null, input.capabilities ?? DEFAULT_CHAT_CAPABILITIES);
+
+    // Graph-link demux (David's receipts law, 2026-10-30): the model emits
+    // <link source target kind /> tags when graphLinks is ON, but NOTHING
+    // applied them — the tags rode the stored reply verbatim (invisible in
+    // rendered Markdown, "XML flying" in Raw view), the edges table stayed
+    // empty. Parse, strip from the stored prose, and — when the capability
+    // is on — resolve the file slugs to artifact ids and write REAL edges.
+    const LINK_RE = /<link\b[^>]*\/?>(?:\s*<\/link>)?/gi;
+    const ATTR_RE = /\b(source|target|kind)\s*=\s*"([^"]*)"/i;
+    const parseLinks = (text: string): Array<{ source: string; target: string; kind: string }> => {
+      const out: Array<{ source: string; target: string; kind: string }> = [];
+      for (const tag of text.match(/<link\b[^>]*>/gi) ?? []) {
+        const source = /source\s*=\s*"([^"]*)"/i.exec(tag)?.[1];
+        const target = /target\s*=\s*"([^"]*)"/i.exec(tag)?.[1];
+        const kind = /kind\s*=\s*"([^"]*)"/i.exec(tag)?.[1];
+        if (source && target && kind) out.push({ source, target, kind });
+      }
+      return out;
+    };
+    const parsedLinks = (input.links && input.links.length > 0)
+      ? input.links
+      : parseLinks(input.replyText);
+    const cleanReply = input.replyText.replace(/<link\b[^>]*>(?:\s*<\/link>)?\s*/gi, '');
 
     if (input.kind === 'regenerate' && input.targetTurnId) {
       assistantTurnId = input.targetTurnId;
@@ -923,14 +959,14 @@ export function commitJobPairTransaction(input: CommitJobInput): {
         turnDoc = {
           id: input.targetTurnId,
           role: 'assistant',
-          content: input.replyText,
+          content: cleanReply,
           timestamp: now,
           threadId: input.threadId,
         };
       } else {
         turnDoc = {
           ...turnDoc,
-          content: input.replyText,
+          content: cleanReply,
           timestamp: now,
           extractedArtifacts: input.artifacts.map((u) => ({
             id: u.id,
@@ -1011,7 +1047,7 @@ export function commitJobPairTransaction(input: CommitJobInput): {
         {
           id: assistantTurnId,
           role: 'assistant',
-          content: input.replyText,
+          content: cleanReply,
           timestamp: now + 1,
           threadId: input.threadId,
           // Mirror of the client's local commitPair: the extracted artifacts
@@ -1057,7 +1093,6 @@ export function commitJobPairTransaction(input: CommitJobInput): {
       ) as { n: number }).n;
     // Package 2 §2.4: writeArtifacts OFF = rogue <artifact_upsert> blocks are
     // dropped at commit, never written — same gate as the client path.
-    const caps = resolveCapabilities(null, input.capabilities ?? DEFAULT_CHAT_CAPABILITIES);
     if (caps.writeArtifacts) {
     for (const u of input.artifacts) {
       const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
@@ -1163,6 +1198,127 @@ export function commitJobPairTransaction(input: CommitJobInput): {
           parsed.length,
           newRev
         );
+      }
+    }
+
+    // Graph links: resolve the file slugs to artifact ids (existing rows plus
+    // anything this commit just wrote — a reply may create AND link a note),
+    // upsert real edges — and ride the receipts on the assistant turn
+    // REGARDLESS of the capability: an ignored attempt the user cannot see is
+    // the "XML flying, nothing applied" bug that started this (David's
+    // receipts law: no receipt, no action). The receipt records whether the
+    // link was applied or ignored so the chat can say WHY.
+    if (parsedLinks.length > 0 || (input.unlinks?.length ?? 0) > 0) {
+      // Resolve the way the substrate NAMES notes: the model links by the
+      // exact file names the payload taught it (artifactFileName's title
+      // slug). The resolver must slugify IDENTICALLY — a half-slug (spaces
+      // not dashed) matched nothing live: 1/14 links resolved.
+      const fileKey = (s: string) => s.trim().replace(/\.md$/i, '').toLowerCase();
+      const codeMap = new Map<string, string>();
+      for (const row of db
+        .prepare('SELECT artifact_id, doc_json FROM artifacts WHERE user_id = ? AND project_id = ?')
+        .all(input.userId, input.projectId) as Array<{ artifact_id: string; doc_json: string }>) {
+        try {
+          const doc = JSON.parse(row.doc_json) as { code?: string; title?: string };
+          codeMap.set(fileKey(artifactFileName({ code: doc.code ?? '', title: doc.title ?? '' })), row.artifact_id);
+          if (doc.code) codeMap.set(fileKey(doc.code), row.artifact_id);
+        } catch {
+          /* thin row */
+        }
+      }
+      for (const u of input.artifacts) {
+        const code = u.id || u.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
+        codeMap.set(fileKey(artifactFileName({ code, title: u.title })), u.id);
+        codeMap.set(fileKey(code), u.id);
+      }
+      const receipts: Turn['extractedLinks'] = [];
+      let edgesWritten = 0;
+      for (const l of parsedLinks) {
+        const sourceId = codeMap.get(fileKey(l.source)) ?? null;
+        const targetId = codeMap.get(fileKey(l.target)) ?? null;
+        const applied = caps.graphLinks && Boolean(sourceId) && Boolean(targetId) && sourceId !== targetId;
+        receipts.push({
+          action: 'link' as const,
+          sourceFile: l.source,
+          targetFile: l.target,
+          kind: l.kind,
+          sourceId,
+          targetId,
+          applied,
+        });
+        if (!applied) continue;
+        upsertEdge(
+          db,
+          input.userId,
+          input.projectId,
+          {
+            id: `edge-${sourceId}-${targetId}-${l.kind}`,
+            sourceId: sourceId!,
+            targetId: targetId!,
+            kind: l.kind,
+          },
+          newRev
+        );
+        edgesWritten += 1;
+      }
+      // UNLINK apply: same gate, opposite effect — delete the matching edge
+      // rows (kind narrows; absent = every kind between the pair), tombstone
+      // each so the delta tells other clients, receipt with the WHY.
+      for (const u of input.unlinks ?? []) {
+        const sourceId = codeMap.get(fileKey(u.source)) ?? null;
+        const targetId = codeMap.get(fileKey(u.target)) ?? null;
+        let applied = false;
+        if (caps.graphLinks && sourceId && targetId) {
+          const rows = db
+            .prepare('SELECT edge_id, edge_json FROM edges WHERE user_id = ? AND project_id = ?')
+            .all(input.userId, input.projectId) as Array<{ edge_id: string; edge_json: string }>;
+          for (const row of rows) {
+            let e: { sourceId?: string; targetId?: string; kind?: string };
+            try {
+              e = JSON.parse(row.edge_json);
+            } catch {
+              continue;
+            }
+            if (e.sourceId !== sourceId || e.targetId !== targetId) continue;
+            if (u.kind && e.kind !== u.kind) continue;
+            db.prepare('DELETE FROM edges WHERE user_id = ? AND project_id = ? AND edge_id = ?').run(
+              input.userId,
+              input.projectId,
+              row.edge_id
+            );
+            recordTombstone(db, input.userId, input.projectId, 'edge', row.edge_id, newRev);
+            applied = true;
+          }
+        }
+        receipts.push({
+          action: 'unlink' as const,
+          sourceFile: u.source,
+          targetFile: u.target,
+          kind: u.kind ?? '',
+          sourceId,
+          targetId,
+          applied,
+        });
+      }
+      if (receipts.length > 0) {
+        const turnRow = db
+          .prepare('SELECT doc_json FROM turns WHERE user_id = ? AND project_id = ? AND turn_id = ?')
+          .get(input.userId, input.projectId, assistantTurnId) as { doc_json: string } | undefined;
+        if (turnRow?.doc_json) {
+          try {
+            const doc = JSON.parse(turnRow.doc_json) as Turn;
+            doc.extractedLinks = receipts;
+            db.prepare('UPDATE turns SET doc_json = ? WHERE user_id = ? AND project_id = ? AND turn_id = ?').run(
+              JSON.stringify(doc),
+              input.userId,
+              input.projectId,
+              assistantTurnId
+            );
+          } catch {
+            /* never fail the pair over receipts */
+          }
+        }
+        logServer('info', 'JOBS', `Pair committed with ${edgesWritten} graph link(s), ${receipts.length} receipt(s)`);
       }
     }
 

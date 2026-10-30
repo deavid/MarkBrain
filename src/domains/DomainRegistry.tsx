@@ -96,7 +96,7 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // The compiler reads ONLY the chat's attachments + chapters. The graph is a
   // library lens now, not a context mechanism — it is never passed here.
   const compiler = useMemo(
-    () => new OpticalCompilerDomain(artifacts, segmentation, timeline),
+    () => new OpticalCompilerDomain(artifacts, segmentation, timeline, graph),
     [artifacts, segmentation, timeline]
   );
 

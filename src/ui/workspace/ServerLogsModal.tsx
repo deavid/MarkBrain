@@ -18,6 +18,8 @@ export interface ServerLogItem {
 interface ServerLogsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Pre-filter the API Calls tab to one chat job (per-message receipts). */
+  initialJobFilter?: string;
 }
 
 /* ── API Calls tab (flight recorder, design-docs/28 §4.4) ────────────────── */
@@ -143,7 +145,7 @@ const ApiCallDetail: React.FC<{ call: ApiCallLog; onBack: () => void }> = ({ cal
 };
 
 /** List of recorded API calls (last 7 days), click a row for the full record. */
-const ApiCallsTab: React.FC = () => {
+const ApiCallsTab: React.FC<{ jobFilter?: string }> = ({ jobFilter }) => {
   const [calls, setCalls] = useState<ApiCallLog[]>([]);
   const [selected, setSelected] = useState<ApiCallLog | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -151,11 +153,11 @@ const ApiCallsTab: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     if (getWorkspaceMode() === 'local') {
-      listLocalCallLogs(50).then((rows) => {
-        if (!cancelled) setCalls(rows);
+      listLocalCallLogs(200).then((rows) => {
+        if (!cancelled) setCalls(jobFilter ? rows.filter((r) => r.jobId === jobFilter) : rows);
       });
     } else {
-      listApiCallLogs(50)
+      listApiCallLogs(50, jobFilter)
         .then((r) => r.json())
         .then((data) => {
           if (!cancelled) setCalls(Array.isArray(data.calls) ? data.calls : []);
@@ -167,7 +169,7 @@ const ApiCallsTab: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [jobFilter]);
 
   const openDetail = async (id: string) => {
     try {
@@ -190,7 +192,7 @@ const ApiCallsTab: React.FC = () => {
       {!loadError && calls.length === 0 && (
         <div className="h-full flex flex-col items-center justify-center text-[#556985] space-y-2 py-16">
           <Terminal className="w-8 h-8 opacity-40" />
-          <p>No API calls recorded in the last 7 days.</p>
+          <p>{jobFilter ? 'No API calls recorded for this message.' : 'No API calls recorded in the last 7 days.'}</p>
         </div>
       )}
       {calls.map((c) => {
@@ -217,13 +219,14 @@ const ApiCallsTab: React.FC = () => {
   );
 };
 
-export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClose }) => {
+export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClose, initialJobFilter }) => {
+  const jobFilter = initialJobFilter;
   const [logs, setLogs] = useState<ServerLogItem[]>([]);
   const [filterText, setFilterText] = useState('');
   const [selectedLevel, setSelectedLevel] = useState<string>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [tab, setTab] = useState<'logs' | 'calls'>('logs');
+  const [tab, setTab] = useState<'logs' | 'calls'>(initialJobFilter ? 'calls' : 'logs');
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -385,7 +388,7 @@ export const ServerLogsModal: React.FC<ServerLogsModalProps> = ({ isOpen, onClos
         </div>
 
         {tab === 'calls' ? (
-          <ApiCallsTab />
+          <ApiCallsTab jobFilter={jobFilter} />
         ) : (
         <>
         <div className="px-5 py-2.5 bg-surface-0 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">

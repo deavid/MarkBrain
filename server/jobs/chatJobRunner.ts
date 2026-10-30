@@ -390,6 +390,8 @@ export async function runJob(jobId: string): Promise<void> {
       capabilities: parseJsonOrNull(job.capabilities_json) ?? undefined,
       artifacts,
       shifts: finalDemux.topicShift ? [finalDemux.topicShift] : [],
+      links: finalDemux.links,
+      unlinks: finalDemux.unlinks,
       pairKey: jobId,
       // Real provider usage when the wire carried it, estimates otherwise.
       telemetry: {
@@ -533,7 +535,7 @@ export function stopJob(jobId: string): boolean {
 
 export function retryJob(
   jobId: string,
-  overrides?: { model?: string; compiledPrompt?: string; systemInstruction?: string }
+  overrides?: { model?: string; compiledPrompt?: string; systemInstruction?: string; capabilities?: unknown }
 ): boolean {
   const job = getJobRow(jobId);
   if (!job || (job.state !== 'failed' && job.state !== 'stopped')) return false;
@@ -547,16 +549,25 @@ export function retryJob(
   const model = overrides?.model?.trim();
   const compiledPrompt = overrides?.compiledPrompt;
   const systemInstruction = overrides?.systemInstruction;
-  if (model || compiledPrompt !== undefined || systemInstruction !== undefined) {
+  // The capabilities MUST ride the retry: the fresh compile teaches per the
+  // CURRENT toggles — a stale stored set would gate the commit with different
+  // rules than the prompt taught (live 2026-10-30: a retry taught <link> while
+  // the stored job row had graphLinks absent → every link silently dropped).
+  const capabilities =
+    overrides?.capabilities && typeof overrides.capabilities === 'object'
+      ? JSON.stringify(overrides.capabilities)
+      : null;
+  if (model || compiledPrompt !== undefined || systemInstruction !== undefined || capabilities) {
     getDb()
       .prepare(
         `UPDATE chat_jobs SET
           model = COALESCE(?, model),
           compiled_prompt = COALESCE(?, compiled_prompt),
           system_instruction = COALESCE(?, system_instruction),
+          capabilities_json = COALESCE(?, capabilities_json),
           updated_at = ? WHERE job_id = ?`
       )
-      .run(model ?? null, compiledPrompt ?? null, systemInstruction ?? null, Date.now(), jobId);
+      .run(model ?? null, compiledPrompt ?? null, systemInstruction ?? null, capabilities, Date.now(), jobId);
   }
   getDb()
     .prepare(

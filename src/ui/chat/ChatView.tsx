@@ -30,6 +30,10 @@ import {
   Code,
   Copy,
   MoreVertical,
+  FilePlus2,
+  Link2,
+  Unlink2,
+  ScrollText,
 } from 'lucide-react';import { logger } from '../../utils/logger';
 import { copyText } from '../../utils/clipboard';
 import { isChapterInProgress } from '../../domains/02-chapter-segmentation';
@@ -144,6 +148,9 @@ interface ChatViewProps {
   streamPhase?: 'waiting' | 'streaming' | null;
   onStopGeneration?: () => void;
   onOpenServerLogs?: () => void;
+  /** Per-message receipts (VPS): open the flight recorder filtered to THIS
+   * reply's job — the raw request and the raw provider answer, verbatim. */
+  onOpenReceipts?: (jobId: string) => void;
   onAddArtifactToProject: (artifact: Artifact) => void;
   onSummarizeChapter: (chapterId: string) => Promise<void>;
   onDeclareChapter: (messageId: string, title: string) => void;
@@ -233,6 +240,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   streamPhase,
   onStopGeneration,
   onOpenServerLogs,
+  onOpenReceipts,
   onAddArtifactToProject,
   onSummarizeChapter,
   onDeclareChapter,
@@ -799,6 +807,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
     ttsTransport.end();
     setPlayingMessageId(null);
   }, []);
+
+  /* ── receipts (2026-10-30): every parsed action of a reply is VISIBLE ──────
+   * The raw stream contains sentinels (<artifact_upsert>, <topic_shift>) that
+   * the pipeline strips and turns into real actions. Stripping them silently
+   * means two different raw messages can render as the same chat bubble —
+   * unacceptable: the proof of what the model DID lives here, as chips.
+   * Data is whatever the turn already carries (extractedArtifacts, meta
+   * attachments, chapter starts) — no extra fetch, works offline. */
+  const receiptsFor = (message: Turn) => {
+    const created = message.extractedArtifacts ?? [];
+    const linked = (message.meta?.attachments ?? [])
+      .map((a) => a.artifactId)
+      .filter((id, i, all) => all.indexOf(id) === i)
+      .filter((id) => !created.some((a) => a.id === id));
+    const chapter = chapters.find((c) => c.turns[0]?.id === message.id);
+    return { created, linked, chapter };
+  };
+  /** The VPS job behind a turn pair: turn ids embed it (turn-ai-job-…). */
+  const jobIdFor = (message: Turn): string | null =>
+    message.id.includes('-job-') ? message.id.replace(/^turn-(user|ai)-/, '') : null;
 
   const handlePlayTTS = async (message: Turn) => {
     if (playingMessageId === message.id) {
@@ -1709,6 +1737,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           </button>
                           )}
 
+                          {!offlineReplica && getWorkspaceMode() === 'vps' && onOpenReceipts && jobIdFor(message) && (
+                          <button
+                            onClick={() => onOpenReceipts(jobIdFor(message)!)}
+                            className="p-1 rounded hover:bg-surface-2 text-[#50637f] hover:text-[#38bdf8] transition-colors opacity-40 group-hover:opacity-100 cursor-pointer"
+                            title="Exactly what was sent and what was received (raw provider payloads)"
+                          >
+                            <ScrollText className="w-3 h-3" />
+                          </button>
+                          )}
+
                           {/* View + copy sit on BOTH roles and are always visible:
                               hover does not exist on a phone, and these two are
                               the whole point of the toggle. Nothing to read yet
@@ -1788,6 +1826,76 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               <span>Thinking...</span>
                             </div>
                           )}
+
+                          {(() => {
+                            const { created, linked, chapter } = receiptsFor(message);
+                            if (isUser || (!created.length && !linked.length && !chapter && !(message.extractedLinks ?? []).length)) return null;
+                            return (
+                              <div className="mt-2 pt-2 flex flex-wrap items-center gap-1.5" data-testid="turn-receipts">
+                                {chapter && (
+                                  <span
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-3 text-10 font-mono text-[#d6be94]"
+                                    title={`This reply opened the chapter "${chapter.chapter.title}"`}
+                                  >
+                                    <BookmarkPlus className="w-3 h-3" /> Chapter: {chapter.chapter.title}
+                                  </span>
+                                )}
+                                {created.map((a) => (
+                                  <button
+                                    key={a.id}
+                                    type="button"
+                                    onClick={() => a.id && onOpenArtifact?.(a.id)}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-3 hover:bg-surface-4 text-10 font-mono text-[#5ad49b] transition-colors cursor-pointer"
+                                    title={`This reply created the artifact "${a.title}" — click to open it`}
+                                  >
+                                    <FilePlus2 className="w-3 h-3" /> Created: {a.title}
+                                  </button>
+                                ))}
+                                {linked.map((id) => (
+                                  <button
+                                    key={id}
+                                    type="button"
+                                    onClick={() => onOpenArtifact?.(id)}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-3 hover:bg-surface-4 text-10 font-mono text-[#8ab1e0] transition-colors cursor-pointer"
+                                    title={`This reply is attached to "${artifactTitles?.[id] ?? id}" — click to open it`}
+                                  >
+                                    <Link2 className="w-3 h-3" /> Linked: {artifactTitles?.[id] ?? `${id.slice(0, 10)}…`}
+                                  </button>
+                                ))}
+                                {(message.extractedLinks ?? []).map((l, i) => {
+                                  const from = (l.sourceId && artifactTitles?.[l.sourceId]) || l.sourceFile;
+                                  const to = (l.targetId && artifactTitles?.[l.targetId]) || l.targetFile;
+                                  const unresolved = !l.sourceId || !l.targetId;
+                                  const isUnlink = l.action === 'unlink';
+                                  const ignored = !l.applied;
+                                  return (
+                                    <button
+                                      key={`${l.action ?? 'link'}-${l.sourceFile}-${l.targetFile}-${l.kind}-${i}`}
+                                      type="button"
+                                      onClick={() => l.sourceId && onOpenArtifact?.(l.sourceId)}
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-3 text-10 font-mono transition-colors cursor-pointer ${
+                                        ignored ? 'text-[#7185a3]' : isUnlink ? 'text-[#f28894]' : 'text-[#b59765]'
+                                      }`}
+                                      title={
+                                        ignored
+                                          ? isUnlink
+                                            ? `The model asked to UNLINK ${l.sourceFile} → ${l.targetFile}, but it was IGNORED — 'Link artifacts' is OFF in Chat behavior`
+                                            : `The model asked to link ${l.sourceFile} → ${l.targetFile} (${l.kind}), but it was IGNORED — 'Link artifacts' is OFF in Chat behavior`
+                                          : unresolved
+                                            ? `The model asked to link ${l.sourceFile} → ${l.targetFile} (${l.kind}), but one side is not an artifact in this project`
+                                            : isUnlink
+                                              ? `This reply BROKE the link between "${from}" and "${to}" — click to open the source`
+                                              : `This reply linked "${from}" → ${l.kind} → "${to}" in the graph — click to open the source`
+                                      }
+                                    >
+                                      {isUnlink ? <Unlink2 className="w-3 h-3" /> : <Link2 className="w-3 h-3" />}
+                                      {isUnlink ? '' : unresolved ? '? ' : ignored ? '⨯ ' : ''}{from} {isUnlink ? '⫯' : '→'} {to}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
 
 
                           {message.meta && !isUser && (

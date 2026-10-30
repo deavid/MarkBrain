@@ -378,9 +378,10 @@ export function clearServerLogs(): Promise<Response> {
 
 /* ------------------------------------------------------ flight recorder API */
 
-/** GET /api/logs/calls — the caller's own API call log, newest first. */
-export function listApiCallLogs(limit = 50): Promise<Response> {
-  return apiFetch(`/api/logs/calls?limit=${limit}`);
+/** GET /api/logs/calls — the caller's own API call log, newest first.
+ *  `job` narrows the flight recorder to one chat job (per-message receipts). */
+export function listApiCallLogs(limit = 50, job?: string): Promise<Response> {
+  return apiFetch(`/api/logs/calls?limit=${limit}${job ? `&job=${encodeURIComponent(job)}` : ''}`);
 }
 
 /** GET /api/logs/calls/:id — full record, 404 when it belongs to someone else. */

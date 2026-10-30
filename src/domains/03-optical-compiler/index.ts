@@ -191,7 +191,10 @@ The complete Markdown note body.
 </artifact_upsert>`;
 
 const LINK_BLOCK = `3. To link two notes in the graph:
-<link source="file1.md" target="file2.md" kind="relates_to|refines|parent_of|child_of|born_from" />`;
+<link source="file1.md" target="file2.md" kind="relates_to|refines|parent_of|child_of|born_from" />
+
+The payload lists the links that ALREADY exist between your visible notes (<existing_links>). Never re-emit one that is already listed. To break a link that no longer holds, emit:
+<unlink source="file1.md" target="file2.md" />`;
 
 /**
  * The system instruction assembles from capability blocks (Package 2 §2.3):
@@ -313,7 +316,8 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
   constructor(
     private artifacts: IArtifactDocumentDomain,
     private segmentation: IChapterSegmentationDomain,
-    private timeline: IDialogueTimelineDomain
+    private timeline: IDialogueTimelineDomain,
+    private graph?: { listEdges: () => Array<{ sourceId: string; targetId: string; kind: string }> }
   ) {}
 
   compile(options: OpticalCompilerOptions): CompiledContextPayload {
@@ -325,6 +329,10 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const attachmentBreakdown: AttachmentBreakdownEntry[] = [];
     // Two notes may share a title; a filename must still name exactly one.
     const usedFileNames = new Set<string>();
+    // graphLinks: notes the model can reason links about (full/summary cut)
+    // and their payload file names.
+    const linkVisibleIds = new Set<string>();
+    const payloadNameByArtifactId = new Map<string, string>();
     const distribution: Record<Granularity, number> = {
       title: 0,
       description: 0,
@@ -336,11 +344,19 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
       const art = this.artifacts.getArtifact(attachment.artifactId);
       if (!art) continue; // dangling attachment (artifact deleted) — silently skipped
       const granularity = attachment.granularity;
-      const xml = artifactXml(art, granularity, uniqueFileName(artifactFileName(art), usedFileNames));
+      const payloadName = uniqueFileName(artifactFileName(art), usedFileNames);
+      const xml = artifactXml(art, granularity, payloadName);
       substrateParts.push(xml);
       const tokens = estimateTokens(xml);
       substrateTokens += tokens;
       distribution[granularity]++;
+      // Links the model may reason about: only notes it can SEE with content
+      // (full/summary cut — a title-cut note carries nothing to link through),
+      // keyed by the EXACT payload file name the model reads.
+      if (granularity === 'full' || granularity === 'summary') {
+        linkVisibleIds.add(art.id);
+        payloadNameByArtifactId.set(art.id, payloadName);
+      }
       const turnIndex = attachment.turnIndex === null ? null : (attachment.turnIndex ?? 0);
       attachmentBreakdown.push({
         artifactId: art.id,
@@ -381,7 +397,23 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const substrateBlock = `<knowledge_substrate>\n${substrateParts.join('\n\n')}\n</knowledge_substrate>`;
     const historyBlock = `<conversation_chapters>\n${historyParts.join('\n\n')}\n</conversation_chapters>`;
 
-    const compiledPrompt = `${substrateBlock}\n\n${historyBlock}`;
+    // graphLinks ON: show the links that ALREADY exist between the notes the
+    // model can see (full/summary cut) — so it can avoid re-emitting them and
+    // reason about the neighborhood. Rendered with the same payload file
+    // names the substrate used (the only names the model knows).
+    let compiledPrompt = `${substrateBlock}\n\n${historyBlock}`;
+    const capabilitiesEarly = options.capabilities ?? DEFAULT_CHAT_CAPABILITIES;
+    if (capabilitiesEarly.graphLinks && this.graph && linkVisibleIds.size > 1) {
+      const linkLines: string[] = [];
+      for (const e of this.graph.listEdges()) {
+        const source = payloadNameByArtifactId.get(e.sourceId);
+        const target = payloadNameByArtifactId.get(e.targetId);
+        if (source && target) linkLines.push(`<link source="${source}" target="${target}" kind="${e.kind}" />`);
+      }
+      if (linkLines.length > 0) {
+        compiledPrompt = `${substrateBlock}\n\n<existing_links>\n${linkLines.join('\n')}\n</existing_links>\n\n${historyBlock}`;
+      }
+    }
     const capabilities = options.capabilities ?? DEFAULT_CHAT_CAPABILITIES;
     const systemInstruction = buildSystemInstruction(capabilities);
 

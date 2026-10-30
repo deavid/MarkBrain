@@ -26,6 +26,11 @@ export default defineConfig(() => {
       // The real-server E2E journeys live in src/tests/e2e/ and run via
       // `npm run test:e2e` (vitest.e2e.config.ts) — explicitly, not always.
       exclude: [...configDefaults.exclude, 'src/tests/e2e/**'],
+      // THE FILE DB IS OFF-LIMITS TO TESTS (David 2026-10-30, after a test
+      // leaked rows into the live dev database): every lazy getDb() in any
+      // test lands in memory — nothing a test does can reach
+      // data/markbrain.sqlite, whatever the import order.
+      setupFiles: './src/tests/vitest.setup.ts',
     },
     resolve: {
       alias: {

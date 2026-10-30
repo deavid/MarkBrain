@@ -25,6 +25,14 @@ export interface ExtractedLink {
   kind: RelationKind;
 }
 
+/** An <unlink> ask: break the link(s) between the pair. `kind` narrows the
+ * removal to one edge kind; null/absent removes every link between the pair. */
+export interface ExtractedUnlink {
+  source: string;
+  target: string;
+  kind: RelationKind | null;
+}
+
 export interface StreamStatusPayload {
   state: 'connecting' | 'connected' | 'thinking' | 'writing' | 'completed' | 'error';
   message: string;

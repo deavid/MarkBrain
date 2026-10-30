@@ -10,7 +10,11 @@ app.get('/api/logs/calls', requireAuth, (req: Request, res: Response) => {
   const limit = Number(req.query.limit) || 50;
   const beforeRaw = req.query.before;
   const before = beforeRaw ? Number(beforeRaw) : undefined;
-  res.json({ calls: listCallLogs(req.user!.id, limit, Number.isFinite(before) ? before : undefined) });
+  // Optional per-job filter: the chat receipts open this view pre-filtered to
+  // the job that produced a given reply (raw sent/received for THAT message).
+  const jobRaw = req.query.job;
+  const job = typeof jobRaw === 'string' && jobRaw.length > 0 ? jobRaw : undefined;
+  res.json({ calls: listCallLogs(req.user!.id, limit, Number.isFinite(before) ? before : undefined, job) });
 });
 
 app.get('/api/logs/calls/:id', requireAuth, (req: Request, res: Response) => {

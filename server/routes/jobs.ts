@@ -125,12 +125,18 @@ export function registerJobRoutes(app: Express): void {
     req.params.jobId,
     // Body overrides (design 23 §2.5): the client recompiles the prompt and
     // passes the CURRENTLY selected model — a retry after a model change must
-    // use the new model, never re-run the failed one.
+    // use the new model, never re-run the failed one. Capabilities ride too:
+    // the fresh prompt teaches per the CURRENT toggles, so the commit must
+    // gate per the same set.
     typeof req.body === 'object' && req.body !== null
       ? {
           model: typeof req.body.model === 'string' ? req.body.model : undefined,
           compiledPrompt: typeof req.body.compiledPrompt === 'string' ? req.body.compiledPrompt : undefined,
           systemInstruction: typeof req.body.systemInstruction === 'string' ? req.body.systemInstruction : undefined,
+          capabilities:
+            typeof req.body.capabilities === 'object' && req.body.capabilities !== null
+              ? req.body.capabilities
+              : undefined,
         }
       : undefined
   )) {

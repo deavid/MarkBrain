@@ -91,7 +91,10 @@
           MARKBRAIN_TTS_CACHE_DIR={{ data_dir }}/tts-cache
           MARKBRAIN_OWNER_EMAIL={{ markbrain_owner_email }}
 
-    - name: 6. Sync dist/, server/, src/, scripts/, and package files to VPS
+    - name: 6. Sync dist/, shared/, server/, src/, scripts/, and package files to VPS
+  #    shared/ is a top-level sibling of src/ and server/ (Orion's refactor):
+  #    the server imports it at runtime, so forgetting it here makes the
+  #    service die at boot with ERR_MODULE_NOT_FOUND on ../shared/*.
       synchronize:
         src: "{{ playbook_dir }}/../../"
         dest: "{{ app_dir }}/"
@@ -99,6 +102,7 @@
         rsync_path: "sudo rsync"
         rsync_opts:
           - "--include=/dist/***"
+          - "--include=/shared/***"
           - "--include=/server/***"
           - "--include=/src/***"
           - "--include=/scripts/***"

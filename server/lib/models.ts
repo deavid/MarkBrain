@@ -33,8 +33,6 @@ export interface CatalogModel {
   available: boolean;
   /** Lanes this model may serve. */
   capabilities: ModelCapability[];
-  /** Unused by the UI — we are not the source of truth for provider quotas. */
-  quotaNote?: string;
   // Display metadata — mirrors ModelOption in src/types (which is
   // owned by the client; the server copy here is the source of truth).
   name: string;

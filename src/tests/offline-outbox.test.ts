@@ -54,7 +54,11 @@ vi.stubGlobal('window', { dispatchEvent: () => true, addEventListener: () => und
 const { app } = await import('../../server/app');
 const { createUser } = await import('../../server/lib/users');
 const { vpsStore } = await import('../services/stores/vpsStore');
-const { replayOutbox } = await import('../services/vpsSync');
+const { replayOutbox, initVpsSync } = await import('../services/vpsSync');
+// Phase 6: the mutation-queue flush is an injected dependency now — wire the
+// real one so replay exercises the same seam the app runs.
+const { flushServerMutations } = await import('../application/serverMutationQueue');
+initVpsSync({ flushServerMutations });
 const { getRecord, clearDirty, getAllRecords } = await import('../services/offlineOutbox');
 const { setWorkspaceMode, saveVpsSession, clearVpsSession } = await import('../services/workspaceSession');
 const { localPutProject } = await import('../services/localBackend');

@@ -28,6 +28,14 @@
  *   (src/data/localKeyVault.ts) — plaintext `markbrain:keys:*` storage is dead.
  * - `vps` mode never holds raw keys on the client: resolveLaneKey returns
  *   null so every call routes through /api/*, where the server's vault signs.
+ *
+ * DOCUMENTED RESIDUAL SEAM (Phase 6 — data reaching up, accepted): this
+ * module reads the workspace mode live via getWorkspaceMode
+ * (services/workspaceSession) inside getKeySlot/setKeySlot/resolveLaneKey.
+ * Every caller (gateway/api, the settings UI, the composer) would have to
+ * thread the mode through — the chain is long and the mode is read-per-call
+ * on purpose (it can flip at runtime). Accepted and named here instead of a
+ * ballooning injection.
  */
 import { getWorkspaceMode } from '../services/workspaceSession';
 import {

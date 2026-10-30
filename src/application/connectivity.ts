@@ -11,6 +11,9 @@
  *
  * Snapshot + subscribe, same shape the vault lock and TTS transport use, so
  * components read it with useSyncExternalStore and re-render on the flip.
+ *
+ * SHIPPED WITH A TEST SEAM (named, not hidden): setOnlineForTests flips
+ * connectivity for the WHOLE PAGE — only tests may call it.
  */
 
 type Listener = () => void;

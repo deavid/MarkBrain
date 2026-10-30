@@ -6,9 +6,23 @@
  * POST /api/auth/unlock-key — no password prompt. The key NEVER touches
  * localStorage or IndexedDB: a refresh forgets it and the user unlocks with
  * their password again. Comfort within a session, not a credential store.
+ *
+ * Layering (Phase 6): this module holds the re-arm INTENT — the derived key
+ * and the lock state. It never imports the gateway itself: the transport
+ * (apiFetch) is injected once from the composition root via
+ * setVaultReArmTransport. Unset transport = re-arm reports false (honest:
+ * without a transport nothing can reach the server).
  */
-import { apiFetch } from '../gateway/api';
 import { logger } from '../utils/logger';
+
+type VaultReArmTransport = (path: string, init?: RequestInit) => Promise<Response>;
+
+let reArmTransport: VaultReArmTransport | null = null;
+
+/** Wiring point (composition root): hand in the real transport (apiFetch). */
+export function setVaultReArmTransport(transport: VaultReArmTransport): void {
+  reArmTransport = transport;
+}
 
 let reArmKey: string | null = null;
 
@@ -32,8 +46,9 @@ export function forgetReArmKey(): void {
  */
 export async function tryReArmVault(): Promise<boolean> {
   if (!reArmKey) return false;
+  if (!reArmTransport) return false; // no transport wired — nothing can reach the server
   try {
-    const res = await apiFetch('/api/auth/unlock-key', {
+    const res = await reArmTransport('/api/auth/unlock-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rearmKey: reArmKey }),

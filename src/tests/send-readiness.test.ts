@@ -19,7 +19,7 @@ vi.mock('../data/vaultReArm', () => ({
   isVaultLocked: () => vaultLocked,
   subscribeVaultLock: () => () => {},
 }));
-vi.mock('../services/persistenceService', () => ({
+vi.mock('../services/captureMode', () => ({
   isCaptureMode: () => captureMode,
 }));
 

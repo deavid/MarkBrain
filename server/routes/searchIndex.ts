@@ -15,7 +15,7 @@ import { tokenizeForFts, cosineSimilarity } from '../../shared/search/searchPrim
 import { GoogleGenAI } from '@google/genai';
 import { OpenRouterClient, isOpenRouterModel } from '../providers/openrouter';
 import { resolveServerLaneKey, isVaultUnlocked } from '../lib/accountVault';
-import { readSettings } from './account';
+import { readSettings } from '../lib/settings';
 import { getDb } from '../db';
 import { logServer } from '../lib/log';
 import { buildQaPrompt, parseQaPairs, fallbackQaPairs, type QaSectionPayload } from '../../shared/prompts/lanes';

@@ -1,14 +1,46 @@
-import type { ProjectSnapshot } from '../services/persistenceService';
+/**
+ * captureMode — it is the hermetic capture-mode backend: the fake project
+ * fixture and the no-op/serving backend it runs on.
+ *
+ * Moved out of persistenceService + src/data/headlessFixture.ts (Phase 6):
+ * one home for every capture-mode seam. `?fixture=1` and `?capture=1`
+ * (dev server only) put the app in a read-ONLY capture state: every save
+ * path becomes a no-op, so headless screenshot runs — fixture or
+ * real-session — can never write anywhere. The fixture project is served by
+ * persistenceService at the seam lines it keeps for exactly this purpose.
+ *
+ * `import.meta.env.DEV` is inlined at build time: in a production build
+ * these functions collapse to `false` and the branches tree-shake away.
+ */
+import type { ProjectSnapshot } from './stores/projectStore';
+
+const devParam = (name: string): boolean =>
+  import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has(name);
+
+export const isFixtureMode = (): boolean => devParam('fixture');
+export const isCaptureMode = (): boolean => devParam('fixture') || devParam('capture');
+
+/**
+ * Evidence seam (`?slowsave=1`, dev only): every save hangs. Nothing is written
+ * anywhere — the seam never consults a backend — so a fixture run stays
+ * read-only, and the only thing that can end the hang is the acknowledgement
+ * deadline. It exists so a journey can watch the watchdog fire, which is the
+ * failure David hit live: Firestore retries a quota-blocked write forever, so
+ * `setDoc` never settles and no `catch` ever runs.
+ */
+export const isSlowSaveSeam = (): boolean => devParam('slowsave');
 
 /**
  * HEADLESS FIXTURE — deliberately synthetic data for agent-driven capture.
  *
- * Loaded ONLY in dev when the URL carries ?fixture=1 (see
- * persistenceService.isFixtureMode). It is not demo data, not a fallback,
- * not a seed: outside that flag it cannot load. A production build inlines
- * DEV=false and tree-shakes every branch that reads it.
+ * Loaded ONLY in dev when the URL carries ?fixture=1 (isFixtureMode above).
+ * It is not demo data, not a fallback, not a seed: outside that flag it
+ * cannot load. A production build inlines DEV=false and tree-shakes every
+ * branch that reads it.
  *
- * Shape: exactly one ProjectSnapshot — the same typed document Firestore
+ * Shape: exactly one ProjectSnapshot — the same typed document the server
  * holds — so the fixture cannot drift from the real format.
  */
 export const HEADLESS_FIXTURE: ProjectSnapshot = {
@@ -135,3 +167,12 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
     },
   ],
 };
+/** Fixture-mode loads: the fixture project for its own id, confirmed absence otherwise. */
+export function fixtureProjectSnapshot(projectId: string): ProjectSnapshot | null {
+  return projectId === HEADLESS_FIXTURE.projectId ? HEADLESS_FIXTURE : null;
+}
+
+/** Fixture-mode listing: exactly the one fixture project. */
+export function fixtureProjectList(): ProjectSnapshot[] {
+  return [HEADLESS_FIXTURE];
+}

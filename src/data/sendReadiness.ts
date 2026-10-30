@@ -10,9 +10,15 @@
  * selected model. When not, the send button shows the padlock and the click
  * routes the user to the fix — unlock popup (locked) or Model Settings →
  * Keys (no key) — never a doomed attempt.
+ *
+ * Documented residual seams (Phase 6 — data reaching up, accepted):
+ * - getWorkspaceMode (services/workspaceSession): readiness branches on the
+ *   workspace mode at call time; threading the mode through every caller
+ *   would balloon the seam. Accepted, named here.
+ * - isCaptureMode (services/captureMode): the hermetic-run seam below.
  */
 import { getWorkspaceMode } from '../services/workspaceSession';
-import { isCaptureMode } from '../services/persistenceService';
+import { isCaptureMode } from '../services/captureMode';
 import { resolveLaneKey } from './keySlots';
 import { isVaultLocked, subscribeVaultLock } from './vaultReArm';
 

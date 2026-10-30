@@ -28,6 +28,12 @@ export type ModelSlotConfig = Record<ModelSlot, string>;
 export const MODEL_CONFIG_KEY = 'markbrain:modelConfig';
 
 /** Mode-scoped: a model setting in Local never bleeds into VPS and vice versa (21C §1). */
+// DOCUMENTED RESIDUAL SEAM (Phase 6 — data reaching up, accepted): the scoped
+// storage key + workspace mode come from services/workspaceSession and are
+// read per call on purpose (mode can flip at runtime); threading them through
+// every caller would balloon. Accepted and named here. The gateway/api import
+// below stays DYNAMIC for the same cycle reason as before (api imports
+// DEFAULT_MODEL_SLOTS from this module).
 import { getScopedStorageKey, getWorkspaceMode } from '../services/workspaceSession';
 // gateway/api is imported DYNAMICALLY inside the vps push/hydrate helpers:
 // a static import would cycle modelConfig → api → … → modelConfig and leave

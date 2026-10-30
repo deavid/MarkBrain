@@ -1,6 +1,14 @@
 import { logger } from '../utils/logger';
 import { sanitizeForStorage } from '../utils/storageSanitize';
-import { HEADLESS_FIXTURE } from '../data/headlessFixture';
+// Capture-mode backend moved to captureMode.ts (Phase 6) — this module keeps
+// only the thin seam lines that route fixture/capture traffic to it.
+import {
+  isFixtureMode,
+  isCaptureMode,
+  isSlowSaveSeam,
+  fixtureProjectSnapshot,
+  fixtureProjectList,
+} from './captureMode';
 import type { ChapterPartition } from '../domains/02-chapter-segmentation/types';
 import { GRANULARITY_LAW } from '../domains/granularity';
 import { withDeadline } from '../utils/deadline';
@@ -83,32 +91,10 @@ function getStore(): ProjectStore {
 }
 
 /**
- * Capture-mode guards (dev-only).
- *
- * `?capture=1` and `?fixture=1` (dev server only) put the app in a
- * read-ONLY capture state: every save path becomes a no-op, so headless
- * screenshot runs — fixture or real-session — can never write anywhere.
- *
- * `import.meta.env.DEV` is inlined at build time: in a production build
- * both functions collapse to `false` and the branches tree-shake away.
+ * Capture-mode guards + the evidence slowsave seam live in captureMode.ts
+ * (Phase 6) — re-exported here so existing importers stay untouched.
  */
-const devParam = (name: string): boolean =>
-  import.meta.env.DEV &&
-  typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).has(name);
-
-export const isFixtureMode = (): boolean => devParam('fixture');
-export const isCaptureMode = (): boolean => devParam('fixture') || devParam('capture');
-
-/**
- * Evidence seam (`?slowsave=1`, dev only): every save hangs. Nothing is written
- * anywhere — the seam never consults a backend — so a fixture run stays
- * read-only, and the only thing that can end the hang is the acknowledgement
- * deadline. It exists so a journey can watch the watchdog fire, which is the
- * failure David hit live: Firestore retries a quota-blocked write forever, so
- * `setDoc` never settles and no `catch` ever runs.
- */
-export const isSlowSaveSeam = (): boolean => devParam('slowsave');
+export { isFixtureMode, isCaptureMode, isSlowSaveSeam } from './captureMode';
 
 /**
  * Last successfully persisted JSON per project. Firestore meters writes against
@@ -206,16 +192,15 @@ export async function loadProjectSnapshot(
 async function loadSnapshotRaw(
   projectId: string
 ): Promise<ProjectSnapshot | null> {
-  if (isFixtureMode()) {
-    return projectId === HEADLESS_FIXTURE.projectId ? HEADLESS_FIXTURE : null;
-  }
+  // Fixture serving is captureMode's job — this is the whole seam line.
+  if (isFixtureMode()) return fixtureProjectSnapshot(projectId);
 
   return getStore().load(projectId);
 }
 
 /** Each backend resolves its own scope: Firestore → the signed-in user's tree, local → the whole store. */
 export async function listUserProjects(): Promise<ProjectSnapshot[]> {
-  if (isFixtureMode()) return [HEADLESS_FIXTURE];
+  if (isFixtureMode()) return fixtureProjectList();
 
   return getStore().list();
 }

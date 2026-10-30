@@ -29,7 +29,10 @@ import {
 } from '../prompts/prompt';
 import { parseSentinelBlocks } from '../utils/sentinelParser';
 import type { ResolvedKey } from '../data/keySlots';
-import { recordCallStart, recordCallEnd } from '../services/callLogStore';
+// Phase 6: the flight recorder is injected — this module must not import
+// src/services itself. The composition root (gateway/api.ts) hands the real
+// callLogStore-backed recorder down; direct unit calls get the no-op.
+import { noopCallRecorder, type CallRecorder } from './recorder';
 import type { ApiCallKind, ApiCallLogRequest } from '../domains/callLogTypes';
 
 export function adapterFor(key: ResolvedKey): ProviderAdapter {
@@ -39,11 +42,16 @@ export function adapterFor(key: ResolvedKey): ProviderAdapter {
 /**
  * Local-mode flight recorder (design-docs/28 §4.3): one row per direct
  * provider call, same shape the server keeps. Secrets are scrubbed inside
- * recordCallStart; TTS has no recorder kind (chat/summarize/extract/title/
+ * recorder.start; TTS has no recorder kind (chat/summarize/extract/title/
  * embed/qa only) so it stays unrecorded.
  */
-function recordDirectStart(key: ResolvedKey, kind: ApiCallKind, request: ApiCallLogRequest): string {
-  return recordCallStart({ kind, provider: key.provider, model: request.model, request });
+function recordDirectStart(
+  recorder: CallRecorder,
+  key: ResolvedKey,
+  kind: ApiCallKind,
+  request: ApiCallLogRequest
+): string {
+  return recorder.start({ kind, provider: key.provider, model: request.model, request });
 }
 
 async function errorTextOf(res: Response): Promise<string> {
@@ -68,16 +76,17 @@ async function textFrom(res: Response): Promise<{ text: string; usage?: { input:
 
 /** Record the end of a lane call from a text/error envelope. */
 function recordLaneEnd(
+  recorder: CallRecorder,
   callId: string,
   result: { text: string; usage?: { input: number; output: number }; error?: Response }
 ): void {
   if (result.error) {
     void errorTextOf(result.error).then((t) =>
-      recordCallEnd(callId, { status: 'error', error: t.slice(0, 2000) })
+      recorder.end(callId, { status: 'error', error: t.slice(0, 2000) })
     );
     return;
   }
-  recordCallEnd(callId, { status: 'ok', responseText: result.text, usage: result.usage ?? null });
+  recorder.end(callId, { status: 'ok', responseText: result.text, usage: result.usage ?? null });
 }
 
 /* --------------------------------------------------------------------- chat */
@@ -88,25 +97,30 @@ export function directChatStream(
     model: string;
     compiledPrompt: string;
     systemInstruction?: string;
-  }
+  },
+  recorder: CallRecorder
 ): Promise<Response> {
-  return adapterFor(key).streamChat({
-    apiKey: key.apiKey,
-    model: params.model,
-    contents: params.compiledPrompt,
-    systemInstruction: params.systemInstruction,
-    temperature: 0.7,
-  });
+  return adapterFor(key).streamChat(
+    {
+      apiKey: key.apiKey,
+      model: params.model,
+      contents: params.compiledPrompt,
+      systemInstruction: params.systemInstruction,
+      temperature: 0.7,
+    },
+    recorder
+  );
 }
 
 /* -------------------------------------------------------------------- title */
 
 export async function directTitleThread(
   key: ResolvedKey,
-  params: { messages: Array<{ role: string; content: string }>; version: number; model: string }
+  params: { messages: Array<{ role: string; content: string }>; version: number; model: string },
+  recorder: CallRecorder
 ): Promise<Response> {
   const prompt = buildTitlePrompt(params.messages, params.version);
-  const callId = recordDirectStart(key, 'title', {
+  const callId = recordDirectStart(recorder, key, 'title', {
     endpoint: 'direct:generateContent',
     model: params.model,
     compiledPrompt: prompt,
@@ -120,7 +134,7 @@ export async function directTitleThread(
       temperature: 0.4,
     })
   );
-  recordLaneEnd(callId, { text, error });
+  recordLaneEnd(recorder, callId, { text, error });
   // Best-effort lane: never 5xx — the client keeps its current title.
   if (error) return jsonResponse({ title: null });
   return jsonResponse({ title: cleanupTitle(text) });
@@ -138,7 +152,8 @@ export async function directExtractArtifact(
     previousError?: string;
     previousOutput?: string;
     model: string;
-  }
+  },
+  recorder: CallRecorder
 ): Promise<Response> {
   const prompt = buildExtractPrompt({
     content: params.content,
@@ -148,7 +163,7 @@ export async function directExtractArtifact(
     previousError: params.previousError,
     previousOutput: params.previousOutput,
   });
-  const callId = recordDirectStart(key, 'extract', {
+  const callId = recordDirectStart(recorder, key, 'extract', {
     endpoint: 'direct:generateContent',
     model: params.model,
     compiledPrompt: prompt,
@@ -162,7 +177,7 @@ export async function directExtractArtifact(
       temperature: 0.2,
     })
   );
-  recordLaneEnd(callId, { text, error });
+  recordLaneEnd(recorder, callId, { text, error });
   if (error) return error;
   void EXTRACT_READ_CHAR_CAP; // cap warning is a server-log concern; see route
 
@@ -203,7 +218,8 @@ export async function directSummarizeChapter(
     messages: Array<{ role: string; content: string }>;
     steeringPrompt?: string;
     model: string;
-  }
+  },
+  recorder: CallRecorder
 ): Promise<Response> {
   if (!params.messages || params.messages.length === 0) {
     return jsonResponse({
@@ -217,7 +233,7 @@ export async function directSummarizeChapter(
     messages: params.messages,
     steeringPrompt: params.steeringPrompt,
   });
-  const callId = recordDirectStart(key, 'summarize', {
+  const callId = recordDirectStart(recorder, key, 'summarize', {
     endpoint: 'direct:generateContent',
     model: params.model,
     compiledPrompt: prompt,
@@ -231,7 +247,7 @@ export async function directSummarizeChapter(
       temperature: 0.3,
     })
   );
-  recordLaneEnd(callId, { text, error });
+  recordLaneEnd(recorder, callId, { text, error });
   if (error) return error;
 
   const blocks = parseSentinelBlocks(text);
@@ -263,10 +279,11 @@ export async function directGenerateQa(
     subtitle?: string;
     sections: QaSectionPayload[];
     model: string;
-  }
+  },
+  recorder: CallRecorder
 ): Promise<Response> {
   const prompt = buildQaPrompt(params.title, params.subtitle, params.sections);
-  const callId = recordDirectStart(key, 'qa', {
+  const callId = recordDirectStart(recorder, key, 'qa', {
     endpoint: 'direct:generateContent',
     model: params.model,
     compiledPrompt: prompt,
@@ -280,7 +297,7 @@ export async function directGenerateQa(
       temperature: 0.2,
     })
   );
-  recordLaneEnd(callId, { text, error });
+  recordLaneEnd(recorder, callId, { text, error });
   if (error) return error;
   const qaPairs = parseQaPairs(text, params.sections);
   if (qaPairs.length === 0) {
@@ -293,9 +310,10 @@ export async function directGenerateQa(
 
 export async function directEmbed(
   key: ResolvedKey,
-  params: { texts: string[]; taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY'; title?: string; model: string }
+  params: { texts: string[]; taskType: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY'; title?: string; model: string },
+  recorder: CallRecorder
 ): Promise<Response> {
-  const callId = recordDirectStart(key, 'embed', {
+  const callId = recordDirectStart(recorder, key, 'embed', {
     endpoint: 'direct:embed',
     model: params.model,
     params: { texts: params.texts.length, taskType: params.taskType, title: params.title ?? null },
@@ -310,9 +328,9 @@ export async function directEmbed(
   // Vector payloads are noise; the vector count is the useful bit.
   if (res.ok) {
     const body = await res.clone().json().catch(() => null);
-    recordCallEnd(callId, { status: 'ok', usage: { vectors: (body?.embeddings as unknown[] | undefined)?.length ?? params.texts.length } });
+    recorder.end(callId, { status: 'ok', usage: { vectors: (body?.embeddings as unknown[] | undefined)?.length ?? params.texts.length } });
   } else {
-    recordCallEnd(callId, { status: 'error', error: await errorTextOf(res.clone()) });
+    recorder.end(callId, { status: 'error', error: await errorTextOf(res.clone()) });
   }
   return res;
 }

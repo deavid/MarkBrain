@@ -1,5 +1,11 @@
 # Refactoring & Toil-Reduction Roadmap
 
+> **STATUS: COMPLETE (2026-10-30).** All six phases executed, one commit each, gates green between every phase:
+> Phase 1 `419ca79` · Phase 2 `c28ab40` · Phase 3 `ae60928` · Phase 4 `f68b320` · Phase 5 `7692f07` · Phase 6 (this commit).
+> Final: tsc clean, 747/747 tests (84 files), build clean. Known accepted residuals are documented in the headers of
+> `src/data/keySlots.ts`, `src/data/modelConfig.ts`, `src/data/sendReadiness.ts`, `src/application/connectivity.ts`,
+> `src/data/byokFlag.ts` (test seams + runtime mode reads) and `src/data/modelConfig.ts` (pre-existing gateway cycle).
+
 *2026-10-30 @ fe3fbdd. Concrete execution plan to eliminate split-brain toil, enforce the sufficiency law, and isolate vertical slices. No code changed yet — awaiting David's sign-off on phases and order.*
 
 ---

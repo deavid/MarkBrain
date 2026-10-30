@@ -40,6 +40,7 @@ import {
   getRawUserById,
 } from '../lib/users';
 import { verifyPassword } from '../lib/accountVault';
+import { readSettings, writeSettings } from '../lib/settings';
 
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -204,25 +205,8 @@ function setSessionCookie(res: Response, token: string): void {
   );
 }
 
-interface SettingsRow {
-  model_slots_json: string;
-  chat_tier: string;
-}
-
-export function readSettings(userId: number): { modelSlots: Record<string, string>; chatTier: string } {
-  const row = getDb()
-    .prepare('SELECT model_slots_json, chat_tier FROM user_settings WHERE user_id = ?')
-    .get(userId) as SettingsRow | undefined;
-  let modelSlots: Record<string, string> = {};
-  if (row) {
-    try {
-      modelSlots = JSON.parse(row.model_slots_json) as Record<string, string>;
-    } catch {
-      modelSlots = {};
-    }
-  }
-  return { modelSlots, chatTier: row?.chat_tier ?? 'free' };
-}
+// Settings storage lives in lib/settings.ts (shared with the job runners —
+// routes must not be a library); the handlers below delegate to it.
 
 // Four slots (design-docs/24 §1) — mirrors KEY_SLOTS from the vault module.
 const VALID_SLOTS: KeySlotId[] = [...KEY_SLOTS];
@@ -350,13 +334,7 @@ export function registerAccountRoutes(app: Express): void {
     const nextSlots =
       modelSlots && typeof modelSlots === 'object' ? (modelSlots as Record<string, string>) : current.modelSlots;
     const nextTier = typeof chatTier === 'string' && chatTier === 'paid' ? 'paid' : chatTier === 'free' ? 'free' : current.chatTier;
-    getDb()
-      .prepare(
-        `INSERT INTO user_settings (user_id, model_slots_json, chat_tier, updated_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET model_slots_json = excluded.model_slots_json,
-           chat_tier = excluded.chat_tier, updated_at = excluded.updated_at`
-      )
-      .run(userId, JSON.stringify(nextSlots), nextTier, Date.now());
+    writeSettings(userId, nextSlots, nextTier);
     res.json({ ok: true, modelSlots: nextSlots, chatTier: nextTier });
   });
 

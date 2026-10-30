@@ -1,3 +1,8 @@
+/**
+ * App — the top-level shell: auth gate, view switching, modals, and the
+ * wiring between the domains and the chat/workspace UI. (Phase 6: two unused
+ * projection bindings left over from Phase 5 are gone.)
+ */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ModelOption, Artifact } from './types';
 import { FALLBACK_MODEL } from './data/models';
@@ -276,14 +281,11 @@ export default function App() {
   });
 
   const {
-    attachmentGranularityById,
     artifactTitles,
     artifactSubtitles,
     tokensByArtifact,
     chapterTokens,
   } = useProjectProjections({ artifactsDomain, compiledContext, activeAttachments, tick });
-
-  const stagedAttachmentCount = activeAttachments.filter(isAttachmentStaged).length;
 
   const domainProjectsList = workspace.listProjects();
   const projectMeta = currentContainer?.metadata ?? {

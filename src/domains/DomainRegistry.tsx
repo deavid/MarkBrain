@@ -1,3 +1,8 @@
+/**
+ * DomainRegistry — the composition root: it builds the domains, owns the app
+ * shell state, and wires the cross-layer dependencies (Phase 6: vpsSync's
+ * flush and the vault re-arm transport are handed in from here).
+ */
 import React, { createContext, useContext, useMemo, useRef, useEffect, useCallback, useState } from 'react';
 import { WorkspaceDomain, IWorkspaceDomain } from './00-workspace';
 import { DialogueTimelineDomain, IDialogueTimelineDomain } from './01-dialogue-timeline';
@@ -30,7 +35,13 @@ import { queueServerMutation, flushServerMutations } from '../application/server
 import { getWorkspaceMode, isOfflineReplica, type KnownReplica } from '../services/workspaceSession';
 import { initVpsSync, replayOutbox } from '../services/vpsSync';
 import { getAllRecords, OUTBOX_CHANGED_EVENT } from '../services/offlineOutbox';
+import { setVaultReArmTransport } from '../data/vaultReArm';
+import { apiFetch } from '../gateway/api';
 import type { WorkspaceUser } from '../types';
+
+// Composition-root wiring (Phase 6): data/vaultReArm holds the re-arm INTENT
+// but never imports the gateway itself — the transport is handed in here.
+setVaultReArmTransport(apiFetch);
 
 export interface DomainContextValue {
   workspace: IWorkspaceDomain;
@@ -169,7 +180,10 @@ export const DomainProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Offline replica mode: replayOutbox must no-op (no network, and the mirror
   // was opened stale — pushing its edits would clobber server-side changes).
   useEffect(() => {
-    initVpsSync();
+    // Composition root wiring (Phase 6): the outbox flush lives in
+    // src/application — vpsSync receives it as an explicit dependency instead
+    // of reaching up into the application layer.
+    initVpsSync({ flushServerMutations });
   }, []);
   useEffect(() => {
     if (!authInitialized || getWorkspaceMode() !== 'vps' || isOfflineReplica()) return;

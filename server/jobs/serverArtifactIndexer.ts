@@ -13,6 +13,7 @@ import { OpenRouterClient, isOpenRouterModel } from '../providers/openrouter';
 import { getDb } from '../db/index';
 import { resolveServerLaneKey, isVaultUnlocked, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { requireModelId, defaultModelFor } from '../lib/models';
+import { readSettings } from '../lib/settings';
 import { logServer } from '../lib/log';
 import { splitArtifactIntoSections } from '../../shared/utils/sectionChunker';
 import { buildQaPrompt, parseQaPairs, type QaSectionPayload } from '../../shared/prompts/lanes';
@@ -105,11 +106,10 @@ function l2(v: number[]): number[] {
 /** The user's own embed slot (Model Settings), falling back to the lane default. */
 function userEmbedModel(userId: number): string {
   try {
-    // Lazy require: routes/account imports this module at load time, a static
-    // import would cycle. Kept in try/catch — if settings are unreadable the
+    // lib/settings is the shared home for the user_settings storage — the old
+    // lazy require('../routes/account') here existed only to dodge a circular
+    // import and is dead. Kept in try/catch — if settings are unreadable the
     // lane default is the honest fallback, never a crash.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { readSettings } = require('../routes/account') as typeof import('../routes/account');
     const { modelSlots } = readSettings(userId);
     const id = modelSlots['embed'];
     return typeof id === 'string' && id ? requireModelId(id, 'embed') : defaultModelFor('embed');

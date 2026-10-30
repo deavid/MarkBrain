@@ -1,3 +1,8 @@
+/**
+ * ChatView — the chat feed shell: chapter sections, drafts, staged tray, and
+ * the composer. (Phase 6: the dead elapsed-seconds timer and unused lastGroup
+ * binding left over from Phase 5 are gone.)
+ */
 import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { isOnline, subscribeOnline } from '../../application/connectivity';
 import {
@@ -163,27 +168,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onRecalibrateChapter,
 }) => {
   const [feedScrolled, setFeedScrolled] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevMessagesCountRef = useRef<number>(0);
   const totalMessagesCount = (chapters || []).reduce(
     (acc, grp) => acc + (grp.turns ? grp.turns.length : 0),
     0
   );
-  useEffect(() => {
-    let timer: any = null;
-    if (isLoading) {
-      setElapsedSeconds(0);
-      timer = setInterval(() => {
-        setElapsedSeconds((s) => s + 1);
-      }, 1000);
-    } else {
-      setElapsedSeconds(0);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [isLoading]);
   const online = useSyncExternalStore(subscribeOnline, isOnline);
   // Per-message voice playback (device cache scan, download-and-cache, transport).
   const { playingMessageId, ttsLoadingId, cachedIds, ttsFailedIds, handlePlayTTS } = useMessageTts(
@@ -330,7 +320,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setDeclaringMessageId(null);
     setNewChapterTitle('');
   };
-  const lastGroup = chapters[chapters.length - 1];
   const lastAssistantMessageId = (() => {
     for (let i = chapters.length - 1; i >= 0; i--) {
       const turns = chapters[i].turns;

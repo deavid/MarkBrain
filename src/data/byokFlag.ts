@@ -10,6 +10,9 @@
  *
  * Read through a function (not a constant) so tests can exercise both sides —
  * a define()'d literal cannot be flipped at test runtime.
+ *
+ * SHIPPED WITH A TEST SEAM (named, not hidden): setByokEnabledForTests flips
+ * the flag for the whole page — only tests may call it.
  */
 let enabled: boolean = import.meta.env.VITE_BYOK === '1';
 

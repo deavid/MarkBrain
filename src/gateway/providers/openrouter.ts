@@ -17,7 +17,7 @@ import type {
 } from './types';
 import { errorResponse, jsonResponse, sseStreamResponse } from './types';
 import { l2Normalize } from '../../domains/search/draftSearchEngine';
-import { recordCallStart, recordCallAck, recordCallFirstToken, recordCallEnd } from '../../services/callLogStore';
+import { noopCallRecorder, type CallRecorder } from '../recorder';
 
 /**
  * The streamChat wire body + flight-recorder milestones (design-docs/28
@@ -27,7 +27,8 @@ import { recordCallStart, recordCallAck, recordCallFirstToken, recordCallEnd } f
 async function streamOpenRouterChat(
   params: StreamChatParams,
   emit: (event: string, data: unknown) => void,
-  callId: string
+  callId: string,
+  recorder: CallRecorder
 ): Promise<{ raw: string; usage?: { input: number; output: number } }> {
   const messages = [
     ...(params.systemInstruction
@@ -58,7 +59,7 @@ async function streamOpenRouterChat(
 
   // THE ACK BEFORE FIRST TOKEN: the provider accepted the stream — from
   // here on "the model is thinking" is true.
-  recordCallAck(callId);
+  recorder.ack(callId);
   emit('status', {
     state: 'connected',
     message: `Connected to ${params.model} — awaiting first token`,
@@ -94,7 +95,7 @@ async function streamOpenRouterChat(
         if (delta) {
           if (!wrote) {
             wrote = true;
-            recordCallFirstToken(callId);
+            recorder.firstToken(callId);
             emit('status', {
               state: 'writing',
               message: `Writing response with ${params.model}...`,
@@ -118,7 +119,7 @@ async function streamOpenRouterChat(
       }
     }
   }
-  recordCallEnd(callId, { status: 'ok', responseText: raw, usage: usage ?? null });
+  recorder.end(callId, { status: 'ok', responseText: raw, usage: usage ?? null });
   return { raw, usage };
 }
 
@@ -173,11 +174,11 @@ export const openrouterAdapter: ProviderAdapter = {
     }
   },
 
-  async streamChat(params: StreamChatParams): Promise<Response> {
+  async streamChat(params: StreamChatParams, recorder: CallRecorder = noopCallRecorder): Promise<Response> {
     return sseStreamResponse(async (emit) => {
       // Local-mode flight recorder (design-docs/28 §4.3) — the request is
-      // scrubbed inside recordCallStart (the apiKey lives in params/headers).
-      const callId = recordCallStart({
+      // scrubbed inside recorder.start (the apiKey lives in params/headers).
+      const callId = recorder.start({
         kind: 'chat',
         provider: 'openrouter',
         model: params.model,
@@ -190,9 +191,9 @@ export const openrouterAdapter: ProviderAdapter = {
         },
       });
       try {
-        return await streamOpenRouterChat(params, emit, callId);
+        return await streamOpenRouterChat(params, emit, callId, recorder);
       } catch (err: unknown) {
-        recordCallEnd(callId, { status: 'error', error: err instanceof Error ? err.message : String(err) });
+        recorder.end(callId, { status: 'error', error: err instanceof Error ? err.message : String(err) });
         throw err;
       }
     }, params.model);

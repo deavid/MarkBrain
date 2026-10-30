@@ -27,7 +27,6 @@
 import { logger } from '../utils/logger';
 import { apiFetch } from '../gateway/api';
 import { getWorkspaceMode, getVpsSession } from './workspaceSession';
-import { flushServerMutations } from '../application/serverMutationQueue';
 import { localLoadProject, localPutProject } from './localBackend';
 import {
   getAllRecords,
@@ -93,11 +92,23 @@ export function mergeSnapshot(
   return merged;
 }
 
+/**
+ * Explicit dependency handed in from above (Phase 6 layering): the flush of
+ * the persistent mutation queue lives in src/application — a service must not
+ * reach up into it, so the composition root passes it in via initVpsSync.
+ */
+export interface VpsSyncDeps {
+  flushServerMutations: (projectId: string) => Promise<void>;
+}
+
+let syncDeps: VpsSyncDeps | null = null;
+
 async function replayOne(rec: OutboxRecord): Promise<'synced' | 'failed'> {
   // Entity deletions made offline ride the persistent mutation queue (see
   // offlineOutbox header) — flush them FIRST so the GET below sees the
   // post-tombstone server state and the merge cannot resurrect deleted rows.
-  await flushServerMutations(rec.projectId);
+  if (!syncDeps) throw new Error('vpsSync: flushServerMutations dependency not wired — call initVpsSync(deps) first');
+  await syncDeps.flushServerMutations(rec.projectId);
   const mirror = await localLoadProject(rec.projectId);
   if (!mirror) {
     // Mirror record gone (project deleted online → delete() cleared this; or
@@ -189,7 +200,10 @@ let initialized = false;
  * Wire the event triggers. Called once from the app shell (idempotent).
  * Event-driven only: 'online' + one attempt on boot. No timers.
  */
-export function initVpsSync(): void {
+export function initVpsSync(deps: VpsSyncDeps): void {
+  // Deps are recorded even in non-window (node test) environments — replay
+  // must work wherever the outbox does. The event listeners stay browser-only.
+  syncDeps = deps;
   if (initialized || typeof window === 'undefined') return;
   initialized = true;
   window.addEventListener('online', () => {

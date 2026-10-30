@@ -7,6 +7,7 @@
  * and no call site learns which happened. This is the whole trick; do not
  * "improve" call sites to talk provider dialect.
  */
+import type { CallRecorder } from '../recorder';
 
 export interface GenerateParams {
   apiKey: string;
@@ -38,12 +39,18 @@ export interface TtsParams {
   voice: string;
 }
 
+/**
+ * The flight recorder is injected (Phase 6): adapters record through the
+ * CallRecorder interface, never importing src/services themselves. Optional
+ * with a no-op default so direct unit-test calls need no wiring; the app
+ * always passes the real recorder from gateway/api.ts.
+ */
 export interface ProviderAdapter {
   id: 'gemini' | 'openrouter';
   /** Blocking text generation. Body: `{ text, usage? }`. */
   generate(params: GenerateParams): Promise<Response>;
   /** SSE stream in the app's `event: status|chunk|complete|done` vocabulary. */
-  streamChat(params: StreamChatParams): Promise<Response>;
+  streamChat(params: StreamChatParams, recorder?: CallRecorder): Promise<Response>;
   /** Body: `{ embeddings: number[][], offline?: boolean }`. */
   embed(params: EmbedParams): Promise<Response>;
   /** Body: `{ audioData, mimeType, cleanSpokenText }` or `{ fallback: true, … }`. */

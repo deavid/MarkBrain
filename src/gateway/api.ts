@@ -25,6 +25,10 @@ import {
   recordCallFirstToken,
   recordCallEnd,
 } from '../services/callLogStore';
+// Phase 6: this is the ONE callLogStore import left in the gateway — api.ts is
+// the wiring point. It builds the real recorder and hands it down to the
+// direct adapters, which record through the CallRecorder interface only.
+import type { CallRecorder } from './recorder';
 import {
   directChatStream,
   directEmbed,
@@ -35,6 +39,14 @@ import {
   directTts,
 } from './direct';
 
+
+/** The real recorder, built once here and handed down to the direct adapters. */
+const callRecorder: CallRecorder = {
+  start: recordCallStart,
+  ack: recordCallAck,
+  firstToken: recordCallFirstToken,
+  end: recordCallEnd,
+};
 
 /* ------------------------------------------------- capture-mode fake stream */
 
@@ -348,7 +360,7 @@ export function extractArtifactFromFile(
 ): Promise<Response> {
   const key = resolveLaneKey('extract', params.model || 'gemini-3.5-flash-lite');
   if (key && params.model && !inVpsMode()) {
-    return directExtractArtifact(key, { ...params, model: params.model });
+    return directExtractArtifact(key, { ...params, model: params.model }, callRecorder);
   }
   return apiFetch('/api/extract-artifact-from-file', {
     method: 'POST',
@@ -421,11 +433,15 @@ export function chatStream(
   }
   const key = resolveLaneKey('chat', payload.model || 'gemini-3.5-flash-lite');
   if (key && payload.model && !inVpsMode()) {
-    return directChatStream(key, {
-      model: payload.model,
-      compiledPrompt: payload.compiledPrompt || '',
-      systemInstruction: payload.systemInstruction,
-    });
+    return directChatStream(
+      key,
+      {
+        model: payload.model,
+        compiledPrompt: payload.compiledPrompt || '',
+        systemInstruction: payload.systemInstruction,
+      },
+      callRecorder
+    );
   }
   return apiFetch('/api/chat/stream', {
     method: 'POST',
@@ -445,11 +461,15 @@ export interface TitleThreadRequest {
 export function titleThread(params: TitleThreadRequest): Promise<Response> {
   const key = resolveLaneKey('title', params.model || 'gemini-3.5-flash-lite');
   if (key && params.model && !inVpsMode()) {
-    return directTitleThread(key, {
-      messages: params.messages,
-      version: params.version,
-      model: params.model,
-    });
+    return directTitleThread(
+      key,
+      {
+        messages: params.messages,
+        version: params.version,
+        model: params.model,
+      },
+      callRecorder
+    );
   }
   return apiFetch('/api/title-thread', {
     method: 'POST',
@@ -488,12 +508,16 @@ export interface GenerateArtifactQaRequest {
 export function generateArtifactQa(params: GenerateArtifactQaRequest): Promise<Response> {
   const key = resolveLaneKey('qaGen', params.model || 'gemini-3.5-flash-lite');
   if (key && params.model && !inVpsMode()) {
-    return directGenerateQa(key, {
-      title: params.title,
-      subtitle: params.subtitle,
-      sections: params.sections.map((s) => ({ id: s.id, heading: s.heading, text: s.text })),
-      model: params.model,
-    });
+    return directGenerateQa(
+      key,
+      {
+        title: params.title,
+        subtitle: params.subtitle,
+        sections: params.sections.map((s) => ({ id: s.id, heading: s.heading, text: s.text })),
+        model: params.model,
+      },
+      callRecorder
+    );
   }
   return apiFetch('/api/search-index/generate-qa', {
     method: 'POST',
@@ -513,7 +537,7 @@ export interface EmbedTextsRequest {
 export function embedTexts(params: EmbedTextsRequest): Promise<Response> {
   const key = resolveLaneKey('embed', params.model || DEFAULT_MODEL_SLOTS.embed);
   if (key && params.model && !inVpsMode()) {
-    return directEmbed(key, { ...params, model: params.model });
+    return directEmbed(key, { ...params, model: params.model }, callRecorder);
   }
   return apiFetch('/api/search-index/embed', {
     method: 'POST',
@@ -544,12 +568,16 @@ export async function summarizeChapter(
 ): Promise<Response> {
   const key = resolveLaneKey('summarize', params.model || 'gemini-3.5-flash-lite');
   if (key && params.model && !inVpsMode()) {
-    return directSummarizeChapter(key, {
-      title: params.title,
-      messages: params.messages,
-      steeringPrompt: params.steeringPrompt,
-      model: params.model,
-    });
+    return directSummarizeChapter(
+      key,
+      {
+        title: params.title,
+        messages: params.messages,
+        steeringPrompt: params.steeringPrompt,
+        model: params.model,
+      },
+      callRecorder
+    );
   }
   const controller = new AbortController();
   const timer = setTimeout(

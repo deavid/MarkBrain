@@ -1,29 +1,31 @@
 /**
  * design 25 client side — the tab-held rearm key + the shared lock signal.
  *
- * Pure unit tests: gateway/apiFetch MOCKED (no network), no server needed.
+ * Pure unit tests: the transport is INJECTED (no network), no server needed.
+ * (Phase 6: vaultReArm no longer imports gateway/api — the transport comes in
+ * via setVaultReArmTransport, so the fake is wired through that seam now.)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockState = vi.hoisted(() => ({ fail: false as boolean | number }));
-vi.mock('../gateway/api', () => ({
-  apiFetch: async (_path: string, init?: { body?: string }) => {
-    if (typeof mockState.fail === 'number') return { ok: false, status: mockState.fail } as Response;
-    if (mockState.fail === true) throw new Error('offline');
-    expect(init?.body).toBeTruthy();
-    return { ok: true, status: 200 } as Response;
-  },
-}));
 
 const {
   rememberReArmKey,
   getReArmKey,
   forgetReArmKey,
   tryReArmVault,
+  setVaultReArmTransport,
   isVaultLocked,
   setVaultLocked,
   subscribeVaultLock,
 } = await import('../data/vaultReArm');
+
+setVaultReArmTransport(async (_path: string, init?: RequestInit) => {
+  if (typeof mockState.fail === 'number') return { ok: false, status: mockState.fail } as Response;
+  if (mockState.fail === true) throw new Error('offline');
+  expect(init?.body).toBeTruthy();
+  return { ok: true, status: 200 } as Response;
+});
 
 describe('vaultReArm — the tab-held derived key', () => {
   beforeEach(() => {

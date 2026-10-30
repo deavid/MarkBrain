@@ -330,6 +330,8 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     setVpsUnlockPw('');
     loadVpsSettings();
     logger.action('ModelSettings', 'VPS vault unlocked');
+    // Confirm the fresh server state NOW — not on the next 10s poll.
+    window.dispatchEvent(new Event('markbrain:sync-now'));
   };
 
   const handleVpsPasswordChange = async () => {
@@ -353,6 +355,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({ isOpen, 
     setVpsPwConfirm('');
     setVaultLocked(false);
     setVpsPwOk(true);
+    window.dispatchEvent(new Event('markbrain:sync-now'));
     setVpsPwMsg(
       body.keysPreserved === false
         ? 'Password changed — saved API keys could not be carried over. Re-enter them below.'

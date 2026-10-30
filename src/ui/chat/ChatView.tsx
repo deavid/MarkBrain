@@ -677,6 +677,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
       }
       setComposerPw('');
       setComposerUnlockOpen(false);
+      // Confirm the fresh server state (keys configured, tier, lock) NOW —
+      // not on the next 10s poll.
+      window.dispatchEvent(new Event('markbrain:sync-now'));
     } catch {
       setComposerUnlockErr('Unlock failed — try again.');
     } finally {

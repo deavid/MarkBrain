@@ -14,7 +14,7 @@
 import { getWorkspaceMode } from '../services/workspaceSession';
 import { isCaptureMode } from '../services/persistenceService';
 import { resolveLaneKey } from './keySlots';
-import { isVaultLocked } from './vaultReArm';
+import { isVaultLocked, subscribeVaultLock } from './vaultReArm';
 
 export type SendBlockReason = 'vault-locked' | 'no-key';
 
@@ -91,3 +91,11 @@ export function evaluateSendReadiness(modelId: string): SendReadiness {
   if (!isKeyConfiguredForModel(modelId)) return { ok: false, reason: 'no-key' };
   return { ok: true, reason: null };
 }
+
+// The vault lock is an INPUT to readiness — but useSyncExternalStore only
+// re-renders when THIS store's version bumps, and that used to happen only on
+// the 10s poll's settings fetch. Live 2026-10-30: unlocking the vault flipped
+// the lock bus instantly while the amber send-padlock stayed several seconds.
+// Subscribe: every lock flip (unlock popup, Model Settings, silent re-arm)
+// re-evaluates readiness NOW.
+subscribeVaultLock(() => notifyReadiness());

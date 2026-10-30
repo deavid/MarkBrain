@@ -17,6 +17,7 @@ vi.mock('../data/keySlots', () => ({
 }));
 vi.mock('../data/vaultReArm', () => ({
   isVaultLocked: () => vaultLocked,
+  subscribeVaultLock: () => () => {},
 }));
 vi.mock('../services/persistenceService', () => ({
   isCaptureMode: () => captureMode,

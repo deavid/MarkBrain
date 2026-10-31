@@ -172,7 +172,7 @@ function fixtureChatStream(
       }
       recordCallEnd(callId, failsOnce
         ? { status: 'error', error: 'Fixture failure injected (capture mode).' }
-        : { status: 'ok', responseText: rawReply, usage: { promptTokens: Math.round(prompt.length / 4), completionTokens: Math.round(rawReply.length / 4) } });
+        : { status: 'ok', responseText: rawReply, usage: { promptTokens: Math.round(prompt.length / 4), completionTokens: Math.round(rawReply.length / 4) }, usageEstimated: true });
       controller.close();
     },
   });
@@ -398,8 +398,10 @@ export function clearServerLogs(): Promise<Response> {
 
 /** GET /api/logs/calls — the caller's own API call log, newest first.
  *  `job` narrows the flight recorder to one chat job (per-message receipts). */
-export function listApiCallLogs(limit = 50, job?: string): Promise<Response> {
-  return apiFetch(`/api/logs/calls?limit=${limit}${job ? `&job=${encodeURIComponent(job)}` : ''}`);
+export function listApiCallLogs(limit = 50, job?: string, turn?: string): Promise<Response> {
+  return apiFetch(
+    `/api/logs/calls?limit=${limit}${job ? `&job=${encodeURIComponent(job)}` : ''}${turn ? `&turn=${encodeURIComponent(turn)}` : ''}`
+  );
 }
 
 /** GET /api/logs/calls/:id — full record, 404 when it belongs to someone else. */

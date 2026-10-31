@@ -66,7 +66,8 @@ import { isLocalVaultLockedError, resolveLaneKey } from '../data/keySlots';
 import { isVaultLocked, getReArmKey, tryReArmVault } from '../data/vaultReArm';
 import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../domains/03-stream-protocol';
 import type { ExtractedLink, ExtractedUnlink } from '../../shared/stream/types';
-import { planTurnCommit, type TurnCommitPlan } from '../../shared/turnCommit/planTurnCommit';
+import { planTurnCommit, callOutcome, type TurnCommitRequest, type TurnCommitPlan } from '../../shared/turnCommit/planTurnCommit';
+import { recordCallOutcome } from '../services/callLogStore';
 
 /** App render values, snapshotted once when an attempt starts (see the header). */
 export interface TurnSendContext {
@@ -806,7 +807,7 @@ export class SendQueue {
     // Phase 3: the DECISIONS live in the shared pure planner — the same code
     // the server commit path runs. This side only gathers the world as the
     // live domains see it and applies the returned plan.
-    const plan = planTurnCommit({
+    const commitReq: TurnCommitRequest = {
       kind: 'send',
       threadId,
       pairKey: item.id,
@@ -831,8 +832,13 @@ export class SendQueue {
         threadTurnsCount: this.turnsOf(deps, threadId).length,
         chapters: this.chaptersOf(deps, threadId),
       },
-    });
+    };
+    const plan = planTurnCommit(commitReq);
     this.applyTurnCommitPlan(deps, threadId, plan);
+    // The flight-recorder outcome (plan doc 30 Phase 4): what the demuxer
+    // extracted and what THIS commit did with it. Local mode stores it in
+    // IndexedDB; the inspector's Extracted-actions view reads it.
+    recordCallOutcome(meta.callId ?? item.callId ?? null, callOutcome(commitReq, plan));
     logger.info('App', 'Pair committed', {
       threadId,
       model: meta.model,
@@ -1246,7 +1252,7 @@ export class SendQueue {
 
     // Phase 3: same planner as send and as the server — the plan merges into
     // the existing turn doc (the ask and the turn id stay: same pair).
-    const plan = planTurnCommit({
+    const commitReq: TurnCommitRequest = {
       kind: 'regenerate',
       threadId,
       pairKey: item.id,
@@ -1271,8 +1277,10 @@ export class SendQueue {
         threadTurnsCount: turns.length,
         chapters: this.chaptersOf(deps, threadId),
       },
-    });
+    };
+    const plan = planTurnCommit(commitReq);
     this.applyTurnCommitPlan(deps, threadId, plan);
+    recordCallOutcome(meta.callId ?? item.callId ?? null, callOutcome(commitReq, plan));
     logger.info('App', 'Pair reply replaced (regenerate)', {
       threadId,
       turnId: targetTurnId,

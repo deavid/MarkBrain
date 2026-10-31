@@ -445,7 +445,7 @@ export async function runJob(jobId: string): Promise<void> {
 
     getDb().prepare('DELETE FROM chat_jobs WHERE job_id = ?').run(jobId);
     // Link the recorder row to the committed assistant turn (pack §4.2).
-    recordCallEnd(callLogId, { status: 'ok', responseText: raw, reasoningText: reasoningAccum, textChunks, reasoningChunks, usage, turnId: assistantTurnId });
+    recordCallEnd(callLogId, { status: 'ok', responseText: raw, reasoningText: reasoningAccum, textChunks, reasoningChunks, usage, usageEstimated: usage == null, turnId: assistantTurnId });
     kickNextQueuedOnThread(job.thread_id, job.project_id, job.user_id);
     broadcast(ctx, 'complete', { type: 'complete', revision, userTurnId, assistantTurnId });
     closeSubscribers(ctx);

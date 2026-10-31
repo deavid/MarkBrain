@@ -19,6 +19,7 @@ import {
   type ApiCallLog,
   type ApiCallLogRequest,
   type ApiCallStatus,
+  type CallOutcome,
 } from '../domains/callLogTypes';
 
 const DB_NAME = 'markbrain-call-logs';
@@ -150,8 +151,11 @@ export interface LocalRecordCallEndInput {
   reasoningChunks?: number | null;
   httpStatus?: number | null;
   usage?: unknown | null;
+  /** True when `usage` is our estimate; false/absent when the provider reported it. */
+  usageEstimated?: boolean | null;
   error?: string | null;
   turnId?: string | null;
+  outcome?: CallOutcome | null;
 }
 
 export function recordCallEnd(id: string | null, extra: LocalRecordCallEndInput): void {
@@ -165,9 +169,21 @@ export function recordCallEnd(id: string | null, extra: LocalRecordCallEndInput)
     reasoningChunks: extra.reasoningChunks ?? null,
     httpStatus: extra.httpStatus ?? null,
     usage: extra.usage === undefined ? null : extra.usage ?? null,
+    usageEstimated: extra.usageEstimated === undefined ? null : extra.usageEstimated,
     error: extra.error ? extra.error.slice(0, ERROR_CAP) : null,
     turnId: extra.turnId ?? null,
+    outcome: extra.outcome === undefined ? null : extra.outcome,
   });
+}
+
+/**
+ * Patch the demux/commit outcome into the row AFTER the commit (plan doc 30
+ * Phase 4): the recorder ends at stream end, but the planner decisions only
+ * exist once the pair commits. No-op when the row is gone.
+ */
+export function recordCallOutcome(id: string | null, outcome: CallOutcome | null): void {
+  if (!id || !outcome) return;
+  void patch(id, { outcome });
 }
 
 async function patch(id: string, fields: Partial<ApiCallLog>): Promise<void> {
@@ -189,9 +205,10 @@ async function pruneOld(): Promise<void> {
   });
 }
 
-export async function listCallLogs(limit = 50): Promise<ApiCallLog[]> {
+export async function listCallLogs(limit = 50, turnId?: string): Promise<ApiCallLog[]> {
   const rows = (await withStore('readonly', (store) => store.getAll() as IDBRequest<ApiCallLog[]>)) ?? [];
   return rows
+    .filter((r) => !turnId || r.turnId === turnId)
     .sort((a, b) => b.tSend - a.tSend)
     .slice(0, Math.max(1, limit));
 }

@@ -61,13 +61,56 @@ export interface ApiCallLog {
   /** The provider's HTTP status when the wire is raw fetch; null when the SDK hides it. */
   httpStatus: number | null;
   usage: unknown | null;
+  /** True when `usage` is our estimate, false/absent when the provider reported it. */
+  usageEstimated?: boolean | null;
   error: string | null;
   jobId: string | null;
   turnId: string | null;
+  /** What the demuxer extracted and what the commit planner did with it. */
+  outcome?: CallOutcome | null;
+}
+
+/**
+ * What the demuxer extracted from a reply AND what the commit planner did
+ * with it (plan doc 30 Phase 4). Derived PURELY from the planner request +
+ * plan (shared/turnCommit), so the client and server commit paths record
+ * the same truth. Stored on the flight-recorder row so the inspector's
+ * "Extracted actions" view shows applied/ignored AND WHY.
+ */
+export interface CallOutcomeTopicShift {
+  title: string;
+  applied: boolean;
+  reason: string;
+}
+
+export interface CallOutcomeArtifact {
+  /** The slug/file name the model emitted. */
+  file: string;
+  title: string;
+  result: 'created' | 'updated' | 'dropped';
+  reason: string;
+}
+
+export interface CallOutcomeLink {
+  action: 'link' | 'unlink';
+  sourceFile: string;
+  targetFile: string;
+  kind: string;
+  applied: boolean;
+  reason: string;
+}
+
+export interface CallOutcome {
+  topicShift: CallOutcomeTopicShift | null;
+  artifacts: CallOutcomeArtifact[];
+  links: CallOutcomeLink[];
+  /** The clean (tags-stripped) reply that landed in the chat bubble. */
+  cleanReply: string;
+  rawChars: number;
+  cleanChars: number;
 }
 
 /* ── secrets scrubbing ───────────────────────────────────────────────────── */
-
 /**
  * Keys that must never be persisted. Matched case-insensitively on the LAST
  * path segment of any object key, so `headers.Authorization`, `apiKey`,
@@ -151,5 +194,64 @@ export function callDurations(log: Pick<ApiCallLog, 'tSend' | 'tAck' | 'tFirstTo
     ackMs: log.tAck !== null ? log.tAck - log.tSend : null,
     ttftMs: log.tFirstToken !== null ? log.tFirstToken - log.tSend : null,
     totalMs: log.tEnd !== null ? log.tEnd - log.tSend : null,
+  };
+}
+
+/**
+ * Token in/out from a provider usage blob — the recorder stores the provider's
+ * EXACT usage JSON (gemini `usageMetadata`, openrouter `usage`, our normalized
+ * telemetry), so the inspector reads every common shape and never guesses.
+ * Unknown shapes render as —, never as invented numbers.
+ */
+export function usageTokens(usage: unknown): { in: number | null; out: number | null } {
+  if (!usage || typeof usage !== 'object') return { in: null, out: null };
+  const u = usage as Record<string, unknown>;
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  return {
+    in: num(u.promptTokenCount) ?? num((u as any).prompt_tokens) ?? num((u as any).inputTokens),
+    out: num(u.candidatesTokenCount) ?? num((u as any).completion_tokens) ?? num((u as any).outputTokens),
+  };
+}
+
+/* ── phase math (pure, shared by the inspector) ──────────────────────────── */
+
+export interface CallPhases extends CallDurations {
+  /** tSend → tFirstReasoning. */
+  firstReasoningMs: number | null;
+  /** tFirstReasoning → tFirstToken (thinking ends when visible text starts). */
+  thinkingMs: number | null;
+  /** tFirstToken → tEnd (the writing phase). */
+  writingMs: number | null;
+  reasoningChars: number;
+  responseChars: number;
+  /** reasoning chars per second over the thinking phase. */
+  reasoningCharsPerSec: number | null;
+  /** response chars per second over the writing phase. */
+  responseCharsPerSec: number | null;
+}
+
+export function callPhases(
+  log: Pick<
+    ApiCallLog,
+    'tSend' | 'tAck' | 'tFirstReasoning' | 'tFirstToken' | 'tEnd' | 'reasoningText' | 'responseText'
+  >
+): CallPhases {
+  const firstReasoningMs = log.tFirstReasoning !== null ? log.tFirstReasoning - log.tSend : null;
+  const thinkingMs =
+    log.tFirstReasoning !== null && log.tFirstToken !== null ? log.tFirstToken - log.tFirstReasoning : null;
+  const writingMs = log.tFirstToken !== null && log.tEnd !== null ? log.tEnd - log.tFirstToken : null;
+  const reasoningChars = (log.reasoningText ?? '').length;
+  const responseChars = (log.responseText ?? '').length;
+  const rate = (chars: number, ms: number | null): number | null =>
+    ms && ms > 0 && chars > 0 ? chars / (ms / 1000) : null;
+  return {
+    ...callDurations(log),
+    firstReasoningMs,
+    thinkingMs,
+    writingMs,
+    reasoningChars,
+    responseChars,
+    reasoningCharsPerSec: rate(reasoningChars, thinkingMs),
+    responseCharsPerSec: rate(responseChars, writingMs),
   };
 }

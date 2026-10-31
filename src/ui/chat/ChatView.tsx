@@ -87,6 +87,8 @@ export interface ChatViewProps {
     progress?: DraftProgress;
     /** Design 23 §2.3: machine-readable exit (VAULT_LOCKED → unlock row). */
     errorCode?: string;
+    /** Flight-recorder row id of this attempt (inspector linkage, plan 30). */
+    callId?: string;
   }>;
   onRetryDraft?: (id: string) => void;
   onStoreAsIsDraft?: (id: string) => void;
@@ -625,6 +627,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         onRetryDraft={onRetryDraft}
         onStoreAsIsDraft={onStoreAsIsDraft}
         onDiscardDraft={onDiscardDraft}
+        onInspectCall={onInspectCall}
       />
 
 

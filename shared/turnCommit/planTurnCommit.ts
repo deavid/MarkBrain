@@ -34,6 +34,7 @@ import type {
   ExtractedLink,
   ExtractedUnlink,
 } from '../stream/types';
+import type { CallOutcome, CallOutcomeArtifact, CallOutcomeLink } from '../types/callLog';
 import { artifactFileName } from '../artifactFileName';
 import { getMellowPastelColor } from '../colors';
 
@@ -460,5 +461,84 @@ export function planTurnCommit(req: TurnCommitRequest): TurnCommitPlan {
     edgeDeletes,
     receipts,
     threadTouch: { lastOutcome: 'ok', lastActivityAt: now, preview: req.askText.slice(0, 100) },
+  };
+}
+
+/* ── The flight-recorder OUTCOME (plan doc 30 Phase 4) ────────────────────── */
+
+/**
+ * Derive what the demuxer extracted and what THIS plan did with it — the
+ * inspector's "Extracted actions" data. PURE: same request + plan in, same
+ * outcome out. The reasons are human sentences, not codes: the inspector
+ * shows them verbatim.
+ */
+export function callOutcome(req: TurnCommitRequest, plan: TurnCommitPlan): CallOutcome {
+  const caps = req.capabilities;
+
+  /* Topic shift: the plan carries the applied op; silence + a parsed shift
+     means the capability was off (the planner only builds chapterOp when
+     autoChapter is ON). */
+  let topicShift: CallOutcome['topicShift'] = null;
+  if (plan.chapterOp) {
+    const op = plan.chapterOp;
+    const reason = op.boundaryToRetitle
+      ? 'retitled the existing chapter at this ask'
+      : op.chapterToSeal
+        ? 'sealed the previous chapter and opened a new one'
+        : 'opened a new chapter';
+    topicShift = { title: op.shift.title, applied: true, reason };
+  } else if (req.topicShift) {
+    topicShift = { title: req.topicShift.title, applied: false, reason: 'autoChapter is off' };
+  }
+
+  /* Artifacts: created / updated / dropped (and why). */
+  const artifacts: CallOutcomeArtifact[] = req.artifactUpserts.map((u) => {
+    if (!caps.writeArtifacts) {
+      return { file: u.id, title: u.title, result: 'dropped', reason: 'writeArtifacts is off' };
+    }
+    const code = u.id || artifactCode(u.title);
+    const op = plan.artifactOps.find((o) => o.artifact.code === code || o.artifact.id === u.id);
+    if (!op) {
+      return { file: u.id, title: u.title, result: 'dropped', reason: 'the planner produced no op for it' };
+    }
+    return {
+      file: u.id,
+      title: u.title,
+      result: op.isNew ? 'created' : 'updated',
+      reason: op.isNew
+        ? `created as "${op.artifact.title}"`
+        : `updated "${op.artifact.title}" (previous layers snapshotted in the revision)`,
+    };
+  });
+
+  /* Links/unlinks: the receipts already carry applied + resolved ids. */
+  const links: CallOutcomeLink[] = plan.receipts.map((r) => {
+    let reason: string;
+    if (r.applied) {
+      reason = r.action === 'link' ? 'edge written to the graph' : 'edge removed from the graph';
+    } else if (!caps.graphLinks) {
+      reason = 'graphLinks is off';
+    } else if (!r.sourceId || !r.targetId) {
+      reason = 'file name did not resolve to an artifact';
+    } else {
+      reason = 'source and target are the same note';
+    }
+    return {
+      action: r.action === 'unlink' ? 'unlink' : 'link',
+      sourceFile: r.sourceFile,
+      targetFile: r.targetFile,
+      kind: r.kind || '',
+      applied: r.applied,
+      reason,
+    };
+  });
+
+  return {
+    topicShift,
+    artifacts,
+    links,
+    cleanReply: plan.assistantTurn.content ?? '',
+    rawChars: req.cleanReply.length,
+    cleanChars: (plan.assistantTurn.content ?? '').length,
   };
 }

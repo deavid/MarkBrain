@@ -24,6 +24,7 @@ import {
   type ApiCallLog,
   type ApiCallLogRequest,
   type ApiCallStatus,
+  type CallOutcome,
 } from '../../shared/types/callLog';
 
 /** Cap what a single row can hold — a runaway model reply must not bloat the DB. */
@@ -150,8 +151,12 @@ export interface RecordCallEndInput {
   reasoningChunks?: number | null;
   httpStatus?: number | null;
   usage?: unknown | null;
+  /** True when `usage` is our estimate; false/absent when the provider reported it. */
+  usageEstimated?: boolean | null;
   error?: string | null;
   turnId?: string | null;
+  /** What the demuxer extracted and what the commit planner did with it. */
+  outcome?: CallOutcome | null;
 }
 
 export function recordCallEnd(id: string | null, extra: RecordCallEndInput): void {
@@ -160,8 +165,8 @@ export function recordCallEnd(id: string | null, extra: RecordCallEndInput): voi
     getDb()
       .prepare(
         `UPDATE api_call_logs SET t_end = ?, status = ?, response_text = ?, reasoning_text = ?,
-          text_chunks = ?, reasoning_chunks = ?, http_status = ?, usage_json = ?,
-          error_text = ?, turn_id = COALESCE(?, turn_id) WHERE id = ?`
+          text_chunks = ?, reasoning_chunks = ?, http_status = ?, usage_json = ?, usage_estimated = ?,
+          error_text = ?, turn_id = COALESCE(?, turn_id), outcome_json = COALESCE(?, outcome_json) WHERE id = ?`
       )
       .run(
         Date.now(),
@@ -172,12 +177,31 @@ export function recordCallEnd(id: string | null, extra: RecordCallEndInput): voi
         extra.reasoningChunks ?? null,
         extra.httpStatus ?? null,
         extra.usage === undefined || extra.usage === null ? null : JSON.stringify(extra.usage),
+        extra.usageEstimated === undefined || extra.usageEstimated === null ? null : (extra.usageEstimated ? 1 : 0),
         extra.error ? extra.error.slice(0, ERROR_CAP) : null,
         extra.turnId ?? null,
+        extra.outcome === undefined || extra.outcome === null ? null : JSON.stringify(extra.outcome),
         id
       );
   } catch (err) {
     logServer('warn', 'CALLLOG', `recordCallEnd failed: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+/**
+ * Patch the demux/commit outcome into the row AFTER the commit (plan doc 30
+ * Phase 4): the recorder ends at stream end, but the planner decisions only
+ * exist once the pair commits. The inspector's "Extracted actions" view
+ * reads this. No-op when the row is gone.
+ */
+export function recordCallOutcome(id: string | null, outcome: CallOutcome): void {
+  if (!id || !outcome) return;
+  try {
+    getDb()
+      .prepare('UPDATE api_call_logs SET outcome_json = ? WHERE id = ?')
+      .run(JSON.stringify(outcome), id);
+  } catch (err) {
+    logServer('warn', 'CALLLOG', `recordCallOutcome failed: ${err instanceof Error ? err.message : err}`);
   }
 }
 
@@ -204,6 +228,8 @@ interface CallLogRow {
   reasoning_chunks: number | null;
   http_status: number | null;
   usage_json: string | null;
+  usage_estimated: number | null;
+  outcome_json: string | null;
   error_text: string | null;
   job_id: string | null;
   turn_id: string | null;
@@ -211,7 +237,8 @@ interface CallLogRow {
 
 const SELECT_COLS =
   `id, user_id, kind, provider, model, t_send, t_ack, t_first_reasoning, t_first_token, t_end, status,
-   request_json, response_text, reasoning_text, text_chunks, reasoning_chunks, http_status, usage_json, error_text, job_id, turn_id`;
+   request_json, response_text, reasoning_text, text_chunks, reasoning_chunks, http_status, usage_json, usage_estimated,
+   outcome_json, error_text, job_id, turn_id`;
 
 function rowToApiCallLog(row: CallLogRow, truncate: boolean): ApiCallLog {
   let request: ApiCallLogRequest = { endpoint: '', model: row.model };
@@ -226,6 +253,14 @@ function rowToApiCallLog(row: CallLogRow, truncate: boolean): ApiCallLog {
       usage = JSON.parse(row.usage_json);
     } catch {
       usage = null;
+    }
+  }
+  let outcome: CallOutcome | null = null;
+  if (row.outcome_json) {
+    try {
+      outcome = JSON.parse(row.outcome_json) as CallOutcome;
+    } catch {
+      outcome = null;
     }
   }
   return {
@@ -247,22 +282,27 @@ function rowToApiCallLog(row: CallLogRow, truncate: boolean): ApiCallLog {
     reasoningChunks: row.reasoning_chunks,
     httpStatus: row.http_status,
     usage,
+    usageEstimated: row.usage_estimated === null || row.usage_estimated === undefined ? null : row.usage_estimated === 1,
+    outcome,
     error: row.error_text,
     jobId: row.job_id,
     turnId: row.turn_id,
   };
 }
 
-/** Newest first, optionally paginated by `before` (a t_send boundary). List view truncates the heavy text fields. */
-export function listCallLogs(userId: number, limit = 50, before?: number, jobId?: string): ApiCallLog[] {
+/** Newest first, optionally paginated by `before` (a t_send boundary), filtered
+ *  by job or by TURN (the inspector's attempt switcher — plan doc 30 Phase 6).
+ *  List view truncates the heavy text fields. */
+export function listCallLogs(userId: number, limit = 50, before?: number, jobId?: string, turnId?: string): ApiCallLog[] {
   try {
     const rows = getDb()
       .prepare(
         `SELECT ${SELECT_COLS} FROM api_call_logs
          WHERE user_id IS ? AND (? IS NULL OR t_send < ?) AND (? IS NULL OR job_id = ?)
+           AND (? IS NULL OR turn_id = ?)
          ORDER BY t_send DESC, rowid DESC LIMIT ?`
       )
-      .all(userId, before ?? null, before ?? null, jobId ?? null, jobId ?? null, Math.max(1, Math.min(limit, 200))) as CallLogRow[];
+      .all(userId, before ?? null, before ?? null, jobId ?? null, jobId ?? null, turnId ?? null, turnId ?? null, Math.max(1, Math.min(limit, 200))) as CallLogRow[];
     return rows.map((r) => rowToApiCallLog(r, true));
   } catch (err) {
     logServer('warn', 'CALLLOG', `listCallLogs failed: ${err instanceof Error ? err.message : err}`);

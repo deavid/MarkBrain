@@ -3,7 +3,7 @@
  * honest phase chip, its exits, and the vault unlock row.
  */
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2, ScrollText } from 'lucide-react';
 import type { ChatViewProps } from './ChatView';
 import type { DraftProgress } from '../../application/draftQueue';
 import { GRANULARITY_LABEL } from '../../domains/granularity';
@@ -89,6 +89,8 @@ export interface DraftQueueTrayProps {
   onRetryDraft?: (id: string) => void;
   onStoreAsIsDraft?: (id: string) => void;
   onDiscardDraft?: (id: string) => void;
+  /** Inspect the flight-recorder call this draft's attempt produced (plan 30). */
+  onInspectCall?: (callId: string) => void;
 }
 
 export const DraftQueueTray: React.FC<DraftQueueTrayProps> = ({
@@ -99,6 +101,7 @@ export const DraftQueueTray: React.FC<DraftQueueTrayProps> = ({
   onRetryDraft,
   onStoreAsIsDraft,
   onDiscardDraft,
+  onInspectCall,
 }) => {
   // VAULT_LOCKED unlock row state (design 23 §2.3) — per draft card.
   const [unlockPw, setUnlockPw] = useState<Record<string, string>>({});
@@ -218,6 +221,17 @@ export const DraftQueueTray: React.FC<DraftQueueTrayProps> = ({
                       </button>
                     )}
                   </>
+                )}
+                {!offlineReplica && onInspectCall && d.callId && (
+                  <button
+                    type="button"
+                    onClick={() => onInspectCall(d.callId!)}
+                    data-testid="draft-inspect-call"
+                    className="p-1.5 rounded-lg hover:bg-surface-3 text-[#50637f] hover:text-[#38bdf8] transition-colors cursor-pointer"
+                    title="Exactly what was sent and what was received (raw provider payloads)"
+                  >
+                    <ScrollText className="w-3.5 h-3.5" />
+                  </button>
                 )}
                 {(isBlocked || d.state === 'queued') && (
                   <button

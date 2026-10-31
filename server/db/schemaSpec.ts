@@ -524,9 +524,10 @@ const API_CALL_LOGS: TableSpec = {
   usage_json TEXT,
   error_text TEXT,
   job_id TEXT,
-  turn_id TEXT
-)`,
-  columns: [
+  turn_id TEXT,
+  outcome_json TEXT,
+  usage_estimated INTEGER
+)`,  columns: [
     { name: 'id', ddl: 'id TEXT PRIMARY KEY' },
     { name: 'user_id', ddl: 'user_id INTEGER' },
     { name: 'kind', ddl: 'kind TEXT NOT NULL' },
@@ -548,6 +549,8 @@ const API_CALL_LOGS: TableSpec = {
     { name: 'error_text', ddl: 'error_text TEXT' },
     { name: 'job_id', ddl: 'job_id TEXT' },
     { name: 'turn_id', ddl: 'turn_id TEXT' },
+    { name: 'outcome_json', ddl: 'outcome_json TEXT' },
+    { name: 'usage_estimated', ddl: 'usage_estimated INTEGER' },
   ],
   indexes: ['CREATE INDEX IF NOT EXISTS idx_api_call_logs_user_time ON api_call_logs(user_id, t_send DESC)'],
 };

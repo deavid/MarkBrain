@@ -16,7 +16,7 @@ import { ProjectGenesis } from './ui/workspace/ProjectGenesis';
 import { ProjectLauncher } from './ui/workspace/ProjectLauncher';
 import { ServerLogsModal } from './ui/workspace/ServerLogsModal';
 import { ApiCallInspectorModal } from './ui/workspace/ApiCallInspectorModal';
-import { getCallLog } from './services/callLogStore';
+import { resolveCallForInspector, fetchCallRecord } from './services/inspectCallLog';
 import type { ApiCallLog } from './domains/callLogTypes';
 import { ModelSettingsModal } from './ui/workspace/ModelSettingsModal';
 import { CriticalNotifications } from './ui/system/CriticalNotifications';
@@ -232,6 +232,7 @@ export default function App() {
   // The full recorded row — fetched from the call-log store when the
   // inspector opens, so the modal renders the EXACT call that was clicked.
   const [inspectedCall, setInspectedCall] = useState<ApiCallLog | null>(null);
+  const [inspectedAttempts, setInspectedAttempts] = useState<ApiCallLog[]>([]);
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
   const [modelSettingsTab, setModelSettingsTab] = useState<'models' | 'keys' | 'users'>('models');
   const [isCleanupOpen, setIsCleanupOpen] = useState(false);
@@ -768,8 +769,9 @@ export default function App() {
                   streamPhase={isChatLoading ? streamPhase : null}
                   onStopGeneration={handleStopGeneration}
                   onInspectCall={async (callId) => {
-                    const log = await getCallLog(callId);
-                    setInspectedCall(log);
+                    const target = await resolveCallForInspector(callId);
+                    setInspectedCall(target.call);
+                    setInspectedAttempts(target.attempts);
                     setIsInspectorOpen(true);
                   }}
                   threadTitle={threadRegistry.getThread(activeThreadId)?.title || 'New thread'}
@@ -911,6 +913,8 @@ export default function App() {
       <ApiCallInspectorModal
         isOpen={isInspectorOpen}
         call={inspectedCall}
+        attempts={inspectedAttempts}
+        onSelectAttempt={async (attemptId) => setInspectedCall(await fetchCallRecord(attemptId))}
         onClose={() => setIsInspectorOpen(false)}
       />
 

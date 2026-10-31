@@ -83,16 +83,20 @@ const inspectorProps = { isOpen: true, onClose: () => {}, call: CALL } as any;
 describe('ApiCallInspectorModal — the one true place for calls (6 tabs)', () => {
   it('renders the six tabs in order', async () => {
     const html = await renderModal(inspectorProps);
-    for (const tab of ['Overview', 'Request', 'Wire payload', 'Response', 'Reasoning', 'Timings']) {
+    for (const tab of ['Overview &amp; Timings', 'System instruction', 'Compiled prompt', 'Wire payload', 'Thinking', 'Response']) {
       expect(html).toContain(tab);
     }
   });
 
   it('shows the recorded data verbatim: prompt, wire payload, raw response', async () => {
     // Each tab renders only ITS content — assert per-tab with initialTab.
-    const request = await renderModal({ ...inspectorProps, initialTab: 'request' });
-    expect(request).toContain('Prompt sent');
-    expect(request).toContain('The compiled payload.');
+    const system = await renderModal({ ...inspectorProps, initialTab: 'system' });
+    expect(system).toContain('System instruction');
+    expect(system).toContain('Be helpful.');
+
+    const prompt = await renderModal({ ...inspectorProps, initialTab: 'prompt' });
+    expect(prompt).toContain('Compiled prompt');
+    expect(prompt).toContain('The compiled payload.');
 
     const wire = await renderModal({ ...inspectorProps, initialTab: 'wire' });
     expect(wire).toContain('Wire payload (what the provider received)');
@@ -102,9 +106,9 @@ describe('ApiCallInspectorModal — the one true place for calls (6 tabs)', () =
     expect(response).toContain('Raw response (unparsed)');
     expect(response).toContain('The answer.');
 
-    const reasoning = await renderModal({ ...inspectorProps, initialTab: 'reasoning' });
-    expect(reasoning).toContain('Reasoning (model thinking)');
-    expect(reasoning).toContain('Let me think about it carefully...');
+    const thinking = await renderModal({ ...inspectorProps, initialTab: 'thinking' });
+    expect(thinking).toContain('Reasoning (the model&#x27;s raw thinking stream)');
+    expect(thinking).toContain('Let me think about it carefully...');
   });
 
   it('shows the timing breakdown: ack, first reasoning, first token, total', async () => {
@@ -115,20 +119,20 @@ describe('ApiCallInspectorModal — the one true place for calls (6 tabs)', () =
     expect(overview).toMatch(/1,?900\s*ms/); // first token = tFirstToken - tSend
     expect(overview).toMatch(/6,?900\s*ms/); // total
 
-    const timings = await renderModal({ ...inspectorProps, initialTab: 'timings' });
+    const timings = await renderModal({ ...inspectorProps, initialTab: 'overview' });
     expect(timings).toContain('Ack');
     expect(timings).toContain('First reasoning');
     expect(timings).toContain('First token');
-    expect(timings).toContain('Total');
+    expect(timings).toContain('End');
     expect(timings).toMatch(/200\s*ms/);
     expect(timings).toMatch(/6,?900\s*ms/);
   });
 
   it('shows the processing breakdown: reasoning vs text chunk counts', async () => {
-    const timings = await renderModal({ ...inspectorProps, initialTab: 'timings' });
-    expect(timings).toContain('Reasoning chunks');
+    const timings = await renderModal({ ...inspectorProps, initialTab: 'overview' });
+    expect(timings).toContain('Thinking phase');
     expect(timings).toContain('5');
-    expect(timings).toContain('Text chunks');
+    expect(timings).toContain('Writing phase');
     expect(timings).toContain('12');
   });
 

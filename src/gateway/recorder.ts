@@ -13,7 +13,7 @@
  * (src/services/callLogStore) exactly, so the store-backed implementation
  * satisfies this interface structurally.
  */
-import type { ApiCallKind, ApiCallLogRequest, ApiCallStatus } from '../domains/callLogTypes';
+import type { ApiCallKind, ApiCallLogRequest, ApiCallStatus, CallOutcome } from '../domains/callLogTypes';
 
 export interface CallRecordStartInput {
   kind: ApiCallKind;
@@ -30,8 +30,11 @@ export interface CallRecordEndInput {
   reasoningChunks?: number | null;
   httpStatus?: number | null;
   usage?: unknown | null;
+  /** True when `usage` is our estimate; false/absent when the provider reported it. */
+  usageEstimated?: boolean | null;
   error?: string | null;
   turnId?: string | null;
+  outcome?: CallOutcome | null;
 }
 
 export interface CallRecorder {

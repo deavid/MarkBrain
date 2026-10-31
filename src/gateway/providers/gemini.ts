@@ -201,6 +201,7 @@ async function streamGeminiChat(
     reasoningChunks,
     httpStatus: res.status,
     usage: usage ?? null,
+    usageEstimated: usage === undefined,
   });
   return { raw, reasoning: reasoningAccum, textChunks, reasoningChunks, usage };
 }

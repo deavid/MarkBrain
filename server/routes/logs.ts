@@ -14,7 +14,11 @@ app.get('/api/logs/calls', requireAuth, (req: Request, res: Response) => {
   // the job that produced a given reply (raw sent/received for THAT message).
   const jobRaw = req.query.job;
   const job = typeof jobRaw === 'string' && jobRaw.length > 0 ? jobRaw : undefined;
-  res.json({ calls: listCallLogs(req.user!.id, limit, Number.isFinite(before) ? before : undefined, job) });
+  // `turn` narrows to every attempt of one turn (the inspector's attempt
+  // switcher — plan doc 30 Phase 6).
+  const turnRaw = req.query.turn;
+  const turn = typeof turnRaw === 'string' && turnRaw.length > 0 ? turnRaw : undefined;
+  res.json({ calls: listCallLogs(req.user!.id, limit, Number.isFinite(before) ? before : undefined, job, turn) });
 });
 
 app.get('/api/logs/calls/:id', requireAuth, (req: Request, res: Response) => {

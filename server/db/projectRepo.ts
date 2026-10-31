@@ -30,7 +30,8 @@ import {
   resolveCapabilities,
 } from '../../shared/types/threads';
 import type { ExtractedUnlink } from '../../shared/stream/types';
-import { planTurnCommit } from '../../shared/turnCommit/planTurnCommit';
+import { planTurnCommit, callOutcome, type TurnCommitRequest } from '../../shared/turnCommit/planTurnCommit';
+import { recordCallOutcome } from '../lib/callRecorder';
 
 export type ProjectSnapshotWithRevision = ProjectSnapshot & { revision: number };
 
@@ -1002,7 +1003,7 @@ export function commitJobPairTransaction(input: CommitJobInput): {
     }
 
     /* ── Plan (pure, shared with the client) ── */
-    const plan = planTurnCommit({
+    const commitReq: TurnCommitRequest = {
       kind: input.kind,
       threadId: input.threadId,
       pairKey: input.pairKey,
@@ -1034,7 +1035,14 @@ export function commitJobPairTransaction(input: CommitJobInput): {
         threadTurnsCount,
         chapters: stateChapters,
       },
-    });
+    };
+    const plan = planTurnCommit(commitReq);
+
+    // The flight-recorder outcome (plan doc 30 Phase 4): what the demuxer
+    // extracted and what THIS commit did with it — the inspector's
+    // "Extracted actions" view. Recorder failures never break the commit
+    // (recordCallOutcome swallows its own errors).
+    recordCallOutcome(input.telemetry?.callId ?? null, callOutcome(commitReq, plan));
 
     /* ── Apply the plan: same transaction, same revision-bump/rollback ── */
     if (plan.userTurn) {

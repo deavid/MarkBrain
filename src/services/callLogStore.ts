@@ -89,11 +89,16 @@ export function recordCallStart(input: LocalRecordCallStartInput): string {
     model: input.model,
     tSend: Date.now(),
     tAck: null,
+    tFirstReasoning: null,
     tFirstToken: null,
     tEnd: null,
     status: 'pending',
     request: scrubRequestDeep(input.request),
     responseText: null,
+    reasoningText: null,
+    textChunks: null,
+    reasoningChunks: null,
+    httpStatus: null,
     usage: null,
     error: null,
     jobId: null,
@@ -117,9 +122,33 @@ export function recordCallFirstToken(id: string | null): void {
   void patch(id, { tFirstToken: Date.now() });
 }
 
+export function recordCallFirstReasoning(id: string | null): void {
+  if (!id) return;
+  void patch(id, { tFirstReasoning: Date.now() });
+}
+
+/** Patch the EXACT wire payload into the row's request (scrubbed here too). */
+export function recordCallWire(id: string | null, payload: unknown): void {
+  if (!id) return;
+  void (async () => {
+    const existing = await getCallLog(id);
+    if (!existing) return;
+    await patch(id, { request: { ...existing.request, wire: scrubRequestDeep(payload) } });
+  })();
+}
+
+export function recordCallHttpStatus(id: string | null, status: number): void {
+  if (!id) return;
+  void patch(id, { httpStatus: status });
+}
+
 export interface LocalRecordCallEndInput {
   status: Extract<ApiCallStatus, 'ok' | 'error' | 'aborted'>;
   responseText?: string | null;
+  reasoningText?: string | null;
+  textChunks?: number | null;
+  reasoningChunks?: number | null;
+  httpStatus?: number | null;
   usage?: unknown | null;
   error?: string | null;
   turnId?: string | null;
@@ -131,6 +160,10 @@ export function recordCallEnd(id: string | null, extra: LocalRecordCallEndInput)
     tEnd: Date.now(),
     status: extra.status,
     responseText: extra.responseText ? extra.responseText.slice(0, RESPONSE_CAP) : null,
+    reasoningText: extra.reasoningText ? extra.reasoningText.slice(0, RESPONSE_CAP) : null,
+    textChunks: extra.textChunks ?? null,
+    reasoningChunks: extra.reasoningChunks ?? null,
+    httpStatus: extra.httpStatus ?? null,
     usage: extra.usage === undefined ? null : extra.usage ?? null,
     error: extra.error ? extra.error.slice(0, ERROR_CAP) : null,
     turnId: extra.turnId ?? null,

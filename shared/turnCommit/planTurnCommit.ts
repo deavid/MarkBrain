@@ -46,6 +46,8 @@ export interface TurnCommitTelemetry {
   timeToFirstChunkMs?: number;
   model?: string;
   isFallback?: boolean;
+  /** Flight-recorder row id — the inspector opens THIS row from the turn. */
+  callId?: string;
   /** Client TurnMeta extras ride along harmlessly (spread into the meta). */
   isStreaming?: boolean;
   streamState?: string;

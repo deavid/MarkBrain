@@ -5,6 +5,8 @@ export interface TurnMeta {
   outputTokens?: number;
   totalTokens?: number;
   latencyMs?: number;
+  /** Flight-recorder row id — the inspector opens THIS row (David 2026-10-30). */
+  callId?: string;
   /** Latency to the first streamed chunk (orb stats seed / mirror honesty). */
   timeToFirstChunkMs?: number;
   isStreaming?: boolean;

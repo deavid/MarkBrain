@@ -67,15 +67,27 @@ async function* splitThoughtParts(
   }
 }
 
+/**
+ * Optional hooks for the flight recorder: the caller (routes/chat, job runner)
+ * passes onWire to capture the EXACT payload the provider receives, and
+ * onChunk to see the split lane chunks (reasoning vs text) as they stream.
+ * Both no-op when omitted — the recorder must never break the call.
+ */
+export interface StreamFromModelHooks {
+  onWire?: (payload: unknown) => void;
+  onChunk?: (chunk: LaneTextChunk) => void;
+}
+
 export async function streamFromModel(
   client: LaneAiSurface,
   modelName: string,
   contents: string,
   systemInstruction: string,
-  reqId: number
+  reqId: number,
+  hooks?: StreamFromModelHooks
 ) {
   void reqId; // kept in the signature for call-site stability
-  const stream = await client.models.generateContentStream({
+  const payload = {
     model: modelName,
     contents,
     config: {
@@ -83,6 +95,19 @@ export async function streamFromModel(
       temperature: 0.7,
       thinkingConfig: { thinkingLevel: THINKING_LEVEL, includeThoughts: true },
     },
-  });
-  return splitThoughtParts(stream);
+  };
+  // The recorder must see the EXACT object the provider call gets — the
+  // wire body is built here, at the only place it can be captured truthfully.
+  hooks?.onWire?.(payload);
+  const stream = await client.models.generateContentStream(payload);
+  const split = splitThoughtParts(stream);
+  if (!hooks?.onChunk) return split;
+  // Wrap: every chunk the splitter yields also flows to the hook — the
+  // recorder caller counts reasoning vs text chunks and accumulates reasoning.
+  return (async function* () {
+    for await (const chunk of split) {
+      hooks.onChunk!(chunk);
+      yield chunk;
+    }
+  })();
 }

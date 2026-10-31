@@ -59,8 +59,9 @@ export interface DraftItem {
   kind?: 'send' | 'regenerate';
   /** For kind='regenerate': the committed assistant turn to replace on success. */
   targetTurnId?: string;
-  state: DraftState;
-  /** Failure reason (provider text). Queue-side only; never turn content. */
+  /** Flight-recorder row id of this attempt (inspector linkage, persisted). */
+  callId?: string;
+  state: DraftState;  /** Failure reason (provider text). Queue-side only; never turn content. */
   reason?: string;
   /**
    * Machine-readable exit (design 23 §2.3) — `reason` stays the human
@@ -180,6 +181,9 @@ export class DraftQueue {
           // draft for the same job and Retry creates a duplicate send behind
           // the dead head. Bug found live 2026-10-25.
           ...(typeof i.serverJobId === 'string' ? { serverJobId: i.serverJobId } : {}),
+          // Identity like serverJobId: a reloaded failed draft must still
+          // open the inspector on ITS call (David 2026-10-30).
+          ...(typeof i.callId === 'string' ? { callId: i.callId } : {}),
         }));
     } catch {
       /* junk storage → empty queue */
@@ -313,6 +317,17 @@ export class DraftQueue {
       ...(reasoningChars !== undefined ? { reasoningChars } : {}),
       ...(reasoningPreview !== undefined ? { reasoningPreview } : {}),
     };    this.emit();
+  }
+
+  /**
+   * Bind the flight-recorder row id of the attempt (inspector linkage,
+   * David 2026-10-30). Persisted: a failed draft keeps its call.
+   */
+  setCallId(id: string, callId: string): void {
+    const item = this.getItem(id);
+    if (!item) return;
+    item.callId = callId;
+    this.emit();
   }
 
   markSending(id: string): void {

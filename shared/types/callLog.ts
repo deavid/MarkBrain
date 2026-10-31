@@ -25,6 +25,13 @@ export interface ApiCallLogRequest {
   compiledPrompt?: string | null;
   messages?: unknown | null;
   params?: Record<string, unknown> | null;
+  /**
+   * The EXACT payload the provider call received (scrubbed of secrets) —
+   * what we sent, how (inspector tab 4, David 2026-10-30). Set by the
+   * provider adapters at the moment they build the wire body, so it never
+   * drifts from what actually left the process.
+   */
+  wire?: unknown | null;
 }
 
 export interface ApiCallLog {
@@ -35,12 +42,24 @@ export interface ApiCallLog {
   model: string;
   tSend: number;
   tAck: number | null;
+  /** Wall-clock of the first thinking token (inspector tab 5 timing). */
+  tFirstReasoning: number | null;
   tFirstToken: number | null;
   tEnd: number | null;
   status: ApiCallStatus;
   request: ApiCallLogRequest;
   /** Raw UNPARSED provider text — before any demuxer strips sentinel blocks. */
   responseText: string | null;
+  /**
+   * The model's thinking stream, EPHEMERAL like the row (7-day TTL, never
+   * synced, never part of a turn). Empty for non-thinking calls.
+   */
+  reasoningText: string | null;
+  /** Streaming chunk counts (inspector tab 5/6: both phases). */
+  textChunks: number | null;
+  reasoningChunks: number | null;
+  /** The provider's HTTP status when the wire is raw fetch; null when the SDK hides it. */
+  httpStatus: number | null;
   usage: unknown | null;
   error: string | null;
   jobId: string | null;

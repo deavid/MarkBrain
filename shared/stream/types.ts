@@ -62,6 +62,8 @@ export interface StreamTurnResult {
   artifacts: ExtractedArtifactUpsert[];
   topicShift?: ExtractedTopicShift;
   telemetry?: BackendTelemetry;
+  /** Flight-recorder row id (inspector linkage, David 2026-10-30). */
+  callId?: string;
   /**
    * Graph asks the demuxer parsed out of the reply (Phase 3: local-mode links
    * now reach the commit planner — previously only the server path applied

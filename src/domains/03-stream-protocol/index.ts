@@ -46,6 +46,8 @@ export interface IStreamProtocolDomain {
        * the planner, or chat storage.
        */
       onReasoning?: (delta: string, accumulated: string) => void;
+      /** The flight-recorder row id arrived (inspector linkage, David 2026-10-30). */
+      onCallId?: (callId: string) => void;
       onArtifact?: (artifact: ExtractedArtifactUpsert) => void;
       onTopicShift?: (shift: ExtractedTopicShift) => void;
       onTelemetry?: (telemetry: BackendTelemetry) => void;
@@ -113,6 +115,8 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
        * the planner, or chat storage.
        */
       onReasoning?: (delta: string, accumulated: string) => void;
+      /** The flight-recorder row id arrived (inspector linkage, David 2026-10-30). */
+      onCallId?: (callId: string) => void;
       onArtifact?: (artifact: ExtractedArtifactUpsert) => void;
       onTopicShift?: (shift: ExtractedTopicShift) => void;
       onTelemetry?: (telemetry: BackendTelemetry) => void;
@@ -129,6 +133,8 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
     // (the adapter wraps its own fetch) or as an 'error' event. Collecting it
     // here is what stops a rejected request from becoming an empty "success".
     let streamError: string | null = null;
+    // Inspector linkage: the adapter's 'call' event names the recorder row.
+    let callId: string | null = null;
 
     try {
       const response = await chatStream(payload, { signal: callbacks.signal });
@@ -182,6 +188,11 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
               accumulatedClean += cleanDelta;
               callbacks.onChunk?.(cleanDelta, accumulatedClean);
             }
+          } else if (eventName === 'call') {
+            if (typeof data.callId === 'string') {
+              callId = data.callId;
+              callbacks.onCallId?.(data.callId);
+            }
           } else if (eventName === 'reasoning') {
             // The thinking preview (David 2026-10-30): local accumulation,
             // callback only. Never accumulatedRaw/accumulatedClean.
@@ -196,6 +207,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
               artifacts: parsed.artifactUpserts,
               topicShift: parsed.topicShift,
               telemetry: data.telemetry,
+              callId: callId ?? data.callId ?? undefined,
               links: parsed.links,
               unlinks: parsed.unlinks,
             };
@@ -235,6 +247,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
         return {
           cleanReply: accumulatedClean || demuxed.cleanText,
           rawReply: accumulatedRaw,
+          callId: callId ?? undefined,
           artifacts: demuxed.artifactUpserts,
           topicShift: demuxed.topicShift,
           links: demuxed.links,

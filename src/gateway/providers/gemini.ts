@@ -82,28 +82,33 @@ async function streamGeminiChat(
   emit: (event: string, data: unknown) => void,
   callId: string,
   recorder: CallRecorder
-): Promise<{ raw: string; usage?: { input: number; output: number } }> {
+): Promise<{ raw: string; reasoning: string; textChunks: number; reasoningChunks: number; usage?: { input: number; output: number } }> {
+  // The EXACT wire body — recorded verbatim (scrubbed) so the inspector shows
+  // what the provider received, not our internal arguments.
+  const wireBody = {
+    contents: [{ role: 'user', parts: [{ text: params.contents }] }],
+    ...(params.systemInstruction
+      ? { systemInstruction: { parts: [{ text: params.systemInstruction }] } }
+      : {}),
+    generationConfig: {
+      temperature: params.temperature ?? 0.7,
+      // David 2026-10-30: LOW thinking effort, thoughts streamed — the
+      // reasoning rides its own SSE event as a live preview, never the
+      // reply text.
+      thinkingConfig: { thinkingLevel: 'low', includeThoughts: true },
+    },
+  };
+  recorder.wire?.(callId, wireBody);
   const res = await fetch(
     `${BASE}/models/${encodeURIComponent(params.model)}:streamGenerateContent?alt=sse`,
     {
       method: 'POST',
       headers: headers(params.apiKey),
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: params.contents }] }],
-        ...(params.systemInstruction
-          ? { systemInstruction: { parts: [{ text: params.systemInstruction }] } }
-          : {}),
-        generationConfig: {
-          temperature: params.temperature ?? 0.7,
-          // David 2026-10-30: LOW thinking effort, thoughts streamed — the
-          // reasoning rides its own SSE event as a live preview, never the
-          // reply text.
-          thinkingConfig: { thinkingLevel: 'low', includeThoughts: true },
-        },
-      }),
+      body: JSON.stringify(wireBody),
     }
   );
   if (!res.ok || !res.body) {
+    recorder.httpStatus?.(callId, res.status);
     let detail = `${res.status}`;
     try {
       const body = await res.json();
@@ -129,6 +134,9 @@ async function streamGeminiChat(
   const decoder = new TextDecoder();
   let buffer = '';
   let raw = '';
+  let reasoningAccum = '';
+  let textChunks = 0;
+  let reasoningChunks = 0;
   let usage: { input: number; output: number } | undefined;
   let wrote = false;
   // Reasoning preview counter — EPHEMERAL, never part of the reply text.
@@ -156,10 +164,14 @@ async function streamGeminiChat(
         // raw (the reply text). The count keeps running even after text
         // starts; the client decides what to show.
         if (reasoning) {
+          reasoningChunks += 1;
+          reasoningAccum += reasoning;
           reasoningChars += reasoning.length;
+          if (reasoningChunks === 1) recorder.firstReasoning(callId);
           emit('reasoning', { delta: reasoning, chars: reasoningChars, timestamp: Date.now() });
         }
         if (delta) {
+          textChunks += 1;
           if (!wrote) {
             wrote = true;
             recorder.firstToken(callId);
@@ -181,8 +193,16 @@ async function streamGeminiChat(
       }
     }
   }
-  recorder.end(callId, { status: 'ok', responseText: raw, usage: usage ?? null });
-  return { raw, usage };
+  recorder.end(callId, {
+    status: 'ok',
+    responseText: raw,
+    reasoningText: reasoningAccum,
+    textChunks,
+    reasoningChunks,
+    httpStatus: res.status,
+    usage: usage ?? null,
+  });
+  return { raw, reasoning: reasoningAccum, textChunks, reasoningChunks, usage };
 }
 
 export const geminiAdapter: ProviderAdapter = {
@@ -225,6 +245,9 @@ export const geminiAdapter: ProviderAdapter = {
           params: { temperature: params.temperature ?? 0.7 },
         },
       });
+      // Inspector linkage: the row id rides the SSE as its own event so the
+      // client can open the inspector even if the stream later fails.
+      emit('call', { callId });
       try {
         return await streamGeminiChat(params, emit, callId, recorder);
       } catch (err: unknown) {

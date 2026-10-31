@@ -29,27 +29,32 @@ async function streamOpenRouterChat(
   emit: (event: string, data: unknown) => void,
   callId: string,
   recorder: CallRecorder
-): Promise<{ raw: string; usage?: { input: number; output: number } }> {
+): Promise<{ raw: string; reasoning: string; textChunks: number; reasoningChunks: number; usage?: { input: number; output: number } }> {
   const messages = [
     ...(params.systemInstruction
       ? [{ role: 'system', content: params.systemInstruction }]
       : []),
     { role: 'user', content: params.contents },
   ];
+  // The EXACT wire body — recorded verbatim (scrubbed) so the inspector shows
+  // what the provider received, not our internal arguments.
+  const wireBody = {
+    model: params.model,
+    messages,
+    temperature: params.temperature ?? 0.7,
+    stream: true,
+    // David 2026-10-30: every chat asks for LOW thinking effort. OpenRouter
+    // ignores the param for models without thinking — safe to always send.
+    reasoning: { effort: THINKING_EFFORT },
+  };
+  recorder.wire?.(callId, wireBody);
   const res = await fetch(`${BASE}/chat/completions`, {
     method: 'POST',
     headers: headers(params.apiKey),
-    body: JSON.stringify({
-      model: params.model,
-      messages,
-      temperature: params.temperature ?? 0.7,
-      stream: true,
-      // David 2026-10-30: every chat asks for LOW thinking effort. OpenRouter
-      // ignores the param for models without thinking — safe to always send.
-      reasoning: { effort: THINKING_EFFORT },
-    }),
+    body: JSON.stringify(wireBody),
   });
   if (!res.ok || !res.body) {
+    recorder.httpStatus?.(callId, res.status);
     let detail = `${res.status}`;
     try {
       const body = await res.json();
@@ -78,6 +83,9 @@ async function streamOpenRouterChat(
   let wrote = false;
   // Reasoning preview counter — EPHEMERAL, never part of the reply text.
   let reasoningChars = 0;
+  let reasoningAccum = '';
+  let textChunks = 0;
+  let reasoningChunks = 0;
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -108,6 +116,7 @@ async function streamOpenRouterChat(
           emit('reasoning', { delta: reasoning, chars: reasoningChars, timestamp: Date.now() });
         }
         if (delta) {
+          textChunks += 1;
           if (!wrote) {
             wrote = true;
             recorder.firstToken(callId);
@@ -134,8 +143,16 @@ async function streamOpenRouterChat(
       }
     }
   }
-  recorder.end(callId, { status: 'ok', responseText: raw, usage: usage ?? null });
-  return { raw, usage };
+  recorder.end(callId, {
+    status: 'ok',
+    responseText: raw,
+    reasoningText: reasoningAccum,
+    textChunks,
+    reasoningChunks,
+    httpStatus: res.status,
+    usage: usage ?? null,
+  });
+  return { raw, reasoning: reasoningAccum, textChunks, reasoningChunks, usage };
 }
 
 const BASE = 'https://openrouter.ai/api/v1';
@@ -211,6 +228,9 @@ export const openrouterAdapter: ProviderAdapter = {
           params: { temperature: params.temperature ?? 0.7 },
         },
       });
+      // Inspector linkage: the row id rides the SSE as its own event so the
+      // client can open the inspector even if the stream later fails.
+      emit('call', { callId });
       try {
         return await streamOpenRouterChat(params, emit, callId, recorder);
       } catch (err: unknown) {

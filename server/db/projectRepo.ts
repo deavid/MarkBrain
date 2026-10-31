@@ -857,6 +857,8 @@ export interface CommitJobInput {
     totalTokens: number;
     latencyMs?: number;
     timeToFirstChunkMs?: number;
+    /** Flight-recorder row id — written into the assistant turn meta. */
+    callId?: string;
   };
 }
 

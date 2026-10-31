@@ -38,7 +38,10 @@ import { streamFromModel } from '../providers/gemini';
 import {
   recordCallStart,
   recordCallAck,
+  jobCallId,
   recordCallFirstToken,
+  recordCallFirstReasoning,
+  recordCallWire,
   recordCallEnd,
 } from '../lib/callRecorder';
 import type { ApiCallKind } from '../../shared/types/callLog';
@@ -64,6 +67,8 @@ export interface ChatJobRow {
 }
 
 interface ActiveJobContext {
+  /** The flight-recorder row id (inspector linkage, David 2026-10-30). */
+  callLogId?: string | null;
   jobId: string;
   userId: number;
   projectId: string;
@@ -285,6 +290,12 @@ export async function runJob(jobId: string): Promise<void> {
   // resolved — vault-locked / no-key jobs never touched the wire, so they
   // leave no row.
   let callLogId: string | null = null;
+  // Inspector data layer (David 2026-10-30): hoisted so the catch can record
+  // the partial truth of a failed attempt, not just the error string.
+  let reasoningAccum = '';
+  let textChunks = 0;
+  let reasoningChunks = 0;
+  let raw = '';
   try {
     const model = requireModelId(job.model, 'chat');
     // Facade (design-docs/24 §4): a `/`-shaped model id streams from
@@ -306,10 +317,26 @@ export async function runJob(jobId: string): Promise<void> {
         params: { temperature: 0.7 },
       },
     });
+    // Linkage: watchers (late or early) learn the inspector row id from here.
+    ctx.callLogId = callLogId;
+    broadcast(ctx, 'call', { type: 'call', callId: callLogId });
 
+
+    // Inspector data layer (David 2026-10-30): the exact wire payload, the
+    // reasoning stream (ephemeral, recorded), and per-phase chunk counts.
     // Same lane wrapper the direct chat route uses — it owns the thinking
     // config (LOW effort + thoughts included) and the reasoning split.
-    const stream = await streamFromModel(client, model, job.compiled_prompt, systemInstruction, 0);
+    const stream = await streamFromModel(client, model, job.compiled_prompt, systemInstruction, 0, {
+      onWire: (payload) => recordCallWire(callLogId, payload),
+      onChunk: (chunk) => {
+        if (chunk.reasoning) {
+          reasoningChunks += 1;
+          reasoningAccum += chunk.reasoning;
+          if (reasoningChunks === 1) recordCallFirstReasoning(callLogId);
+        }
+        if (chunk.text) textChunks += 1;
+      },
+    });
     recordCallAck(callLogId);
     // THE ACK BEFORE FIRST TOKEN (David 2026-10-25): the provider accepted
     // the stream — from here on "the model is thinking" is true. Zero bytes
@@ -334,7 +361,6 @@ export async function runJob(jobId: string): Promise<void> {
     const jobStart = Date.now();
     // Accumulate RAW provider text and re-demux from raw each flush — demuxing
     // from previously-cleaned text eats the spaces at chunk boundaries.
-    let raw = '';
 
     for await (const chunk of stream) {
       if (abortController.signal.aborted) break;
@@ -373,7 +399,7 @@ export async function runJob(jobId: string): Promise<void> {
 
     if (abortController.signal.aborted) {
       // stopJob already flipped state; just close out.
-      recordCallEnd(callLogId, { status: 'aborted', responseText: raw });
+      recordCallEnd(callLogId, { status: 'aborted', responseText: raw, reasoningText: reasoningAccum, textChunks, reasoningChunks });
       closeSubscribers(ctx);
       activeJobs.delete(jobId);
       return;
@@ -412,12 +438,14 @@ export async function runJob(jobId: string): Promise<void> {
         totalTokens: usage?.totalTokenCount ?? inputTokens + outputTokens,
         latencyMs: Date.now() - jobStart,
         timeToFirstChunkMs: timeToFirstChunkMs ?? Date.now() - jobStart,
+        // Inspector linkage: the assistant turn meta names its recorder row.
+        callId: callLogId ?? undefined,
       },
     });
 
     getDb().prepare('DELETE FROM chat_jobs WHERE job_id = ?').run(jobId);
     // Link the recorder row to the committed assistant turn (pack §4.2).
-    recordCallEnd(callLogId, { status: 'ok', responseText: raw, usage, turnId: assistantTurnId });
+    recordCallEnd(callLogId, { status: 'ok', responseText: raw, reasoningText: reasoningAccum, textChunks, reasoningChunks, usage, turnId: assistantTurnId });
     kickNextQueuedOnThread(job.thread_id, job.project_id, job.user_id);
     broadcast(ctx, 'complete', { type: 'complete', revision, userTurnId, assistantTurnId });
     closeSubscribers(ctx);
@@ -428,6 +456,10 @@ export async function runJob(jobId: string): Promise<void> {
   } catch (err) {
     recordCallEnd(callLogId, {
       status: 'error',
+      responseText: raw || null,
+      reasoningText: reasoningAccum || null,
+      textChunks,
+      reasoningChunks,
       error: err instanceof Error ? err.message : String(err).slice(0, 500),
     });
     if (abortController.signal.aborted) {
@@ -456,7 +488,7 @@ function failJob(jobId: string, err: unknown, partial = ''): void {
   const job = getJobRow(jobId);
   if (job) bumpProjectRevision(job.user_id, job.project_id); // reconnecting clients see the failed state
   const ctx = activeJobs.get(jobId);
-  broadcast(ctx, 'error', { type: 'error', message, ...(code ? { code } : {}) });
+  broadcast(ctx, 'error', { type: 'error', message, ...(code ? { code } : {}), ...(ctx?.callLogId ? { callId: ctx.callLogId } : {}) });
   logServer('error', 'JOB:FAIL', `Job ${jobId}: ${message}`);
 }
 
@@ -464,17 +496,36 @@ function failJob(jobId: string, err: unknown, partial = ''): void {
 
 export function attachSubscriber(jobId: string, res: Response): 'snapshot' | 'gone' {
   const job = getJobRow(jobId);
-  if (!job) return 'gone';
+  if (!job) {
+    // Late-watcher law (David 2026-10-30): a watcher attached after the job
+    // row is deleted (successful commit) must still learn its call id from
+    // the snapshot frame — the DB fallback lives in jobCallId().
+    const callId = jobCallId(jobId);
+    if (!callId) return 'gone';
+    res.write(
+      `event: snapshot\ndata: ${JSON.stringify({
+        type: 'snapshot',
+        partialText: '',
+        state: 'complete',
+        ...(callId ? { callId } : {}),
+      })}\n\n`
+    );
+    res.write(`event: complete\ndata: ${JSON.stringify({ type: 'complete' })}\n\n`);
+    res.end();
+    return 'gone';
+  }
 
   // Immediate snapshot (21E §3) — including whether the provider ACK already
   // happened (a late watcher must not sit in CONNECTING through slow TTFT).
   const liveCtx = activeJobs.get(jobId);
+  const callId = liveCtx?.callLogId ?? jobCallId(jobId);
   res.write(
     `event: snapshot\ndata: ${JSON.stringify({
       type: 'snapshot',
       partialText: job.partial_text,
       state: job.state,
       ...(job.state === 'sending' && liveCtx?.connected ? { connected: true } : {}),
+      ...(callId ? { callId } : {}),
     })}\n\n`
   );
 
@@ -493,13 +544,13 @@ export function attachSubscriber(jobId: string, res: Response): 'snapshot' | 'go
         ? 'NO_API_KEY'
         : undefined;
     res.write(
-      `event: error\ndata: ${JSON.stringify({ type: 'error', message: reason, ...(code ? { code } : {}) })}\n\n`
+      `event: error\ndata: ${JSON.stringify({ type: 'error', message: reason, ...(code ? { code } : {}), ...(jobCallId(jobId) ? { callId: jobCallId(jobId) } : {}) })}\n\n`
     );
     res.end();
     return 'gone';
   }
   if (job.state === 'stopped') {
-    res.write(`event: stopped\ndata: ${JSON.stringify({ type: 'stopped', partialText: job.partial_text })}\n\n`);
+    res.write(`event: stopped\ndata: ${JSON.stringify({ type: 'stopped', partialText: job.partial_text, ...(jobCallId(jobId) ? { callId: jobCallId(jobId) } : {}) })}\n\n`);
     res.end();
     return 'gone';
   }

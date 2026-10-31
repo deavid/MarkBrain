@@ -18,6 +18,7 @@ import {
   listActiveJobSummaries,
 } from '../jobs/chatJobRunner';
 import { loadProjectForUser, bumpProjectRevision } from '../db/projectRepo';
+import { jobCallIdForUser } from '../lib/callRecorder';
 
 export function registerJobRoutes(app: Express): void {
   // Enqueue a send/regenerate job (fire-and-forget: runner outlives this request).
@@ -94,9 +95,19 @@ export function registerJobRoutes(app: Express): void {
   // SSE watch channel — disconnect NEVER cancels the job (21E §1 law 3).
   app.get('/api/jobs/:jobId/stream', (req: Request, res: Response) => {
     const job = getJobRow(req.params.jobId);
-    if (!job || job.user_id !== req.user!.id) {
+    if (job && job.user_id !== req.user!.id) {
       res.status(404).json({ error: 'Job not found.' });
       return;
+    }
+    if (!job) {
+      // Late-watcher law (David 2026-10-30): the job row is deleted on a
+      // successful commit, but the api_call_logs row survives — it proves
+      // both the job's existence and the requester's ownership. Enough for
+      // the snapshot frame to carry the call id.
+      if (!jobCallIdForUser(req.params.jobId, req.user!.id)) {
+        res.status(404).json({ error: 'Job not found.' });
+        return;
+      }
     }
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');

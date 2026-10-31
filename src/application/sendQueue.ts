@@ -715,6 +715,11 @@ export class SendQueue {
             }
             deps.triggerReRender();
           },
+          onCallId: (callId) => {
+            // Inspector linkage: bind the row NOW — a later failure still
+            // opens the inspector on the exact request that failed.
+            this.drafts.setCallId(item.id, callId);
+          },
           onTopicShift: (shift) => {
             bufferedShifts.push(shift);
             this.drafts.setBuffers(item.id, bufferedArtifacts, bufferedShifts);
@@ -758,6 +763,8 @@ export class SendQueue {
         latencyMs: result.telemetry?.latencyMs,
         timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
         isFallback: result.telemetry?.isFallback ?? true,
+        // Inspector linkage: the turn's meta names its recorder row.
+        callId: result.callId ?? this.drafts.getItem(item.id)?.callId,
         isStreaming: false,
         streamState: 'completed',
       });
@@ -1157,6 +1164,11 @@ export class SendQueue {
             }
             deps.triggerReRender();
           },
+          onCallId: (callId) => {
+            // Inspector linkage: bind the row NOW — a later failure still
+            // opens the inspector on the exact request that failed.
+            this.drafts.setCallId(item.id, callId);
+          },
           onTopicShift: (shift) => {
             bufferedShifts.push(shift);
             this.drafts.setBuffers(item.id, bufferedArtifacts, bufferedShifts);
@@ -1191,6 +1203,8 @@ export class SendQueue {
         latencyMs: result.telemetry?.latencyMs,
         timeToFirstChunkMs: result.telemetry?.timeToFirstChunkMs,
         isFallback: result.telemetry?.isFallback ?? true,
+        // Inspector linkage: the turn's meta names its recorder row.
+        callId: result.callId ?? this.drafts.getItem(item.id)?.callId,
         isStreaming: false,
         streamState: 'completed',
       });

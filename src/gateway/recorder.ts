@@ -25,6 +25,10 @@ export interface CallRecordStartInput {
 export interface CallRecordEndInput {
   status: Extract<ApiCallStatus, 'ok' | 'error' | 'aborted'>;
   responseText?: string | null;
+  reasoningText?: string | null;
+  textChunks?: number | null;
+  reasoningChunks?: number | null;
+  httpStatus?: number | null;
   usage?: unknown | null;
   error?: string | null;
   turnId?: string | null;
@@ -33,7 +37,12 @@ export interface CallRecordEndInput {
 export interface CallRecorder {
   /** Fire-and-forget start: generates the id synchronously. */
   start(input: CallRecordStartInput): string;
+  /** Patch the EXACT wire payload into the row (adapter-built body, scrubbed). */
+  wire?(id: string | null, payload: unknown): void;
+  /** Patch the provider's HTTP status when the wire is raw fetch (local mode). */
+  httpStatus?(id: string | null, status: number): void;
   ack(id: string | null): void;
+  firstReasoning(id: string | null): void;
   firstToken(id: string | null): void;
   end(id: string | null, extra: CallRecordEndInput): void;
 }
@@ -47,6 +56,7 @@ export interface CallRecorder {
 export const noopCallRecorder: CallRecorder = {
   start: () => '',
   ack: () => undefined,
+  firstReasoning: () => undefined,
   firstToken: () => undefined,
   end: () => undefined,
 };

@@ -20,10 +20,13 @@ import { DEFAULT_MODEL_SLOTS } from '../data/modelConfig';
 import { getWorkspaceMode, getVpsSession, isOfflineReplica, type VpsSessionInfo } from '../services/workspaceSession';
 import { isCaptureMode } from '../services/persistenceService';
 import {
+  recordCallFirstReasoning,
   recordCallStart,
   recordCallAck,
   recordCallFirstToken,
   recordCallEnd,
+  recordCallWire,
+  recordCallHttpStatus,
 } from '../services/callLogStore';
 // Phase 6: this is the ONE callLogStore import left in the gateway — api.ts is
 // the wiring point. It builds the real recorder and hands it down to the
@@ -43,7 +46,10 @@ import {
 /** The real recorder, built once here and handed down to the direct adapters. */
 const callRecorder: CallRecorder = {
   start: recordCallStart,
+  wire: recordCallWire,
+  httpStatus: recordCallHttpStatus,
   ack: recordCallAck,
+  firstReasoning: recordCallFirstReasoning,
   firstToken: recordCallFirstToken,
   end: recordCallEnd,
 };

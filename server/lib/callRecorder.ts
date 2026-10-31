@@ -105,9 +105,50 @@ export function recordCallFirstToken(id: string | null): void {
   }
 }
 
+export function recordCallFirstReasoning(id: string | null): void {
+  if (!id) return;
+  try {
+    getDb()
+      .prepare('UPDATE api_call_logs SET t_first_reasoning = ? WHERE id = ? AND t_first_reasoning IS NULL')
+      .run(Date.now(), id);
+  } catch {
+    /* the recorder must never break the call */
+  }
+}
+
+/**
+ * Patch the EXACT wire payload into the row's request_json (the provider
+ * adapter builds it after recordCallStart ran). Read-modify-write keeps the
+ * other request fields intact. No-op when the row is gone or JSON is broken.
+ */
+export function recordCallWire(id: string | null, wire: unknown): void {
+  if (!id || wire === undefined) return;
+  try {
+    const db = getDb();
+    const row = db.prepare('SELECT request_json FROM api_call_logs WHERE id = ?').get(id) as
+      | { request_json: string }
+      | undefined;
+    if (!row) return;
+    let request: Record<string, unknown>;
+    try {
+      request = JSON.parse(row.request_json) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+    request.wire = scrubRequestDeep(wire);
+    db.prepare('UPDATE api_call_logs SET request_json = ? WHERE id = ?').run(JSON.stringify(request), id);
+  } catch {
+    /* the recorder must never break the call */
+  }
+}
+
 export interface RecordCallEndInput {
   status: Extract<ApiCallStatus, 'ok' | 'error' | 'aborted'>;
   responseText?: string | null;
+  reasoningText?: string | null;
+  textChunks?: number | null;
+  reasoningChunks?: number | null;
+  httpStatus?: number | null;
   usage?: unknown | null;
   error?: string | null;
   turnId?: string | null;
@@ -118,13 +159,18 @@ export function recordCallEnd(id: string | null, extra: RecordCallEndInput): voi
   try {
     getDb()
       .prepare(
-        `UPDATE api_call_logs SET t_end = ?, status = ?, response_text = ?, usage_json = ?,
+        `UPDATE api_call_logs SET t_end = ?, status = ?, response_text = ?, reasoning_text = ?,
+          text_chunks = ?, reasoning_chunks = ?, http_status = ?, usage_json = ?,
           error_text = ?, turn_id = COALESCE(?, turn_id) WHERE id = ?`
       )
       .run(
         Date.now(),
         extra.status,
         extra.responseText ? extra.responseText.slice(0, RESPONSE_CAP) : null,
+        extra.reasoningText ? extra.reasoningText.slice(0, RESPONSE_CAP) : null,
+        extra.textChunks ?? null,
+        extra.reasoningChunks ?? null,
+        extra.httpStatus ?? null,
         extra.usage === undefined || extra.usage === null ? null : JSON.stringify(extra.usage),
         extra.error ? extra.error.slice(0, ERROR_CAP) : null,
         extra.turnId ?? null,
@@ -147,11 +193,16 @@ interface CallLogRow {
   model: string;
   t_send: number;
   t_ack: number | null;
+  t_first_reasoning: number | null;
   t_first_token: number | null;
   t_end: number | null;
   status: ApiCallStatus;
   request_json: string;
   response_text: string | null;
+  reasoning_text: string | null;
+  text_chunks: number | null;
+  reasoning_chunks: number | null;
+  http_status: number | null;
   usage_json: string | null;
   error_text: string | null;
   job_id: string | null;
@@ -159,8 +210,8 @@ interface CallLogRow {
 }
 
 const SELECT_COLS =
-  `id, user_id, kind, provider, model, t_send, t_ack, t_first_token, t_end, status,
-   request_json, response_text, usage_json, error_text, job_id, turn_id`;
+  `id, user_id, kind, provider, model, t_send, t_ack, t_first_reasoning, t_first_token, t_end, status,
+   request_json, response_text, reasoning_text, text_chunks, reasoning_chunks, http_status, usage_json, error_text, job_id, turn_id`;
 
 function rowToApiCallLog(row: CallLogRow, truncate: boolean): ApiCallLog {
   let request: ApiCallLogRequest = { endpoint: '', model: row.model };
@@ -185,11 +236,16 @@ function rowToApiCallLog(row: CallLogRow, truncate: boolean): ApiCallLog {
     model: row.model,
     tSend: row.t_send,
     tAck: row.t_ack,
+    tFirstReasoning: row.t_first_reasoning,
     tFirstToken: row.t_first_token,
     tEnd: row.t_end,
     status: row.status,
     request,
     responseText: truncate && row.response_text ? row.response_text.slice(0, LIST_TRUNCATE) : row.response_text,
+    reasoningText: truncate && row.reasoning_text ? row.reasoning_text.slice(0, LIST_TRUNCATE) : row.reasoning_text,
+    textChunks: row.text_chunks,
+    reasoningChunks: row.reasoning_chunks,
+    httpStatus: row.http_status,
     usage,
     error: row.error_text,
     jobId: row.job_id,
@@ -223,6 +279,41 @@ export function getCallLog(userId: number, id: string): ApiCallLog | null {
     return row ? rowToApiCallLog(row, false) : null;
   } catch (err) {
     logServer('warn', 'CALLLOG', `getCallLog failed: ${err instanceof Error ? err.message : err}`);
+    return null;
+  }
+}
+
+/**
+ * The recorder row id for a chat job (inspector linkage, David 2026-10-30):
+ * the replay frames of a failed/stopped job must name their call so a
+ * reloaded client still opens the inspector on the exact request.
+ */
+export function jobCallId(jobId: string): string | null {
+  try {
+    const row = getDb()
+      .prepare(`SELECT id FROM api_call_logs WHERE job_id = ? ORDER BY t_send DESC LIMIT 1`)
+      .get(jobId) as { id: string } | undefined;
+    return row?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Late-watcher ownership check (David 2026-10-30): the chat_jobs row is
+ * deleted on a successful commit, but the api_call_logs row survives (7-day
+ * TTL). The log row proves the job existed AND belongs to the requester —
+ * enough to serve the late-watcher snapshot without the job row.
+ */
+export function jobCallIdForUser(jobId: string, userId: number): string | null {
+  try {
+    const row = getDb()
+      .prepare(
+        `SELECT id FROM api_call_logs WHERE job_id = ? AND user_id = ? ORDER BY t_send DESC LIMIT 1`
+      )
+      .get(jobId, userId) as { id: string } | undefined;
+    return row?.id ?? null;
+  } catch {
     return null;
   }
 }

@@ -7,7 +7,7 @@ import { DEFAULT_SYSTEM_INSTRUCTION, buildCompiledPrompt } from '../../shared/pr
 import { DEFAULT_MODEL_ID, requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { isOpenRouterModel } from '../providers/openrouter';
-import { recordCallStart, recordCallAck, recordCallFirstToken, recordCallEnd } from '../lib/callRecorder';
+import { recordCallStart, recordCallAck, recordCallFirstToken, recordCallFirstReasoning, recordCallWire, recordCallEnd } from '../lib/callRecorder';
 
 export function registerChatRoutes(app: Express): void {
 app.post('/api/chat/cancel', (req: Request, res: Response) => {
@@ -23,6 +23,12 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
   // Flight recorder id (design-docs/28 §4) — null until the request payload
   // is built; every recorder call no-ops while it is null.
   let callLogId: string | null = null;
+  // Inspector data layer (David 2026-10-30): hoisted so the catch records the
+  // partial truth of a failed attempt, not just the error string.
+  let reasoningAccum = '';
+  let textChunks = 0;
+  let reasoningChunks = 0;
+  let fullText = '';
 
   // Resolve the caller's model + vault key BEFORE committing to SSE, so
   // 400/428 answer as JSON (design-docs/21B §7: locked vault → 428).
@@ -96,7 +102,19 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     {
       // The requested model answers, or the request fails with the real
       // reason. There is no second stream waiting behind a timer.
-      const responseStream = await streamFromModel(ai, targetModel, compiledPrompt, systemInstruction, reqId);
+      // Inspector data layer (David 2026-10-30): capture the exact wire payload
+      // and the split reasoning/text chunks for the flight recorder row.
+      const responseStream = await streamFromModel(ai, targetModel, compiledPrompt, systemInstruction, reqId, {
+        onWire: (payload) => recordCallWire(callLogId, payload),
+        onChunk: (chunk) => {
+          if (chunk.reasoning) {
+            reasoningChunks += 1;
+            reasoningAccum += chunk.reasoning;
+            if (reasoningChunks === 1) recordCallFirstReasoning(callLogId);
+          }
+          if (chunk.text) textChunks += 1;
+        },
+      });
       recordCallAck(callLogId);
       const usedModel = targetModel;
 
@@ -109,7 +127,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
         model: usedModel,
       });
 
-      let fullText = '';
+
       let chunkCount = 0;
       let timeToFirstChunkMs: number | null = null;
       let lastStatusTick = Date.now();
@@ -124,7 +142,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       for await (const chunk of responseStream) {
         if (isClientAborted) {
           logServer('warn', 'STREAM:BREAK', `#${reqId} Generator loop exited due to client abort.`);
-          recordCallEnd(callLogId, { status: 'aborted', responseText: fullText });
+          recordCallEnd(callLogId, { status: 'aborted', responseText: fullText, reasoningText: reasoningAccum, textChunks, reasoningChunks });
           break;
         }
 
@@ -192,7 +210,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       }
 
       if (isClientAborted) {
-        recordCallEnd(callLogId, { status: 'aborted', responseText: fullText });
+        recordCallEnd(callLogId, { status: 'aborted', responseText: fullText, reasoningText: reasoningAccum, textChunks, reasoningChunks });
         res.end();
         return;
       }
@@ -210,6 +228,9 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       recordCallEnd(callLogId, {
         status: 'ok',
         responseText: fullText,
+        reasoningText: reasoningAccum,
+        textChunks,
+        reasoningChunks,
         usage: usageMetadata ?? undefined,
       });
 
@@ -240,7 +261,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
     }
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : 'Internal Server Error';
-    recordCallEnd(callLogId, { status: 'error', error: errorMessage });
+    recordCallEnd(callLogId, { status: 'error', responseText: fullText || null, reasoningText: reasoningAccum || null, textChunks, reasoningChunks, error: errorMessage });
     logServer('error', 'STREAM:FAIL', `#${reqId} Fatal streaming error: ${errorMessage}`);
     sendSSE('error', { error: errorMessage });
     res.end();

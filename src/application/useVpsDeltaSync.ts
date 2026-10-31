@@ -56,6 +56,11 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
   try {
 
   // Tombstones first — deletions win over same-batch upserts.
+  // David 2026-10-30: a deletion that rides in the SAME delta batch as an
+  // upsert of the same row must never be undone by the upsert loops below —
+  // that is the artifact resurrection bug. Every merge below skips rows
+  // whose id is tombstoned in this batch.
+  const tombstoned = new Set(delta.tombstones.map((t) => `${t.entityType}:${t.entityId}`));
   for (const t of delta.tombstones) {
     if (t.entityType === 'artifact') artifacts.deleteArtifact(t.entityId);
     if (t.entityType === 'chapter') segmentation.loadChapters(segmentation.listChapters().filter((c) => c.id !== t.entityId));
@@ -76,6 +81,7 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
   if (delta.artifacts.length > 0) {
     const merged = artifacts.listArtifacts();
     for (const incoming of delta.artifacts) {
+      if (tombstoned.has(`artifact:${incoming.id}`)) continue; // deletion wins
       const idx = merged.findIndex((a) => a.id === incoming.id);
       if (idx >= 0) merged[idx] = incoming;
       else merged.push(incoming);
@@ -93,6 +99,7 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
   if (delta.chapters.length > 0) {
     const activeThreadId = threadRegistry.getActiveThreadId();
     for (const ch of delta.chapters) {
+      if (tombstoned.has(`chapter:${ch.id}`)) continue; // deletion wins
       segmentation.mergeChaptersFor(ch.threadId ?? activeThreadId, [ch]);
     }
   }
@@ -101,6 +108,7 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
   if (delta.edges.length > 0) {
     const merged = [...graph.listEdges()];
     for (const incoming of delta.edges) {
+      if (tombstoned.has(`edge:${incoming.id}`)) continue; // deletion wins
       const idx = merged.findIndex((e) => e.id === incoming.id);
       if (idx >= 0) merged[idx] = incoming;
       else merged.push(incoming);
@@ -120,6 +128,7 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
     const activeThreadId = threadRegistry.getActiveThreadId();
     const byThread = new Map<string, ProjectDeltaResponse['turns']>();
     for (const incoming of delta.turns) {
+      if (tombstoned.has(`turn:${incoming.id}`)) continue; // deletion wins
       const tid = incoming.threadId ?? activeThreadId;
       const list = byThread.get(tid) ?? [];
       list.push(incoming);
@@ -184,6 +193,7 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
 
   // Threads / folders: patch existing rows, create missing ones.
   for (const incoming of delta.threads) {
+    if (tombstoned.has(`thread:${incoming.id}`)) continue; // deletion wins
     if (threadRegistry.getThread(incoming.id)) {
       // NEVER let a delta thread row downgrade attachment provenance (live
       // 2026-10-25): the thread doc's attachment list is the client's last
@@ -202,6 +212,7 @@ export function mergeDeltaIntoDomains(delta: ProjectDeltaResponse, deps: VpsDelt
   weldProvenance(); // a createThread above may have arrived with stale staged entries
   const knownFolders = new Set(threadRegistry.getFolders().map((f) => f.id));
   for (const incoming of delta.folders) {
+    if (tombstoned.has(`folder:${incoming.id}`)) continue; // deletion wins
     if (!knownFolders.has(incoming.id)) threadRegistry.createFolder(incoming.name);
   }
   } finally {

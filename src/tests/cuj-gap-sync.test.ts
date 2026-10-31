@@ -324,6 +324,26 @@ describe('G6 — useVpsDeltaSync mergeDeltaIntoDomains', () => {
     expect(state.deletedFolders).toEqual(['fold-1']);
   });
 
+  it('a tombstoned artifact is NEVER resurrected by a same-batch upsert (live 2026-10-30)', () => {
+    const { state, deps } = makeStubs({
+      artifacts: [{ id: 'art-keep' }],
+    });
+
+    // The server sent the deletion AND the row in the same delta batch —
+    // the tombstone MUST win, the upsert MUST be skipped. Today the merge
+    // re-adds the row (resurrection on refresh, David 2026-10-30).
+    mergeDeltaIntoDomains(
+      makeDelta({
+        tombstones: [{ entityType: 'artifact', entityId: 'art-dead' }],
+        artifacts: [{ id: 'art-dead', title: 'resurrected?' } as never],
+      }),
+      deps
+    );
+
+    expect(state.artifacts.map((a) => a.id)).toEqual(['art-keep']);
+    expect(state.deletedArtifacts).toEqual(['art-dead']);
+  });
+
   it('chapters route PER THREAD: other threads land in their own bucket, never the active strip', () => {
     // Live bug 2026-10-25: every thread's chapters were loaded into the active
     // segmentation → the strip rendered other threads' windows against this

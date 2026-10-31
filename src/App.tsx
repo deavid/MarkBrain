@@ -15,6 +15,9 @@ import { BootSplash } from './ui/workspace/BootSplash';
 import { ProjectGenesis } from './ui/workspace/ProjectGenesis';
 import { ProjectLauncher } from './ui/workspace/ProjectLauncher';
 import { ServerLogsModal } from './ui/workspace/ServerLogsModal';
+import { ApiCallInspectorModal } from './ui/workspace/ApiCallInspectorModal';
+import { getCallLog } from './services/callLogStore';
+import type { ApiCallLog } from './domains/callLogTypes';
 import { ModelSettingsModal } from './ui/workspace/ModelSettingsModal';
 import { CriticalNotifications } from './ui/system/CriticalNotifications';
 import { ArtifactDetailModal } from './ui/artifacts/ArtifactDetailModal';
@@ -224,6 +227,11 @@ export default function App() {
   const [isServerLogsOpen, setIsServerLogsOpen] = useState(false);
   /** Per-message receipts: open the flight recorder pre-filtered to one job. */
   const [serverLogsJob, setServerLogsJob] = useState<string | undefined>(undefined);
+  // The inspector (David 2026-10-30): the ONE place for recorded calls.
+  const [isInspectorOpen, setIsInspectorOpen] = useState(false);
+  // The full recorded row — fetched from the call-log store when the
+  // inspector opens, so the modal renders the EXACT call that was clicked.
+  const [inspectedCall, setInspectedCall] = useState<ApiCallLog | null>(null);
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
   const [modelSettingsTab, setModelSettingsTab] = useState<'models' | 'keys' | 'users'>('models');
   const [isCleanupOpen, setIsCleanupOpen] = useState(false);
@@ -592,7 +600,6 @@ export default function App() {
         <ServerLogsModal
           isOpen={isServerLogsOpen}
           onClose={() => { setIsServerLogsOpen(false); setServerLogsJob(undefined); }}
-          initialJobFilter={serverLogsJob}
         />
         <CriticalNotifications />
       </>
@@ -619,7 +626,6 @@ export default function App() {
         <ServerLogsModal
           isOpen={isServerLogsOpen}
           onClose={() => { setIsServerLogsOpen(false); setServerLogsJob(undefined); }}
-          initialJobFilter={serverLogsJob}
         />
         <CriticalNotifications />
       </>
@@ -761,7 +767,11 @@ export default function App() {
                   streamingStatus={isChatLoading ? streamingStatus : null}
                   streamPhase={isChatLoading ? streamPhase : null}
                   onStopGeneration={handleStopGeneration}
-                  onOpenReceipts={(jobId) => { setServerLogsJob(jobId); setIsServerLogsOpen(true); }}
+                  onInspectCall={async (callId) => {
+                    const log = await getCallLog(callId);
+                    setInspectedCall(log);
+                    setIsInspectorOpen(true);
+                  }}
                   threadTitle={threadRegistry.getThread(activeThreadId)?.title || 'New thread'}
                   threadTitleState={threadRegistry.getThread(activeThreadId)?.titleState || 'placeholder'}
                   threadArchived={threadRegistry.getThread(activeThreadId)?.lifecycle === 'archived'}
@@ -894,7 +904,14 @@ export default function App() {
       <ServerLogsModal
         isOpen={isServerLogsOpen}
         onClose={() => { setIsServerLogsOpen(false); setServerLogsJob(undefined); }}
-        initialJobFilter={serverLogsJob}
+      />
+
+      {/* The one true API call inspector (David 2026-10-30): opens on the
+          EXACT recorded call that a message or failed draft links to. */}
+      <ApiCallInspectorModal
+        isOpen={isInspectorOpen}
+        call={inspectedCall}
+        onClose={() => setIsInspectorOpen(false)}
       />
 
       {/* Capability-slot model picker (design-docs/16 §3.1) */}

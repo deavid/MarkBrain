@@ -44,7 +44,7 @@ export interface ChatViewProps {
   onOpenServerLogs?: () => void;
   /** Per-message receipts (VPS): open the flight recorder filtered to THIS
    * reply's job — the raw request and the raw provider answer, verbatim. */
-  onOpenReceipts?: (jobId: string) => void;
+  onInspectCall?: (jobId: string) => void;
   onAddArtifactToProject: (artifact: Artifact) => void;
   onSummarizeChapter: (chapterId: string) => Promise<void>;
   onDeclareChapter: (messageId: string, title: string) => void;
@@ -127,7 +127,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   streamPhase,
   onStopGeneration,
   onOpenServerLogs,
-  onOpenReceipts,
+  onInspectCall,
   onAddArtifactToProject,
   onSummarizeChapter,
   onDeclareChapter,
@@ -349,7 +349,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     chapters,
     artifactTitles,
     onOpenArtifact,
-    onOpenReceipts,
+    onInspectCall,
     attachmentsOfTurn,
     titleFor,
     subtitleFor,

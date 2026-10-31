@@ -20,14 +20,13 @@ import type { ChapterTurns, Turn } from '../../types';
 import { MessageBody } from './MessageBody';
 import { flipMessageView, messageIsRaw } from './chatRenderMode';
 import type { ChatRenderMode } from './chatRenderMode';
-import { getWorkspaceMode } from '../../services/workspaceSession';
 import type { Granularity } from '../../domains/granularity';
 import type { ChatAttachment } from '../../domains/06-chat-threads';
 import {
   AttachmentRow,
   formatAttachmentProvenance,
 } from '../context/AttachmentControls';
-import { jobIdFor, TurnReceiptsRow } from './TurnReceiptsRow';
+import { TurnReceiptsRow } from './TurnReceiptsRow';
 
 export interface MessageBubbleProps {
   message: Turn;
@@ -52,7 +51,8 @@ export interface MessageBubbleProps {
   chapters: ChapterTurns[];
   artifactTitles: Record<string, string>;
   onOpenArtifact?: (artifactId: string) => void;
-  onOpenReceipts?: (jobId: string) => void;
+  /** Inspector linkage: opens the inspector on the EXACT recorded call. */
+  onInspectCall?: (callId: string) => void;
   attachmentsOfTurn: (message: Turn, globalIndex: number) => ChatAttachment[];
   titleFor: (artifactId: string) => string;
   subtitleFor: (artifactId: string) => string;
@@ -89,7 +89,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   chapters,
   artifactTitles,
   onOpenArtifact,
-  onOpenReceipts,
+  onInspectCall,
   attachmentsOfTurn,
   titleFor,
   subtitleFor,
@@ -209,9 +209,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         </button>
         )}
 
-        {!offlineReplica && getWorkspaceMode() === 'vps' && onOpenReceipts && jobIdFor(message) && (
+        {!offlineReplica && onInspectCall && message.meta?.callId && (
         <button
-          onClick={() => onOpenReceipts(jobIdFor(message)!)}
+          data-testid="inspect-call"
+          onClick={() => onInspectCall(message.meta!.callId!)}
           className="p-1 rounded hover:bg-surface-2 text-[#50637f] hover:text-[#38bdf8] transition-colors opacity-40 group-hover:opacity-100 cursor-pointer"
           title="Exactly what was sent and what was received (raw provider payloads)"
         >

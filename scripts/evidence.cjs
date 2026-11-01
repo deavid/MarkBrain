@@ -1295,14 +1295,14 @@ async function main() {
 
       // Any mutation starts the debounced save; that save hangs, and the
       // acknowledgement deadline is what turns "stuck" into "failed".
-      const cutChip = page.locator('[data-testid="chapter-cut"] [data-granularity="summary"]').first();
-      if (await cutChip.isVisible().catch(() => false)) {
-        await cutChip.click({ timeout: 8000 });
-        step('click', 'chapter → Summary (starts a save)');
-      } else {
-        step('skip', 'no cut control visible — the boot save alone must raise the banner');
-      }
-
+      // A REAL user mutation, not a boot-save crutch: hydration no longer
+      // arms the persist worker (that echo was quota burn — 733a4d8), so the
+      // journey sends one fixture message. The fixture stream is hermetic,
+      // the appended turns arm the debounced save, the save hangs on the
+      // seam, and the watchdog must turn "stuck" into "failed".
+      await page.locator('textarea').first().fill('slowsave probe: start a save');
+      await page.locator('[title="Send message"]').first().click({ timeout: 8000 });
+      step('send', 'fixture message sent (appends turns → arms the debounced save)');
       const banner = page.locator('[data-testid="critical-notification"]').first();
       await banner.waitFor({ state: 'visible', timeout: 35_000 });
       step('wait', 'the watchdog fired (15s acknowledgement deadline)');
@@ -1574,8 +1574,7 @@ async function main() {
   });
 
   // ── J24 the flight recorder tells the truth ───────────────────────────────
-  await journey(page, '24-flight-recorder', 'Server Telemetry → API Calls (last 7d): request, raw unparsed response, timings — no secrets', async (page) => {
-    // The fixture never talks to a provider, so seed the local recorder store
+  await journey(page, '24-flight-recorder', 'A reply receipt chip opens the API call inspector on the EXACT recorded call: raw unparsed response, timings — no secrets', async (page) => {    // The fixture never talks to a provider, so seed the local recorder store
     // with two finished calls (the shape callLogStore writes) — one of them
     // carrying a sentinel block in the RAW response, proving nothing was
     // stripped before storage.
@@ -1624,24 +1623,44 @@ async function main() {
     });
     step('seed', 'two recorded calls in markbrain-call-logs');
 
-    await page.getByText('Server Telemetry & Logs').first().click({ timeout: 5000 });
-    await page.getByRole('button', { name: /API Calls \(last 7d\)/ }).first().click({ timeout: 5000 });
-    await page.waitForTimeout(600);
-    let txt = await bodyText();
-    check(/cuj-call|chat/i.test(txt), 'the calls list renders');
-    await shot(page, 'calls-list');
-    await page.locator('button', { hasText: 'gemini-fixture' }).first().click({ timeout: 5000 });
-    step('click', 'open the recorded chat call');
-    await page.waitForTimeout(500);
-    txt = await bodyText();
-    check(/fixture compiler/.test(txt), 'the scrubbed system instruction is visible');
-    check(/artifact_upsert/.test(txt), 'the RAW response kept the sentinel blocks (nothing stripped)');
-    check(/180|totalTokens|tokens/i.test(txt), 'usage is shown');
-    check(!/AIza|sk-[A-Za-z0-9]|Authorization:/i.test(txt), 'no API key or auth header anywhere');
-    await shot(page, 'call-detail');
-    await page.locator('[title="Close log viewer"]').click({ timeout: 5000 });
-    step('click', 'close the log viewer (Escape does not close this modal)');
-    await page.waitForTimeout(400);
+    // The REAL user path (plan doc 30): a reply's receipt chip opens the
+    // inspector on the EXACT recorded call. The fixture reply turn carries
+    // meta.callId 'cuj-call-1' — the id seeded above — so the chip is on the
+    // last assistant bubble with zero network. (The old Server Telemetry tab
+    // was removed when the inspector became the one true place for calls.)
+    try {
+      await page.locator('[data-testid="inspect-call"]').first().click({ timeout: 8000 });
+      step('click', 'the reply receipt chip → the API call inspector');
+      await page.locator('[data-testid="api-call-inspector"]').waitFor({ state: 'visible', timeout: 8000 });
+      let txt = await bodyText();
+      check(/gemini-fixture/.test(txt), 'the header names the provider model');
+      check(/180/.test(txt), 'usage tokens are shown');
+      check(!/AIza|sk-[A-Za-z0-9]|Authorization:/i.test(txt), 'no API key or auth header anywhere');
+
+      await page.getByRole('button', { name: 'System' }).first().click({ timeout: 5000 });
+      txt = await bodyText();
+      check(/fixture compiler/.test(txt), 'the scrubbed system instruction is visible');
+      await shot(page, 'call-system');
+
+      await page.getByRole('button', { name: 'Response' }).first().click({ timeout: 5000 });
+      txt = await bodyText();
+      check(/artifact_upsert/.test(txt), 'the RAW response kept the sentinel blocks (nothing stripped)');
+      await shot(page, 'call-response');
+
+      // Escape closes THIS modal (the inspector's own handler) — never leave
+      // an overlay behind to block the next journey.
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+      check(
+        (await page.locator('[data-testid="api-call-inspector"]').count()) === 0,
+        'Escape closes the inspector'
+      );
+      step('close', 'inspector closed (Escape)');
+    } finally {
+      // Contamination guard: whatever happened, no modal survives this journey.
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(200);
+    }
   });
 
   // ── J25 my data leaves as files, and comes back ───────────────────────────
@@ -1842,6 +1861,12 @@ async function main() {
 
   // ── J27 the fixture stream drives the REAL demuxer ───────────────────────
   await journey(page, '27-fixture-sentinel', 'EMIT-ARTIFACT → the sentinel becomes a real note with a revision (demuxer chain, zero network)', async (page) => {
+    // Pin THIS journey's premise: the visible reply is the rendered MARKDOWN
+    // view. Earlier journeys may have left the sidebar's Chat Text on Raw
+    // (raw shows the untouched source — tags included — by design), which
+    // would make the strip-check below read its own toggle, not the demuxer.
+    const markdownBtn = page.getByRole('button', { name: 'Markdown' }).first();
+    if (await markdownBtn.isVisible().catch(() => false)) await markdownBtn.click({ timeout: 5000 });
     await composer.fill('EMIT-ARTIFACT: fixture-gamma');
     await send();
     step('click', 'Send (fixture stream)');

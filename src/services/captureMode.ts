@@ -108,8 +108,11 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
         isStreaming: false,
         streamState: 'completed',
         isFallback: true,
-      },
-    },
+        // Flight-recorder linkage (plan doc 30): the receipt the bubble's
+        // inspect-call button opens. Journey 24 seeds this exact id into
+        // markbrain-call-logs before clicking it — hermetic, no network.
+        callId: 'cuj-call-1',
+      },    },
     {
       id: 'turn-fx-3',
       role: 'user',

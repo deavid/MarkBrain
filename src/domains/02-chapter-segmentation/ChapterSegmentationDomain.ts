@@ -264,13 +264,14 @@ export class ChapterSegmentationDomain implements IChapterSegmentationDomain {
 
   updateLevels(
     chapterId: string,
-    levels: { subtitle?: string; description?: string; summary?: string }
+    levels: { title?: string; subtitle?: string; description?: string; summary?: string }
   ): void {
     const chapter = this.bucket().find((c) => c.id === chapterId);
     if (!chapter) {
       logger.warn('Segmentation', `updateLevels: unknown chapter ${chapterId} — ignored`);
       return;
     }
+    if (levels.title !== undefined) chapter.title = levels.title;
     if (levels.subtitle !== undefined) chapter.subtitle = levels.subtitle;
     if (levels.description !== undefined) chapter.description = levels.description;
     if (levels.summary !== undefined) chapter.summary = levels.summary;

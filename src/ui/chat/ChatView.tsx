@@ -3,7 +3,7 @@
  * the composer. (Phase 6: the dead elapsed-seconds timer and unused lastGroup
  * binding left over from Phase 5 are gone.)
  */
-import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
 import { isOnline, subscribeOnline } from '../../application/connectivity';
 import {
   Artifact,
@@ -25,6 +25,14 @@ import { isOfflineReplica } from '../../services/workspaceSession';
 import type { DraftProgress } from '../../application/draftQueue';
 import { ArchiveBanner, ChatHeader } from './ChatHeader';
 import { ChapterSection } from './ChapterSection';
+import {
+  CHAPTER_TURN_WINDOW_STEP,
+  MAX_OPEN_FULL_CHAPTERS,
+  defaultChapterCollapsed,
+  evictOpenFullChapter,
+} from './chapterFold';
+import { evaluateChapterTokenCap } from '../../domains/02-chapter-segmentation/chapterCap';
+import { formatTokens } from '../context/AttachmentControls';
 import type { MessageBubbleSharedProps } from './MessageBubble';
 import { useMessageTts } from './useMessageTts';
 import { DraftPhaseChip, DraftQueueTray } from './DraftQueueTray';
@@ -116,6 +124,18 @@ export interface ChatViewProps {
   onMergeChapter?: (chapterId: string) => void;
   onShiftBoundary?: (chapterId: string, newStartIndex: number) => void;
   onRecalibrateChapter?: (chapterId: string, steeringPrompt?: string) => Promise<void>;
+  /**
+   * Long-chat Phase 1: the thread these chapters belong to. ChatView resets
+   * its per-thread view state (folds, open order, scroll anchor) whenever it
+   * changes — an omitted id keeps the old single-mount behavior for bare
+   * unit-test mounts.
+   */
+  threadId?: string;
+  /**
+   * Long-chat Phase 2.3: the AI Auto-Split Chapter action (banner button).
+   * Absent in bare test mounts.
+   */
+  onAutoSplitChapter?: (chapterId?: string) => Promise<unknown>;
 }
 
 
@@ -168,6 +188,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onMergeChapter,
   onShiftBoundary,
   onRecalibrateChapter,
+  threadId,
+  onAutoSplitChapter,
 }) => {
   const [feedScrolled, setFeedScrolled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -176,17 +198,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
     (acc, grp) => acc + (grp.turns ? grp.turns.length : 0),
     0
   );
-  const online = useSyncExternalStore(subscribeOnline, isOnline);
-  // Per-message voice playback (device cache scan, download-and-cache, transport).
-  const { playingMessageId, ttsLoadingId, cachedIds, ttsFailedIds, handlePlayTTS } = useMessageTts(
-    chapters,
-    chosenVoice,
-    online
-  );
+  const chapterList = chapters.map((entry) => entry.chapter);
+  const online = useSyncExternalStore(subscribeOnline, isOnline, isOnline);
 
   const [collapsedChapterIds, setCollapsedChapterIds] = useState<Record<string, boolean>>({});
-  // Chapter body layers (description / summary) — COLLAPSED by default
-  // (2026-10-25: a Full cut dumped both layers' full prose into the chat).
+  // Long-chat Phase 1.2: the order the user manually unfolded Full chapters
+  // (oldest first) — the eviction cap folds the least-recently-opened one —
+  // and the per-chapter visible-turn window (Phase 1.3), lifted here so the
+  // TTS device-cache scan sees exactly what the DOM mounts.
+  const [openFullOrder, setOpenFullOrder] = useState<string[]>([]);
+  const [visibleTurnCounts, setVisibleTurnCounts] = useState<Record<string, number>>({});
+  // Chapter body layers
+  // (description / summary) — COLLAPSED by default  // (2026-10-25: a Full cut dumped both layers' full prose into the chat).
   const [collapsedChapterLayers, setCollapsedChapterLayers] = useState<Record<string, boolean>>({});
   const isLayerCollapsed = (chapterId: string, layer: 'description' | 'summary'): boolean =>
     collapsedChapterLayers[`${chapterId}:${layer}`] ?? true;
@@ -205,9 +228,68 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // Inline "Split Chapter" form state
   const [declaringMessageId, setDeclaringMessageId] = useState<string | null>(null);
   const [newChapterTitle, setNewChapterTitle] = useState('');
-  const toggleCollapseChapter = (id: string) => {
-    setCollapsedChapterIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  /**
+   * Long-chat Phase 1.2 — the fold machinery (pure rules live in chapterFold.ts):
+   *  - `effectiveCollapsed` resolves the DEFAULT-FOLD rule for chapters the
+   *    user has never toggled (older Full chapters start folded; the last two
+   *    never fold).
+   *  - `unfoldChapter` records the open order and enforces the
+   *    MAX_OPEN_FULL_CHAPTERS cap, auto-folding the least-recently-opened
+   *    non-ongoing Full chapter — with scroll compensation so the chapter the
+   *    user just clicked stays stationary under their cursor.
+   *  - Folding is UI-ONLY: it never changes what the compiler sends.
+   */
+  const effectiveCollapsed = (entry: ChapterTurns, index: number): boolean =>
+    collapsedChapterIds[entry.chapter.id] ?? defaultChapterCollapsed(chapterList, index);
+
+  const feedRef = useRef<HTMLDivElement | null>(null);
+  const scrollCompensationRef = useRef<{ height: number; top: number } | null>(null);
+
+  const unfoldChapter = (entry: ChapterTurns) => {
+    const id = entry.chapter.id;
+    const el = feedRef.current;
+    if (el) scrollCompensationRef.current = { height: el.scrollHeight, top: el.scrollTop };
+    const collapsedAfter = { ...collapsedChapterIds, [id]: false };
+    if (entry.granularity === 'full') {
+      const order = openFullOrder.includes(id) ? openFullOrder : [...openFullOrder, id];
+      const evictedId = evictOpenFullChapter({
+        chapters: chapterList,
+        openOrder: order,
+        collapsed: collapsedAfter,
+      });
+      if (evictedId && evictedId !== id) {
+        collapsedAfter[evictedId] = true;
+        setOpenFullOrder(order.filter((cid) => cid !== evictedId));
+      } else {
+        setOpenFullOrder(order);
+      }
+    }
+    setCollapsedChapterIds(collapsedAfter);
   };
+
+  const toggleCollapseChapter = (entry: ChapterTurns) => {
+    if (effectiveCollapsed(entry, entry.index)) unfoldChapter(entry);
+    else setCollapsedChapterIds((prev) => ({ ...prev, [entry.chapter.id]: true }));
+  };
+
+  // Per-message voice playback (device cache scan, download-and-cache,
+  // transport). Appendix A.2: the device-cache scan is bounded to the turns
+  // actually MOUNTED — unfolded chapters, each windowed to its visible tail —
+  // so a 2,000-turn thread scans ≤ MAX_OPEN_FULL_CHAPTERS × window turns on
+  // open instead of SHA-256+IndexedDB-hashing its whole history.
+  const ttsChapters = chapters
+    .map((entry, idx) => ({ entry, collapsed: effectiveCollapsed(entry, idx) }))
+    .filter(({ collapsed }) => !collapsed)
+    .map(({ entry }) => {
+      const count = visibleTurnCounts[entry.chapter.id] ?? CHAPTER_TURN_WINDOW_STEP;
+      const hidden = Math.max(0, entry.turns.length - count);
+      return hidden > 0 ? { ...entry, turns: entry.turns.slice(hidden) } : entry;
+    });
+  const { playingMessageId, ttsLoadingId, cachedIds, ttsFailedIds, handlePlayTTS } = useMessageTts(
+    ttsChapters,
+    chosenVoice,
+    online
+  );
   // Design 23 §2.1.2: while the head draft is queued and nothing is sending,
   // the tray is THAT draft's editor — rows come from its snapshot. Otherwise
   // it shows the live staged set (arms the next send).
@@ -245,7 +327,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const tokensFor = (artifactId: string) => tokensByArtifact[artifactId] ?? 0;
   const titleFor = (artifactId: string) => artifactTitles[artifactId] || artifactId;
-  const chapterList = chapters.map((entry) => entry.chapter);
   const subtitleFor = (artifactId: string) => artifactSubtitles[artifactId] || '';
   /**
    * Fill a missing layer WITHOUT touching the chosen cut. "Write it" is a
@@ -273,9 +354,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
    */
   const handleSetChapterCut = (chapter: ChapterTurns, next: Granularity) => {
     onSetChapterGranularity?.(chapter.chapter.id, next);
-    setCollapsedChapterIds((prev) => ({ ...prev, [chapter.chapter.id]: false }));
-    const missingLayer =
-      (next === 'description' && !chapter.chapter.description) ||
+    // Selecting a cut always unfolds the chapter so the user (and CUJ-16)
+    // immediately sees the layer they chose; at `full` it also joins the
+    // open-Full-chapter cap (Appendix A.3).
+    unfoldChapter(chapter);
+    const missingLayer =      (next === 'description' && !chapter.chapter.description) ||
       (next === 'summary' && !chapter.chapter.summary);
     if (!missingLayer || chapter.turns.length === 0) return;
     triggerChapterSummarize(chapter.chapter.id);
@@ -301,10 +384,52 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
     prevMessagesCountRef.current = totalMessagesCount;
   }, [totalMessagesCount]);
-  // Offline replica is a read-only mirror (decision 2026-10-29): the user can
+
+  /* ── Long-chat Phase 1.4: bottom-first open + per-thread view reset ───── */
+  // A thread switch is a NEW conversation surface: folds, open order, turn
+  // windows and the message counter all reset, so the "new turn appended"
+  // smooth-scroll logic never fires on arrival data.
+  const lastThreadIdRef = useRef<string | undefined>(threadId);
+  useEffect(() => {
+    if (lastThreadIdRef.current === threadId) return;
+    lastThreadIdRef.current = threadId;
+    setCollapsedChapterIds({});
+    setOpenFullOrder([]);
+    setVisibleTurnCounts({});
+    prevMessagesCountRef.current = totalMessagesCount;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId]);
+
+  // Bottom-FIRST: the very first painted frame on open/switch is already
+  // anchored at the bottom (useLayoutEffect runs before paint — zero visible
+  // top-to-bottom scroll of history). Smooth scrollIntoView stays for NEW
+  // turns appended while the user is on the same thread (effect above).
+  useLayoutEffect(() => {
+    const el = feedRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId]);
+
+  // Scroll-jump compensation (Phase 1.2): when the eviction cap auto-folds a
+  // chapter ABOVE the viewport, re-anchor so the chapter the user clicked
+  // stays stationary under their cursor.
+  useLayoutEffect(() => {
+    const comp = scrollCompensationRef.current;
+    const el = feedRef.current;
+    if (!comp || !el) return;
+    scrollCompensationRef.current = null;
+    el.scrollTop = comp.top + (el.scrollHeight - comp.height);
+  });  // Offline replica is a read-only mirror (decision 2026-10-29): the user can
   // look, never touch — no sends, no unlocks, no server calls.
   const offlineReplica = isOfflineReplica();
 
+  /* ── Long-chat Phase 2.2: the ACTIVE chapter's token-cap status ────────── */
+  // The last entry IS the ongoing chapter (groupTurnsByChapter rule). Pure
+  // integer sum over cached per-turn token counts — no re-estimation.
+  const activeEntry = chapters.length > 0 ? chapters[chapters.length - 1] : null;
+  const capStatus = activeEntry ? evaluateChapterTokenCap(activeEntry.turns) : null;
+  const capBlocked = capStatus?.status === 'hard-blocked';
   // The composers (hero + footer) share one draft and one padlock state.
   const composer = useComposer({
     draftText,
@@ -313,8 +438,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     onSendMessage,
     onOpenKeySettings,
     enterSend,
+    capBlocked,
   });
-
   const handleDeclareSubmit = (msgId: string) => {
     if (!newChapterTitle.trim()) return;
     logger.action('ChatView', 'Declare new chapter boundary split', { messageId: msgId, newChapterTitle: newChapterTitle.trim() });
@@ -442,7 +567,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
               isLoading={isLoading}
               onStopGeneration={onStopGeneration}
             />
-
             )}
           </div>
         </div>
@@ -503,11 +627,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 turns={turns}
                 chapterList={chapterList}
                 chapterTokens={chapterTokens}
-                isCollapsed={collapsedChapterIds[chapter.id] ?? false}
+                isCollapsed={effectiveCollapsed(entry, chapterIndex)}
                 isLayerCollapsed={(layer) => isLayerCollapsed(chapter.id, layer)}
                 onToggleLayer={(layer) => toggleChapterLayer(chapter.id, layer)}
-                onToggleCollapse={() => toggleCollapseChapter(chapter.id)}
-                chapterMenuOpen={chapterMenuId === chapter.id}
+                onToggleCollapse={() => toggleCollapseChapter(entry)}
+                visibleTurnCount={visibleTurnCounts[chapter.id]}
+                onLoadEarlierTurns={() =>
+                  setVisibleTurnCounts((prev) => ({
+                    ...prev,
+                    [chapter.id]: (prev[chapter.id] ?? CHAPTER_TURN_WINDOW_STEP) + CHAPTER_TURN_WINDOW_STEP,
+                  }))
+                }                chapterMenuOpen={chapterMenuId === chapter.id}
                 onToggleMenu={() => {
                   setSteerChapterId(null);
                   setChapterMenuId(chapterMenuId === chapter.id ? null : chapter.id);
@@ -536,8 +666,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 onShiftBoundary={onShiftBoundary}
                 onRecalibrateChapter={onRecalibrateChapter}
                 offlineReplica={offlineReplica}
-                attachmentsOfChapter={attachmentsOfChapter}
-                titleFor={titleFor}
+                capNote={
+                  isOngoing && capStatus && capStatus.status !== 'ok'
+                    ? capStatus.status === 'soft-cap'
+                      ? `Getting long — ${(capStatus.totalTokens / 1000).toFixed(1)}k / 128k tok`
+                      : capStatus.status === 'grace'
+                        ? `${capStatus.graceSendsRemaining} message${capStatus.graceSendsRemaining === 1 ? '' : 's'} left before the 128k split`
+                        : 'Limit reached — split to continue'
+                    : undefined
+                }
+                attachmentsOfChapter={attachmentsOfChapter}                titleFor={titleFor}
                 subtitleFor={subtitleFor}
                 tokensFor={tokensFor}
                 onToggleAttachment={onToggleAttachment}
@@ -633,8 +771,57 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {totalMessagesCount > 0 && (
         <div className="p-2.5 sm:p-3 bg-surface-0 shrink-0 space-y-2">
-          {offlineReplica ? (
+          {/* Long-chat Phase 2.2 — chapter token-cap banners. A blocked send
+              is never silent: the banner says WHY, and the Auto-Split
+              affordance (plus manual split, Regenerate and attachments — all
+              untouched) is the way out. */}
+          {capStatus && capStatus.status !== 'ok' && !offlineReplica && (
             <div
+              data-testid={
+                capStatus.status === 'soft-cap'
+                  ? 'chapter-soft-cap-banner'
+                  : capStatus.status === 'grace'
+                    ? 'chapter-grace-banner'
+                    : 'chapter-hard-cap-banner'
+              }
+              className={`max-w-4xl mx-auto flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-11 font-mono ${
+                capStatus.status === 'hard-blocked'
+                  ? 'bg-[#3a1a20] text-[#f87171]'
+                  : capStatus.status === 'grace'
+                    ? 'bg-[#3a2a10] text-[#fbbf24]'
+                    : 'bg-surface-2 text-ink-dim'
+              }`}
+            >
+              <span className="min-w-0">
+                {capStatus.status === 'soft-cap' &&
+                  `This chapter is getting long (${(capStatus.totalTokens / 1000).toFixed(1)}k / 128k tok). Split it into two chapters so it stays easy to work with.`}
+                {capStatus.status === 'grace' &&
+                  `This chapter passed 128k tokens — ${capStatus.graceSendsRemaining} message${capStatus.graceSendsRemaining === 1 ? '' : 's'} left before you must split the chapter.`}
+                {capStatus.status === 'hard-blocked' &&
+                  'Chapter limit reached (128k tokens). Split this chapter to continue the conversation.'}
+              </span>
+              <span className="flex items-center gap-2 shrink-0">
+                {capStatus.status === 'soft-cap' && (
+                  <span className="text-10 text-ink-mute hidden sm:inline">or split manually on a message</span>
+                )}
+                {onAutoSplitChapter && (
+                  <button
+                    type="button"
+                    data-testid="auto-split-chapter-btn"
+                    onClick={() => {
+                      logger.action('ChatView', 'Auto-Split Chapter clicked');
+                      void onAutoSplitChapter?.(activeEntry?.chapter.id);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-surface-4 text-ink text-10 font-mono hover:bg-wash-hover transition-colors cursor-pointer shrink-0"
+                    title="Ask the model to find the topic seam and split this chapter in half"
+                  >
+                    Auto-Split Chapter
+                  </button>
+                )}
+              </span>
+            </div>
+          )}
+          {offlineReplica ? (            <div
               data-testid="offline-readonly-strip-bottom"
               className="rounded-2xl bg-recess-1 px-4 py-3 text-center text-11 font-mono text-ink-mute shadow-well max-w-4xl mx-auto"
             >
@@ -645,16 +832,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
           <ThreadComposer
             composer={composer}
-            enterSend={enterSend}
-            resolvedCapabilities={resolvedCapabilities}
+            capBlocked={capBlocked}
+            enterSend={enterSend}            resolvedCapabilities={resolvedCapabilities}
             onSetProjectCapabilities={onSetProjectCapabilities}
             missingMatchCount={missingMatchCount}
             onOpenArtifacts={onOpenArtifacts}
             onOpenArtifactsWithProximity={onOpenArtifactsWithProximity}
             isLoading={isLoading}
             onStopGeneration={onStopGeneration}
-          />
-          )}
+          />          )}
 
          </div>
       )}

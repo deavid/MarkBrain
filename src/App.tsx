@@ -516,10 +516,24 @@ export default function App() {
     handleMergeChapter,
     handleShiftBoundary,
     handleRecalibrateChapter,
+    handleAutoSplitChapter,
   } = createChapterHandlers({ timeline, segmentation, recalibration });
   // One rule for EVERY seal path: the manual split AND the model's own
   // <topic_shift>, which used to leave its sealed chapter at "No summary yet".
   useAutoSummarizeSealedChapters(segmentation, handleSummarizeChapter);
+  // Long-chat Phase 2.3: AI Auto-Split Chapter. Same re-render + persistence
+  // sync the other chapter handlers get (the split must reach the mirror).
+  const onAutoSplitChapter = async (chapterId?: string) => {
+    try {
+      const result = await handleAutoSplitChapter(chapterId);
+      triggerReRender();
+      return result;
+    } catch (err) {
+      // The banner stays; the failure is already logged by the handler.
+      logger.warn('App', 'Auto-Split Chapter failed', err);
+      return undefined;
+    }
+  };
 
   const { setThreadsLifecycle, setArtifactsLifecycle, applyPlan } = createCleanupHandlers({
     artifactsDomain,
@@ -806,6 +820,8 @@ export default function App() {
                   onMergeChapter={handleMergeChapter}
                   onShiftBoundary={handleShiftBoundary}
                   onRecalibrateChapter={handleRecalibrateChapter}
+                  threadId={activeThreadId}
+                  onAutoSplitChapter={onAutoSplitChapter}
                   attachments={activeAttachments}
                   tokensByArtifact={tokensByArtifact}
                   chapterTokens={chapterTokens}

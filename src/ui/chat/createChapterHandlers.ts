@@ -2,11 +2,18 @@ import React from 'react';
 import type { DomainContextValue } from '../../domains/DomainRegistry';
 import { IN_PROGRESS_CHAPTERS, isChapterInProgress, isChapterOngoing } from '../../domains/02-chapter-segmentation';
 import type { Granularity } from '../../domains/granularity';
-import { summarizeChapter } from '../../gateway/api';
+import { summarizeChapter, autoSplitChapter as autoSplitChapterGateway } from '../../gateway/api';
 import { getModelForSlot } from '../../data/modelConfig';
 import { logger } from '../../utils/logger';
+import { resolveAutoSplitBoundary } from '../../../shared/prompts/autoSplit';
 
-/**
+/** The injected Auto-Split gateway (real: src/gateway/api.autoSplitChapter). */
+type AutoSplitGateway = (params: {
+  title: string;
+  messages: Array<{ role: string; content: string }>;
+}) => Promise<Response>;
+
+const autoSplitGateway = autoSplitChapterGateway as unknown as AutoSplitGateway;/**
  * The chapter whose cut now promises a sealed layer nobody wrote.
  *
  * When a chapter is created the previous one is sealed, and it joins the
@@ -192,6 +199,95 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
     segmentation.shiftBoundary(chapterId, newStartIndex);
   };
 
+  /**
+   * AI Auto-Split Chapter (long-chat Phase 2.3, design-docs/31 §3.2): ask the
+   * model where the topic seam is, then apply it through the SAME domain
+   * call the manual split uses (`splitChapter`) — never `declareNewChapter`,
+   * which appends at the list end instead of cutting the target chapter in
+   * half. The raw LLM index is clamped by `resolveAutoSplitBoundary` before
+   * anything is applied; the composer unblocks as soon as the (now half-
+   * sized) active chapter is back under the hard cap.
+   *
+   * `gateway` is injectable so tests (and capture-mode callers) can supply a
+   * hermetic answer without touching a provider.
+   */
+  const handleAutoSplitChapter = async (
+    chapterId?: string,
+    gateway: AutoSplitGateway = autoSplitGateway
+  ): Promise<{ splitIndex: number; clamped: boolean }> => {
+    // Same genesis rule as the manual split: the chat surface may render a
+    // synthesized genesis window that no real chapter backs yet.
+    if (segmentation.listChapters().length === 0) {
+      segmentation.declareNewChapter('Genesis Chapter', 0);
+    }
+    const chapters = segmentation.listChapters();
+    const target = chapterId
+      ? segmentation.getChapter(chapterId)
+      : segmentation.getActiveChapter() ?? chapters[chapters.length - 1];
+    if (!target) {
+      logger.warn('App', 'Auto-split: no chapter to split — ignored');
+      throw new Error('Auto-split: no chapter to split.');
+    }
+    const list = segmentation.listChapters();
+    const idx = list.findIndex((c) => c.id === target.id);
+    const ongoing = idx !== -1 && isChapterOngoing(list, idx);
+    const turns = timeline.getTurnSlice(target.startIndex, ongoing ? undefined : target.endIndex);
+    if (turns.length < 4) {
+      logger.warn('App', `Auto-split refused: chapter ${target.id} has ${turns.length} turns — too small to split`);
+      throw new Error('This chapter is too short to split.');
+    }
+
+    let res: Response;
+    try {
+      res = await gateway({
+        title: target.title,
+        messages: turns.map((t) => ({ role: t.role, content: t.content })),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn('App', `Auto-split call failed for chapter ${target.id}: ${msg}`);
+      throw err instanceof Error ? err : new Error(msg);
+    }
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => null);
+      const msg = `auto-split-chapter HTTP ${res.status}${errBody?.error ? `: ${errBody.error}` : ''}`;
+      logger.warn('App', `Auto-split failed for chapter ${target.id}: ${msg}`);
+      throw new Error(msg);
+    }
+    const parsed = (await res.json()) as {
+      splitTurnOffset?: number;
+      previousChapter?: { title?: string; subtitle?: string; description?: string; summary?: string };
+      currentChapter?: { title?: string; subtitle?: string; description?: string };
+    };
+
+    // NEVER trust raw LLM indices — clamp to a valid interior user turn.
+    const boundary = resolveAutoSplitBoundary(turns, Number(parsed.splitTurnOffset));
+    const globalSplitIndex = target.startIndex + boundary.splitOffset;
+
+    const first = parsed.previousChapter ?? {};
+    const second = parsed.currentChapter ?? {};
+    segmentation.splitChapter(
+      target.id,
+      globalSplitIndex,
+      second.title || `${target.title} (continued)`,
+      second.subtitle,
+      second.description
+    );
+    segmentation.updateLevels(target.id, {
+      title: first.title || target.title,
+      subtitle: first.subtitle,
+      description: first.description,
+      summary: first.summary,
+    });
+
+    logger.action('App', 'Auto-split chapter applied', {
+      chapterId: target.id,
+      splitIndex: globalSplitIndex,
+      clamped: boundary.clamped,
+    });
+    return { splitIndex: globalSplitIndex, clamped: boundary.clamped };
+  };
+
   // Regenerate summary with a steering note (Package 2 §2.6): the user says
   // WHAT the recap should emphasise. Same in-progress guard as summarize —
   // live chapters send Full, so anything written now is stale on arrival.
@@ -215,5 +311,6 @@ export function createChapterHandlers(params: ChapterHandlerParams) {
     handleMergeChapter,
     handleShiftBoundary,
     handleRecalibrateChapter,
+    handleAutoSplitChapter,
   };
 }

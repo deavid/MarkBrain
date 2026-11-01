@@ -20,6 +20,7 @@ import type { Turn } from '../domains/01-dialogue-timeline/types';
 
 vi.mock('../gateway/api', () => ({
   summarizeChapter: vi.fn(),
+  autoSplitChapter: vi.fn(),
 }));
 vi.mock('../data/modelConfig', () => ({
   getModelForSlot: vi.fn(() => 'summarize-slot-model'),

@@ -34,6 +34,7 @@ import {
 // direct adapters, which record through the CallRecorder interface only.
 import type { CallRecorder } from './recorder';
 import {
+  directAutoSplitChapter,
   directChatStream,
   directEmbed,
   directExtractArtifact,
@@ -42,6 +43,7 @@ import {
   directTitleThread,
   directTts,
 } from './direct';
+import { resolveAutoSplitBoundary } from '../../shared/prompts/autoSplit';
 
 
 /** The real recorder, built once here and handed down to the direct adapters. */
@@ -611,6 +613,69 @@ export async function summarizeChapter(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/* ── Auto-Split Chapter (long-chat Phase 2.3, design-docs/31 §3.2) ──────── */
+
+export interface AutoSplitChapterRequest {
+  title: string;
+  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
+  /** Lane model id (modelConfig slot 'summarize'). */
+  model?: string;
+}
+
+/**
+ * Ask the model where this chapter's topic seam is and what each half is
+ * about. Same three-path contract as every other lane:
+ *  - capture/fixture mode → deterministic hermetic answer (NEVER the network);
+ *  - direct mode (key configured, local workspace) → browser→provider;
+ *  - otherwise → POST /api/auto-split-chapter on the VPS.
+ * Returns the raw Response; the caller owns non-ok and shape handling.
+ */
+export function autoSplitChapter(params: AutoSplitChapterRequest): Promise<Response> {
+  // Hermetic rule: capture runs never touch a provider. The deterministic
+  // split is computed here so evidence journeys can exercise the whole
+  // Auto-Split workflow with zero network.
+  if (isCaptureMode()) {
+    const boundary = resolveAutoSplitBoundary(
+      params.messages as Array<{ role: string }>,
+      Math.floor(params.messages.length / 2)
+    );
+    const half = boundary.splitOffset;
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          splitTurnOffset: boundary.splitOffset,
+          clamped: boundary.clamped,
+          previousChapter: {
+            title: `${params.title || 'Chapter'} — First Half`,
+            subtitle: `Turns #0–#${half - 1} of the original chapter, captured deterministically.`,
+            description: 'Deterministic capture-mode description for the first half.',
+            summary: 'Deterministic capture-mode summary for the first half.',
+          },
+          currentChapter: {
+            title: `${params.title || 'Chapter'} — Second Half`,
+            subtitle: `Turns #${half} onward, captured deterministically.`,
+            description: 'Deterministic capture-mode description for the second half.',
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+  }
+  const key = resolveLaneKey('summarize', params.model || 'gemini-3.5-flash-lite');
+  if (key && params.model && !inVpsMode()) {
+    return directAutoSplitChapter(
+      key,
+      { title: params.title, messages: params.messages, model: params.model },
+      callRecorder
+    );
+  }
+  return apiFetch('/api/auto-split-chapter', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: params.title, messages: params.messages, model: params.model }),
+  });
 }
 
 export interface CatalogModel {

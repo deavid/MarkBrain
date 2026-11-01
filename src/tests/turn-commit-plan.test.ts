@@ -520,9 +520,13 @@ describe('send: provenance stamping + turn construction', () => {
     });
   });
 
-  it('no staged attachments → user turn meta stays undefined', () => {
+  it('no staged attachments → user turn meta carries only the token cache', () => {
     const plan = planTurnCommit(baseRequest());
-    expect(plan.userTurn!.meta).toBeUndefined();
+    const meta = plan.userTurn!.meta;
+    // Long-chat Phase 1.1: the token cache is stamped on EVERY turn; with no
+    // attachments there is nothing else in the meta.
+    expect(meta).toMatchObject({ contentTokens: expect.any(Number) });
+    expect(meta?.attachments).toBeUndefined();
   });
 
   it('strips residual <link> tags from the stored reply (defensive; the demuxer normally did it)', () => {

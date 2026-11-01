@@ -28,6 +28,10 @@ import {
   readSentinelArtifact,
   EXTRACT_READ_CHAR_CAP,
 } from '../prompts/prompt';
+import {
+  buildAutoSplitChapterPrompt,
+  parseAutoSplitChapterResponse,
+} from '../../shared/prompts/autoSplit';
 import { parseSentinelBlocks } from '../utils/sentinelParser';
 import type { ResolvedKey } from '../data/keySlots';
 // Phase 6: the flight recorder is injected — this module must not import
@@ -274,8 +278,51 @@ export async function directSummarizeChapter(
   });
 }
 
-/* --------------------------------------------------------------- search QA */
+/* ── Auto-Split Chapter (long-chat Phase 2.3) ────────────────────────────── */
 
+/**
+ * Browser→provider Auto-Split lane: same prompt + parser as the server route
+ * (one source of truth in shared/prompts/autoSplit.ts), recorded in the
+ * flight recorder under the 'summarize' kind with the auto-split endpoint.
+ */
+export async function directAutoSplitChapter(
+  key: ResolvedKey,
+  params: {
+    title: string;
+    messages: Array<{ role: string; content: string }>;
+    model: string;
+  },
+  recorder: CallRecorder
+): Promise<Response> {
+  if (!params.messages || params.messages.length < 4) {
+    return jsonResponse({
+      splitTurnOffset: 0,
+      clamped: true,
+      previousChapter: { title: params.title || 'Chapter', subtitle: '', description: '', summary: '' },
+      currentChapter: { title: params.title || 'Chapter', subtitle: '', description: '' },
+    });
+  }
+  const prompt = buildAutoSplitChapterPrompt({ title: params.title, messages: params.messages });
+  const callId = recordDirectStart(recorder, key, 'summarize', {
+    endpoint: 'direct:auto-split-chapter',
+    model: params.model,
+    compiledPrompt: prompt,
+    params: { temperature: 0.3 },
+  });
+  const { text, error } = await textFrom(
+    await adapterFor(key).generate({
+      apiKey: key.apiKey,
+      model: params.model,
+      prompt,
+      temperature: 0.3,
+    })
+  );
+  recordLaneEnd(recorder, callId, { text, error });
+  if (error) return error;
+  return jsonResponse(parseAutoSplitChapterResponse(text, params.messages, params.title));
+}
+
+/* --------------------------------------------------------------- search QA */
 export async function directGenerateQa(
   key: ResolvedKey,
   params: {

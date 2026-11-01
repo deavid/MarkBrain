@@ -2,7 +2,7 @@
  * One chapter: the header strip (identity, inventory, cut, actions menu), the
  * collapsible body layers, the compacted attachment strip, and its turns.
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -11,6 +11,7 @@ import {
 import { isChapterInProgress } from '../../domains/02-chapter-segmentation';
 import { getMellowPastelColor } from '../../utils/pastelColor';
 import { renderMarkdown } from '../../utils/markdown';
+import { CHAPTER_TURN_WINDOW_STEP } from './chapterFold';
 import type { ChapterTurns, Turn } from '../../types';
 import type { Granularity } from '../../domains/granularity';
 import type { ChatAttachment } from '../../domains/06-chat-threads';
@@ -48,6 +49,18 @@ export interface ChapterSectionProps {
   isLayerCollapsed: (layer: 'description' | 'summary') => boolean;
   onToggleLayer: (layer: 'description' | 'summary') => void;
   onToggleCollapse: () => void;
+  /**
+   * Long-chat Phase 1.3: how many turns of this chapter's tail are mounted.
+   * LIFTED to ChatView (default: internal fallback) so the TTS device-cache
+   * scan and this window stay the same truth. Absent → local state.
+   */
+  visibleTurnCount?: number;
+  onLoadEarlierTurns?: () => void;
+  /**
+   * Long-chat Phase 2.2: one honest line about the ACTIVE chapter's token
+   * cap, shown in its header (the same truth the composer banner carries).
+   */
+  capNote?: string;
   chapterMenuOpen: boolean;
   onToggleMenu: () => void;
   onCloseMenu: () => void;
@@ -88,8 +101,7 @@ export const ChapterSection: React.FC<ChapterSectionProps> = ({
   isCollapsed,
   isLayerCollapsed,
   onToggleLayer,
-  onToggleCollapse,
-  chapterMenuOpen,
+  onToggleCollapse,  chapterMenuOpen,
   onToggleMenu,
   onCloseMenu,
   steerActive,
@@ -114,10 +126,27 @@ export const ChapterSection: React.FC<ChapterSectionProps> = ({
   onSetAttachmentGranularity,
   onOpenArtifact,
   messageProps,
-}) => {
-  const chapColor = getMellowPastelColor(chapter.id || chapterIndex);
+  visibleTurnCount: propsVisibleTurnCount,
+  onLoadEarlierTurns: propsOnLoadEarlier,
+  capNote,
+}) => {  const chapColor = getMellowPastelColor(chapter.id || chapterIndex);
   const pastel = CHAPTER_PASTEL_COLORS[chapterIndex % CHAPTER_PASTEL_COLORS.length];
 
+  // Phase 1.3 — within-chapter turn windowing: even one expanded Full chapter
+  // can carry up to the 128k hard cap (~hundreds of turns). Mount the most
+  // recent window first; earlier turns load upward on demand. PURE UI view
+  // state: the compiler always receives the whole chapter. The window count
+  // is LIFTED to ChatView when provided (so the TTS scan sees the same
+  // window); a local fallback keeps bare mounts working.
+  const [localTurnCount, setLocalTurnCount] = useState(CHAPTER_TURN_WINDOW_STEP);
+  useEffect(() => {
+    setLocalTurnCount(CHAPTER_TURN_WINDOW_STEP);
+  }, [chapter.id]);
+  const visibleTurnCount = propsVisibleTurnCount ?? localTurnCount;
+  const loadEarlierTurns = propsOnLoadEarlier ?? (() => setLocalTurnCount((n) => n + CHAPTER_TURN_WINDOW_STEP));
+
+  const hiddenTurnCount = Math.max(0, turns.length - visibleTurnCount);
+  const windowedTurns = hiddenTurnCount > 0 ? turns.slice(hiddenTurnCount) : turns;
   return (
   <section
     key={chapter.id}
@@ -364,6 +393,14 @@ export const ChapterSection: React.FC<ChapterSectionProps> = ({
             />
           </div>
         ))}
+      {capNote && (
+        <div
+          data-testid="chapter-cap-note"
+          className="text-10 font-mono text-[#b59765] leading-snug"
+        >
+          {capNote}
+        </div>
+      )}
     </div>
 
     {/* What you see is what you send: the body renders exactly the
@@ -505,20 +542,35 @@ export const ChapterSection: React.FC<ChapterSectionProps> = ({
         text it never receives. */}
     {!isCollapsed && granularity === 'full' && turns.length > 0 && (
       <div className="p-3 sm:p-5 space-y-4">
-        {turns.map((message, turnIdx) => {
-                    const globalTurnIndex = chapter.startIndex + turnIdx;
-
-                    return (
-                      <MessageBubble
-                        key={message.id}
-                        message={message}
-                        globalTurnIndex={globalTurnIndex}
-                        {...messageProps}
-                      />
-                    );
-                  })}
+        {hiddenTurnCount > 0 && (
+          <button
+            type="button"
+            data-testid="chapter-load-earlier-turns"
+            onClick={(e) => {
+              e.preventDefault();
+              loadEarlierTurns();
+            }}            className="w-full py-2 rounded-xl bg-surface-2 hover:bg-surface-3 text-11 font-mono text-[#8ca3c7] hover:text-ink transition-colors cursor-pointer"
+            title="Mount earlier turns of this chapter into the view (purely visual — the model always receives the whole chapter)"
+          >
+            Show earlier messages in this chapter ({Math.min(CHAPTER_TURN_WINDOW_STEP, hiddenTurnCount)} of {hiddenTurnCount} earlier)
+          </button>
+        )}
+        {windowedTurns.map((message, windowIdx) => {
+          // CRITICAL INVARIANT: the window is a TRAILING slice — the true
+          // thread-wide index is startIndex + hiddenCount + windowIdx. Every
+          // attachment provenance lookup and manual chapter split depends on
+          // this being the real index, never startIndex + windowIdx alone.
+          const globalTurnIndex = chapter.startIndex + hiddenTurnCount + windowIdx;
+          return (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              globalTurnIndex={globalTurnIndex}
+              {...messageProps}
+            />
+          );
+        })}
       </div>
-    )}
-  </section>
+    )}  </section>
   );
 };

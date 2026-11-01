@@ -13,6 +13,7 @@ import type { ChatAttachment, ChatCapabilities } from '../06-chat-threads';
 import { DEFAULT_CHAT_CAPABILITIES } from '../06-chat-threads';
 import { Granularity, cutIncludes } from '../granularity';
 import { compileTurnContentForPrompt } from '../../../shared/stream/compilerStub';
+import { turnPromptTokens, compiledTurnText } from '../../../shared/turnCommit/turnTokens';
 import type { WireChatMessage } from '../../../shared/stream/turnsWire';
 import { VOICE_LAW } from '../../../shared/prompts/prompt';
 import { logger } from '../../utils/logger';
@@ -266,11 +267,12 @@ export function chapterXml(
           `      <turn role="${t.role}">\n${indentBlock(
             // BUG-011: past turns compile with their operations in place —
             // links/topic shifts verbatim, artifact bodies as compiler stubs.
-            compileTurnContentForPrompt(t.content),
+            // compiledTurnText memoizes per turn object (WeakMap): recompiling
+            // a 100k-turn history on every stream chunk was the hot loop.
+            compiledTurnText(t),
             '        '
           )}\n      </turn>`
-      )
-      .join('\n');
+      )      .join('\n');
     lines.push(`    <turns>`);
     lines.push(turnsXml);
     lines.push(`    </turns>`);
@@ -279,12 +281,24 @@ export function chapterXml(
   return lines.join('\n');
 }
 
+/** Fixed XML wrapper cost around one turn inside <chapter><turns>. */
+const TURN_XML_WRAPPER_TOKENS = estimateTokens(`      <turn role="assistant">\n\n      </turn>`);
+
 export function estimateChapterCutTokens(
   chap: ChapterPartition,
   granularity: Granularity,
   turns: Turn[]
 ): number {
   const includedTurns = cutIncludes(granularity, 'body') ? turns : [];
+  // Long-chat Phase 1.1 fast path: at Full the payload is dominated by the
+  // turn bodies, whose per-turn token costs are CACHED (meta.contentTokens).
+  // An integer sum + the fixed wrapper beats regex-stripping and string-
+  // joining every historical turn on every render frame.
+  if (granularity === 'full' && includedTurns.length > 0) {
+    const wrapper = estimateTokens(chapterXml(chap, granularity, []));
+    const cachedSum = includedTurns.reduce((acc, t) => acc + turnPromptTokens(t), 0);
+    return wrapper + cachedSum + TURN_XML_WRAPPER_TOKENS * includedTurns.length;
+  }
   return estimateTokens(chapterXml(chap, granularity, includedTurns));
 }
 
@@ -465,7 +479,15 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     const systemTokens = estimateTokens(systemInstruction);
     // Counted on the pre-merge turns — the prefix is already accounted as
     // substrateTokens + historyTokens; merging would count it twice.
-    const nativeTurnsTokens = turns.reduce((acc, t) => acc + estimateTokens(t.content + (t.thinking || '')), 0);
+    // Long-chat Phase 1.1: cached per-turn token reads (integer sum) instead
+    // of re-estimating every historical reply string on every tick.
+    const nativeTurnsTokens = nativeTurnsRaw.reduce(
+      (acc, t, i) =>
+        acc +
+        turnPromptTokens(t) +
+        (i === lastAssistantIdx ? estimateTokens((t.meta as { thinking?: string } | undefined)?.thinking || '') : 0),
+      0
+    );
     const totalTokens = systemTokens + substrateTokens + historyTokens + nativeTurnsTokens;
 
     if (options.log) {

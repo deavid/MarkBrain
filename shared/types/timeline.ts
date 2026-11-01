@@ -11,6 +11,14 @@ export interface TurnMeta {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  /**
+   * Long-chat Phase 1.1: cached token estimate of the text this turn sends
+   * to the model (assistant: the compiled reply; user: the ask verbatim).
+   * Stamped by the commit planner; read by the compiler and the chapter-cap
+   * evaluator so token math is an integer sum, not a re-scan. See
+   * `shared/turnCommit/turnTokens.ts`.
+   */
+  contentTokens?: number;
   latencyMs?: number;
   /** Flight-recorder row id — the inspector opens THIS row (David 2026-10-30). */
   callId?: string;

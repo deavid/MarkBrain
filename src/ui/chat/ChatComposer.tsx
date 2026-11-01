@@ -60,6 +60,13 @@ export interface ComposerOptions {
   onOpenKeySettings?: () => void;
   /** What a bare Enter does: send, or insert a new line. */
   enterSend: EnterSendMode;
+  /**
+   * Long-chat Phase 2.2: the ACTIVE chapter is hard-blocked (128k tokens, 0
+   * grace sends left). A blocked send is never attempted — the banner above
+   * the composer carries the reason and the Auto-Split affordance. Regenerate,
+   * manual split and attachments stay enabled (they RESOLVE the block).
+   */
+  capBlocked?: boolean;
 }
 
 export interface ComposerState {
@@ -82,7 +89,7 @@ export interface ComposerState {
 }
 
 export function useComposer(options: ComposerOptions): ComposerState {
-  const { draftText, onDraftTextChange, isLoading, onSendMessage, onOpenKeySettings, enterSend } = options;
+  const { draftText, onDraftTextChange, isLoading, onSendMessage, onOpenKeySettings, enterSend, capBlocked } = options;
 
   // Controlled when App lifts the draft; local fallback for uncontrolled mounts.
   const [localDraft, setLocalDraft] = useState('');
@@ -96,11 +103,11 @@ export function useComposer(options: ComposerOptions): ComposerState {
   /* ── design 25: proactive vault padlock ─────────────────────────────────── */
   // The send button IS the lock indicator: locked keys show a padlock, and a
   // locked send opens the unlock row instead of failing after the fact.
-  const vaultLocked = useSyncExternalStore(subscribeVaultLock, isVaultLocked);
+  const vaultLocked = useSyncExternalStore(subscribeVaultLock, isVaultLocked, isVaultLocked);
   // design 25 §1.1: "no key configured" is a SECOND blocked state — a send
   // that cannot work is never attempted; the user is routed to Model
   // Settings → Keys instead.
-  useSyncExternalStore(subscribeReadiness, getReadinessVersion);
+  useSyncExternalStore(subscribeReadiness, getReadinessVersion, getReadinessVersion);
   const chatModelId = getModelForSlot('chat') ?? '';
   const readiness = evaluateSendReadiness(chatModelId);
   const sendBlocked = !readiness.ok;
@@ -180,7 +187,14 @@ export function useComposer(options: ComposerOptions): ComposerState {
       logger.warn('ChatView', 'Ignored submission while reasoning stream is active');
       return;
     }
-    const msg = inputText;
+    // Long-chat Phase 2.2: the chapter cap block is a THIRD never-attempted
+    // state. Unlike the padlock there is nothing to unlock here — the banner
+    // above the composer explains the limit and carries Auto-Split; silently
+    // sending would push a chapter past the model's context window.
+    if (capBlocked) {
+      logger.warn('ChatView', 'Ignored submission — the active chapter hit its 128k token cap; split it to continue');
+      return;
+    }    const msg = inputText;
     logger.action('ChatView', 'User sent message', { length: msg.length, snippet: msg.substring(0, 80) });
     setInputText('');
     setShowPrompts(false);
@@ -238,6 +252,8 @@ export interface ComposerProps {
   onOpenArtifactsWithProximity?: () => void;
   isLoading: boolean;
   onStopGeneration?: () => void;
+  /** Long-chat Phase 2.2: hard cap reached — the send button shows the lock. */
+  capBlocked?: boolean;
 }
 
 /** The shared unlock POPUP — opened by the padlock (design 25 §1). */
@@ -330,9 +346,9 @@ export const HeroComposer: React.FC<ComposerProps> = ({
   onOpenArtifactsWithProximity,
   isLoading,
   onStopGeneration,
+  capBlocked,
 }) => {
-  const { inputText, setInputText, handleComposerKeyDown, handleSubmit, sendBlocked, readiness } = composer;
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const { inputText, setInputText, handleComposerKeyDown, handleSubmit, sendBlocked, readiness } = composer;  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (inputRef.current) {
@@ -422,22 +438,24 @@ export const HeroComposer: React.FC<ComposerProps> = ({
             // key), the padlock IS the affordance — it must stay
             // clickable with an empty composer, or an empty chat
             // leaves you no way to unlock at all.
-            disabled={isLoading || (!sendBlocked && !inputText.trim())}
+            disabled={isLoading || capBlocked || (!sendBlocked && !inputText.trim())}
             title={
-              readiness.reason === 'no-key'
-                ? 'Add an API key to send — Model Settings → Keys'
-                : readiness.reason === 'vault-locked'
-                  ? 'Keys locked — click to unlock'
-                  : undefined
+              capBlocked
+                ? 'Chapter limit reached — split the chapter to continue'
+                : readiness.reason === 'no-key'
+                  ? 'Add an API key to send — Model Settings → Keys'
+                  : readiness.reason === 'vault-locked'
+                    ? 'Keys locked — click to unlock'
+                    : undefined
             }
             className={
-              sendBlocked
+              sendBlocked || capBlocked
                 ? 'px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 active:bg-amber-400 text-[#231a02] font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-amber-900/30 cursor-pointer'
                 : 'px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] disabled:opacity-40 text-ink font-mono text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer'
             }
           >
             <span>Start Dialogue</span>
-            {sendBlocked ? <Lock className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+            {sendBlocked || capBlocked ? <Lock className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
           </button>
         )}
       </div>
@@ -456,6 +474,7 @@ export const ThreadComposer: React.FC<ComposerProps> = ({
   onOpenArtifactsWithProximity,
   isLoading,
   onStopGeneration,
+  capBlocked,
 }) => {
   const { inputText, setInputText, handleComposerKeyDown, handleSubmit, sendBlocked, readiness } = composer;
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -529,22 +548,26 @@ export const ThreadComposer: React.FC<ComposerProps> = ({
           type="submit"
           // Same law as the other composer: the blocked padlock (locked
           // keys or no key) stays clickable with an empty input — it
-          // routes to the unlock popup or Model Settings → Keys.
-          disabled={!sendBlocked && !inputText.trim()}
+          // routes to the unlock popup or Model Settings → Keys. The
+          // chapter-cap block (Phase 2.2) is a THIRD never-attempted
+          // state: no popup resolves it, the banner above explains it.
+          disabled={isLoading || capBlocked || (!sendBlocked && !inputText.trim())}
           className={
-            sendBlocked
+            sendBlocked || capBlocked
               ? 'px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 active:bg-amber-400 text-[#231a02] transition-all shadow-md shadow-amber-900/30 flex items-center justify-center cursor-pointer shrink-0'
               : 'px-4 py-2.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-40 disabled:hover:bg-[#2563eb] text-ink transition-all shadow-md shadow-blue-900/25 flex items-center justify-center cursor-pointer shrink-0'
           }
           title={
-            readiness.reason === 'no-key'
-              ? 'Add an API key to send — Model Settings → Keys'
-              : readiness.reason === 'vault-locked'
-                ? 'Keys locked — click to unlock'
-                : 'Send message'
+            capBlocked
+              ? 'Chapter limit reached — split the chapter to continue'
+              : readiness.reason === 'no-key'
+                ? 'Add an API key to send — Model Settings → Keys'
+                : readiness.reason === 'vault-locked'
+                  ? 'Keys locked — click to unlock'
+                  : 'Send message'
           }
         >
-          {sendBlocked ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+          {sendBlocked || capBlocked ? <Lock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
         </button>
       )}
     </form>

@@ -2,15 +2,87 @@ import type { Express, Request, Response } from 'express';
 import { logServer } from '../lib/log';
 import { estimateTokens } from '../lib/tokens';
 import { buildSummarizePrompt } from '../../shared/prompts/prompt';
-import { parseSentinelBlocks } from '../../shared/utils/sentinelParser';
+import { buildAutoSplitChapterPrompt, parseAutoSplitChapterResponse } from '../../shared/prompts/autoSplit';import { parseSentinelBlocks } from '../../shared/utils/sentinelParser';
 import { requireModelId } from '../lib/models';
 import { aiForRequest, sendVaultError, VaultLockedError, NoKeyError } from '../lib/accountVault';
 import { isOpenRouterModel } from '../providers/openrouter';
 import { recordCallStart, recordCallEnd } from '../lib/callRecorder';
 
 export function registerSummarizeRoutes(app: Express): void {
-app.post('/api/summarize-chapter', async (req: Request, res: Response) => {
+/* ── Auto-Split Chapter (long-chat Phase 2.3, design-docs/31 §3.2) ──────── */
+
+app.post('/api/auto-split-chapter', async (req: Request, res: Response) => {
   try {
+    const { title, messages = [], model } = req.body;
+    const summarizeModel = requireModelId(model, 'summarize');
+
+    if (!messages || messages.length < 4) {
+      return res.json({
+        splitTurnOffset: 0,
+        clamped: true,
+        previousChapter: { title: title || 'Chapter', subtitle: '', description: '', summary: '' },
+        currentChapter: { title: title || 'Chapter', subtitle: '', description: '' },
+      });
+    }
+
+    const ai = aiForRequest(req, 'summarize', summarizeModel);
+    if (!ai) {
+      return res.status(503).json({ error: 'No API key configured for the summarize lane.' });
+    }
+    const prompt = buildAutoSplitChapterPrompt({ title, messages });
+
+    // Flight recorder: the exact prompt in, the raw reply (or the timeout) out.
+    const callLogId = recordCallStart({
+      userId: req.user?.id ?? null,
+      kind: 'summarize',
+      provider: isOpenRouterModel(summarizeModel) ? 'openrouter' : 'gemini',
+      model: summarizeModel,
+      request: {
+        endpoint: '/api/auto-split-chapter',
+        model: summarizeModel,
+        compiledPrompt: prompt,
+        params: { temperature: 0.3 },
+      },
+    });
+    let raw = '';
+    try {
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model: summarizeModel,
+          contents: prompt,
+          config: { temperature: 0.3 },
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('model call exceeded 15s')), 15_000)
+        ),
+      ]);
+      raw = response.text || '';
+      recordCallEnd(callLogId, { status: 'ok', responseText: raw });
+    } catch (err) {
+      recordCallEnd(callLogId, {
+        status: 'error',
+        error: err instanceof Error ? err.message : String(err).slice(0, 500),
+      });
+      throw err;
+    }
+
+    // NEVER trust raw LLM indices: parseAutoSplitChapterResponse clamps the
+    // offset to a valid interior user turn before anything is applied.
+    const result = parseAutoSplitChapterResponse(raw, messages, title || 'Chapter');
+    res.json(result);
+  } catch (err: unknown) {
+    if (err instanceof VaultLockedError || err instanceof NoKeyError) return sendVaultError(res, err);
+    const errorMessage = err instanceof Error ? err.message : 'Auto-split error';
+    if (/exceeded \d+s/.test(errorMessage)) {
+      logServer('warn', 'API:AUTOSPLIT', `Timed out: ${errorMessage}`);
+      return res.status(504).json({ error: errorMessage });
+    }
+    logServer('error', 'API:AUTOSPLIT', `Error in /api/auto-split-chapter: ${errorMessage}`, err);
+    res.status(500).json({ error: errorMessage });
+  }
+});
+
+app.post('/api/summarize-chapter', async (req: Request, res: Response) => {  try {
     const { title, messages = [], steeringPrompt, model } = req.body;
     const summarizeModel = requireModelId(model, 'summarize');
 

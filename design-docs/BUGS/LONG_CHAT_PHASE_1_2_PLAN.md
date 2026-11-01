@@ -139,7 +139,95 @@
 
 ---
 
-## Phase 3 — Storage & Sync: Incremental Turn Store & Chunked Tail-First Hydration
+## Appendix A — Pre-Implementation Review & Refinements (`dev-vega`, 2026-11-01)
+
+Before starting implementation, `dev-vega` audited all Phase 1 and Phase 2 touchpoints against the live codebase and locked in the following 6 refinements with David:
+
+### A.1 Phase 1.1: Fast-Path Token Math Inside `OpticalCompilerDomain.compile()` (Not Only `estimateChapterCutTokens`)
+- **Finding**:
+  - `chapterTokens[chapter.id]` in `src/application/useProjectProjections.ts` does not call `estimateChapterCutTokens`; it reads `compiledContext.telemetry.chapterBreakdown` directly from `compiler.compile()` (called in `src/ui/context/useContextPayload.ts` on every state `tick`).
+  - Inside `OpticalCompilerDomain.compile()`, every chapter currently builds `chapterXml(chap, granularity, turns)` and runs `estimateTokens(xml)` over the full XML string, and then runs `compileTurnContentForPrompt` + `estimateTokens` a second time when building `turns` (`nativeTurnsRaw`) for the last 2 chapters.
+- **Refinement**:
+  1. In `planTurnCommit` (`shared/turnCommit/planTurnCommit.ts`), stamp `meta.contentTokens = estimateTokens(compileTurnContentForPrompt(storedReply))` on the assistant turn and `meta.contentTokens = estimateTokens(req.askText)` on the user turn.
+  2. Provide a shared helper `turnPromptTokens(t: Turn): number` that returns `t.meta?.contentTokens` when present (a finite non-negative number) and otherwise computes `estimateTokens(t.role === 'assistant' ? compileTurnContentForPrompt(t.content) : t.content)` (and optionally caches it on `t.meta` in-memory for legacy/fixture turns that lacked `meta.contentTokens`).
+  3. Use `turnPromptTokens(t)` in:
+     - `estimateChapterCutTokens(chap, granularity, turns)` when `granularity === 'full'` (summing wrapper overhead + per-turn cached tokens in $O(1)$ per turn instead of regex-stripping and string-joining all turns).
+     - `OpticalCompilerDomain.compile()` for both `chapterBreakdown` token estimation and `nativeTurnsTokens` (`turns.reduce`), so `useContextPayload` never re-runs `estimateTokens` over huge historical turn strings on every `tick`.
+
+### A.2 Phase 1.2 & 1.3: Avoid Full-Thread IndexedDB + SHA-256 Scan in `useMessageTts`
+- **Finding**:
+  - `src/ui/chat/useMessageTts.ts` currently loops over **every turn of every chapter** (`for (const grp of chapters) for (const t of grp.turns)`), computing a SHA-256 `ttsDeviceKey` and awaiting `hasCachedTts` in IndexedDB sequentially for every turn whenever the thread or chapter list changes.
+  - On a 1,000+ turn thread, this causes thousands of sequential `SubtleCrypto.digest` + IndexedDB reads on initial thread open, even when older chapters are folded and expanded chapters are windowed to 40 turns.
+- **Refinement**:
+  - Pass only the **visible/mounted turns** (unfolded chapters, sliced to their active UI turn window) into `useMessageTts` (or filter inside `useMessageTts`), so the device TTS cache scan is strictly bounded by the mounted DOM window (at most `MAX_OPEN_FULL_CHAPTERS * CHAPTER_TURN_WINDOW_STEP` turns on initial open).
+  - When a user unfolds a chapter or clicks `Show earlier messages in this chapter`, `useMessageTts` will naturally scan the newly visible turns.
+
+### A.3 Phase 1.2 & 1.4: Explicit `threadId` Prop on `ChatView` + Deterministic Default-Fold Rule
+- **Finding**:
+  - `ChatViewProps` did not receive `activeThreadId` directly from `App.tsx`, and a newly synthesized Genesis chapter has `chapter.threadId === undefined`.
+  - Without an explicit `threadId` prop, `ChatView` cannot reliably detect thread switches to reset `collapsedChapterIds`, `openFullOrder`, and synchronous bottom-scroll anchoring.
+- **Refinement**:
+  1. Pass `threadId={activeThreadId}` from `App.tsx` to `ChatView` (`threadId?: string` on `ChatViewProps`, falling back to `chapters[0]?.chapter.threadId ?? project.id` when omitted in standalone unit tests).
+  2. When `threadId` changes (or on first mount with non-empty turns):
+     - Reset per-thread UI state (`collapsedChapterIds`, `openFullOrder`, `declaringMessageId`, etc.).
+     - Run a `useLayoutEffect` on the scroll container (`feedRef.current.scrollTop = feedRef.current.scrollHeight`) so the very first painted frame on thread open/switch is already anchored at the bottom (`scrollIntoView({ behavior: 'smooth' })` is only used when `totalMessagesCount` increases on the *same* `threadId`).
+  3. **Default-fold resolution**:
+     - For chapter at index `cIdx` with effective granularity `entry.granularity`:
+       - Default collapsed state is `defaultCollapsed = cIdx < chapters.length - 2 && entry.granularity === 'full'`.
+       - Effective `isCollapsed = collapsedChapterIds[chapter.id] ?? defaultCollapsed`.
+     - This guarantees that:
+       - The last 2 chapters (`cIdx >= chapters.length - 2`) always start unfolded.
+       - Older chapters (`cIdx < chapters.length - 2`) at `full` granularity start folded (`isCollapsed = true`).
+       - Older chapters at `summary`, `description`, or `title` start unfolded (`isCollapsed = false`), preserving CUJ-16 (`16-chapter-cut`) and keeping compact summary layers visible.
+       - When a new chapter is declared and an older `Full` chapter slides to `cIdx < chapters.length - 2`, it automatically folds unless the user explicitly unfolded it.
+  4. **Cap on Simultaneously Open `Full` Chapters (`MAX_OPEN_FULL_CHAPTERS = 3`)**:
+     - Count currently unfolded chapters whose effective granularity is `'full'`.
+     - When the user manually unfolds a `'full'` chapter (or switches a chapter's cut to `'full'`), record its `chapter.id` at the tail of `openFullOrder`.
+     - If the total number of unfolded `'full'` chapters exceeds `MAX_OPEN_FULL_CHAPTERS` (`3`), pick the oldest non-ongoing `'full'` chapter (earliest in `openFullOrder`, or earliest by `chapterIndex` among unfolded non-ongoing `'full'` chapters not yet in `openFullOrder`) and set `collapsedChapterIds[evictedId] = true`.
+     - Measure scroll compensation in `useLayoutEffect` when an above-viewport chapter is auto-folded so the clicked chapter does not jump away from the user's pointer.
+
+### A.4 Phase 2.3: Use `segmentation.splitChapter()` + `updateLevels()` in Auto-Split
+- **Finding**:
+  - Calling `segmentation.declareNewChapter()` directly (as originally phrased in §2.3 step 4) always appends to the end of the chapter list and only updates `endIndex` on chapters with `status === 'active'`.
+  - In contrast, `segmentation.splitChapter(chapterId, globalSplitIndex, newTitle, subtitle, description)` (used by `handleDeclareChapter` in `src/ui/chat/createChapterHandlers.ts`) properly:
+    - Materializes the Genesis chapter first if `segmentation.listChapters().length === 0`.
+    - Sets `target.endIndex = globalSplitIndex` and `target.status = 'completed'`.
+    - Splices the new second-half chapter right after `targetIdx` with `startIndex = globalSplitIndex`, `endIndex = newEnd`, and `status = 'active'` (when splitting the tail chapter).
+    - Emits `chapterSplit` (which integrates cleanly with `useAutoSummarizeSealedChapters` and persistence).
+- **Refinement**:
+  - In `handleAutoSplitChapter(chapterId?: string)` (defaulting to the active/last chapter):
+    1. Materialize Genesis if `segmentation.listChapters().length === 0`.
+    2. Resolve the target chapter (`chapterId` or active/last chapter) and slice its turns.
+    3. Call the Auto-Split gateway / lane to obtain `{ splitTurnOffset, previousChapter, currentChapter }`, then validate/clamp `splitTurnOffset` via `resolveAutoSplitBoundary(chapterTurns, rawSplitTurnOffset)` so it is guaranteed to be a valid interior turn index (`user` turn preferred, strictly inside `[1, chapterTurns.length - 1]`, or `[2, chapterTurns.length - 2]` when `>= 4` turns).
+    4. Compute `globalSplitIndex = target.startIndex + validSplitOffset`.
+    5. Call `segmentation.splitChapter(target.id, globalSplitIndex, currentChapter.title, currentChapter.subtitle, currentChapter.description)`.
+    6. Call `segmentation.updateLevels(target.id, { subtitle: previousChapter.subtitle, description: previousChapter.description, summary: previousChapter.summary })` and update `target.title = previousChapter.title` (via a clean `updateLevels` extension `title?: string` on `ChapterSegmentationDomain.updateLevels` so the first half also gets its focused topic title!).
+
+### A.5 Phase 2.3: Sentinel-Based Auto-Split Prompt, Direct Mode Support & Hermetic Capture Fixture
+- **Finding**:
+  - All LLM extraction/summarization lanes in MarkBrain (`buildExtractPrompt`, `buildSummarizePrompt`, `buildQaPrompt`) use plain-text `=== SENTINEL ===` headers parsed by `parseSentinelBlocks` (`shared/utils/sentinelParser.ts`), never raw JSON (which breaks when models add markdown fences or unescaped quotes in multi-paragraph summaries).
+  - Furthermore, the app supports both Server Proxy mode (`server/routes/summarize.ts`) and Local Direct mode (`src/gateway/directMode.ts`), and `scripts/evidence.cjs` enforces the **HARD HERMETIC RULE** (`isCaptureMode()` in `src/gateway/api.ts` must never hit external providers).
+- **Refinement**:
+  1. **Shared Prompt & Parser (`shared/prompts/prompt.ts` & re-exported in `src/prompts/lanes.ts`)**:
+     - `buildAutoSplitChapterPrompt({ title, messages })`:
+       - Formats each turn as `[Turn #0 | user] ...`, `[Turn #1 | assistant] ...`, truncating any individual turn longer than `1,200` chars to its first `600` + last `600` chars so a `128k`-token chapter compiles into a fast, bounded prompt.
+       - Lists the valid candidate `user` turn offsets (`#2, #4, ...`) near the middle of the chapter.
+       - Asks the model to respond with sentinel blocks:
+         - `=== SPLIT_TURN ===` (integer turn offset `#k` where the second half begins)
+         - `=== FIRST_TITLE ===`, `=== FIRST_SUBTITLE ===`, `=== FIRST_DESCRIPTION ===`, `=== FIRST_SUMMARY ===`
+         - `=== SECOND_TITLE ===`, `=== SECOND_SUBTITLE ===`, `=== SECOND_DESCRIPTION ===`
+     - `parseAutoSplitChapterResponse(raw, turns, fallbackTitle)` + `resolveAutoSplitBoundary(turns, rawOffset)`:
+       - Parses the sentinel blocks (with regex/JSON fallback if a model ever emits JSON).
+       - Clamps `splitTurnOffset` to the nearest valid interior `user` turn (falling back to the midpoint `user` turn near `Math.floor(turns.length / 2)`).
+  2. **Three Execution Paths (`src/gateway/api.ts`, `src/gateway/directMode.ts`, `server/routes/summarize.ts`)**:
+     - **Capture / Fixture mode (`isCaptureMode()`)**: Deterministically computes the midpoint user turn via `resolveAutoSplitBoundary(messages, Math.floor(messages.length / 2))` and returns deterministic titles, subtitles, descriptions, and summary — 100% hermetic, zero network calls.
+     - **Direct mode (`shouldCallProviderDirect()`)**: Runs `buildAutoSplitChapterPrompt` against the `summarize` slot model in `directMode.ts` and parses with `parseAutoSplitChapterResponse`.
+     - **Server Proxy mode (`POST /api/auto-split-chapter` in `server/routes/summarize.ts`)**: Records the call in the flight recorder (`recordCallStart` / `recordCallEnd`), runs with the 15s deadline, and returns `{ splitTurnOffset, previousChapter, currentChapter }`.
+
+### A.6 Scope Gate
+- Execute **Phase 1** and **Phase 2** first (strictly RED-first TDD for every requirement, followed by `npx tsc --noEmit`, `npx vitest run`, `npm run build`, and the targeted CUJ evidence gates).
+- Stop after Phase 1 + 2 for David's verification before touching Phase 3.
+
 
 *(Execute ONLY after Phase 1 and Phase 2 are green and verified.)*
 

@@ -63,7 +63,7 @@ export interface IChapterSegmentationDomain {
   mergeChapters(chapterId: string): ChapterPartition | null;
   updateLevels(
     chapterId: string,
-    levels: { subtitle?: string; description?: string; summary?: string }
+    levels: { title?: string; subtitle?: string; description?: string; summary?: string }
   ): void;
   setGranularity(chapterId: string, granularity: Granularity): void;
   closeChapter(chapterId: string): void;

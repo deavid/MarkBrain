@@ -37,6 +37,8 @@ import type {
 import type { CallOutcome, CallOutcomeArtifact, CallOutcomeLink } from '../types/callLog';
 import { artifactFileName } from '../artifactFileName';
 import { getMellowPastelColor } from '../colors';
+import { estimateTokens } from '../estimateTokens';
+import { compileTurnContentForPrompt } from '../stream/compilerStub';
 
 /** Turn-meta telemetry the attempt measured (client TurnMeta-compatible). */
 export interface TurnCommitTelemetry {
@@ -437,18 +439,21 @@ export function planTurnCommit(req: TurnCommitRequest): TurnCommitPlan {
         // Attachment provenance: index WITHIN the thread + the user turn id.
         // Without these the message renders with NO attachment chips while the
         // LLM clearly got the context (found live 2026-10-25).
-        meta: req.stagedAttachments.length
-          ? ({
-              attachments: req.stagedAttachments.map((a) => ({
-                ...a,
-                turnIndex: userTurnIndex,
-                turnId: req.ids.userTurnId,
-              })),
-            } as Turn['meta'])
-          : undefined,
-      };
-
-  const { model: _m, isFallback: _f, isStreaming: _s, streamState: _st, thinking: _thinking, ...telRest } = req.telemetry ?? {};
+        meta: {
+          // Long-chat Phase 1.1: cache this turn's prompt-token cost — the
+          // ask goes verbatim, so the estimate is measured on it directly.
+          contentTokens: estimateTokens(req.askText),
+          ...(req.stagedAttachments.length
+            ? {
+                attachments: req.stagedAttachments.map((a) => ({
+                  ...a,
+                  turnIndex: userTurnIndex,
+                  turnId: req.ids.userTurnId,
+                })),
+              }
+            : {}),
+        } as Turn['meta'],
+      };  const { model: _m, isFallback: _f, isStreaming: _s, streamState: _st, thinking: _thinking, ...telRest } = req.telemetry ?? {};
   // BUG-013: thinking persists on the assistant turn, permanently — but the
   // meta spread above strips model/isStreaming bookkeeping; thinking rides as
   // an explicit field so it survives both paths.
@@ -463,8 +468,11 @@ export function planTurnCommit(req: TurnCommitRequest): TurnCommitPlan {
           streamState: 'completed',
         }),
     ...(req.telemetry?.thinking ? { thinking: req.telemetry.thinking } : {}),
+    // Long-chat Phase 1.1: the cached cost of THIS reply as the compiler will
+    // send it (operations in place, artifact bodies stubbed). Measured on the
+    // stored reply so raw view, copy and the compiler all agree.
+    contentTokens: estimateTokens(compileTurnContentForPrompt(storedReply)),
   };
-
   const assistantTurn: Turn = isRegen
     ? {
         ...(req.existingAssistantTurn ?? {

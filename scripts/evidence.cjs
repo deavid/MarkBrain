@@ -1894,6 +1894,80 @@ async function main() {
     await page.waitForTimeout(500);
   });
 
+  // ── J28 long-chat UI: the whole Phase 1/2 surface, hermetic ──────────────
+  // Bottom-first open, older-Full-chapter default-fold, the 40-turn window,
+  // the cap banners and the AI Auto-Split (capture gateway — zero network).
+  // The fixture's long/over-cap threads carry their token counts in the
+  // CACHED meta.contentTokens, so the data stays tiny while the cap math
+  // sees real 74.8k / 132k chapters.
+  await journey(page, '28-long-chat-ui', 'Long thread opens AT THE BOTTOM with older Full chapters folded and a 40-turn window; the active chapter shows its cap banner and Auto-Split splits it hermetically; an over-cap thread blocks the composer', async (page) => {
+    const scrollState = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('[data-testid="chat-scroll-container"]');
+        if (!el) return null;
+        return {
+          top: el.scrollTop,
+          max: el.scrollHeight - el.clientHeight,
+          bubbles: document.querySelectorAll('[data-testid="message-markdown"]').length,
+          windows: document.querySelectorAll('[data-testid="chapter-load-earlier-turns"]').length,
+          windowText: document.querySelector('[data-testid="chapter-load-earlier-turns"]')?.textContent ?? '',
+        };
+      });
+
+    // thread-fx-2: the long thread. Older Full chapter folded, active chapter
+    // windowed to its last 40 turns, landed AT THE BOTTOM on the first frame.
+    await page.locator('aside').getByText('Fixture Long Thread', { exact: true }).first().click({ timeout: 8000 });
+    await page.waitForTimeout(1200);
+    let st = await scrollState();
+    check(st !== null, 'the scroll container exists');
+    check((st?.bubbles ?? 0) === 60, `older Full chapter folded + active windowed to 40 (60 bubbles, got ${st?.bubbles})`);
+    check((st?.windows ?? 0) === 1, 'exactly one load-earlier control (the windowed active chapter)');
+    check(/4 of 4 earlier/.test(st?.windowText ?? ''), `the window label says what remains (${st?.windowText?.trim().slice(0, 60)})`);
+    // The anchor is pre-paint; sub-pixel scrollbar/layout drift after mount is
+    // invisible — anything within ~2 lines of the bottom IS "landed at bottom".
+    check((st?.top ?? 0) >= (st?.max ?? 0) - 24, `the first painted frame is AT THE BOTTOM (top ${st?.top} / max ${st?.max})`);
+    await shot(page, 'long-open');
+
+    // Load earlier turns: 40 more bubbles mount, indices stay true (the
+    // chapter's earlier turns appear above without moving the bottom).
+    await page.locator('[data-testid="chapter-load-earlier-turns"]').first().click({ timeout: 8000 });
+    await page.waitForTimeout(800);
+    st = await scrollState();
+    check((st?.bubbles ?? 0) === 64, `the window opened: all 44 turns of the active chapter + 20 of chapter 2b (got ${st?.bubbles})`);
+    check((st?.windows ?? 0) === 0, 'the load-earlier control is gone once everything is mounted');
+    await shot(page, 'long-expanded');
+
+    // Soft-cap banner on the active chapter (~74.8k tokens).
+    check((await page.locator('[data-testid="chapter-soft-cap-banner"]').count()) === 1, 'the soft-cap banner is up');
+    check(/getting long/.test(await bodyText()), 'the banner copy says what the user should do');
+    await shot(page, 'soft-cap-banner');
+
+    // Hermetic Auto-Split: the capture gateway splits at the midpoint user
+    // turn — 4 chapters after the split, banner gone, composer unblocked.
+    await page.locator('[data-testid="auto-split-chapter-btn"]').first().click({ timeout: 8000 });
+    await page.waitForTimeout(1500);
+    check(/First Half/.test(await bodyText()), 'the first half got its focused title from the Auto-Split');
+    check((await page.locator('[data-testid="chapter-soft-cap-banner"]').count()) === 0, 'the soft-cap banner is GONE after the split');
+    check(
+      (await page.locator('[title="Chapter limit reached — split the chapter to continue"]').count()) === 0,
+      'the composer is unblocked after the split'
+    );
+    await shot(page, 'after-auto-split');
+
+    // thread-fx-3: crossed 128k with two user turns past the line → the
+    // composer is BLOCKED, with the red banner carrying the reason + Auto-Split.
+    await page.locator('aside').getByText('Fixture Over Cap', { exact: true }).first().click({ timeout: 8000 });
+    await page.waitForTimeout(1200);
+    check((await page.locator('[data-testid="chapter-hard-cap-banner"]').count()) === 1, 'the hard-cap banner is up on the over-cap thread');
+    const blocked = page.locator('[title="Chapter limit reached — split the chapter to continue"]').first();
+    check((await blocked.count()) === 1, 'the send button carries the block reason');
+    check(await blocked.isDisabled(), 'sending is BLOCKED on the over-cap chapter');
+    check((await page.locator('[data-testid="auto-split-chapter-btn"]').count()) >= 1, 'Auto-Split stays reachable under the block');
+    // The manual split affordance stays mounted too (always a way out).
+    check((await page.locator('[title="Split into new chapter starting at this message"]').count()) >= 1, 'manual split stays reachable under the block');
+    await shot(page, 'hard-cap-banner');
+  });
+
   // ── geometry audit: viewport × surface matrix ─────────────────────────────
   log('── audit: viewport × surface geometry');
   for (const vp of (SKIP_AUDIT ? [] : VIEWPORTS)) {

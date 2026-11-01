@@ -13,7 +13,7 @@
  * these functions collapse to `false` and the branches tree-shake away.
  */
 import type { ProjectSnapshot } from './stores/projectStore';
-
+import { estimateTokens } from '../../shared/estimateTokens';
 const devParam = (name: string): boolean =>
   import.meta.env.DEV &&
   typeof window !== 'undefined' &&
@@ -32,6 +32,56 @@ export const isCaptureMode = (): boolean => devParam('fixture') || devParam('cap
  */
 export const isSlowSaveSeam = (): boolean => devParam('slowsave');
 
+/* ── Long-chat CUJ threads (Phase 1/2 journey 28) ────────────────────────── */
+
+/**
+ * thread-fx-2: a REAL long thread — 3 chapters, the older Full one default-
+ * folded, the active one windowed. Turn bodies are real ~1700-token texts and
+ * `contentTokens` is measured ON them (never a made-up number): every token
+ * figure on screen — cap banner, chapter header, compiler telemetry — derives
+ * from the same text, so no badge can contradict another.
+ */
+const LONG_BODY = (i: number): string =>
+  `Fixture long thread turn #${i}. ` +
+  'The active chapter keeps growing past the soft cap, which is exactly what this thread is here to show. '.repeat(61);
+
+const LONG_TURNS: ProjectSnapshot['turns'] = Array.from({ length: 84 }, (_, i) => {
+  const content = LONG_BODY(i);
+  return {
+    id: `turn-fx2-${i}`,
+    role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+    content,
+    timestamp: 1760000001000 + i,
+    threadId: 'thread-fx-2',
+    meta: { contentTokens: estimateTokens(content) },
+  };
+});
+
+/** thread-fx-3: crossed 128k at turn #1, then two user turns landed → hard-blocked. Bodies real-sized for the same law. */
+const OVER_CAP_BODY = (label: string): string =>
+  `${label}. ` + 'This chapter blew past the 128k hard cap on purpose so the composer block can be watched hermetically. '.repeat(2375);
+
+const OVER_CAP_TURNS: ProjectSnapshot['turns'] = (
+  [
+    ['turn-fx3-0', 'user', 'Fixture over-cap ask'],
+    ['turn-fx3-1', 'assistant', 'Fixture over-cap reply'],
+    ['turn-fx3-2', 'user', 'Fixture over-cap follow-up one'],
+    ['turn-fx3-3', 'assistant', 'Fixture over-cap reply two'],
+    ['turn-fx3-4', 'user', 'Fixture over-cap follow-up two'],
+  ] as const
+).map(([id, role, label], i) => {
+  // The first two turns ARE the 65k-token monsters that cross the cap; the
+  // three tail turns are the grace sends.
+  const content = i < 2 ? OVER_CAP_BODY(label) : `${label}.`;
+  return {
+    id,
+    role,
+    content,
+    timestamp: 1760000002000 + i,
+    threadId: 'thread-fx-3',
+    meta: { contentTokens: estimateTokens(content) },
+  };
+});
 /**
  * HEADLESS FIXTURE — deliberately synthetic data for agent-driven capture.
  *
@@ -53,6 +103,7 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
   updatedAt: 1760000000000,
   // One thread with ONE attachment; journey 14 attaches the second through
   // the picker, which is the only proof that the flow is wired end to end.
+  activeThreadId: 'thread-fx-1',
   threads: [
     {
       id: 'thread-fx-1',
@@ -70,6 +121,34 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
         { artifactId: 'art-fx-alpha', granularity: 'full', addedAt: 1760000000000 },
       ],
     },
+    {
+      id: 'thread-fx-2',
+      folderId: null,
+      title: 'Fixture Long Thread',
+      titleState: 'manual',
+      titleVersion: 0,
+      createdAt: 1760000000000,
+      updatedAt: 1760000001000,
+      lastActivityAt: 1760000001000,
+      lifecycle: 'active',
+      lastOutcome: 'ok',
+      preview: 'Fixture long thread turn #83',
+      attachments: [],
+    },
+    {
+      id: 'thread-fx-3',
+      folderId: null,
+      title: 'Fixture Over Cap',
+      titleState: 'manual',
+      titleVersion: 0,
+      createdAt: 1760000000000,
+      updatedAt: 1760000002000,
+      lastActivityAt: 1760000002000,
+      lifecycle: 'active',
+      lastOutcome: 'ok',
+      preview: 'Fixture over-cap follow-up two',
+      attachments: [],
+    },
   ],
   chapters: [
     {
@@ -84,8 +163,64 @@ export const HEADLESS_FIXTURE: ProjectSnapshot = {
       startIndex: 0,
       createdAt: 1760000000000,
     },
+    {
+      id: 'chap-fx-2a',
+      workspaceId: 'proj-fixture',
+      threadId: 'thread-fx-2',
+      title: 'Chapter 2a: The Old Ground',
+      subtitle: '',
+      summary: 'Older Full chapter — starts FOLDED (long-chat default-fold).',
+      description: '',
+      granularity: 'full',
+      status: 'completed',
+      startIndex: 0,
+      endIndex: 20,
+      createdAt: 1760000000000,
+    },
+    {
+      id: 'chap-fx-2b',
+      workspaceId: 'proj-fixture',
+      threadId: 'thread-fx-2',
+      title: 'Chapter 2b: The Middle',
+      subtitle: '',
+      summary: 'Within the last-two live window — unfolded.',
+      description: '',
+      granularity: 'full',
+      status: 'completed',
+      startIndex: 20,
+      endIndex: 40,
+      createdAt: 1760000000000,
+    },
+    {
+      id: 'chap-fx-2c',
+      workspaceId: 'proj-fixture',
+      threadId: 'thread-fx-2',
+      title: 'Chapter 2c: The Long Now',
+      subtitle: '',
+      summary: 'Active chapter — 44 turns ≈ 74.8k tokens: soft-cap banner + turn window.',
+      description: '',
+      granularity: 'full',
+      status: 'active',
+      startIndex: 40,
+      createdAt: 1760000000000,
+    },
+    {
+      id: 'chap-fx-3',
+      workspaceId: 'proj-fixture',
+      threadId: 'thread-fx-3',
+      title: 'Chapter 3: Past The Cap',
+      subtitle: '',
+      summary: 'Crossed 128k with two user turns after → hard-blocked composer.',
+      description: '',
+      granularity: 'full',
+      status: 'active',
+      startIndex: 0,
+      createdAt: 1760000000000,
+    },
   ],
   turns: [
+    ...LONG_TURNS,
+    ...OVER_CAP_TURNS,
     {
       id: 'turn-fx-1',
       role: 'user',

@@ -370,46 +370,64 @@ export const ChatView: React.FC<ChatViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stagedCount]);
-  // Auto-scroll ONLY when a new message is appended (NOT on summary toggles or loading state)
-  const isFirstMount = useRef(true);
+  /* ── Long-chat Phase 1.4: per-thread view reset + append-only auto-scroll ──
+     ONE effect, thread-aware: a thread switch is a NEW conversation surface —
+     folds, open order, turn windows and the message counter reset, and the
+     "new turn appended" smooth scroll MUST NOT fire on arrival data (it used
+     to launch a 1.5s smooth glide through the whole history on every switch —
+     the exact top-to-bottom scroll disease §1.4 exists to kill). The bottom
+     anchor itself is the useLayoutEffect below (pre-paint, instant). */
+  const lastThreadIdRef = useRef<string | undefined>(threadId);
   useEffect(() => {
-    if (isFirstMount.current) {
-      isFirstMount.current = false;
+    if (lastThreadIdRef.current !== threadId) {
+      // Thread switch (or first mount with a real thread): reset view state,
+      // absorb the arrival count, never smooth-scroll.
+      lastThreadIdRef.current = threadId;
+      setCollapsedChapterIds({});
+      setOpenFullOrder([]);
+      setVisibleTurnCounts({});
       prevMessagesCountRef.current = totalMessagesCount;
-      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
       return;
     }
     if (totalMessagesCount > prevMessagesCountRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
     prevMessagesCountRef.current = totalMessagesCount;
-  }, [totalMessagesCount]);
-
-  /* ── Long-chat Phase 1.4: bottom-first open + per-thread view reset ───── */
-  // A thread switch is a NEW conversation surface: folds, open order, turn
-  // windows and the message counter all reset, so the "new turn appended"
-  // smooth-scroll logic never fires on arrival data.
-  const lastThreadIdRef = useRef<string | undefined>(threadId);
-  useEffect(() => {
-    if (lastThreadIdRef.current === threadId) return;
-    lastThreadIdRef.current = threadId;
-    setCollapsedChapterIds({});
-    setOpenFullOrder([]);
-    setVisibleTurnCounts({});
-    prevMessagesCountRef.current = totalMessagesCount;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId]);
+  }, [totalMessagesCount, threadId]);
 
   // Bottom-FIRST: the very first painted frame on open/switch is already
   // anchored at the bottom (useLayoutEffect runs before paint — zero visible
-  // top-to-bottom scroll of history). Smooth scrollIntoView stays for NEW
-  // turns appended while the user is on the same thread (effect above).
+  // top-to-bottom scroll of history). Thread switching is TWO commits (the
+  // registry names the thread before the timeline delivers its content), so
+  // the anchor fires only when the content BELONGS to this thread — anchoring
+  // on the stale short page would strand the user mid-history. New turns
+  // appended on the SAME thread skip the jump: the smooth scroll below owns
+  // that movement.
+  const anchoredThreadRef = useRef<string>('');
   useLayoutEffect(() => {
     const el = feedRef.current;
     if (!el) return;
+    const contentThread = chapters.length
+      ? chapters[0].chapter.threadId ?? chapters[chapters.length - 1].chapter.threadId ?? threadId ?? ''
+      : threadId ?? '';
+    if (contentThread !== (threadId ?? '') || anchoredThreadRef.current === (threadId ?? '')) return;
+    anchoredThreadRef.current = threadId ?? '';
     el.scrollTop = el.scrollHeight;
+    // Re-anchor when LATE layout grows the page under the anchor (font swap
+    // reflowing multi-KB paragraphs, async markdown metrics) — but only while
+    // the user has not scrolled away from the bottom: their scroll wins.
+    const anchoredAt = el.scrollHeight;
+    let cancelled = false;
+    document.fonts?.ready.then(() => {
+      if (cancelled) return;
+      if (el.scrollTop >= anchoredAt - 64) el.scrollTop = el.scrollHeight;
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId]);
+  });
 
   // Scroll-jump compensation (Phase 1.2): when the eviction cap auto-folds a
   // chapter ABOVE the viewport, re-anchor so the chapter the user clicked
@@ -573,6 +591,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
       ) : (
         /* Unified Vertical Chat Feed with Episodic Chapters - ZERO TOP BAR */
         <div
+          ref={feedRef}
+          data-testid="chat-scroll-container"
           className="flex-1 overflow-y-auto px-3 pb-3 sm:px-6 sm:pb-4 space-y-4"
           onScroll={(e) => {
             const next = e.currentTarget.scrollTop > 24;

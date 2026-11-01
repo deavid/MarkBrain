@@ -17,6 +17,7 @@ import {
   type AtomicMutation,
 } from '../db/projectRepo';
 import type { ProjectSnapshot } from '../../shared/types/projectSnapshot';
+import { ProjectDeletedError } from '../db/projectRepo';
 
 function isSnapshot(body: unknown): body is ProjectSnapshot {
   const s = body as ProjectSnapshot;
@@ -27,6 +28,15 @@ function isSnapshot(body: unknown): body is ProjectSnapshot {
 function fail(res: Response, err: unknown, fallback: string): void {
   const message = err instanceof Error && err.message.trim() ? err.message.trim() : fallback;
   res.status(500).json({ error: message });
+}
+
+/** Deleted project → 410 Gone (the tombstone, not a transient 404/500). */
+function failIfDeleted(res: Response, err: unknown): boolean {
+  if (err instanceof ProjectDeletedError || (err as { name?: string })?.name === 'ProjectDeletedError') {
+    res.status(410).json({ error: 'Project was deleted.' });
+    return true;
+  }
+  return false;
 }
 
 export function registerProjectRoutes(app: Express): void {
@@ -44,6 +54,7 @@ export function registerProjectRoutes(app: Express): void {
       const { revision, project } = createProjectForUser(req.user!.id, snap);
       res.status(201).json({ project, revision });
     } catch (err) {
+      if (failIfDeleted(res, err)) return;
       fail(res, err, 'Project create failed.');
     }
   });
@@ -63,8 +74,13 @@ export function registerProjectRoutes(app: Express): void {
       res.status(400).json({ error: 'body must be the ProjectSnapshot for :projectId' });
       return;
     }
-    const { revision } = applyProjectSnapshotDiff(req.user!.id, snap);
-    res.json({ ok: true, revision });
+    try {
+      const { revision } = applyProjectSnapshotDiff(req.user!.id, snap);
+      res.json({ ok: true, revision });
+    } catch (err) {
+      if (failIfDeleted(res, err)) return; // late debounced save for a deleted project
+      fail(res, err, 'Project save failed.');
+    }
   });
 
   app.post('/api/projects/:projectId/mutate', (req: Request, res: Response) => {
@@ -77,6 +93,7 @@ export function registerProjectRoutes(app: Express): void {
       const { revision } = applyAtomicMutation(req.user!.id, req.params.projectId, mutations as AtomicMutation | AtomicMutation[]);
       res.json({ ok: true, revision });
     } catch (err) {
+      if (failIfDeleted(res, err)) return;
       res.status(400).json({ error: err instanceof Error ? err.message : 'Mutation failed.' });
     }
   });

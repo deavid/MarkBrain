@@ -37,6 +37,19 @@ export type ProjectSnapshotWithRevision = ProjectSnapshot & { revision: number }
 
 export type { ProjectDeltaResponse };
 
+/**
+ * Thrown when a write targets a project the user deleted (project-level
+ * tombstone). Routes map this to HTTP 410 Gone; the client's store treats it
+ * as authoritative deletion — the late debounced save of a doomed project
+ * must never resurrect the row (live bug 2026-11-01, VPS mode).
+ */
+export class ProjectDeletedError extends Error {
+  constructor(projectId: string) {
+    super(`Project ${projectId} was deleted.`);
+    this.name = 'ProjectDeletedError';
+  }
+}
+
 export type AtomicMutation =
   | { op: 'upsertArtifact'; artifact: UniversalArtifactDocument }
   | { op: 'deleteArtifact'; artifactId: string }
@@ -405,6 +418,26 @@ function recordTombstone(db: Db, userId: number, projectId: string, entityType: 
   ).run(userId, projectId, entityType, entityId, rev);
 }
 
+/**
+ * True when the user deleted this PROJECT (project-level tombstone — the row
+ * survives the project's own deletion because tombstones has no FK to
+ * projects). Late writes (debounced saves that were in flight when the user
+ * confirmed the delete, outbox replays, another tab's queue) must not
+ * resurrect the row — see ProjectDeletedError.
+ */
+function isProjectTombstoned(db: Db, userId: number, projectId: string): boolean {
+  return !!db
+    .prepare(
+      "SELECT 1 FROM tombstones WHERE user_id = ? AND project_id = ? AND entity_type = 'project' AND entity_id = ? LIMIT 1"
+    )
+    .get(userId, projectId, projectId);
+}
+
+/** Guard shared by every project write entry point (PUT / create / mutate). */
+function assertNotTombstoned(db: Db, userId: number, projectId: string): void {
+  if (isProjectTombstoned(db, userId, projectId)) throw new ProjectDeletedError(projectId);
+}
+
 /* ── artifact revisions (design-docs/28 §1.3 — persistent 4-layer history) ── */
 
 /** Upsert one revision row for an artifact (same envelope pattern as the other domain tables). */
@@ -595,6 +628,7 @@ export function loadProjectForUser(userId: number, projectId: string): ProjectSn
 export function applyProjectSnapshotDiff(userId: number, snapshot: ProjectSnapshot): { revision: number } {
   const db = getDb();
   const tx = db.transaction((): { revision: number } => {
+    assertNotTombstoned(db, userId, snapshot.projectId);
     const cur = db.prepare(SELECT_PROJECT).get(userId, snapshot.projectId) as ProjectRow | undefined;
     const newRev = (cur?.revision ?? 0) + 1;
     upsertProjectMeta(db, userId, snapshot, newRev);
@@ -650,7 +684,9 @@ export function applyAtomicMutation(
     let cur = db.prepare(SELECT_PROJECT).get(userId, projectId) as ProjectRow | undefined;
     if (!cur) {
       // Mutations target an existing project; create an empty shell so a
-      // race (create + immediate commitPair) cannot 404.
+      // race (create + immediate commitPair) cannot 404. A tombstoned
+      // project is NOT resurrected by this — the guard runs first.
+      assertNotTombstoned(db, userId, projectId);
       upsertProjectMeta(db, userId, { projectId, turns: [], chapters: [], artifacts: [], edges: [], updatedAt: Date.now() } as ProjectSnapshot, 0);
       cur = db.prepare(SELECT_PROJECT).get(userId, projectId) as ProjectRow;
     }
@@ -791,6 +827,7 @@ export function bumpProjectRevision(userId: number, projectId: string): number {
   const tx = db.transaction((): number => {
     const cur = db.prepare(SELECT_PROJECT).get(userId, projectId) as ProjectRow | undefined;
     if (!cur) {
+      assertNotTombstoned(db, userId, projectId);
       upsertProjectMeta(
         db,
         userId,
@@ -887,6 +924,7 @@ export function commitJobPairTransaction(input: CommitJobInput): {
   const tx = db.transaction(() => {
     const cur = db.prepare(SELECT_PROJECT).get(input.userId, input.projectId) as ProjectRow | undefined;
     if (!cur) {
+      assertNotTombstoned(db, input.userId, input.projectId);
       upsertProjectMeta(
         db,
         input.userId,
@@ -1286,6 +1324,15 @@ export function deleteProjectForUser(userId: number, projectId: string): boolean
   const tx = db.transaction(() => {
     const info = db.prepare('DELETE FROM projects WHERE user_id = ? AND project_id = ?').run(userId, projectId);
     db.prepare('DELETE FROM tombstones WHERE user_id = ? AND project_id = ?').run(userId, projectId);
+    if (info.changes > 0) {
+      // Project-level tombstone: late writes (debounced saves in flight while
+      // the DELETE round-trips, outbox replays, another tab's queue) get 410
+      // instead of resurrecting the row. Cleared by replaceAll (explicit
+      // import) so a deliberate restore still works.
+      db.prepare(
+        "INSERT INTO tombstones (user_id, project_id, entity_type, entity_id, revision) VALUES (?, ?, 'project', ?, 0)"
+      ).run(userId, projectId, projectId);
+    }
     return info.changes > 0;
   });
   return tx();

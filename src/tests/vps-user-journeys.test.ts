@@ -422,7 +422,16 @@ describe('journey 7 — JSON error contract', () => {
     expect(typeof malformed.body.error).toBe('string');
     expect(malformed.body.error.length).toBeGreaterThan(0);
 
-    const badOp = await api('/api/projects/proj-mvo8wsih-gxot/mutate', {
+    // A LIVE project: the op-validation contract (400) is about the payload,
+    // not project state. (A deleted/tombstoned project answers 410 first —
+    // project-delete authority, see project-delete-authority.test.ts.)
+    const live = await api('/api/projects', {
+      method: 'POST',
+      body: { project: { projectId: 'proj-j7-live', turns: [], chapters: [], artifacts: [], edges: [], updatedAt: Date.now(), name: 'J7 Live' } },
+    });
+    expect([201, 409]).toContain(live.status);
+
+    const badOp = await api('/api/projects/proj-j7-live/mutate', {
       method: 'POST',
       body: { op: 'definitely-not-a-mutation' },
     });
@@ -430,7 +439,7 @@ describe('journey 7 — JSON error contract', () => {
     expectJsonNotHtml(badOp);
     expect(badOp.body.error).toContain('Unknown mutation');
 
-    const noMutation = await api('/api/projects/proj-mvo8wsih-gxot/mutate', { method: 'POST', body: {} });
+    const noMutation = await api('/api/projects/proj-j7-live/mutate', { method: 'POST', body: {} });
     expect(noMutation.status).toBe(400);
     expectJsonNotHtml(noMutation);
     expect(typeof noMutation.body.error).toBe('string');

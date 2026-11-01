@@ -112,8 +112,27 @@ async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ project: snapshot }),
         });
+        if (create.status === 410) {
+          // Tombstoned between the 404 and the create: authoritative deletion
+          // wins (same law as the PUT 410 path above).
+          await localDeleteProject(snapshot.projectId);
+          offlineOutbox.clearDirty(snapshot.projectId);
+          logger.warn('VpsStore', `${snapshot.projectId} was deleted — offline create refused (410), mirror cleared`);
+          return;
+        }
         if (!create.ok) throw new Error(`Project create failed: HTTP ${create.status}`);
         offlineOutbox.clearDirty(snapshot.projectId);
+        return;
+      }
+      if (res.status === 410) {
+        // AUTHORITATIVE DELETION (2026-11-01): the server tombstoned this
+        // project — this save is the late debounced save of a doomed project
+        // (it fired inside the DELETE round trip), or another tab/device
+        // deleted it. Never resurrect, never queue, never alarm: drop the
+        // mirror copy so the next boot/list agrees with the server.
+        await localDeleteProject(snapshot.projectId);
+        offlineOutbox.clearDirty(snapshot.projectId);
+        logger.warn('VpsStore', `${snapshot.projectId} was deleted — a late save was dropped (410), mirror cleared`);
         return;
       }
       if (res.status === 401) {
@@ -160,6 +179,14 @@ async function mirrorAll(projects: ProjectSnapshot[]): Promise<void> {
         // POST it on the next sign-in.
         offlineOutbox.markDirty(snapshot.projectId, null, snapshot, null);
         logger.warn('VpsStore', `session gone: created ${snapshot.projectId} in mirror, queued for replay`);
+        return;
+      }
+      if (res.status === 410) {
+        // AUTHORITATIVE DELETION (same as save's 410 path): the project was
+        // deleted (another tab/device). Drop the mirror copy — do not create.
+        await localDeleteProject(snapshot.projectId);
+        offlineOutbox.clearDirty(snapshot.projectId);
+        logger.warn('VpsStore', `${snapshot.projectId} was deleted — create refused (410), mirror cleared`);
         return;
       }
       if (!res.ok && res.status !== 409) throw new Error(`Project create failed: HTTP ${res.status}`);

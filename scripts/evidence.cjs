@@ -1549,13 +1549,21 @@ async function main() {
   // ── J23 chapters answer to the menu ───────────────────────────────────────
   await journey(page, '23-chapter-controls', 'Chapter ⋯ menu → Merge with previous chapter → one chapter fewer, turns survive', async (page) => {
     const menus = page.locator('[data-testid^="chapter-menu-"]');
-    const before = await menus.count();
+    let before = await menus.count();
     if (before < 2) {
-      // The bare fixture boots with a single chapter; a second one exists only
-      // after 04 declares a split. Merging needs two — say so and bail.
-      warn(`only ${before} chapter — merging needs two; run the full pack (or MARKBRAIN_JOURNEYS=04,23)`);
-      await shot(page, 'single-chapter');
-      return;
+      // The bare fixture boots with a single chapter (a mid-pack reload reseeds
+      // it, wiping 04's split). Merging needs two — declare a split HERE so the
+      // journey never depends on what earlier journeys happened to leave behind.
+      const splits = page.locator('[title="Split into new chapter starting at this message"]');
+      await splits.first().evaluate((el) => el.click());
+      const form = page.getByPlaceholder(/New Chapter Title/);
+      await form.waitFor({ state: 'visible', timeout: 8000 });
+      await form.fill('Merge Seed');
+      await page.getByRole('button', { name: 'Split Chapter' }).click();
+      await page.waitForTimeout(1200);
+      before = await menus.count();
+      check(before >= 2, `self-split gave the merge a second chapter (${before})`);
+      step('split', 'declared own split — merge no longer depends on J04');
     }
     await menus.last().click({ timeout: 5000 });
     await page.locator('[data-testid^="chapter-menu-panel-"]').first().waitFor({ state: 'visible', timeout: 5000 });
@@ -1966,6 +1974,63 @@ async function main() {
     // The manual split affordance stays mounted too (always a way out).
     check((await page.locator('[title="Split into new chapter starting at this message"]').count()) >= 1, 'manual split stays reachable under the block');
     await shot(page, 'hard-cap-banner');
+  });
+
+  // ── J29 the device storage meter ──────────────────────────────────────────
+  await journey(page, '29-storage-meter', 'The sidebar shows how much device storage the workspace uses against the safe budget — quiet below 50%, loud past 80%', async (page) => {
+    // Fresh CONTEXT so we can override the browser's own storage estimate
+    // deterministically (the real estimate depends on the machine, not the app).
+    const ctx3 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page3 = await ctx3.newPage();
+    guardExternal(page3);
+    try {
+      // The init script reads the fake estimate from sessionStorage so the
+      // second boot (loud case) can change the numbers without a new context.
+      await page3.addInitScript(() => {
+        const spec = JSON.parse(sessionStorage.getItem('mb-fake-storage') || 'null') || {
+          usage: Math.round(14.2 * 1024 * 1024),
+          quota: 1024 * 1024 * 1024, // 1 GiB browser quota → budget = min(100 MiB, 512 MiB) = 100 MiB
+        };
+        Object.defineProperty(navigator.storage, 'estimate', { value: async () => spec });
+      });
+      const boot3 = async () => {
+        await page3.goto(`${APP}${APP.includes('?') ? '&' : '?'}fixture=1`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        const gate = page3.getByRole('button', { name: /Use Local Workspace/ }).first();
+        if (await gate.isVisible({ timeout: 4000 }).catch(() => false)) {
+          await gate.click({ timeout: 5000 });
+        }
+        await page3.locator('textarea').first().waitFor({ state: 'visible', timeout: 30_000 });
+        await page3.waitForTimeout(1500);
+      };
+
+      // Quiet case: 14.2 MiB of 100 MiB → muted readout, nothing alarming.
+      await boot3();
+      const meter = page3.locator('[data-testid="storage-meter"]').first();
+      await meter.waitFor({ state: 'visible', timeout: 8000 });
+      const quietTxt = (await meter.textContent()) ?? '';
+      check(/14\.2 MB/.test(quietTxt), `the readout states the real usage (${quietTxt.trim()})`);
+      check(/14%/.test(quietTxt), `the readout states the percent against the safe budget (${quietTxt.trim()})`);
+      check((await meter.getAttribute('data-level')) === 'quiet', '14% reads as quiet — muted, not alarming');
+      await page3.screenshot({ path: path.join(J.dir, 'shots', '01-storage-quiet.png') }).catch(() => {});
+
+      // Loud case: 90 MiB of 100 MiB → unmistakable warning.
+      await page3.evaluate(() => {
+        sessionStorage.setItem('mb-fake-storage', JSON.stringify({ usage: 90 * 1024 * 1024, quota: 1024 * 1024 * 1024 }));
+      });
+      await page3.reload({ waitUntil: 'domcontentloaded' });
+      const gate2 = page3.getByRole('button', { name: /Use Local Workspace/ }).first();
+      if (await gate2.isVisible({ timeout: 4000 }).catch(() => false)) {
+        await gate2.click({ timeout: 5000 });
+      }
+      await page3.locator('[data-testid="storage-meter"][data-level="loud"]').first().waitFor({ state: 'visible', timeout: 15_000 });
+      const loudTxt = (await page3.locator('[data-testid="storage-meter"]').first().textContent()) ?? '';
+      check(/90%/.test(loudTxt), `the loud readout names the percent (${loudTxt.trim()})`);
+      step('check', '90% flips the meter loud');
+      await page3.screenshot({ path: path.join(J.dir, 'shots', '02-storage-loud.png') }).catch(() => {});
+    } finally {
+      await page3.close();
+      await ctx3.close();
+    }
   });
 
   // ── geometry audit: viewport × surface matrix ─────────────────────────────

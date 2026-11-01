@@ -43,7 +43,8 @@
 
 ## Active Horizon & Future Drawer (Parked Until Needed)
 1. **Sidebar Storage Meter + Working-Set Archiving (`31_LONG_CHAT_SCALABILITY.md` §4.2)**:
-   - Optional lightweight sidebar storage indicator (`navigator.storage.estimate()` + working-set budget, getting louder past 50%), followed later (when storage actually fills up) by archiving old chapters/projects out of client memory/IDB while keeping them on the VPS.
+   - ✅ Storage meter SHIPPED (2026-11-01): quiet `Device storage · 14.2 MB · 14%` readout at the sidebar bottom, safe budget = min(100 MiB, half browser quota), amber at 50%, loud at 80%.
+   - Remaining: the archiving flow itself — evict old chapters/projects from client memory/IDB ("working set") while keeping them on the VPS.
 2. **View-Level Color Mapping (`BUGS/FEATURE_VIEW_COLOR_MAPPING.md`)**:
    - Configurable "Color By" lens in Graph/Library (e.g., by active chat attachment granularity, category, or folder).
 3. **Mid-Message Image Attachments (`BUGS/FEATURE_INLINE_ATTACHMENTS_AND_IMAGES.md` §2)**:

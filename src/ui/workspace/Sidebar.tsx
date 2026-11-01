@@ -44,6 +44,7 @@ import type { EnterSendMode } from '../chat/sendOnEnter';
 import { isOnline, subscribeOnline } from '../../application/connectivity';
 import { SidebarThreadTree } from './SidebarThreadTree';
 import { SidebarPreferencesPanel } from './SidebarPreferencesPanel';
+import { StorageMeterRow } from './StorageMeterRow';
 
 
 export type ActiveView = 'chat' | 'artifacts';
@@ -701,6 +702,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </span>
             </button>
           )}
+
+          <StorageMeterRow />
         </div>
       </aside>
     </>

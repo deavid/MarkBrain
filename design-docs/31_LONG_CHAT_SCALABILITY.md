@@ -138,10 +138,10 @@ Before listing failure modes and solutions, three hard boundaries must be respec
 
 ### 4.2 Future Horizon (Parked by David on 2026-11-01 — "for another day / another month")
 
-1. **Client Storage Meter in Sidebar (`navigator.storage.estimate()`)**:
+1. **Client Storage Meter in Sidebar (`navigator.storage.estimate()`)** — **SHIPPED 2026-11-01 (commit pending this note)**:
    - **Browser capability**: Modern browsers expose the Web Storage API `await navigator.storage.estimate()`, which returns `{ usage, quota }` in bytes for the entire origin (covering `markbrain-local` / `markbrain-vps-*` IndexedDB stores, `markbrain-tts-audio-v1` Opus cache, `markbrain-call-logs`, and `localStorage`).
    - **Important nuance on browser `quota`**: Browser-reported `quota` is based on free disk space (up to ~60% of disk in Chromium, ~1–2 GiB soft ceiling in Safari/iOS before eviction pressure), whereas practical single-tab **in-memory working-set limits** (hydration + domain maps) hit friction much earlier around **100–250 MB** of raw workspace data.
-   - **Future UI idea (David)**: A small, quiet storage readout in the sidebar showing rough MB used and `% full` against a safe working ceiling (or browser quota), staying subtle under 50% and getting visually louder once past 50% / 80% — acting as the early-warning trigger for when we actually need the working-set archiver below.
+   - **UI (David-approved, 2026-11-01)**: A small, quiet storage readout at the very bottom of the sidebar (`Device storage · 14.2 MB · 14%`) measuring against the **safe budget = min(100 MiB of workspace data, half the browser quota)**. It stays muted below 50%, turns amber at 50%, and gets loud (rose) at 80% — the early-warning trigger for the working-set archiver below. Renders nothing when the browser offers no estimate (private mode). Pinned by `src/tests/storage-meter.test.tsx` (RED-first) and CUJ `29-storage-meter` (hermetic: the browser estimate is faked deterministically via `addInitScript`).
 2. **Working-Set Archiving (Offloading Cold Data from Client Memory/IDB to VPS)**:
    - Once real usage ever approaches those storage thresholds, introduce an archiving flow where older/settled chapters or projects are marked archived: their heavy turn bodies / audio are evicted from the client's in-memory domains and local IndexedDB mirror ("working set"), while remaining safely stored and queryable on the VPS.
 3. **Phase 3-b Client Cold-Boot Chunked Hydration (Deferred — Option A chosen)**:

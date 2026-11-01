@@ -104,7 +104,9 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
       // reason. There is no second stream waiting behind a timer.
       // Inspector data layer (David 2026-10-30): capture the exact wire payload
       // and the split reasoning/text chunks for the flight recorder row.
-      const responseStream = await streamFromModel(ai, targetModel, compiledPrompt, systemInstruction, reqId, {
+      // BUG-013: native conversation turns ride beside the compiled prompt.
+    const wireTurns = Array.isArray(req.body.turns) ? req.body.turns : undefined;
+    const responseStream = await streamFromModel(ai, targetModel, compiledPrompt, systemInstruction, reqId, {
         onWire: (payload) => recordCallWire(callLogId, payload),
         onChunk: (chunk) => {
           if (chunk.reasoning) {
@@ -114,7 +116,7 @@ app.post('/api/chat/stream', async (req: Request, res: Response) => {
           }
           if (chunk.text) textChunks += 1;
         },
-      });
+      }, wireTurns);
       recordCallAck(callLogId);
       const usedModel = targetModel;
 

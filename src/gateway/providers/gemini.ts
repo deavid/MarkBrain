@@ -17,6 +17,7 @@ import type {
   TtsParams,
 } from './types';
 import { errorResponse, jsonResponse, sseStreamResponse } from './types';
+import { geminiWireContents } from './geminiWire';
 import { l2Normalize } from '../../domains/search/draftSearchEngine';
 import { noopCallRecorder, type CallRecorder } from '../recorder';
 
@@ -86,7 +87,10 @@ async function streamGeminiChat(
   // The EXACT wire body — recorded verbatim (scrubbed) so the inspector shows
   // what the provider received, not our internal arguments.
   const wireBody = {
-    contents: [{ role: 'user', parts: [{ text: params.contents }] }],
+    // BUG-013: real native turns when present; single-blob fallback otherwise.
+    contents: params.messages?.length
+      ? geminiWireContents(params.messages)
+      : [{ role: 'user', parts: [{ text: params.contents }] }],
     ...(params.systemInstruction
       ? { systemInstruction: { parts: [{ text: params.systemInstruction }] } }
       : {}),

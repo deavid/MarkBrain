@@ -13,6 +13,7 @@ import type { ChatAttachment, ChatCapabilities } from '../06-chat-threads';
 import { DEFAULT_CHAT_CAPABILITIES } from '../06-chat-threads';
 import { Granularity, cutIncludes } from '../granularity';
 import { compileTurnContentForPrompt } from '../../../shared/stream/compilerStub';
+import type { WireChatMessage } from '../../../shared/stream/turnsWire';
 import { VOICE_LAW } from '../../../shared/prompts/prompt';
 import { logger } from '../../utils/logger';
 import { estimateTokens } from '../../utils/estimateTokens';
@@ -67,6 +68,12 @@ export interface ChapterBreakdownEntry {
   title: string;
   granularity: Granularity;
   tokens: number;
+  /**
+   * BUG-013: true when this chapter rides the wire as NATIVE user/assistant
+   * turns (always full content) instead of XML — its tokens bill under
+   * tokenBreakdown.nativeTurnsTokens, NOT historyTokens.
+   */
+  native?: boolean;
 }
 
 export interface ContextTelemetry {
@@ -74,6 +81,8 @@ export interface ContextTelemetry {
     systemTokens: number;
     substrateTokens: number;
     historyTokens: number;
+    /** BUG-013: token estimate of the native conversation turns (wire). */
+    nativeTurnsTokens: number;
     totalTokens: number;
   };
   granularityDistribution: Record<Granularity, number>;
@@ -85,6 +94,13 @@ export interface ContextTelemetry {
 
 export interface CompiledContextPayload {
   compiledPrompt: string;
+  /**
+   * BUG-013: the provider-neutral NATIVE conversation turns — the last 2
+   * chapters as real user/assistant messages (thinking on the last assistant
+   * turn only). Empty when the thread has no turns yet; providers then fall
+   * back to the compiledPrompt blob.
+   */
+  turns: WireChatMessage[];
   systemInstruction: string;
   telemetry: ContextTelemetry;
 }
@@ -330,10 +346,16 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     }
 
     const historyParts: string[] = [];
+    // BUG-013 (review fix): historyTokens counts ONLY what the wire carries
+    // as XML — the OLDER chapters. The last 2 chapters ride as native turns.
     let historyTokens = 0;
     const chapterBreakdown: ChapterBreakdownEntry[] = [];
+    // chapters.slice(-2) go native; everything before stays compacted XML.
+    const nativeChapterCount = Math.min(2, chapters.length);
+    const olderChapterCount = chapters.length - nativeChapterCount;
 
     chapters.forEach((chap, cIdx) => {
+      const isNativeChapter = cIdx >= olderChapterCount;
       const ongoing = isChapterOngoing(chapters, cIdx);
       const granularity = resolveChapterSendGranularity(chapters, cIdx);
       const turns = cutIncludes(granularity, 'body')
@@ -344,13 +366,20 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
       const xml = chapterXml(chap, granularity, turns);
       historyParts.push(xml);
       const chapterTokens = estimateTokens(xml);
-      historyTokens += chapterTokens;
-      distribution[granularity]++;
+      // Wire truth: only OLDER chapters are tokenized as history. The native
+      // chapters are still shown in compiledPrompt (display superset) but the
+      // breakdown must not double-count them.
+      if (!isNativeChapter) {
+        historyTokens += chapterTokens;
+        distribution[granularity]++;
+      }
       chapterBreakdown.push({
         chapterId: chap.id,
         title: chap.title,
         granularity,
         tokens: chapterTokens,
+        // Native chapters ride the wire as real turns, not XML.
+        ...(isNativeChapter ? { native: true } : {}),
       });
     });
 
@@ -361,24 +390,83 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
     // model can see (full/summary cut) — so it can avoid re-emitting them and
     // reason about the neighborhood. Rendered with the same payload file
     // names the substrate used (the only names the model knows).
-    let compiledPrompt = `${substrateBlock}\n\n${historyBlock}`;
     const capabilitiesEarly = options.capabilities ?? DEFAULT_CHAT_CAPABILITIES;
+    const linkLines: string[] = [];
     if (capabilitiesEarly.graphLinks && this.graph && linkVisibleIds.size > 1) {
-      const linkLines: string[] = [];
       for (const e of this.graph.listEdges()) {
         const source = payloadNameByArtifactId.get(e.sourceId);
         const target = payloadNameByArtifactId.get(e.targetId);
         if (source && target) linkLines.push(`<link source="${source}" target="${target}" kind="${e.kind}" />`);
       }
-      if (linkLines.length > 0) {
-        compiledPrompt = `${substrateBlock}\n\n<existing_links>\n${linkLines.join('\n')}\n</existing_links>\n\n${historyBlock}`;
-      }
     }
+    const linksBlock = linkLines.length > 0 ? `<existing_links>\n${linkLines.join('\n')}\n</existing_links>\n\n` : '';
+    let compiledPrompt = `${substrateBlock}\n\n${linksBlock}${historyBlock}`;
     const capabilities = options.capabilities ?? DEFAULT_CHAT_CAPABILITIES;
     const systemInstruction = buildSystemInstruction(capabilities);
 
+    // ── BUG-013: the LAST 2 chapters become real native API turns ──────────
+    // Only chapters.slice(-2) (the active + the immediately preceding one —
+    // the two that cannot be compacted) go native, at FULL content; every
+    // earlier chapter stays in <conversation_chapters> at its cut.
+    const nativeChapters = chapters.slice(-2);
+    const nativeTurnsRaw: Turn[] = [];
+    for (let cIdx = Math.max(0, chapters.length - 2); cIdx < chapters.length; cIdx++) {
+      const chap = chapters[cIdx];
+      const ongoing = isChapterOngoing(chapters, cIdx);
+      const chapTurns = options.historyTurns
+        ? sliceChapterTurns(options.historyTurns, chap, ongoing)
+        : this.timeline.getTurnSlice(chap.startIndex, ongoing ? undefined : chap.endIndex);
+      nativeTurnsRaw.push(...chapTurns);
+    }
+    // The last assistant turn BEFORE the new ask — only it carries its thinking.
+    let lastAssistantIdx = -1;
+    for (let i = nativeTurnsRaw.length - 1; i >= 0; i--) {
+      if (nativeTurnsRaw[i].role === 'assistant') {
+        lastAssistantIdx = i;
+        break;
+      }
+    }
+    const turns: WireChatMessage[] = nativeTurnsRaw.map((t, i) => {
+      const thinking =
+        i === lastAssistantIdx
+          ? (t.meta as { thinking?: string } | undefined)?.thinking || undefined
+          : undefined;
+      return {
+        role: t.role === 'assistant' ? ('assistant' as const) : ('user' as const),
+        // Past turns compile: links/topic shifts verbatim, artifact bodies as
+        // compiler stubs (BUG-011). The user's own words go verbatim.
+        content: t.role === 'assistant' ? compileTurnContentForPrompt(t.content) : t.content,
+        ...(thinking ? { thinking } : {}),
+      };
+    });
+
+    // ── BUG-013 (review fix): the wire must carry the WHOLE context ─────────
+    // The native turns alone would drop the substrate, the existing links and
+    // the older chapters. The context prefix (substrate + links + the OLDER
+    // chapters' XML, omitted entirely when there are <= 2 chapters) is merged
+    // into the first user turn — or prepended as a user turn when the
+    // sequence starts with an assistant turn — so the provider sees the full
+    // payload with strict user/assistant alternation.
+    const olderHistoryParts = historyParts.slice(0, olderChapterCount);
+    const wireHistoryBlock =
+      olderHistoryParts.length > 0
+        ? `<conversation_chapters>\n${olderHistoryParts.join('\n\n')}\n</conversation_chapters>`
+        : '';
+    const contextPrefix = `${substrateBlock}\n\n${linksBlock}${wireHistoryBlock}`.trimEnd();
+
+    if (turns.length > 0) {
+      if (turns[0].role === 'user') {
+        turns[0] = { ...turns[0], content: `${contextPrefix}\n\n${turns[0].content}` };
+      } else {
+        turns.unshift({ role: 'user', content: contextPrefix });
+      }
+    }
+
     const systemTokens = estimateTokens(systemInstruction);
-    const totalTokens = systemTokens + substrateTokens + historyTokens;
+    // Counted on the pre-merge turns — the prefix is already accounted as
+    // substrateTokens + historyTokens; merging would count it twice.
+    const nativeTurnsTokens = turns.reduce((acc, t) => acc + estimateTokens(t.content + (t.thinking || '')), 0);
+    const totalTokens = systemTokens + substrateTokens + historyTokens + nativeTurnsTokens;
 
     if (options.log) {
       logger.info(
@@ -397,12 +485,14 @@ export class OpticalCompilerDomain implements IOpticalCompilerDomain {
 
     return {
       compiledPrompt,
+      turns,
       systemInstruction,
       telemetry: {
         tokenBreakdown: {
           systemTokens,
           substrateTokens,
           historyTokens,
+          nativeTurnsTokens,
           totalTokens,
         },
         granularityDistribution: distribution,

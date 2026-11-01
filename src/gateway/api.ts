@@ -15,6 +15,7 @@
  *   proxy unauthenticated (401 unless a server session also exists).
  * Both paths answer the same Response vocabulary; call sites cannot tell.
  */
+import type { WireChatMessage } from '../../shared/stream/turnsWire';
 import { resolveLaneKey, type ResolvedKey } from '../data/keySlots';
 import { DEFAULT_MODEL_SLOTS } from '../data/modelConfig';
 import { getWorkspaceMode, getVpsSession, isOfflineReplica, type VpsSessionInfo } from '../services/workspaceSession';
@@ -420,6 +421,8 @@ export interface ChatStreamPayload {
   projectTitle?: string;
   compiledPrompt?: string;
   systemInstruction?: string;
+  /** BUG-013: native conversation turns (last 2 chapters + thinking). */
+  turns?: WireChatMessage[];
 }
 
 export interface ChatStreamInit {
@@ -447,6 +450,7 @@ export function chatStream(
         model: payload.model,
         compiledPrompt: payload.compiledPrompt || '',
         systemInstruction: payload.systemInstruction,
+        turns: payload.turns,
       },
       callRecorder
     );

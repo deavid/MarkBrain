@@ -298,6 +298,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             : 'bg-recess-1 shadow-well text-ink'
         }`}
       >
+        {/* BUG-013: the model's thinking, persisted on the turn — collapsed
+            by default, one click to read. */}
+        {!isUser && message.meta?.thinking && <ThinkingFold thinking={message.meta.thinking} />}
+
         {message.content ? (
           <MessageBody
             content={message.content}
@@ -420,3 +424,28 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       )}
     </div>
   );};
+
+
+/* ── BUG-013: the thinking disclosure ─────────────────────────────────────── */
+const ThinkingFold: React.FC<{ thinking: string }> = ({ thinking }) => {
+  const [open, setOpen] = useState(false);
+  const words = thinking.trim().split(/\s+/).filter(Boolean).length;
+  return (
+    <div className="mb-1">
+      <button
+        type="button"
+        data-testid="turn-thinking-toggle"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 text-10 font-mono text-[#758ca8] hover:text-ink transition-colors cursor-pointer"
+        title={open ? 'Hide the thinking' : 'Show the thinking'}
+      >
+        {open ? '▾' : '▸'} Thought ({words} {words === 1 ? 'word' : 'words'})
+      </button>
+      {open && (
+        <div className="bg-surface-1/80 border-l-2 border-accent rounded px-3 py-2 my-1.5 text-11 font-mono text-ink-dim whitespace-pre-wrap max-h-64 overflow-y-auto">
+          {thinking}
+        </div>
+      )}
+    </div>
+  );
+};

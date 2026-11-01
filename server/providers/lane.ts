@@ -33,9 +33,20 @@ export interface LaneGenerateConfig {
   thinkingConfig?: ThinkingConfig;
 }
 
+import type { WireChatMessage as LaneWireMessage, GeminiWireContent } from '../../shared/stream/turnsWire';
+
+/** A single blob OR real native `contents` (BUG-013). */
+export type LaneContents = string | GeminiWireContent[];
+
 export interface LaneGenerateParams {
   model: string;
-  contents: string;
+  contents: LaneContents;
+  /**
+   * BUG-013: native conversation turns (user/assistant, thinking on the last
+   * assistant turn). Present → providers map these instead of the single
+   * `contents` blob.
+   */
+  messages?: LaneWireMessage[];
   config?: LaneGenerateConfig;
 }
 

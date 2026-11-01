@@ -59,6 +59,8 @@ export interface BackendTelemetry {
 export interface StreamTurnResult {
   cleanReply: string;
   rawReply: string;
+  /** BUG-013: the accumulated reasoning/thinking of THIS reply (may be empty). */
+  reasoning?: string;
   artifacts: ExtractedArtifactUpsert[];
   topicShift?: ExtractedTopicShift;
   telemetry?: BackendTelemetry;

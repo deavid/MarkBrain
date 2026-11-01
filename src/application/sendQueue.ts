@@ -698,6 +698,7 @@ export class SendQueue {
           projectTitle: ctx.projectTitle,
           compiledPrompt: compiled.compiledPrompt,
           systemInstruction: compiled.systemInstruction,
+          turns: compiled.turns,
         },
         {
           signal: controller.signal,
@@ -804,6 +805,8 @@ export class SendQueue {
         callId: result.callId ?? this.drafts.getItem(item.id)?.callId,
         isStreaming: false,
         streamState: 'completed',
+        // BUG-013: the reply's thinking persists on the turn.
+        thinking: result.reasoning,
       }, result.rawReply || replyText);
       this.drafts.resolve(item.id);
       this.maybeRetitle(chain, threadId);
@@ -938,6 +941,7 @@ export class SendQueue {
             model: ctx.model.id,
             compiledPrompt: compiled.compiledPrompt,
             systemInstruction: compiled.systemInstruction,
+            turns: compiled.turns,
             // The commit gates on the job's stored capabilities — the fresh
             // compile taught per the CURRENT ones. They must agree.
             capabilities: chain.ctx.capabilities ?? DEFAULT_CHAT_CAPABILITIES,
@@ -957,6 +961,8 @@ export class SendQueue {
             askText: item.text,
             compiledPrompt: compiled.compiledPrompt,
             systemInstruction: compiled.systemInstruction,
+            // BUG-013: native turns travel with the job.
+            turns: compiled.turns,
             model: ctx.model.id,
             stagedAttachments: payloadAttachments.filter(isAttachmentStaged),
             targetTurnId: item.targetTurnId ?? null,
@@ -1164,6 +1170,7 @@ export class SendQueue {
           projectTitle: ctx.projectTitle,
           compiledPrompt: compiled.compiledPrompt,
           systemInstruction: compiled.systemInstruction,
+          turns: compiled.turns,
         },
         {
           signal: controller.signal,
@@ -1251,6 +1258,8 @@ export class SendQueue {
         callId: result.callId ?? this.drafts.getItem(item.id)?.callId,
         isStreaming: false,
         streamState: 'completed',
+        // BUG-013: the reply's thinking persists on the turn.
+        thinking: result.reasoning,
       }, result.rawReply || prose);
       this.drafts.resolve(item.id);
     } catch (err: any) {

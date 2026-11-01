@@ -35,6 +35,7 @@ import {
 import type { ChatJobSummary } from '../db/projectRepo';
 import { isOpenRouterModel } from '../providers/openrouter';
 import { streamFromModel } from '../providers/gemini';
+import type { WireChatMessage } from '../../shared/stream/turnsWire';
 import {
   recordCallStart,
   recordCallAck,
@@ -58,6 +59,7 @@ export interface ChatJobRow {
   ask_text: string;
   compiled_prompt: string;
   system_instruction: string | null;
+  messages_json: string | null;
   model: string;
   staged_attachments_json: string;
   capabilities_json: string | null;
@@ -107,7 +109,7 @@ export function getJobRow(jobId: string): ChatJobRow | null {
   const row = getDb()
     .prepare(
       `SELECT job_id, user_id, project_id, thread_id, kind, target_turn_id, ask_text,
-        compiled_prompt, system_instruction, model, staged_attachments_json, capabilities_json,
+        compiled_prompt, system_instruction, messages_json, model, staged_attachments_json, capabilities_json,
         state, partial_text, error_reason FROM chat_jobs WHERE job_id = ?`
     )
     .get(jobId) as ChatJobRow | undefined;
@@ -211,6 +213,8 @@ export interface EnqueueSendInput {
   askText: string;
   compiledPrompt: string;
   systemInstruction?: string;
+  /** BUG-013: native conversation turns (last 2 chapters + last-turn thinking). */
+  turns?: import('../../shared/stream/turnsWire').WireChatMessage[];
   model: string;
   stagedAttachments?: unknown[];
   /** Resolved chat capabilities (Package 2 §2.4) — committed with the pair so the commit gates match. */
@@ -331,6 +335,7 @@ export async function runJob(jobId: string): Promise<void> {
     // reasoning stream (ephemeral, recorded), and per-phase chunk counts.
     // Same lane wrapper the direct chat route uses — it owns the thinking
     // config (LOW effort + thoughts included) and the reasoning split.
+    const wireTurns = job.messages_json ? (JSON.parse(job.messages_json) as WireChatMessage[]) : undefined;
     const stream = await streamFromModel(client, model, job.compiled_prompt, systemInstruction, 0, {
       onWire: (payload) => recordCallWire(callLogId, payload),
       onChunk: (chunk) => {
@@ -341,7 +346,7 @@ export async function runJob(jobId: string): Promise<void> {
         }
         if (chunk.text) textChunks += 1;
       },
-    });
+    }, wireTurns);
     recordCallAck(callLogId);
     // THE ACK BEFORE FIRST TOKEN (David 2026-10-25): the provider accepted
     // the stream — from here on "the model is thinking" is true. Zero bytes
@@ -443,6 +448,8 @@ export async function runJob(jobId: string): Promise<void> {
       pairKey: jobId,
       // Real provider usage when the wire carried it, estimates otherwise.
       telemetry: {
+        // BUG-013: the reply's thinking persists on the committed turn.
+        thinking: reasoningAccum || undefined,
         inputTokens,
         outputTokens,
         totalTokens: usage?.totalTokenCount ?? inputTokens + outputTokens,

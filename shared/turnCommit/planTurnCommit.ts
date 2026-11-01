@@ -49,6 +49,12 @@ export interface TurnCommitTelemetry {
   isFallback?: boolean;
   /** Flight-recorder row id — the inspector opens THIS row from the turn. */
   callId?: string;
+  /**
+   * BUG-013: the model's thinking/reasoning for THIS reply, persisted
+   * permanently on the assistant turn (meta.thinking) so the UI can fold it
+   * open and the next send can feed it back as a native thought turn.
+   */
+  thinking?: string;
   /** Client TurnMeta extras ride along harmlessly (spread into the meta). */
   isStreaming?: boolean;
   streamState?: string;
@@ -442,16 +448,22 @@ export function planTurnCommit(req: TurnCommitRequest): TurnCommitPlan {
           : undefined,
       };
 
-  const { model: _m, isFallback: _f, isStreaming: _s, streamState: _st, ...telRest } = req.telemetry ?? {};
-  const meta: Turn['meta'] = isRegen
-    ? { ...(req.existingAssistantTurn?.meta ?? {}), ...req.telemetry }
-    : {
-        ...telRest,
-        model: req.telemetry?.model,
-        isFallback: req.telemetry?.isFallback ?? false,
-        isStreaming: false,
-        streamState: 'completed',
-      };
+  const { model: _m, isFallback: _f, isStreaming: _s, streamState: _st, thinking: _thinking, ...telRest } = req.telemetry ?? {};
+  // BUG-013: thinking persists on the assistant turn, permanently — but the
+  // meta spread above strips model/isStreaming bookkeeping; thinking rides as
+  // an explicit field so it survives both paths.
+  const meta: Turn['meta'] = {
+    ...(isRegen
+      ? { ...(req.existingAssistantTurn?.meta ?? {}), ...req.telemetry }
+      : {
+          ...telRest,
+          model: req.telemetry?.model,
+          isFallback: req.telemetry?.isFallback ?? false,
+          isStreaming: false,
+          streamState: 'completed',
+        }),
+    ...(req.telemetry?.thinking ? { thinking: req.telemetry.thinking } : {}),
+  };
 
   const assistantTurn: Turn = isRegen
     ? {

@@ -7,6 +7,7 @@
  * client as its first argument so call sites cannot fall back to a global.
  */
 import { GoogleGenAI } from '@google/genai';
+import { geminiWireContents } from '../../shared/stream/turnsWire';
 import type { ThinkingLevel } from '@google/genai';
 import type { LaneAiSurface, LaneTextChunk } from './lane';
 
@@ -84,12 +85,14 @@ export async function streamFromModel(
   contents: string,
   systemInstruction: string,
   reqId: number,
-  hooks?: StreamFromModelHooks
+  hooks?: StreamFromModelHooks,
+  /** BUG-013: native turns — mapped to real `contents` when present. */
+  messages?: import('../../shared/stream/turnsWire').WireChatMessage[]
 ) {
   void reqId; // kept in the signature for call-site stability
   const payload = {
     model: modelName,
-    contents,
+    contents: messages?.length ? geminiWireContents(messages) : contents,
     config: {
       systemInstruction,
       temperature: 0.7,

@@ -862,6 +862,8 @@ export interface CommitJobInput {
     timeToFirstChunkMs?: number;
     /** Flight-recorder row id — written into the assistant turn meta. */
     callId?: string;
+    /** BUG-013: the reply's thinking, persisted on the assistant turn meta. */
+    thinking?: string;
   };
 }
 

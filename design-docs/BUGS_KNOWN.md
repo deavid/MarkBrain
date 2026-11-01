@@ -43,13 +43,13 @@ All screenshots from this session were extracted from the goose session DB and s
 | **BUG-006.5** | Wipe `High Concept` from UI & metadata | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` |
 | **BUG-006.10** | Remove fake bottom-left `Title · Description · Summary · Full` text in detail modal | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` |
 | **BUG-006 (all)** | Detail modal full redesign: 6 tabs (`Body` dedicated tab, `Overview & Layers` non-collapsible & editable, `Relationships` + similarity search, `Chats`, `History` always visible, `Q&A Index`), 1 visible editable Slug (`code`), unified `Category` with 6 options + descriptions | **100% Clear (Merged `089d3c3`)** | `BUGS/BUG_006_ARTIFACT_MODAL_PLAN.md` |
-| **BUG-007** | Chat operations/chips (`<link>`, `<artifact_upsert>`, `<topic_shift>`) render IN PLACE + fix `?` link resolution (title/slug/`.md`) & chip traceability | **100% Clear** | `BUGS/BUG_007_008_011_012_CHAT_PIPELINE_PLAN.md` (+ drawer feature `BUGS/FEATURE_INLINE_ATTACHMENTS_AND_IMAGES.md`) |
-| **BUG-008** | Chat `<> Raw` view shows true raw output (XML in place), with `<artifact_upsert>` collapsible `[+]` / `[-]` by default | **100% Clear** | `BUGS/BUG_007_008_011_012_CHAT_PIPELINE_PLAN.md` |
+| **BUG-007** | Chat operations/chips (`<link>`, `<artifact_upsert>`, `<topic_shift>`) render IN PLACE + fix `?` link resolution (title/slug/`.md`) & chip traceability | **100% Clear (Merged `f2a0e2d` / `b01e599`)** | `BUGS/BUG_007_008_011_012_CHAT_PIPELINE_PLAN.md` (+ `BUGS/FEATURE_INLINE_ATTACHMENTS_AND_IMAGES.md`) |
+| **BUG-008** | Chat `<> Raw` view shows true raw output (XML in place), with `<artifact_upsert>` collapsible `[+]` / `[-]` by default | **100% Clear (Merged `f2a0e2d`)** | `BUGS/BUG_007_008_011_012_CHAT_PIPELINE_PLAN.md` |
 | **BUG-009** | Composer `+` Attach button is too dark; make it bright | **100% Clear (Merged `9518d17`)** | `BUGS/CLEAR_FIXES_PLAN.md` |
 | **BUG-010** | Chat behavior popover does not auto-close on outside click / typing | **100% Clear (Merged `9518d17`)** | `BUGS/CLEAR_FIXES_PLAN.md` |
-| **BUG-011** | Model sees its own past turns' operations in context (`<link>` verbatim, `<artifact_upsert>` compiled to `<!-- MarkBrain compiler: ... -->` stub) | **100% Clear** | `BUGS/BUG_007_008_011_012_CHAT_PIPELINE_PLAN.md` |
-| **BUG-012** | Live streaming renders markdown + in-place streaming chips (`Writing artifact…`, `Linking…`) instead of raw asterisks or blank holes | **100% Clear** | `BUGS/BUG_007_008_011_012_CHAT_PIPELINE_PLAN.md` |
-| **BUG-013** | **DRAWER**: How turns & thinking steps are structured, stored, and sent across APIs | **Drawer / Discuss** | Deep architectural investigation & talk with David |
+| **BUG-011** | Model sees its own past turns' operations in context (`<link>` verbatim, `<artifact_upsert>` compiled to `<!-- MarkBrain compiler: ... -->` stub) | **100% Clear (Merged `f2a0e2d`)** | `BUGS/BUG_007_008_011_012_CHAT_PIPELINE_PLAN.md` |
+| **BUG-012** | Live streaming renders markdown + in-place streaming chips (`Writing artifact…`, `Linking…`) instead of raw asterisks or blank holes | **100% Clear (Merged `f2a0e2d`)** | `BUGS/BUG_007_008_011_012_CHAT_PIPELINE_PLAN.md` |
+| **BUG-013** | Native API turns (`user`/`assistant`) for the last 2 chapters + persist thinking on every assistant turn + send thinking only for the last turn | **100% Clear** | `BUGS/BUG_013_TURNS_AND_THINKING_PLAN.md` |
 | **BUG-014** | Text size: rename to `Small / Medium / Large / Largest` + scale sidebar width (`+5% / +10% / +15%`) | **100% Clear (Merged `9518d17`)** | `BUGS/CLEAR_FIXES_PLAN.md` |
 
 ---

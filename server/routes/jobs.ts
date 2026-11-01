@@ -38,6 +38,7 @@ export function registerJobRoutes(app: Express): void {
       askText,
       compiledPrompt,
       systemInstruction,
+      turns,
       model,
       stagedAttachments,
       targetTurnId,
@@ -74,6 +75,7 @@ export function registerJobRoutes(app: Express): void {
       askText,
       compiledPrompt,
       systemInstruction,
+      turns: Array.isArray(turns) ? turns : undefined,
       model: modelId,
       stagedAttachments,
       // Package 2 §2.4: the resolved toggles ride the job so the server's

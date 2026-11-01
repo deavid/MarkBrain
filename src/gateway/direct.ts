@@ -7,6 +7,7 @@
  * gateway/api.ts can answer identically whether the request went direct or
  * through the proxy. Call sites never learn which happened.
  */
+import type { WireChatMessage } from '../../shared/stream/turnsWire';
 import { geminiAdapter } from './providers/gemini';
 import { openrouterAdapter } from './providers/openrouter';
 import type { ProviderAdapter } from './providers/types';
@@ -97,6 +98,8 @@ export function directChatStream(
     model: string;
     compiledPrompt: string;
     systemInstruction?: string;
+    /** BUG-013: native conversation turns. */
+    turns?: WireChatMessage[];
   },
   recorder: CallRecorder
 ): Promise<Response> {
@@ -107,6 +110,7 @@ export function directChatStream(
       contents: params.compiledPrompt,
       systemInstruction: params.systemInstruction,
       temperature: 0.7,
+      ...(params.turns?.length ? { messages: params.turns } : {}),
     },
     recorder
   );

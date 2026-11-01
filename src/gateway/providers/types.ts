@@ -20,6 +20,8 @@ export interface StreamChatParams {
   apiKey: string;
   model: string;
   contents: string;
+  /** BUG-013: native conversation turns — mapped to the wire when present. */
+  messages?: import('../../../shared/stream/turnsWire').WireChatMessage[];
   systemInstruction?: string;
   temperature?: number;
 }

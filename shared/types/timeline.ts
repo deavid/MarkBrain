@@ -1,6 +1,13 @@
 /** Provider-neutral turn telemetry. Every field here must have both a writer and a reader. */
 export interface TurnMeta {
   model?: string;
+  /**
+   * BUG-013: the model's thinking/reasoning for this reply, persisted
+   * permanently (SQLite meta_json, IndexedDB, plaintext export). Rendered as
+   * a collapsed disclosure; sent back to the model ONLY for the last
+   * assistant turn (native thought turn).
+   */
+  thinking?: string;
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;

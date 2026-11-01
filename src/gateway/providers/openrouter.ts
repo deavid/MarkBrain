@@ -15,6 +15,7 @@ import type {
   StreamChatParams,
   TtsParams,
 } from './types';
+import { openrouterWireMessages } from '../../../shared/stream/turnsWire';
 import { errorResponse, jsonResponse, sseStreamResponse } from './types';
 import { l2Normalize } from '../../domains/search/draftSearchEngine';
 import { noopCallRecorder, type CallRecorder } from '../recorder';
@@ -30,12 +31,15 @@ async function streamOpenRouterChat(
   callId: string,
   recorder: CallRecorder
 ): Promise<{ raw: string; reasoning: string; textChunks: number; reasoningChunks: number; usage?: { input: number; output: number } }> {
-  const messages = [
-    ...(params.systemInstruction
-      ? [{ role: 'system', content: params.systemInstruction }]
-      : []),
-    { role: 'user', content: params.contents },
-  ];
+  // BUG-013: native turns when present, single-blob fallback otherwise.
+  const messages = params.messages?.length
+    ? openrouterWireMessages(params.systemInstruction || '', params.messages)
+    : [
+        ...(params.systemInstruction
+          ? [{ role: 'system', content: params.systemInstruction }]
+          : []),
+        { role: 'user', content: params.contents },
+      ];
   // The EXACT wire body — recorded verbatim (scrubbed) so the inspector shows
   // what the provider received, not our internal arguments.
   const wireBody = {

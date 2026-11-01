@@ -14,6 +14,7 @@ import {
 } from '../../../shared/stream/demuxer';
 import { logger } from '../../utils/logger';
 import { chatStream } from '../../gateway/api';
+import type { WireChatMessage } from '../../../shared/stream/turnsWire';
 import { estimateTokens } from '../../utils/estimateTokens';
 
 export interface IStreamProtocolDomain {
@@ -35,6 +36,8 @@ export interface IStreamProtocolDomain {
       projectTitle?: string;
       compiledPrompt?: string;
       systemInstruction?: string;
+      /** BUG-013: native conversation turns (last 2 chapters + thinking). */
+      turns?: WireChatMessage[];
     },
     callbacks?: {
       signal?: AbortSignal;
@@ -109,6 +112,8 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
       projectTitle?: string;
       compiledPrompt?: string;
       systemInstruction?: string;
+      /** BUG-013: native conversation turns (last 2 chapters + thinking). */
+      turns?: WireChatMessage[];
     },
     callbacks: {
       signal?: AbortSignal;
@@ -214,6 +219,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
             finalResult = {
               cleanReply: parsed.cleanText,
               rawReply: data.rawReply || accumulatedRaw,
+              reasoning: accumulatedReasoning || undefined,
               artifacts: parsed.artifactUpserts,
               topicShift: parsed.topicShift,
               telemetry: data.telemetry,
@@ -257,6 +263,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
         return {
           cleanReply: accumulatedClean || demuxed.cleanText,
           rawReply: accumulatedRaw,
+          reasoning: accumulatedReasoning || undefined,
           callId: callId ?? undefined,
           artifacts: demuxed.artifactUpserts,
           topicShift: demuxed.topicShift,

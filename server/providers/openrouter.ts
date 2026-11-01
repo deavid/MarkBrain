@@ -20,6 +20,7 @@ import type {
   LaneTextChunk,
   LaneUsageMetadata,
 } from './lane';
+import { openrouterWireMessages } from '../../shared/stream/turnsWire';
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 
@@ -76,11 +77,19 @@ function headersOf(apiKey: string): Record<string, string> {
 }
 
 function bodyOf(params: LaneGenerateParams, stream: boolean): string {
-  const messages: Array<{ role: string; content: string }> = [];
-  if (params.config?.systemInstruction) {
-    messages.push({ role: 'system', content: params.config.systemInstruction });
-  }
-  messages.push({ role: 'user', content: params.contents });
+  // BUG-013: native turns when present, single-blob fallback otherwise.
+  const contentsText =
+    typeof params.contents === 'string'
+      ? params.contents
+      : params.contents.map((c) => c.parts.map((p) => p.text).join('\n')).join('\n\n');
+  const messages = params.messages?.length
+    ? openrouterWireMessages(params.config?.systemInstruction || '', params.messages)
+    : [
+        ...(params.config?.systemInstruction
+          ? [{ role: 'system', content: params.config.systemInstruction }]
+          : []),
+        { role: 'user', content: contentsText },
+      ];
   return JSON.stringify({
     model: params.model,
     messages,

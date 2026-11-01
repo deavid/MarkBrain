@@ -238,12 +238,15 @@ describe('context compiler — isolation and telemetry', () => {
     });
     const out = compiler.compile({ attachments: [attach('a', 'summary'), attach('b', 'full')] });
     const substrate = out.telemetry.attachmentBreakdown.reduce((n, e) => n + e.tokens, 0);
-    const history = out.telemetry.chapterBreakdown.reduce((n, e) => n + e.tokens, 0);
+    // Σ over the WIRE rows only — native chapters bill under nativeTurnsTokens.
+    const history = out.telemetry.chapterBreakdown.filter((e) => !e.native).reduce((n, e) => n + e.tokens, 0);
     expect(substrate).toBe(out.telemetry.tokenBreakdown.substrateTokens);
     expect(history).toBe(out.telemetry.tokenBreakdown.historyTokens);
+    // BUG-013: the distribution counts the WIRE cuts — the last 2 chapters
+    // ride as native turns (always full), so they no longer appear here.
     expect(out.telemetry.granularityDistribution).toMatchObject({
-      summary: 1, // artifact a at summary; both chapters are the last two → full
-      full: 3, // artifact b + chapters c1 and c2
+      summary: 1, // artifact a at summary
+      full: 1, // artifact b
     });
   });
 

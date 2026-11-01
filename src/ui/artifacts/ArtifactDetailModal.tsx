@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Artifact, SemanticEdge } from '../../types';
 import type { Granularity } from '../../domains/granularity';
@@ -171,6 +171,9 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   }, [indexRecord]);
   const [bodyView, setBodyView] = useState<'rendered' | 'raw'>('rendered');
   const [isFullscreen, setIsFullscreen] = useState(true);
+  // The single scroll container: switching tabs snaps it back to the top so
+  // the freshly-selected tab always starts visible.
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // ── Overview tab drafts (BUG-006 §3 tab 2: everything editable, nothing collapsed)
   const [metaDraft, setMetaDraft] = useState({
@@ -325,26 +328,21 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
             : 'w-full max-w-6xl h-[94vh] max-h-[94vh] rounded-2xl'
         }`}
       >
-        <div className="p-3 sm:p-4 bg-surface-3 flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="min-w-0">
-              <h2 className="text-sm sm:text-base font-bold text-ink font-mono truncate">
-                {title}
-              </h2>
-              <div className="flex items-center gap-2 text-10 font-mono text-[#6b82a3] mt-0.5">
-                {/* BUG-006 §4: the slug is the ONE visible identifier, shown as
-                    the filename the model reads. The internal UUID is never
-                    displayed anywhere. */}
-                <span className="px-1.5 py-0.2 rounded bg-surface-0 text-ink-dim">
-                  {artifact.code || 'unnamed'}.md
-                </span>
-                <span>•</span>
-                <span className="px-1.5 py-0.2 rounded bg-surface-0 text-ink-dim">
-                  {categoryLabel(artifact.category)}
-                </span>
-              </div>
-            </div>
-          </div>
+        <div className="p-2 sm:p-3 bg-surface-3 flex items-center justify-between gap-2 shrink-0">
+          {/* ONE slim pinned row (David, 2026-11-01): title + slug badge + the
+              four icons. Everything else — attach strip, category badge, tabs,
+              content — scrolls. On a landscape phone this takes 44px instead
+              of the 207px the old three-band header + Done bar ate. */}
+          <h2 className="text-sm sm:text-base font-bold text-ink font-mono truncate min-w-0 flex-1">
+            {title}
+          </h2>
+          {/* BUG-006 §4: the slug is the ONE visible identifier, shown as the
+              filename the model reads. It rides the pinned row but truncates
+              at ~30% so a long slug can never squeeze the title off-screen.
+              The internal UUID is never displayed anywhere. */}
+          <span className="shrink-0 max-w-[30%] truncate px-1.5 py-0.2 rounded bg-surface-0 text-10 font-mono text-[#6b82a3]">
+            {artifact.code || 'unnamed'}.md
+          </span>
 
           <div className="flex items-center gap-1.5 shrink-0">
             <button
@@ -387,7 +385,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
 
             <button
               onClick={() => setIsFullscreen(!isFullscreen)}
-              className="p-1.5 rounded-xl bg-surface-2 hover:bg-surface-4 text-[#869ab8] hover:text-ink transition-colors cursor-pointer"
+              className="hidden sm:flex p-1.5 rounded-xl bg-surface-2 hover:bg-surface-4 text-[#869ab8] hover:text-ink transition-colors cursor-pointer"
               title={isFullscreen ? 'Restore standard view' : 'Maximize to whole screen'}
             >
               {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -403,13 +401,17 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           </div>
         </div>
 
-        {/* Attachment toolbar — the ONLY context control, and it belongs to
-            THIS chat. Three states: not in chat (stage it), staged (rides the
-            next send, removable), committed (on a turn — no detach, only the
-            cut). */}
+        {/* ONE scroll container (David, 2026-11-01): attach strip, category
+            badge, tab strip and tab content all scroll together. Switching
+            tabs resets the scroll so the new tab starts at its top. */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="p-3 bg-surface-1 flex flex-wrap items-center justify-between gap-2.5">
-          {attachmentGranularity === null ? (
-            <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span className="px-1.5 py-0.2 rounded bg-surface-3 text-10 font-mono text-[#6b82a3] shrink-0">
+              {categoryLabel(artifact.category)}
+            </span>
+            {attachmentGranularity === null ? (
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
               <button
                 onClick={() => onAttach(artifact.id)}
                 data-testid="attach-from-detail"
@@ -468,12 +470,12 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
               </div>
             </>
           )}
+          </div>
         </div>
 
         <div className="flex bg-surface-1 px-3 gap-2 overflow-x-auto">
           {TAB_LABELS.map((t) => {
-            const count =
-              t.id === 'relationships'
+            const count =              t.id === 'relationships'
                 ? incidentEdges.length
                 : t.id === 'chats'
                   ? chatUsages.length
@@ -485,7 +487,12 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
             return (
               <button
                 key={t.id}
-                onClick={() => setActiveTab(t.id)}
+                onClick={() => {
+                  setActiveTab(t.id);
+                  // A tab is a lookup action: the freshly-selected tab starts
+                  // visible. Reading (Body) is the only surface you scroll.
+                  scrollRef.current?.scrollTo({ top: 0 });
+                }}
                 data-testid={t.id === 'qa' ? 'tab-qa-index' : undefined}
                 className={`py-2 px-3 text-xs font-mono border-b-2 whitespace-nowrap transition-colors cursor-pointer ${
                   activeTab === t.id
@@ -500,7 +507,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           })}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-[#cad8eb] leading-relaxed">
+        <div className="p-4 space-y-4 text-xs text-[#cad8eb] leading-relaxed">
           {/* ── Tab 1: Body ─────────────────────────────────────────────── */}
           {activeTab === 'body' && (
             <div className="space-y-4">
@@ -1210,15 +1217,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
             </div>
           )}
         </div>
-
-        <div className="p-3 bg-surface-2 flex items-center justify-end">
-          <button
-            onClick={onClose}
-            className="px-3.5 py-1.5 rounded-xl bg-surface-3 hover:bg-surface-5 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer"
-          >
-            Done
-          </button>
-        </div>
+        </div>{/* ── end ONE scroll container ── */}
       </div>
     </div>
   );

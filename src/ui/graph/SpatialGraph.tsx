@@ -12,6 +12,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { computeAutoSpacePositions } from './autoSpaceLayout';
+import { beginPinch, applyPinch, type PinchState, type Point } from './pinchZoom';
 
 /**
  * View-local shapes: x/y layout state lives here, a view concern, built from the
@@ -136,6 +137,12 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
   // Pan interaction
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ pointerX: 0, pointerY: 0, panX: 0, panY: 0 });
+
+  // Pinch interaction (two fingers on the canvas = zoom, mobile-first law).
+  // Refs, not state: the gesture must track both pointers without waiting for
+  // a re-render between finger events.
+  const pinchRef = useRef<PinchState | null>(null);
+  const pointersRef = useRef<Map<number, Point>>(new Map());
 
   // Node Dragging interaction
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
@@ -319,21 +326,50 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
     };
   }, []);
 
-  // Pan handlers
+  // Pan + pinch handlers. One finger = pan (as before); two fingers on the
+  // canvas = pinch zoom (pinchZoom.ts owns the math). A node drag always wins
+  // over pinch — the second finger never hijacks an active drag.
+  const beginPan = (e: React.PointerEvent) => {
+    setIsPanning(true);
+    panStartRef.current = {
+      pointerX: e.clientX,
+      pointerY: e.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
   const handlePointerDownBg = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).id === 'graph-viewport' || (e.target as HTMLElement).tagName === 'svg') {
-      setIsPanning(true);
-      panStartRef.current = {
-        pointerX: e.clientX,
-        pointerY: e.clientY,
-        panX: pan.x,
-        panY: pan.y,
-      };
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    if ((e.target as HTMLElement).id !== 'graph-viewport' && (e.target as HTMLElement).tagName !== 'svg') return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top });
     }
+    if (pointersRef.current.size === 2 && !draggingNodeId) {
+      const [a, b] = [...pointersRef.current.values()];
+      pinchRef.current = beginPinch(zoom, pan, a, b);
+      setIsPanning(false);
+      return;
+    }
+    beginPan(e);
   };
 
   const handlePointerMoveBg = (e: React.PointerEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const tracked = pointersRef.current.get(e.pointerId);
+    if (tracked && rect) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top });
+    }
+
+    if (pinchRef.current && pointersRef.current.size >= 2) {
+      const [a, b] = [...pointersRef.current.values()];
+      const next = applyPinch(pinchRef.current, a, b);
+      setZoom(next.zoom);
+      setPan(next.pan);
+      return;
+    }
+
     if (isPanning) {
       const dx = e.clientX - panStartRef.current.pointerX;
       const dy = e.clientY - panStartRef.current.pointerY;
@@ -357,6 +393,15 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
   };
 
   const handlePointerUpBg = (e: React.PointerEvent) => {
+    // Pinch handoff: whichever finger leaves, the transform freezes exactly
+    // where the pinch ended (pinchZoom.applyPinch is path-independent, so no
+    // jump). Remaining single finger does NOT become a pan — that would fling
+    // the view when someone lifts one finger of a pinch.
+    pointersRef.current.delete(e.pointerId);
+    if (pinchRef.current && pointersRef.current.size < 2) {
+      pinchRef.current = null;
+      return;
+    }
     if (isPanning) {
       setIsPanning(false);
       try {
@@ -370,6 +415,12 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       setDraggingNodeId(null);
       dragStartRef.current = null;
     }
+  };
+
+  // A cancelled touch (browser gesture takes over, phone call, rotation) must
+  // clean up exactly like a lift — otherwise a ghost pointer pins the view.
+  const handlePointerCancelBg = (e: React.PointerEvent) => {
+    handlePointerUpBg(e);
   };
 
   // BUG-004: after a drag, if the node settled closer than
@@ -458,6 +509,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       onPointerDown={handlePointerDownBg}
       onPointerMove={handlePointerMoveBg}
       onPointerUp={handlePointerUpBg}
+      onPointerCancel={handlePointerCancelBg}
       className="relative w-full h-full min-h-0 flex-1 overflow-hidden bg-surface-1 select-none touch-none cursor-grab active:cursor-grabbing"
     >
       <div
@@ -469,7 +521,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         }}
       />
 
-      <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 bg-surface-2/95 backdrop-blur-md p-1.5 rounded-xl shadow-xl">
+      <div className="absolute top-3 left-16 z-20 flex items-center gap-1.5 bg-surface-2/95 backdrop-blur-md p-1.5 rounded-xl shadow-xl">
         <button
           onClick={() => setZoom((z) => Math.min(z + 0.15, 2.2))}
           className="p-1.5 sm:p-2 rounded-lg hover:bg-surface-3 text-[#9bb0d1] transition-colors"

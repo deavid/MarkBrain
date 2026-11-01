@@ -382,7 +382,7 @@ export const HeroComposer: React.FC<ComposerProps> = ({
               }
             }}
             data-testid="open-artifacts"
-            className="relative min-h-[30px] px-2.5 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-11 shrink-0"
+            className="relative min-h-[30px] px-2.5 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink hover:text-white border border-line shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-11 shrink-0"
             title="Attach artifacts from the library"
             aria-label="Attach artifacts"
           >
@@ -487,7 +487,7 @@ export const ThreadComposer: React.FC<ComposerProps> = ({
           }
         }}
         data-testid="open-artifacts"
-        className="relative h-full px-2.5 py-2.5 rounded-lg bg-recess-1 shadow-well hover:bg-recess-2 text-ink-dim hover:text-ink transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-10 sm:text-xs shrink-0"
+        className="relative h-full px-2.5 py-2.5 rounded-lg bg-surface-3 hover:bg-surface-4 text-ink hover:text-white border border-line shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer font-mono text-10 sm:text-xs shrink-0"
         title="Attach artifacts from the library"
         aria-label="Attach artifacts"
       >

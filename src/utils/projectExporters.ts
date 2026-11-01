@@ -44,7 +44,7 @@ export function exportToMarkdown(project: ProjectExportInput): string {
   md += `## Durable Artifacts (${project.artifacts.length})\n\n`;
   for (const art of project.artifacts) {
     md += `### ${art.title} (\`${art.code || art.id}\`)\n`;
-    md += `**Type:** ${art.type} | **High Concept:** ${art.isHighConcept ? 'Yes' : 'No'}\n\n`;
+    md += `**Type:** ${art.type}\n\n`;
     md += `**Subtitle:** ${art.current?.subtitle}\n\n`;
     md += `**Description:** ${art.current?.description}\n\n`;
     md += `**Summary:** ${art.current?.summary}\n\n`;

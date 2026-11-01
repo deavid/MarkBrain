@@ -17,6 +17,21 @@ const KEY = 'markbrain:fontScale';
 
 export const FONT_SCALES: UiFontScale[] = [1, 1.15, 1.3, 1.5];
 
+/**
+ * Open sidebar width for a text-size step (BUG-014): bigger text needs a
+ * wider sidebar or the labels wrap. Base 350px, +5% / +10% / +15% per step.
+ */
+const SIDEBAR_WIDTHS: Record<UiFontScale, number> = {
+  1: 350,
+  1.15: 368,
+  1.3: 385,
+  1.5: 403,
+};
+
+export function getSidebarWidthPx(scale: UiFontScale): number {
+  return SIDEBAR_WIDTHS[scale];
+}
+
 export function parseUiFontScale(stored: string | null | undefined): UiFontScale {
   const n = Number(stored);
   return (FONT_SCALES as number[]).includes(n) ? (n as UiFontScale) : 1;

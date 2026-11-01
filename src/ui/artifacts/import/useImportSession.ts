@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { Artifact, ArtifactGraphData } from '../../../types';
 import type { ProjectMetadata } from '../../../domains/00-workspace/types';
-import { parseYamlArtifactDoc } from '../../../utils/yamlArtifactParser';
+import { parseYamlArtifactDoc, extractLeadingMarkdownH1 } from '../../../utils/yamlArtifactParser';
 import { logger } from '../../../utils/logger';
 import { ImportFlag, flagRelationship } from '../../../utils/importDetect';
 import { BatchRules, EMPTY_BATCH_RULES, applyImportRules } from '../../../utils/importRules';
@@ -129,6 +129,15 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
  * a generated body lost 41% of the source across the imports measured on
  * 2026-10-21 (one kept 5%), and the server no longer returns one.
  */
+export function buildArtifactFromExtractionForTest(
+  ex: Record<string, any>,
+  fallbackBody: string,
+  fallbackTitle: string,
+  projectId: string
+): Artifact {
+  return buildArtifactFromExtraction(ex, fallbackBody, fallbackTitle, projectId);
+}
+
 function buildArtifactFromExtraction(
   ex: Record<string, any>,
   fallbackBody: string,
@@ -136,7 +145,10 @@ function buildArtifactFromExtraction(
   projectId: string
 ): Artifact {
   const now = Date.now();
-  const title: string = ex.title || fallbackTitle || 'Imported document';
+  // The document's own # H1 is the truth for the title (BUG-006.2) — the AI
+  // extraction title only applies when the body has no heading at all.
+  const title: string =
+    extractLeadingMarkdownH1(fallbackBody) || ex.title || fallbackTitle || 'Imported document';
   const graph: ArtifactGraphData = {
     children: [],
     relationships: Array.isArray(ex.graph?.relationships) ? ex.graph.relationships : [],

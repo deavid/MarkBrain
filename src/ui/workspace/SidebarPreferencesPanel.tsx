@@ -38,10 +38,10 @@ const CHAT_RENDER_CHOICES: { mode: ChatRenderMode; label: string; hint: string }
  * user-scalable), so this is the only way to read at arm's length. The default
  * keeps the browser's own font-size preference; the steps scale everything.
  */
-const UI_FONT_SCALE_CHOICES: { scale: UiFontScale; label: string; hint: string }[] = [
-  { scale: 1, label: 'Default', hint: 'Design size — the browser font preference applies' },
-  { scale: 1.15, label: 'Large', hint: '115% — a gentle step up everywhere' },
-  { scale: 1.3, label: 'Larger', hint: '130% — comfortable on a phone' },
+export const UI_FONT_SCALE_CHOICES: { scale: UiFontScale; label: string; hint: string }[] = [
+  { scale: 1, label: 'Small', hint: '100% — compact design size' },
+  { scale: 1.15, label: 'Medium', hint: '115% — a gentle step up everywhere' },
+  { scale: 1.3, label: 'Large', hint: '130% — comfortable reading size' },
   { scale: 1.5, label: 'Largest', hint: '150% — arm\u2019s length reading' },
 ];
 
@@ -149,7 +149,7 @@ export const SidebarPreferencesPanel: React.FC<SidebarPreferencesPanelProps> = (
           Text size
         </span>
         <span className="text-xs font-semibold text-ink truncate block">
-          {UI_FONT_SCALE_CHOICES.find((c) => c.scale === fontScale)?.label ?? 'Default'}
+          {UI_FONT_SCALE_CHOICES.find((c) => c.scale === fontScale)?.label ?? 'Small'}
         </span>
       </div>
     </div>

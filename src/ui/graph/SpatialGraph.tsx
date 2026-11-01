@@ -44,6 +44,65 @@ export interface TentativeLink {
   sharedTags: string[];
 }
 
+/** Node card box on the canvas (BUG-001: lean Title + Type card). */
+export const NODE_CARD_WIDTH = 220;
+export const NODE_CARD_HEIGHT = 68;
+/** Outer margin (px) between the clipped edge endpoint and the card border. */
+const EDGE_CLIP_MARGIN = 4;
+/** BUG-004: linked node centers never settle closer than this, so the
+ *  card edge to card edge gap always fits an 80px edge label. */
+export const MIN_LINKED_CENTER_DISTANCE = 320;
+
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Ray-rect intersection: where does the straight line between the two rect
+ * centers exit the source rect and enter the target rect (each inflated by
+ * `margin`)? Returns those border points plus their midpoint, so edges are
+ * drawn card-border to card-border and labels sit in the open gap (BUG-004).
+ */
+export function clipEdgeToNodeRects(
+  sRect: Rect,
+  tRect: Rect,
+  _curveOffset?: number
+): { sx: number; sy: number; tx: number; ty: number; midX: number; midY: number } {
+  const scx = sRect.x + sRect.width / 2;
+  const scy = sRect.y + sRect.height / 2;
+  const tcx = tRect.x + tRect.width / 2;
+  const tcy = tRect.y + tRect.height / 2;
+
+  const exit = (from: { x: number; y: number }, to: { x: number; y: number }, rect: Rect) => {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const minX = rect.x - EDGE_CLIP_MARGIN;
+    const minY = rect.y - EDGE_CLIP_MARGIN;
+    const maxX = rect.x + rect.width + EDGE_CLIP_MARGIN;
+    const maxY = rect.y + rect.height + EDGE_CLIP_MARGIN;
+    // Slabs: distance along the ray where each face is crossed.
+    const tx = dx !== 0 ? (dx > 0 ? (maxX - from.x) / dx : (minX - from.x) / dx) : Infinity;
+    const ty = dy !== 0 ? (dy > 0 ? (maxY - from.y) / dy : (minY - from.y) / dy) : Infinity;
+    const t = Math.min(tx, ty);
+    if (!Number.isFinite(t)) return { x: from.x, y: from.y };
+    return { x: from.x + dx * t, y: from.y + dy * t };
+  };
+
+  const s = exit({ x: scx, y: scy }, { x: tcx, y: tcy }, sRect);
+  const t = exit({ x: tcx, y: tcy }, { x: scx, y: scy }, tRect);
+  return {
+    sx: s.x,
+    sy: s.y,
+    tx: t.x,
+    ty: t.y,
+    midX: (s.x + t.x) / 2,
+    midY: (s.y + t.y) / 2,
+  };
+}
+
 interface SpatialGraphProps {
   projectId: string;
   artifacts: Artifact[];
@@ -143,8 +202,8 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
     nodes.forEach((n) => {
       if (n.x < minX) minX = n.x;
       if (n.y < minY) minY = n.y;
-      if (n.x + 220 > maxX) maxX = n.x + 220;
-      if (n.y + 110 > maxY) maxY = n.y + 110;
+      if (n.x + NODE_CARD_WIDTH > maxX) maxX = n.x + NODE_CARD_WIDTH;
+      if (n.y + NODE_CARD_HEIGHT > maxY) maxY = n.y + NODE_CARD_HEIGHT;
     });
 
     const graphWidth = Math.max(maxX - minX, 150);
@@ -214,7 +273,9 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       const nodeMap = new Map(currentNodes.map((n) => [n.id, { ...n, vx: 0, vy: 0 }]));
       const kRepulsion = 18000;
       const kSpring = 0.04;
-      const idealSpringLength = 220;
+      // BUG-004: linked cards settle at the min linked distance so the edge
+      // label always has open card-free space to sit in.
+      const idealSpringLength = MIN_LINKED_CENTER_DISTANCE;
       const damping = 0.85;
 
       const nodeArr = Array.from(nodeMap.values());
@@ -355,8 +416,55 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       }
     }
     if (draggingNodeId) {
+      enforceMinLinkedDistance(draggingNodeId);
       setDraggingNodeId(null);
       dragStartRef.current = null;
+    }
+  };
+
+  // BUG-004: after a drag, if the node settled closer than
+  // MIN_LINKED_CENTER_DISTANCE to a linked node (or overlapping any node),
+  // push it outward along the connecting vector so edge labels keep an open gap.
+  const enforceMinLinkedDistance = (draggedId: string) => {
+    const dragged = nodes.find((n) => n.id === draggedId);
+    if (!dragged) return;
+    const linkedIds = new Set(
+      edges
+        .filter((e) => e.sourceId === draggedId || e.targetId === draggedId)
+        .flatMap((e) => [e.sourceId, e.targetId])
+    );
+    let bestX = dragged.x;
+    let bestY = dragged.y;
+    let pushDist = 0;
+
+    for (const other of nodes) {
+      if (other.id === draggedId) continue;
+      const isLinked = linkedIds.has(other.id);
+      const minDx = isLinked ? 0 : NODE_CARD_WIDTH + 20; // card-collision clearance
+      const minDy = isLinked ? 0 : NODE_CARD_HEIGHT + 22;
+      const dx = bestX - other.x;
+      const dy = bestY - other.y;
+      const dist = Math.max(Math.hypot(dx, dy), 1);
+      const minDist = isLinked
+        ? MIN_LINKED_CENTER_DISTANCE
+        : Math.max(
+            Math.hypot(minDx, minDy),
+            Math.abs(dx) >= minDx || Math.abs(dy) >= minDy ? dist : 0
+          );
+      if (dist < minDist) {
+        const push = (minDist - dist) / dist;
+        const cx = bestX + dx * push;
+        const cy = bestY + dy * push;
+        if (Math.hypot(cx - bestX, cy - bestY) > pushDist) {
+          pushDist = Math.hypot(cx - bestX, cy - bestY);
+          bestX = Math.round(cx);
+          bestY = Math.round(cy);
+        }
+      }
+    }
+
+    if (bestX !== dragged.x || bestY !== dragged.y) {
+      onUpdateNodePosition(draggedId, bestX, bestY);
     }
   };
 
@@ -437,17 +545,17 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
         </button>
         <button
           onClick={handleAutoArrange}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-semibold text-[#f08b98] shadow-sm transition-all cursor-pointer"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-xs font-semibold text-[#67e8f9] shadow-sm transition-all cursor-pointer"
           title="Animate and automatically space nodes using physics forces"
         >
-          <Sparkles className="w-3.5 h-3.5 text-[#e65a6c]" />
+          <Sparkles className="w-3.5 h-3.5 text-[#38bdf8]" />
           <span>Auto-Space</span>
         </button>
       </div>
 
       {linkingSourceNode && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-surface-2 text-[#fad4d8] px-4 py-2 rounded-full text-xs font-mono shadow-2xl flex items-center gap-2 animate-bounce">
-          <LinkIcon className="w-3.5 h-3.5 text-[#e65a6c]" />
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-surface-2 text-[#cbe9fb] px-4 py-2 rounded-full text-xs font-mono shadow-2xl flex items-center gap-2 animate-bounce">
+          <LinkIcon className="w-3.5 h-3.5 text-[#38bdf8]" />
           <span>Click target node to connect (From: {linkingSourceNode.title})</span>
           <button
             onClick={() => setLinkingSourceNode(null)}
@@ -468,13 +576,14 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
             const targetNode = nodes.find((n) => n.id === edge.targetId);
             if (!sourceNode || !targetNode) return null;
 
-            const sx = sourceNode.x + 105;
-            const sy = sourceNode.y + 40;
-            const tx = targetNode.x + 105;
-            const ty = targetNode.y + 40;
-
-            const midX = (sx + tx) / 2;
-            const midY = (sy + ty) / 2;
+            const clip = clipEdgeToNodeRects(
+              { x: sourceNode.x, y: sourceNode.y, width: NODE_CARD_WIDTH, height: NODE_CARD_HEIGHT },
+              { x: targetNode.x, y: targetNode.y, width: NODE_CARD_WIDTH, height: NODE_CARD_HEIGHT }
+            );
+            const { sx, sy, tx, ty, midX, midY } = clip;
+            // BUG-004: the label is sized to its text and centered on the
+            // card edge to card edge midpoint — the open gap between the two cards.
+            const labelW = Math.max(56, edge.kind.length * 6 + 16);
 
             return (
               <g key={edge.id}>
@@ -486,9 +595,9 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
                   strokeOpacity="0.8"
                 />
                 <rect
-                  x={midX - 40}
+                  x={midX - labelW / 2}
                   y={midY - 26}
-                  width="80"
+                  width={labelW}
                   height="16"
                   rx="4"
                   fill="#101724"
@@ -554,11 +663,11 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
 
           {linkingSourceNode && (
             <line
-              x1={linkingSourceNode.x + 105}
-              y1={linkingSourceNode.y + 40}
+              x1={linkingSourceNode.x + NODE_CARD_WIDTH / 2}
+              y1={linkingSourceNode.y + NODE_CARD_HEIGHT / 2}
               x2={mouseCanvasPos.x}
               y2={mouseCanvasPos.y}
-              stroke="#e65a6c"
+              stroke="#38bdf8"
               strokeWidth="2"
               strokeDasharray="4 4"
             />
@@ -575,88 +684,42 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       >
         {nodes.map((node) => {
           const isSelected = selectedNodeId === node.id;
-          const art = node.artifact;
-          const tags = node.tags || art.tags || [];
-          const artColor = art?.color || '#5d87b8';
 
           return (
             <div
               key={node.id}
               style={{
                 transform: `translate(${node.x}px, ${node.y}px)`,
-                width: '220px',
-                // A node is LIT by its own hue, not outlined by it: a wide soft
-                // halo reads as depth, where a 1px ring read as a fence.
-                boxShadow: `0 1px 2px rgb(0 0 0 / 0.35), 0 12px 26px -14px rgb(0 0 0 / 0.72), 0 0 0 6px ${artColor}12, 0 10px 26px -6px ${artColor}26`,
+                width: `${NODE_CARD_WIDTH}px`,
+                height: `${NODE_CARD_HEIGHT}px`,
+                // Neutral dark elevation — the card is NOT lit by the
+                // artifact's own hue (that red halo read as a leaked
+                // selection cursor). Selection is the only accent (BUG-005).
+                boxShadow: isSelected
+                  ? '0 0 20px -4px rgba(56,189,248,0.45)'
+                  : '0 1px 2px rgb(0 0 0 / 0.35), 0 12px 26px -14px rgb(0 0 0 / 0.72)',
               }}
               onPointerDown={(e) => handleNodePointerDown(e, node)}
-              className={`absolute pointer-events-auto rounded-xl p-3 backdrop-blur-md cursor-grab active:cursor-grabbing transition-shadow select-none bg-surface-2/95 ${
-                isSelected ? 'ring-2 ring-[#e65a6c]' : ''
+              onDoubleClick={() => {
+                if (node.artifact) onSelectArtifact(node.artifact);
+              }}
+              className={`absolute pointer-events-auto rounded-xl p-3 backdrop-blur-md cursor-grab active:cursor-grabbing transition-shadow select-none bg-surface-2/95 border ${
+                isSelected
+                  ? 'border-accent ring-2 ring-accent'
+                  : 'border-transparent'
               }`}
             >
-              <div className="flex items-center justify-between text-10 font-mono mb-1.5 gap-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0 shadow-xs"
-                    style={{ backgroundColor: artColor }}
-                  />
-                  <span className="px-1.5 py-0.5 rounded text-9 font-semibold bg-surface-3 text-[#8ab1e0] truncate">
-                    {node.type}
-                  </span>
-                </div>
-
+              {/* Lean card: Type + Title only. Click = select, drag = move,
+                  double-click = open. No inner buttons — the bottom-left
+                  detail card carries tags / Link / Open (BUG-001/002). */}
+              <div className="flex items-center text-10 font-mono mb-1.5">
+                <span className="px-1.5 py-0.5 rounded text-9 font-semibold bg-surface-3 text-[#8ab1e0] truncate">
+                  {node.type}
+                </span>
               </div>
 
-              <div className="font-semibold text-xs text-ink truncate mb-1.5 font-mono">
+              <div className="font-semibold text-xs text-ink truncate font-mono">
                 {node.title}
-              </div>
-
-              {tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {tags.slice(0, 3).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onFilterByTag?.(t);
-                      }}
-                      title={`Filter the folder tree by #${t}`}
-                      className="inline-flex items-center min-h-[30px] px-2 text-9 font-mono rounded bg-surface-2 hover:bg-surface-4 hover:text-ink text-[#7da0cf] cursor-pointer transition-colors"
-                    >
-                      #{t}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between text-10 text-[#869ab8] pt-1.5">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setLinkingSourceNode(node);
-                  }}
-                  className="flex items-center gap-1 p-1 min-h-[30px] rounded hover:bg-surface-3 text-[#9bb0d1] transition-colors cursor-pointer"
-                  title="Connect Edge"
-                >
-                  <LinkIcon className="w-3 h-3 text-[#5d87b8]" />
-                  <span>Link</span>
-                </button>
-
-                <div className="flex items-center gap-1">
-                  {node.artifactId && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (art) onSelectArtifact(art);
-                      }}
-                      className="px-2 py-0.5 flex items-center justify-center min-h-[30px] rounded bg-surface-4 hover:bg-surface-5 text-[#8ab1e0] text-10 font-medium transition-colors cursor-pointer"
-                      title="Inspect specification"
-                    >
-                      Spec
-                    </button>
-                  )}
-                </div>
               </div>
             </div>
           );
@@ -664,12 +727,16 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
       </div>
 
       {selectedNode && (
-        <div className="absolute bottom-3 left-3 right-3 sm:left-auto sm:right-3 sm:w-80 z-30 bg-surface-2/95 backdrop-blur-md rounded-xl p-3 shadow-2xl">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="font-bold text-xs text-ink truncate">{selectedNode.title}</span>
+        /* Bottom-RIGHT, raised to bottom-16 (64px): the lens pill
+            (Folders/Graph/Proximity) and the "back to chat" bubble both sit
+            at bottom-4 and reach ~54-56px up, so 64px clears the bottom row
+            without covering either control. */
+        <div className="absolute bottom-16 right-3 z-30 w-80 max-w-[calc(100vw-1.5rem)] bg-surface-2/95 backdrop-blur-md border border-line rounded-xl p-3.5 shadow-2xl">
+          <div className="flex items-start justify-between gap-2 mb-1.5">
+            <span className="font-bold text-xs text-ink line-clamp-2">{selectedNode.title}</span>
             <button
               onClick={() => setSelectedNodeId(null)}
-              className="text-11 text-[#7185a3] hover:text-ink"
+              className="text-11 text-[#7185a3] hover:text-ink shrink-0"
             >
               ✕
             </button>
@@ -698,56 +765,29 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
             );
           })()}
 
-          {(() => {
-            const nodeTentatives = tentativeLinks.filter(
-              (l: TentativeLink) => l.sourceNode.id === selectedNode.id || l.targetNode.id === selectedNode.id
-            );
-            if (nodeTentatives.length === 0) return null;
-            return (
-              <div className="mb-2.5 pt-2 space-y-1.5">
-                <div className="text-10 font-mono text-[#d48a37] flex items-center justify-between">
-                  <span>Tentative Cross-Links ({nodeTentatives.length})</span>
-                  <span className="text-9 text-[#869ab8]">Shared tags</span>
-                </div>
-                {nodeTentatives.map((tLink: TentativeLink) => {
-                  const otherNode =
-                    tLink.sourceNode.id === selectedNode.id ? tLink.targetNode : tLink.sourceNode;
-                  return (
-                    <div
-                      key={tLink.id}
-                      className="flex items-center justify-between p-1.5 rounded bg-surface-2 text-10"
-                    >
-                      <div className="truncate mr-1">
-                        <span className="text-ink font-medium">{otherNode.title}</span>
-                        <span className="text-[#d48a37] font-mono ml-1">#{tLink.sharedTags[0]}</span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          // Shared-tag intent maps to the domain kind 'relates_to'.
-                          onAddEdge(selectedNode.id, otherNode.id, 'relates_to', 0.6);
-                        }}
-                        className="px-2 py-0.5 rounded bg-surface-3 hover:bg-surface-4 text-[#f5c276] shrink-0 font-mono text-9 font-bold cursor-pointer"
-                      >
-                        + Connect
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
-          {selectedNode.artifactId && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                const art = selectedNode.artifact;
-                if (art) onSelectArtifact(art);
-              }}
-              className="w-full py-1.5 bg-[#a33945] hover:bg-[#b8424f] text-ink rounded-lg text-xs font-semibold shadow-md transition-colors"
+              onClick={() => setLinkingSourceNode(selectedNode)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-3 hover:bg-surface-4 text-[#9bb0d1] hover:text-ink text-11 font-medium transition-colors cursor-pointer"
+              title="Connect this artifact to another node"
             >
-              Open in Artifacts Desk
+              <LinkIcon className="w-3 h-3" />
+              <span>Link to…</span>
             </button>
-          )}
+
+            {selectedNode.artifactId && (
+              <button
+                onClick={() => {
+                  const art = selectedNode.artifact;
+                  if (art) onSelectArtifact(art);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-4 hover:bg-surface-5 text-[#67e8f9] text-11 font-semibold transition-colors cursor-pointer"
+                title="Open the artifact detail view"
+              >
+                <span>Open</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

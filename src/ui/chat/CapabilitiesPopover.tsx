@@ -48,8 +48,24 @@ export const CapabilitiesPopover: React.FC<CapabilitiesPopoverProps> = ({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // BUG-010: typing in the composer (or clicking anywhere else) closes the
+    // popover — Escape alone left it hanging over the textarea.
+    const isOutside = (e: Event) =>
+      wrapRef.current !== null && !wrapRef.current.contains(e.target as Node);
+    const onPointerDown = (e: PointerEvent) => {
+      if (isOutside(e)) setOpen(false);
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      if (isOutside(e)) setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('focusin', onFocusIn);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('focusin', onFocusIn);
+    };
   }, [open]);
 
   const setCapability = (key: CapKey, value: boolean) => {

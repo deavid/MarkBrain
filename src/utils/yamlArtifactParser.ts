@@ -2,6 +2,28 @@ import YAML from 'yaml';
 import { Artifact, ArtifactGraphData, ArtifactType, ArtifactCategory } from '../types';
 import { logger } from './logger';
 
+/**
+ * BUG-006.2: the title of an imported document is its leading `# H1` heading,
+ * verbatim — never the AI extraction's paraphrase of it, which truncated or
+ * rewrote the very line the user wrote. Returns null when the markdown has
+ * no heading at all.
+ */
+export function extractLeadingMarkdownH1(markdown: string): string | null {
+  // Frontmatter is metadata, not the document voice — skip it.
+  const withoutFrontmatter = markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+  const lines = withoutFrontmatter.split('\n');
+  let fallback: string | null = null;
+  for (const line of lines) {
+    const m = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (m) {
+      const text = m[2].trim();
+      if (m[1] === '#') return text;
+      if (fallback === null) fallback = text;
+    }
+  }
+  return fallback;
+}
+
 export interface ParsedYamlArtifact {
   artifact: Artifact;
   rawYaml: string;
@@ -57,7 +79,9 @@ export function parseYamlArtifactDoc(
     try {
       const parsedData = YAML.parse(yamlPart) || {};
       const id = parsedData.id || `art-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-      const title = parsedData.title || 'Imported Artifact';
+      // The document's own # H1 is the truth for the title (BUG-006.2);
+      // YAML/frontmatter title is only a fallback.
+      const title = extractLeadingMarkdownH1(markdownPart) || parsedData.title || 'Imported Artifact';
       const code = parsedData.code || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
       const graphData: ArtifactGraphData = {
         parent: parsedData.graph?.parent || undefined,

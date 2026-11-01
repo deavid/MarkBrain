@@ -165,7 +165,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
   const description = artifact.current?.description || '';
   const summary = artifact.current?.summary || '';
   const body = artifact.current?.body || '';
-  const artColor = artifact.color || '#5d87b8';
 
   const modalNode = (
     <div className={`fixed inset-0 z-[9999] bg-black/90 backdrop-blur-md flex items-center justify-center select-text w-screen h-screen ${
@@ -180,10 +179,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
       >
         <div className="p-3 sm:p-4 bg-surface-3 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <span
-              className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
-              style={{ backgroundColor: artColor }}
-            />
             <div className="min-w-0">
               <h2 className="text-sm sm:text-base font-bold text-ink font-mono truncate">
                 {title}
@@ -194,8 +189,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                 </span>
                 <span>•</span>
                 <span>{artifact.category || 'specification'}</span>
-                <span>•</span>
-                <span style={{ color: artColor }}>{artColor}</span>
               </div>
             </div>
           </div>
@@ -623,12 +616,6 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
                   <span className="text-[#8ab1e0]">{artifact.code || 'None'}</span>
                 </div>
                 <div>
-                  <span className="text-10 text-[#556985] block">High Concept:</span>
-                  <span className={artifact.isHighConcept ? 'text-[#e05a66]' : 'text-[#6b82a3]'}>
-                    {artifact.isHighConcept ? 'Yes (Core Anchor)' : 'No (Component)'}
-                  </span>
-                </div>
-                <div>
                   <span className="text-10 text-[#556985] block">Category:</span>
                   <span className="text-[#cad8eb]">{artifact.category || 'general'}</span>
                 </div>
@@ -762,10 +749,7 @@ export const ArtifactDetailModal: React.FC<ArtifactDetailModalProps> = ({
           )}
         </div>
 
-        <div className="p-3 bg-surface-2 flex items-center justify-between">
-          <span className="text-10 font-mono text-[#556985]">
-            Title · Description · Summary · Full
-          </span>
+        <div className="p-3 bg-surface-2 flex items-center justify-end">
           <button
             onClick={onClose}
             className="px-3.5 py-1.5 rounded-xl bg-surface-3 hover:bg-surface-5 text-xs font-mono text-[#8ab1e0] transition-colors cursor-pointer"

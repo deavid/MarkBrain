@@ -39,7 +39,7 @@ import {
 import { isOfflineReplica } from '../../services/workspaceSession';
 import { ChatThread, ThreadFolder, ThreadRuntime } from '../../domains/06-chat-threads';
 import type { ChatRenderMode } from '../chat/chatRenderMode';
-import type { UiFontScale } from '../uiFontScale';
+import { getSidebarWidthPx, type UiFontScale } from '../uiFontScale';
 import type { EnterSendMode } from '../chat/sendOnEnter';
 import { isOnline, subscribeOnline } from '../../application/connectivity';
 import { SidebarThreadTree } from './SidebarThreadTree';
@@ -222,9 +222,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <aside
         className={`fixed md:relative top-0 bottom-0 left-0 z-40 md:z-20 h-full bg-surface-1/98 md:bg-surface-1 flex flex-col transition-all duration-200 ease-in-out text-ink backdrop-blur-xl shrink-0 ${
           isOpen
-            ? 'w-[85vw] max-w-[350px] md:w-[350px] translate-x-0 shadow-2xl md:shadow-none'
+            ? 'w-[85vw] md:w-auto translate-x-0 shadow-2xl md:shadow-none'
             : '-translate-x-full md:translate-x-0 md:w-0 md:overflow-hidden'
         }`}
+        style={
+          isOpen
+            ? { width: `${getSidebarWidthPx(fontScale)}px`, maxWidth: '85vw' }
+            : undefined
+        }
       >
         <div className="flex-1 overflow-y-auto p-3 space-y-3.5">
           {/* Brand + identity: one flat row at the top, avatar opens a popover

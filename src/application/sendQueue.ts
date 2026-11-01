@@ -67,6 +67,9 @@ import { isVaultLocked, getReArmKey, tryReArmVault } from '../data/vaultReArm';
 import type { ExtractedArtifactUpsert, ExtractedTopicShift } from '../domains/03-stream-protocol';
 import type { ExtractedLink, ExtractedUnlink } from '../../shared/stream/types';
 import { planTurnCommit, callOutcome, type TurnCommitRequest, type TurnCommitPlan } from '../../shared/turnCommit/planTurnCommit';
+import { parseMessageSegments } from '../ui/chat/messageSegments';
+import { matchArtifactByFile } from '../utils/artifactTaxonomy';
+import type { Granularity } from '../domains/granularity';
 import { recordCallOutcome } from '../services/callLogStore';
 
 /** App render values, snapshotted once when an attempt starts (see the header). */
@@ -166,6 +169,30 @@ function errorCodeFor(message: string): string | undefined {
   return looksLikeVaultLocked(message) ? 'VAULT_LOCKED' : undefined;
 }
 
+/**
+ * FEATURE_INLINE_ATTACHMENTS §1: the `<attach>` tags written inline in the
+ * user's message, resolved to workspace artifacts. Unresolved files are
+ * reported and skipped — never silently attached as something else.
+ */
+export function extractInlineAttachStages(
+  text: string,
+  artifacts: Array<{ id: string; code?: string; title?: string; previousCodes?: string[] }>
+): Array<{ file: string; artifactId: string; granularity: Granularity }> {
+  const stages: Array<{ file: string; artifactId: string; granularity: Granularity }> = [];
+  const LEVELS: Granularity[] = ['title', 'description', 'summary', 'full'];
+  for (const seg of parseMessageSegments(text)) {
+    if (seg.kind !== 'attach' || seg.streaming) continue;
+    const match = matchArtifactByFile(seg.file, artifacts);
+    if (!match) continue;
+    stages.push({
+      file: seg.file,
+      artifactId: match.id,
+      granularity: LEVELS.includes(seg.level as Granularity) ? (seg.level as Granularity) : 'full',
+    });
+  }
+  return stages;
+}
+
 export class SendQueue {
   private drafts = new DraftQueue();
   private activeDraft: DraftItem | null = null;
@@ -209,6 +236,13 @@ export class SendQueue {
       deps.threadRegistry.patch(threadId, { lifecycle: 'active' });
     }
     this.noteSendIntent(deps, threadId, text);
+    // FEATURE_INLINE_ATTACHMENTS §1: `<attach file="…" level="…" />` tags
+    // written inline in the user's message stage their artifacts into THIS
+    // chat before the turn compiles — same language the model writes.
+    for (const stage of extractInlineAttachStages(text, deps.artifacts.listArtifacts())) {
+      deps.threadRegistry.stageArtifact(threadId, stage.artifactId, stage.granularity);
+      logger.action('SendQueue', `Inline attach: ${stage.file} (${stage.granularity})`);
+    }
     // New sends enter the tail; the walk stays strict FIFO (nextSendable).
     const item = this.drafts.enqueue(threadId, text);
     // Design 23 §2.1: ENQUEUE SNAPSHOTS the armed set (staged + committed) —
@@ -423,9 +457,9 @@ export class SendQueue {
       streamState: 'completed',
     };
     if (item.kind === 'regenerate' && item.targetTurnId) {
-      this.commitRegenerate(chain, item, item.partial, artifacts, shifts, [], [], meta);
+      this.commitRegenerate(chain, item, item.partial, artifacts, shifts, [], [], meta, item.partial);
     } else {
-      this.commitPair(chain, item, item.partial, artifacts, shifts, [], [], meta);
+      this.commitPair(chain, item, item.partial, artifacts, shifts, [], [], meta, item.partial);
     }
     this.drafts.resolve(item.id);
     this.maybeRetitle(chain, item.threadId);
@@ -684,9 +718,11 @@ export class SendQueue {
             }
             deps.triggerReRender();
           },
-          onChunk: (_cleanDelta, accumulatedClean) => {
-            streamedContent = accumulatedClean;
-            this.drafts.updatePartial(item.id, accumulatedClean);
+          onChunk: (_cleanDelta, accumulatedClean, accumulatedRaw) => {
+            // BUG-012: the partial carries the RAW text — in-progress sentinels
+            // render as live chips instead of vanishing mid-write.
+            streamedContent = accumulatedRaw ?? accumulatedClean;
+            this.drafts.updatePartial(item.id, accumulatedRaw ?? accumulatedClean);
             if (!sawFirstChunk) {
               sawFirstChunk = true;
               this.drafts.setProgress(item.id, {
@@ -768,7 +804,7 @@ export class SendQueue {
         callId: result.callId ?? this.drafts.getItem(item.id)?.callId,
         isStreaming: false,
         streamState: 'completed',
-      });
+      }, result.rawReply || replyText);
       this.drafts.resolve(item.id);
       this.maybeRetitle(chain, threadId);
     } catch (err: any) {
@@ -797,7 +833,8 @@ export class SendQueue {
     bufferedShifts: ExtractedTopicShift[],
     links: ExtractedLink[],
     unlinks: ExtractedUnlink[],
-    meta: TurnMeta
+    meta: TurnMeta,
+    rawReply?: string
   ): void {
     const deps = chain.deps;
     const threadId = item.threadId;
@@ -814,6 +851,7 @@ export class SendQueue {
       projectId: chain.ctx.projectId,
       askText: item.text,
       cleanReply: replyText,
+      rawReply,
       artifactUpserts: bufferedArtifacts,
       topicShift: bufferedShifts.length ? bufferedShifts[bufferedShifts.length - 1] : null,
       links,
@@ -1140,9 +1178,9 @@ export class SendQueue {
             }
             deps.triggerReRender();
           },
-          onChunk: (_d, acc) => {
-            streamedContent = acc;
-            this.drafts.updatePartial(item.id, acc);
+          onChunk: (_d, acc, raw) => {
+            streamedContent = raw ?? acc;
+            this.drafts.updatePartial(item.id, raw ?? acc);
             if (this.drafts.getItem(item.id)?.progress?.phase !== 'writing') {
               this.drafts.setProgress(item.id, {
                 phase: 'writing',
@@ -1213,7 +1251,7 @@ export class SendQueue {
         callId: result.callId ?? this.drafts.getItem(item.id)?.callId,
         isStreaming: false,
         streamState: 'completed',
-      });
+      }, result.rawReply || prose);
       this.drafts.resolve(item.id);
     } catch (err: any) {
       if (err.name === 'AbortError' || controller.signal.aborted) {
@@ -1241,7 +1279,8 @@ export class SendQueue {
     bufferedShifts: ExtractedTopicShift[],
     links: ExtractedLink[],
     unlinks: ExtractedUnlink[],
-    meta: TurnMeta
+    meta: TurnMeta,
+    rawReply?: string
   ): void {
     const deps = chain.deps;
     const threadId = item.threadId;
@@ -1262,6 +1301,7 @@ export class SendQueue {
       existingAssistantTurn: turns[targetIndex] ?? null,
       askText: turns[targetIndex - 1]?.role === 'user' ? turns[targetIndex - 1].content : item.text,
       cleanReply: replyText,
+      rawReply,
       artifactUpserts: bufferedArtifacts,
       topicShift: bufferedShifts.length ? bufferedShifts[bufferedShifts.length - 1] : null,
       links,

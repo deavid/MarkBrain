@@ -7,6 +7,7 @@ import { AlertCircle, Loader2, ScrollText } from 'lucide-react';
 import type { ChatViewProps } from './ChatView';
 import type { DraftProgress } from '../../application/draftQueue';
 import { GRANULARITY_LABEL } from '../../domains/granularity';
+import { MessageBody } from './MessageBody';
 import { AttachmentDot, formatTokens } from '../context/AttachmentControls';
 import { authUnlock } from '../../gateway/api';
 import { unlockLocalVault } from '../../data/localKeyVault';
@@ -306,8 +307,11 @@ export const DraftQueueTray: React.FC<DraftQueueTrayProps> = ({
               </div>
             )}
             {d.partial && (isBusy || isBlocked) && (
-              <div className="mt-1.5 max-h-24 overflow-y-auto rounded bg-recess-1 px-2 py-1.5 text-11 text-ink-dim whitespace-pre-wrap">
-                {d.partial}
+              <div className="mt-1.5 max-h-24 overflow-y-auto rounded bg-recess-1 px-2 py-1.5 text-11 text-ink-dim">
+                {/* BUG-012: the streaming partial renders through the SAME
+                    segment renderer as a finished message — markdown formats
+                    live, and in-progress sentinels show as writing chips. */}
+                <MessageBody content={d.partial} raw={false} />
               </div>
             )}
             {/* The model's thinking, live (David 2026-10-30): same

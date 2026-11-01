@@ -63,7 +63,7 @@ export interface TurnCommitState {
    * the OLD layers; callers that don't (the server's thin rows) omit it and
    * their applier snapshots from the DB instead.
    */
-  artifacts: Array<Pick<UniversalArtifactDocument, 'id' | 'code' | 'title'> & Partial<Pick<UniversalArtifactDocument, 'current'>>>;
+  artifacts: Array<Pick<UniversalArtifactDocument, 'id' | 'code' | 'title'> & Partial<Pick<UniversalArtifactDocument, 'current' | 'previousCodes'>>>;
   /** Edges visible to this commit (unlink matching). */
   edges: SemanticEdge[];
   /** Turns ALREADY in the thread — only the COUNT is needed. */
@@ -88,6 +88,14 @@ export interface TurnCommitRequest {
    */
   targetTurnIndex?: number;
   askText: string;
+  /**
+   * BUG-007: the reply EXACTLY as the model wrote it — operation sentinels
+   * (<link>, <unlink>, <topic_shift>, <artifact_upsert>) kept at their inline
+   * positions. When present it becomes the stored turn content, so the raw
+   * view, copy, the in-place chips and the compiler all see the true text.
+   * `cleanReply` keeps driving extraction (the demuxer already ran).
+   */
+  rawReply?: string;
   /** Demuxed prose (tags already stripped); residual <link> tags are stripped again defensively. */
   cleanReply: string;
   artifactUpserts: ExtractedArtifactUpsert[];
@@ -162,11 +170,19 @@ function fileKey(s: string): string {
   return s.trim().replace(/\.md$/i, '').toLowerCase();
 }
 
+/** Slug form of a name — 'Unhaunter Dev Notes' → 'unhaunter-dev-notes'. */
+function slugKey(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 /** Defensive strip: the demuxer normally removed these already. */
 function stripLinkTags(text: string): string {
   return text.replace(/<link\b[^>]*>(?:\s*<\/link>)?\s*/gi, '');
 }
-
 export function planTurnCommit(req: TurnCommitRequest): TurnCommitPlan {
   const caps = req.capabilities;
   const state = req.state;
@@ -314,9 +330,25 @@ export function planTurnCommit(req: TurnCommitRequest): TurnCommitPlan {
 
   /* ── Rule 5: link/unlink resolution + receipts (ALWAYS emitted) ── */
   const idByFile = new Map<string, string>();
-  const indexNames = (a: { id: string; code?: string; title?: string }) => {
+  // §6: the model may name an endpoint by code.md, plain code, exact title,
+  // slug-of-title, a RENAMED slug (previousCodes), or the internal id — all
+  // of them resolve, or the edge is dropped as a mystery '?'.
+  const indexNames = (a: { id: string; code?: string; title?: string; previousCodes?: string[] }) => {
     idByFile.set(fileKey(artifactFileName({ code: a.code ?? '', title: a.title ?? '' })), a.id);
-    if (a.code) idByFile.set(fileKey(a.code), a.id);
+    if (a.code) {
+      idByFile.set(fileKey(a.code), a.id);
+      idByFile.set(slugKey(a.code), a.id);
+    }
+    if (a.title) {
+      idByFile.set(fileKey(a.title), a.id);
+      idByFile.set(slugKey(a.title), a.id);
+    }
+    for (const prev of a.previousCodes ?? []) {
+      if (!prev) continue;
+      idByFile.set(fileKey(prev), a.id);
+      idByFile.set(slugKey(prev), a.id);
+    }
+    if (a.id) idByFile.set(fileKey(a.id), a.id);
   };
   for (const a of state.artifacts) indexNames(a);
   // A reply may create AND link a note in the same breath — planned docs resolve too.
@@ -372,8 +404,10 @@ export function planTurnCommit(req: TurnCommitRequest): TurnCommitPlan {
 
   /* ── Rules 3/6/8: turn construction ── */
   const cleanedReply = stripLinkTags(req.cleanReply);
-  const extractedArtifacts: ExtractedArtifact[] = req.artifactUpserts.map((u) => ({
-    id: u.id,
+  // BUG-007: store the reply EXACTLY as the model wrote it (tags in place).
+  // Legacy callers that don't pass rawReply keep the old stripped content.
+  const storedReply = req.rawReply ?? cleanedReply;
+  const extractedArtifacts: ExtractedArtifact[] = req.artifactUpserts.map((u) => ({    id: u.id,
     title: u.title,
     type: u.type,
     code: u.id || artifactCode(u.title),
@@ -430,7 +464,7 @@ export function planTurnCommit(req: TurnCommitRequest): TurnCommitPlan {
         }),
         id: assistantTurnId,
         role: 'assistant' as const,
-        content: cleanedReply,
+        content: storedReply,
         timestamp: now,
         threadId: req.threadId,
         extractedArtifacts,
@@ -442,7 +476,7 @@ export function planTurnCommit(req: TurnCommitRequest): TurnCommitPlan {
     : {
         id: assistantTurnId,
         role: 'assistant' as const,
-        content: cleanedReply,
+        content: storedReply,
         timestamp: now + 1,
         threadId: req.threadId,
         extractedArtifacts,

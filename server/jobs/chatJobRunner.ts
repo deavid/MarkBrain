@@ -77,6 +77,8 @@ interface ActiveJobContext {
   subscribers: Set<Response>;
   /** clean text accumulated so far (partial persisted periodically) */
   cleanText: string;
+  /** RAW provider accumulation — sentinels in place (BUG-012 partials, BUG-007 raw view). */
+  rawText: string;
   /**
    * True for the context attachSubscriber stands in while the job is still
    * queued — runJob ADOPTS it so a watcher that attached early keeps
@@ -127,7 +129,9 @@ export function persistPartial(ctx: ActiveJobContext, force = false): void {
   lastPartialFlush = now;
   getDb()
     .prepare('UPDATE chat_jobs SET partial_text = ?, updated_at = ? WHERE job_id = ?')
-    .run(ctx.cleanText, now, ctx.jobId);
+    // BUG-012: the persisted partial is the RAW text so a stopped draft
+    // renders through the segment renderer with its live chips intact.
+    .run(ctx.rawText, now, ctx.jobId);
 }
 
 /** Per-thread FIFO: a failed/stopped HEAD blocks later queued jobs (21E §2.2). */
@@ -278,6 +282,7 @@ export async function runJob(jobId: string): Promise<void> {
           abortController,
           subscribers: new Set(),
           cleanText: '',
+          rawText: '',
         };
   activeJobs.set(jobId, ctx);
 
@@ -383,11 +388,15 @@ export async function runJob(jobId: string): Promise<void> {
       const demuxed = demuxTurn(raw);
       // Live partial = prose without sentinel blocks; buffers ride alongside.
       ctx.cleanText = demuxed.cleanText;
+      // BUG-012: the partial the DRAFT shows is the RAW text — the segment
+      // renderer turns in-progress sentinels into live chips instead of
+      // dropping them mid-write.
+      ctx.rawText = raw;
       persistPartial(ctx);
 
       const cleanDelta = ctx.cleanText.slice(lastCleanLen);
       lastCleanLen = ctx.cleanText.length;
-      if (cleanDelta) broadcast(ctx, 'chunk', { type: 'chunk', delta: cleanDelta, partialText: ctx.cleanText });
+      if (cleanDelta) broadcast(ctx, 'chunk', { type: 'chunk', delta: cleanDelta, partialText: ctx.rawText });
 
       if (demuxed.artifactUpserts.length > seenArtifacts) {
         for (const a of demuxed.artifactUpserts.slice(seenArtifacts)) {
@@ -423,6 +432,7 @@ export async function runJob(jobId: string): Promise<void> {
       targetTurnId: job.target_turn_id,
       askText: job.ask_text,
       replyText: reply,
+      rawReply: raw,
       model,
       stagedAttachments: JSON.parse(job.staged_attachments_json || '[]'),
       capabilities: parseJsonOrNull(job.capabilities_json) ?? undefined,
@@ -567,9 +577,9 @@ export function attachSubscriber(jobId: string, res: Response): 'snapshot' | 'go
       abortController: new AbortController(),
       subscribers: new Set(),
       cleanText: job.partial_text,
+      rawText: job.partial_text,
       placeholder: true,
-    };
-    activeJobs.set(jobId, ctx);
+    };    activeJobs.set(jobId, ctx);
     if (job.state === 'queued') void runJob(jobId);
   }
   ctx.subscribers.add(res);

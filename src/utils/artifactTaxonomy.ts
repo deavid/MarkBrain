@@ -101,3 +101,39 @@ export function uniqueSlug(code: string, taken: Set<string>): string {
   }
   return `${code}-${Date.now()}`;
 }
+
+/**
+ * FEATURE_INLINE_ATTACHMENTS §1: which artifact does an inline
+ * `<attach file="…">` name? Same resolution rules the link endpoints use —
+ * code.md, plain code, exact title, slug-of-title, renamed slugs, id.
+ */
+export function matchArtifactByFile(
+  file: string,
+  artifacts: Array<{ id: string; code?: string; title?: string; previousCodes?: string[] }>
+): { id: string } | null {
+  const key = file
+    .trim()
+    .replace(/\.md$/i, '')
+    .toLowerCase();
+  const slug = normalizeSlug(file.replace(/\.md$/i, ''));
+  for (const a of artifacts) {
+    const keys = new Set<string>();
+    if (a.code) {
+      keys.add(a.code.trim().toLowerCase());
+      keys.add(normalizeSlug(a.code));
+    }
+    if (a.title) {
+      keys.add(a.title.trim().toLowerCase());
+      keys.add(normalizeSlug(a.title));
+    }
+    for (const prev of a.previousCodes ?? []) {
+      if (prev) {
+        keys.add(prev.trim().toLowerCase());
+        keys.add(normalizeSlug(prev));
+      }
+    }
+    keys.add(a.id.toLowerCase());
+    if (keys.has(key) || keys.has(slug)) return a;
+  }
+  return null;
+}

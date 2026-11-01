@@ -39,7 +39,12 @@ export interface IStreamProtocolDomain {
     callbacks?: {
       signal?: AbortSignal;
       onStatus?: (status: StreamStatusPayload) => void;
-      onChunk?: (cleanDelta: string, accumulatedClean: string) => void;
+      onChunk?: (
+        cleanDelta: string,
+        accumulatedClean: string,
+        /** The RAW accumulation with sentinels still in place (BUG-012 partials). */
+        accumulatedRaw?: string,
+      ) => void;
       /**
        * The model's thinking stream (David 2026-10-30), as a LIVE preview
        * only: (delta, accumulated). Reasoning never reaches the turn result,
@@ -108,7 +113,12 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
     callbacks: {
       signal?: AbortSignal;
       onStatus?: (status: StreamStatusPayload) => void;
-      onChunk?: (cleanDelta: string, accumulatedClean: string) => void;
+      onChunk?: (
+        cleanDelta: string,
+        accumulatedClean: string,
+        /** The RAW accumulation with sentinels still in place (BUG-012 partials). */
+        accumulatedRaw?: string,
+      ) => void;
       /**
        * The model's thinking stream (David 2026-10-30), as a LIVE preview
        * only: (delta, accumulated). Reasoning never reaches the turn result,
@@ -186,7 +196,7 @@ export class StreamProtocolDomain implements IStreamProtocolDomain {
             const cleanDelta = this.demuxChunk(data.delta || '');
             if (cleanDelta) {
               accumulatedClean += cleanDelta;
-              callbacks.onChunk?.(cleanDelta, accumulatedClean);
+              callbacks.onChunk?.(cleanDelta, accumulatedClean, accumulatedRaw);
             }
           } else if (eventName === 'call') {
             if (typeof data.callId === 'string') {

@@ -2,7 +2,7 @@
  * One message: the hover control row (voice, split, receipts, raw, copy),
  * the body itself, the receipts chips and the attachments welded to the turn.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookmarkPlus,
   Check,
@@ -27,6 +27,7 @@ import {
   formatAttachmentProvenance,
 } from '../context/AttachmentControls';
 import { TurnReceiptsRow } from './TurnReceiptsRow';
+import { parseMessageSegments } from './messageSegments';
 
 export interface MessageBubbleProps {
   message: Turn;
@@ -149,6 +150,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const isPlaying = playingMessageId === message.id;
   const isTtsLoading = ttsLoadingId === message.id;
   const isRaw = isMessageRaw(message.id);
+  // BUG-007: when the content still carries the inline op tags, the chips
+  // render in place — the bottom receipts row would only duplicate them.
+  const hasInlineOps = useMemo(
+    () => parseMessageSegments(message.content ?? '').some((s) => s.kind !== 'prose'),
+    [message.content]
+  );
   const isCopied = copiedMessageId === message.id;
   return (
     <div
@@ -292,7 +299,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         }`}
       >
         {message.content ? (
-          <MessageBody content={message.content} raw={isRaw} tone={isUser ? 'raised' : 'sunken'} />
+          <MessageBody
+            content={message.content}
+            raw={isRaw}
+            tone={isUser ? 'raised' : 'sunken'}
+            linkReceipts={message.extractedLinks}
+            artifactTitles={artifactTitles}
+            onOpenArtifact={onOpenArtifact}
+          />
         ) : (
           <div className="flex items-center gap-2 text-xs font-mono text-[#38bdf8] py-1 animate-pulse">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-[#38bdf8]" />
@@ -300,13 +314,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         )}
 
-        <TurnReceiptsRow
-    message={message}
-    chapters={chapters}
-    isUser={isUser}
-    artifactTitles={artifactTitles}
-    onOpenArtifact={onOpenArtifact}
-  />
+        {/* BUG-007: the receipts row is the FALLBACK for legacy turns whose
+            content was saved stripped — the ops now render in place. */}
+        {!hasInlineOps && (
+          <TurnReceiptsRow
+            message={message}
+            chapters={chapters}
+            isUser={isUser}
+            artifactTitles={artifactTitles}
+            onOpenArtifact={onOpenArtifact}
+          />
+        )}
 
   {message.meta && !isUser && (
           <div className="mt-2.5 pt-2 flex flex-wrap items-center justify-between gap-2 text-10 font-mono text-[#637894]">

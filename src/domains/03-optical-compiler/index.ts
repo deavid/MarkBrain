@@ -12,6 +12,7 @@ import { IDialogueTimelineDomain, Turn } from '../01-dialogue-timeline';
 import type { ChatAttachment, ChatCapabilities } from '../06-chat-threads';
 import { DEFAULT_CHAT_CAPABILITIES } from '../06-chat-threads';
 import { Granularity, cutIncludes } from '../granularity';
+import { compileTurnContentForPrompt } from '../../../shared/stream/compilerStub';
 import { VOICE_LAW } from '../../../shared/prompts/prompt';
 import { logger } from '../../utils/logger';
 import { estimateTokens } from '../../utils/estimateTokens';
@@ -140,7 +141,9 @@ A multi-section digest (~800 to 1500 tokens for a substantial note) continuing f
 <content>
 The complete Markdown note body.
 </content>
-</artifact_upsert>`;
+</artifact_upsert>
+
+In PAST turns of the transcript, completed <artifact_upsert> blocks have their body replaced by a \`<!-- MarkBrain compiler: ... -->\` comment to save context space; when you emit a NEW <artifact_upsert>, always write out the full layer tags and body.`;
 
 const LINK_BLOCK = `3. To link two notes in the graph:
 <link source="file1.md" target="file2.md" kind="relates_to|refines|parent_of|child_of|born_from" />
@@ -244,7 +247,12 @@ export function chapterXml(
     const turnsXml = turns
       .map(
         (t) =>
-          `      <turn role="${t.role}">\n${indentBlock(t.content, '        ')}\n      </turn>`
+          `      <turn role="${t.role}">\n${indentBlock(
+            // BUG-011: past turns compile with their operations in place —
+            // links/topic shifts verbatim, artifact bodies as compiler stubs.
+            compileTurnContentForPrompt(t.content),
+            '        '
+          )}\n      </turn>`
       )
       .join('\n');
     lines.push(`    <turns>`);

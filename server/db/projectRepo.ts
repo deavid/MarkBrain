@@ -819,6 +819,8 @@ export interface CommitJobInput {
   targetTurnId: string | null;
   askText: string;
   replyText: string;
+  /** BUG-007: the model's exact text with sentinels in place — stored as the turn content. */
+  rawReply?: string;
   model: string;
   stagedAttachments: unknown[];
   artifacts: Array<{
@@ -1013,6 +1015,7 @@ export function commitJobPairTransaction(input: CommitJobInput): {
       targetTurnIndex,
       askText: input.askText,
       cleanReply: input.replyText,
+      rawReply: input.rawReply,
       artifactUpserts: input.artifacts,
       topicShift: input.shifts.length > 0 ? input.shifts[input.shifts.length - 1] : null,
       links,

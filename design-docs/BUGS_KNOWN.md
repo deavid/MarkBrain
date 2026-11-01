@@ -34,9 +34,9 @@ All screenshots from this session were extracted from the goose session DB and s
 | ID | Title | Clarity | Where it goes |
 |---|---|---|---|
 | **BUG-001** | Graph node card: lean (Title + Type only), click = select, double-click = open, drag = move | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` |
-| **BUG-002** | Graph selected-node card: move to bottom-left, migrate node actions (`Link`, `Open`), remove red button | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` |
-| **BUG-003** | Graph Auto-Space de-tangler algorithm | **Drawer / Discuss** | Needs algorithm design discussion |
-| **BUG-004** | Graph edges & labels: clip lines to card border + enforce minimum distance for labels | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` |
+| **BUG-002** | Graph selected-node card: move to bottom-left, migrate node actions (`Link`, `Open`), remove red button | **100% Clear (Merged `9518d17`)** | `BUGS/CLEAR_FIXES_PLAN.md` |
+| **BUG-003** | Graph Auto-Space layout using `visible_factor` (`(dist - 3*half_width) / half_width`, target `~800px` / `vf ≈ 4.3`, node-to-edge clearance, 1-click convergence) | **Ready for Prototype** | `BUGS/BUG_003_AUTO_SPACE_PLAN.md` |
+| **BUG-004** | Graph edges & labels: clip lines to card border + enforce minimum distance for labels | **100% Clear (Merged `9518d17`)** | `BUGS/CLEAR_FIXES_PLAN.md` |
 | **BUG-005** | Strip per-artifact colors (`#e05a66`) everywhere; use clean non-red selection highlight | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` (+ future feature in `BUGS/FEATURE_VIEW_COLOR_MAPPING.md`) |
 | **BUG-006.1** | Detail modal header: remove red dot & `#e05a66` hex readout | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` (covered with BUG-005) |
 | **BUG-006.2** | Import title mismatch: markdown `# H1` must be used verbatim as the artifact title | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` |

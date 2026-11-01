@@ -11,6 +11,7 @@ import {
   Link as LinkIcon,
   Plus,
 } from 'lucide-react';
+import { computeAutoSpacePositions } from './autoSpaceLayout';
 
 /**
  * View-local shapes: x/y layout state lives here, a view concern, built from the
@@ -212,7 +213,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
 
     const scaleX = (width - padding * 2) / graphWidth;
     const scaleY = (height - padding * 2) / graphHeight;
-    const newZoom = Math.min(Math.max(Math.min(scaleX, scaleY), 0.5), 1.3);
+    const newZoom = Math.min(Math.max(Math.min(scaleX, scaleY), 0.15), 1.3);
 
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
@@ -244,7 +245,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
 
     // Zoom delta
     const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
-    const newZoom = Math.min(Math.max(zoom * zoomFactor, 0.35), 2.5);
+    const newZoom = Math.min(Math.max(zoom * zoomFactor, 0.12), 2.5);
 
     // Zoom towards cursor
     const mouseCanvasX = (mouseX - pan.x) / zoom;
@@ -267,101 +268,50 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
     };
   };
 
-  // Force-Directed Physics Engine (JS animated layout)
-  const runPhysicsStep = useCallback(
-    (currentNodes: ViewNode[]): Array<{ id: string; x: number; y: number }> => {
-      const nodeMap = new Map(currentNodes.map((n) => [n.id, { ...n, vx: 0, vy: 0 }]));
-      const kRepulsion = 18000;
-      const kSpring = 0.04;
-      // BUG-004: linked cards settle at the min linked distance so the edge
-      // label always has open card-free space to sit in.
-      const idealSpringLength = MIN_LINKED_CENTER_DISTANCE;
-      const damping = 0.85;
+  // BUG-003: Auto-Space solves the whole layout in one click with the
+  // visible_factor-driven pure solver, then animates there with ease-out.
+  const handleAutoArrange = useCallback(() => {
+    if (nodes.length === 0) return;
+    if (physicsFrameRef.current) cancelAnimationFrame(physicsFrameRef.current);
 
-      const nodeArr = Array.from(nodeMap.values());
+    const targets = new Map(
+      computeAutoSpacePositions(nodes, edges).map((p) => [p.id, p])
+    );
+    const startPositions = new Map(
+      nodes.map((n) => [n.id, { x: n.x, y: n.y }])
+    );
 
-      // 1. Repulsive forces between every pair of nodes
-      for (let i = 0; i < nodeArr.length; i++) {
-        for (let j = i + 1; j < nodeArr.length; j++) {
-          const n1 = nodeArr[i];
-          const n2 = nodeArr[j];
-          const dx = n2.x - n1.x;
-          const dy = n2.y - n1.y;
-          const distSq = Math.max(dx * dx + dy * dy, 400);
-          const dist = Math.sqrt(distSq);
-
-          const force = kRepulsion / distSq;
-          const fx = (dx / dist) * force;
-          const fy = (dy / dist) * force;
-
-          n1.vx -= fx;
-          n1.vy -= fy;
-          n2.vx += fx;
-          n2.vy += fy;
-        }
-      }
-
-      // 2. Attractive spring forces along edges
-      for (const edge of edges) {
-        const sNode = nodeMap.get(edge.sourceId);
-        const tNode = nodeMap.get(edge.targetId);
-        if (!sNode || !tNode) continue;
-
-        const dx = tNode.x - sNode.x;
-        const dy = tNode.y - sNode.y;
-        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
-        const displacement = dist - idealSpringLength;
-        const springForce = displacement * kSpring;
-
-        const fx = (dx / dist) * springForce;
-        const fy = (dy / dist) * springForce;
-
-        sNode.vx += fx;
-        sNode.vy += fy;
-        tNode.vx -= fx;
-        tNode.vy -= fy;
-      }
-
-      // 3. Apply velocities (excluding currently dragged node)
-      return nodeArr.map((n) => {
-        if (n.id === draggingNodeId) {
-          return { id: n.id, x: n.x, y: n.y };
-        }
-        const vx = Math.min(Math.max(n.vx * damping, -25), 25);
-        const vy = Math.min(Math.max(n.vy * damping, -25), 25);
+    const FRAMES = 25;
+    let frame = 0;
+    const animateStep = () => {
+      frame++;
+      const p = frame / FRAMES;
+      const t = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      const updates = nodes.map((n) => {
+        const from = startPositions.get(n.id) ?? { x: n.x, y: n.y };
+        const to = targets.get(n.id) ?? { x: n.x, y: n.y };
         return {
-          id: n.id,
-          x: Math.round(n.x + vx),
-          y: Math.round(n.y + vy),
+          artifactId: n.id,
+          x: Math.round(from.x + (to.x - from.x) * t),
+          y: Math.round(from.y + (to.y - from.y) * t),
         };
       });
-    },
-    [edges, draggingNodeId]
-  );
-
-  // Trigger smooth multi-step Auto-Arrange animation
-  const handleAutoArrange = () => {
-    let stepsLeft = 45;
-    let currentNodesState = [...nodes];
-
-    const animateStep = () => {
-      if (stepsLeft <= 0) return;
-      const updates = runPhysicsStep(currentNodesState);
-      onBatchUpdateNodePositions(
-        updates.map((u) => ({ artifactId: u.id, x: u.x, y: u.y }))
-      );
-
-      currentNodesState = currentNodesState.map((n) => {
-        const match = updates.find((u) => u.id === n.id);
-        return match ? { ...n, x: match.x, y: match.y } : n;
-      });
-
-      stepsLeft--;
-      physicsFrameRef.current = requestAnimationFrame(animateStep);
+      onBatchUpdateNodePositions(updates);
+      if (frame < FRAMES) {
+        physicsFrameRef.current = requestAnimationFrame(animateStep);
+      } else {
+        // Final exact positions, then fit the wide-scattered graph on screen.
+        onBatchUpdateNodePositions(
+          nodes.map((n) => {
+            const to = targets.get(n.id)!;
+            return { artifactId: n.id, x: to.x, y: to.y };
+          })
+        );
+        setTimeout(() => fitViewToNodes(), 60);
+      }
     };
-
     physicsFrameRef.current = requestAnimationFrame(animateStep);
-  };
+  }, [nodes, edges, onBatchUpdateNodePositions, fitViewToNodes]);
 
   useEffect(() => {
     return () => {
@@ -528,7 +478,7 @@ export const SpatialGraph: React.FC<SpatialGraphProps> = ({
           <ZoomIn className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
         <button
-          onClick={() => setZoom((z) => Math.max(z - 0.15, 0.4))}
+          onClick={() => setZoom((z) => Math.max(z - 0.15, 0.12))}
           className="p-1.5 sm:p-2 rounded-lg hover:bg-surface-3 text-[#9bb0d1] transition-colors"
           title="Zoom Out"
         >

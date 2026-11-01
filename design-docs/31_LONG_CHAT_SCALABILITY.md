@@ -1,8 +1,8 @@
 # 31 — Long-Chat & Million-Turn Scalability: Failure Modes, Requirements, and Decisions
 
 - **Date**: 2026-11-01
-- **Authors**: David & Altair
-- **Status**: High-level design & decisions record (foundation for implementation planning).
+- **Authors**: David & Altair (implemented on `dev-vega`)
+- **Status**: **SHIPPED (Phases 1, 2 & 3 complete — 2026-11-01)** · Execution log in `archive/LONG_CHAT_PHASE_1_2_PLAN.md`. Future horizon items (clientstorage meter, cold-boot chunked hydration, working-set archiving) recorded in §4 below.
 
 ---
 
@@ -115,3 +115,34 @@ Before listing failure modes and solutions, three hard boundaries must be respec
    - Ensure composite indexes on `(user_id, project_id, thread_id, seq)` so fetching a thread's tail or a specific chapter's turn slice is an fast index seek, and support paginated turn fetching for chunked sync.
 3. **Cached Token Counts on Turns / Chapters**:
    - Persist/cache token counts on turns and closed chapters when they are written or edited so UI badges (`ChapterSection`), chapter cap checks (`64k` / `128k`), and `OpticalCompilerDomain` don't re-scan thousands of turn strings on every render frame.
+
+---
+
+## 4. Implementation Status & Future Horizon (Updated 2026-11-01)
+
+### 4.1 What Is Shipped Today (`dev-vega`, commits `0167223` .. `e76c27c`)
+- **Phase 1 (UI & Token Caching)**:
+  - `TurnMeta.contentTokens` stamped at commit time (`planTurnCommit.ts`), read via `turnPromptTokens` + `compiledTurnText` WeakMap memoization (`shared/turnCommit/turnTokens.ts`), and summed in $O(1)$ per turn inside `OpticalCompilerDomain`.
+  - Default-folding of older `full`-granularity chapters (`defaultChapterCollapsed`) + `MAX_OPEN_FULL_CHAPTERS = 3` (`evictOpenFullChapter`) with `useLayoutEffect` scroll-height compensation (`src/ui/chat/chapterFold.ts`, `ChatView.tsx`).
+  - Within-chapter 40-turn trailing window (`CHAPTER_TURN_WINDOW_STEP = 40`) in `ChapterSection.tsx`, preserving true `globalTurnIndex = chapter.startIndex + hiddenTurnCount + windowIdx`.
+  - Bounded `useMessageTts` device cache scan (only scans unfolded, windowed turns).
+  - Synchronous bottom-first thread open (`useLayoutEffect` on `feedRef` in `ChatView.tsx`).
+- **Phase 2 (64k Soft Cap, 128k Hard Cap + 2-Turn Grace, AI Auto-Split)**:
+  - Pure `evaluateChapterTokenCap(turns)` (`src/domains/02-chapter-segmentation/chapterCap.ts`).
+  - Soft-cap (`64k`), grace (`128k` + 2 user turns), and hard-blocked banners in `ChatView.tsx` + `capBlocked` composer enforcement in `ChatComposer.tsx`.
+  - AI-assisted **Auto-Split Chapter** (`shared/prompts/autoSplit.ts`, `handleAutoSplitChapter` in `createChapterHandlers.ts`, `POST /api/auto-split-chapter`, `directAutoSplitChapter`, and hermetic capture-mode fixture), pinned by `chapter-token-cap.test.ts` and CUJ `28-long-chat-ui`.
+- **Phase 3 (Storage & Paginated Endpoint)**:
+  - Composite SQLite index `idx_turns_user_project_thread_seq` on `turns(user_id, project_id, thread_id, seq)` (`server/db/schemaSpec.ts`).
+  - Tail-first paginated server endpoint `GET /api/projects/:projectId/turns?threadId=...&beforeSeq=...&limit=200` (`server/db/projectRepo.ts`, `server/routes/projects.ts`).
+  - Incremental per-turn IndexedDB store (`DB_VERSION = 2` in `src/services/localBackend.ts`, pure core in `src/services/turnRecords.ts`) with atomic v1→v2 upgrade migration and signature-diff writes (`O(changed turns)` per save instead of rewriting the full project blob).
+
+### 4.2 Future Horizon (Parked by David on 2026-11-01 — "for another day / another month")
+
+1. **Client Storage Meter in Sidebar (`navigator.storage.estimate()`)**:
+   - **Browser capability**: Modern browsers expose the Web Storage API `await navigator.storage.estimate()`, which returns `{ usage, quota }` in bytes for the entire origin (covering `markbrain-local` / `markbrain-vps-*` IndexedDB stores, `markbrain-tts-audio-v1` Opus cache, `markbrain-call-logs`, and `localStorage`).
+   - **Important nuance on browser `quota`**: Browser-reported `quota` is based on free disk space (up to ~60% of disk in Chromium, ~1–2 GiB soft ceiling in Safari/iOS before eviction pressure), whereas practical single-tab **in-memory working-set limits** (hydration + domain maps) hit friction much earlier around **100–250 MB** of raw workspace data.
+   - **Future UI idea (David)**: A small, quiet storage readout in the sidebar showing rough MB used and `% full` against a safe working ceiling (or browser quota), staying subtle under 50% and getting visually louder once past 50% / 80% — acting as the early-warning trigger for when we actually need the working-set archiver below.
+2. **Working-Set Archiving (Offloading Cold Data from Client Memory/IDB to VPS)**:
+   - Once real usage ever approaches those storage thresholds, introduce an archiving flow where older/settled chapters or projects are marked archived: their heavy turn bodies / audio are evicted from the client's in-memory domains and local IndexedDB mirror ("working set"), while remaining safely stored and queryable on the VPS.
+3. **Phase 3-b Client Cold-Boot Chunked Hydration (Deferred — Option A chosen)**:
+   - We kept `vpsStore.load` simple (single snapshot pull on cold boot, `/delta?since=rev` for ongoing sync, and incremental per-turn IDB writes). If a cold-boot download ever grows large enough to need chunked hydration, the server endpoint `GET /api/projects/:id/turns?beforeSeq=...&limit=200` is already built and ready to be wired.

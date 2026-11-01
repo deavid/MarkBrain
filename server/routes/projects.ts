@@ -13,6 +13,7 @@ import {
   deleteProjectForUser,
   replaceAllProjectsForUser,
   createProjectForUser,
+  listTurnsPageForUser,
   type AtomicMutation,
 } from '../db/projectRepo';
 import type { ProjectSnapshot } from '../../shared/types/projectSnapshot';
@@ -80,8 +81,35 @@ export function registerProjectRoutes(app: Express): void {
     }
   });
 
-  app.get('/api/projects/:projectId/delta', (req: Request, res: Response) => {
-    const since = Number(req.query.since ?? 0);
+  // ── Long-chat Phase 3.1: paginated TAIL-FIRST turns (design-docs/31 §3.4) ──
+  // The client hydrates the visible (most recent) conversation immediately and
+  // pages upward for history, in bounded chunks — never one multi-megabyte
+  // JSON.parse of the whole project.
+  app.get('/api/projects/:projectId/turns', (req: Request, res: Response) => {
+    const threadId = typeof req.query.threadId === 'string' && req.query.threadId ? req.query.threadId : undefined;
+    const beforeSeqRaw = req.query.beforeSeq === undefined ? undefined : Number(req.query.beforeSeq);
+    if (beforeSeqRaw !== undefined && (!Number.isFinite(beforeSeqRaw) || beforeSeqRaw < 0)) {
+      res.status(400).json({ error: 'beforeSeq must be a non-negative number' });
+      return;
+    }
+    const limitRaw = req.query.limit === undefined ? undefined : Number(req.query.limit);
+    if (limitRaw !== undefined && (!Number.isFinite(limitRaw) || limitRaw < 1 || limitRaw > 500)) {
+      res.status(400).json({ error: 'limit must be a number between 1 and 500' });
+      return;
+    }
+    const page = listTurnsPageForUser(req.user!.id, req.params.projectId, {
+      threadId,
+      beforeSeq: beforeSeqRaw,
+      limit: limitRaw,
+    });
+    if (!page) {
+      res.status(404).json({ error: 'Project not found.' });
+      return;
+    }
+    res.json(page);
+  });
+
+  app.get('/api/projects/:projectId/delta', (req: Request, res: Response) => {    const since = Number(req.query.since ?? 0);
     if (!Number.isFinite(since) || since < 0) {
       res.status(400).json({ error: 'since must be a non-negative number' });
       return;

@@ -228,7 +228,11 @@ Before starting implementation, `dev-vega` audited all Phase 1 and Phase 2 touch
 - Execute **Phase 1** and **Phase 2** first (strictly RED-first TDD for every requirement, followed by `npx tsc --noEmit`, `npx vitest run`, `npm run build`, and the targeted CUJ evidence gates).
 - Stop after Phase 1 + 2 for David's verification before touching Phase 3.
 
+---
 
+## Phase 3 — Storage & Sync: Incremental Turn Store & Chunked Tail-First Hydration
+
+*(Execute ONLY after Phase 1 and Phase 2 are green and verified.)*
 *(Execute ONLY after Phase 1 and Phase 2 are green and verified.)*
 
 ### 3.1 SQLite Composite Index & Paginated Turns Endpoint (`server/db/schemaSpec.ts`, `server/db/projectRepo.ts`, `server/routes/projects.ts`)
@@ -240,3 +244,16 @@ Before starting implementation, `dev-vega` audited all Phase 1 and Phase 2 touch
 1. Separate `turns` out of the monolithic `projects` blob in IndexedDB into an indexed `turns` object store (keyed by `[projectId, id]` with index on `[projectId, threadId, seq]`), OR store turns in per-chapter/per-thread buckets so appending a turn writes only the affected thread/turn bucket instead of serializing the entire project on every message.
 2. **TDD & Regression Gates for Phase 3**:
    - Must pass `src/tests/cuj-gap-sync.test.ts`, `src/tests/vps-user-journeys.test.ts`, `src/tests/plaintext-roundtrip.test.ts`, and all 27 journeys of `scripts/evidence.cjs`.
+
+---
+
+## Phase 3 — COMPLETION STATUS (dev-vega, 2026-11-01, commit `d85afd0`)
+
+**Phase 3 is COMPLETE and green.**
+
+- §3.1 done: composite index `turns(user_id, project_id, thread_id, seq)` declared in the schema spec (annealed on boot); `GET /api/projects/:id/turns` with `threadId` / `beforeSeq` / `limit` (1..500, default 200), TAIL-FIRST, envelope law respected; the `?delta?since=rev` endpoint untouched.
+- §3.2 done: the IndexedDB `projects` blob no longer carries turns — a dedicated indexed `turns` store (`[projectId, id]` keyPath, `byProject` + `byProjectThread` `[projectId, threadId, seq]` indexes) holds one record per turn. The v1→v2 upgrade lifts every legacy blob's embedded turns into records atomically inside the upgrade transaction. `localPutProject` writes ONLY new/changed turn records (session-side signature diff in `src/services/turnRecords.ts`), so appending a message no longer serializes the whole project history; deletions sweep the `byProject` index; reads reassemble blob + records, keeping export/import, the plaintext roundtrip and the VPS mirror on the canonical snapshot shape.
+- Gates: RED-first `src/tests/long-chat-phase3-storage.test.ts` (15 tests: real in-memory SQLite + HTTP for the endpoint/index, pure record core for the IDB logic); `tsc` clean; vitest 120 files / 988 tests; build green; **full evidence pack 27/27 journeys ok** (0 console/page/http errors; verdict AMBER only from the known J23 "needs 04,23" merge note — green in its targeted gate).
+
+### Open item for David (Phase 3-b — NOT started; needs his design input per the design law)
+- The client still loads the FULL project snapshot on open (`vpsStore.load` / local load reassemble everything). The paginated endpoint exists but nothing consumes it yet. Wiring tail-first client hydration means deciding how a PARTIALLY hydrated mirror interacts with the full-mirror contract, the offline replica, and outbox replay — a sync-model decision, so it waits for David rather than being designed unilaterally.

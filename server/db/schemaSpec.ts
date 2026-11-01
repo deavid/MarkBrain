@@ -243,10 +243,15 @@ const TURNS: TableSpec = {
     { name: 'doc_json', ddl: "doc_json TEXT NOT NULL DEFAULT '{}'" },
     { name: 'revision', ddl: 'revision INTEGER NOT NULL' },
   ],
+  // Long-chat Phase 3.1 (design-docs/31 §3.4): a thread's tail or a chapter's
+  // turn slice must be an index seek, and the paginated turns endpoint needs
+  // the same ordering — not a full-table scan per page.
+  indexes: [
+    'CREATE INDEX IF NOT EXISTS idx_turns_user_project_thread_seq ON turns(user_id, project_id, thread_id, seq)',
+  ],
 };
 
-// Envelope: `doc_json` is the canonical ChapterPartition. `title`/
-// `description`/`summary`/`granularity`/`start_turn_id`/`end_turn_id` are
+// Envelope: `doc_json` is the canonical ChapterPartition. `title`/// `description`/`summary`/`granularity`/`start_turn_id`/`end_turn_id` are
 // LEGACY envelope duplicates kept for rows written by older builds (never
 // dropped): reads prefer doc_json and fall back only when it is missing/
 // `'{}'`. `thread_id`/`chapter_id`/`order_index`/`chapter_thread_id` stay

@@ -1325,3 +1325,82 @@ export function createProjectForUser(userId: number, snapshot: ProjectSnapshot):
   if (!project) throw new Error('Project creation failed.');
   return { revision: result.revision, project };
 }
+
+/* ── Long-chat Phase 3.1: paginated tail-first turns (design-docs/31 §3.4) ── */
+
+export interface PagedTurns {
+  /** Most recent first (the client hydrates the visible chat immediately). */
+  turns: Turn[];
+  /** True when older turns exist past this page. */
+  hasMore: boolean;
+  /** The lowest seq in THIS page — pass as `beforeSeq` for the next page. */
+  oldestSeq: number;
+}
+
+/**
+ * One bounded page of a thread's (or the whole project's) turns, TAIL FIRST.
+ * The composite index (user_id, project_id, thread_id, seq) makes each page
+ * an index seek; the client never parses a monolithic multi-megabyte payload.
+ * Reads prefer doc_json (envelope law) and fall back to the legacy columns.
+ */
+export function listTurnsPageForUser(
+  userId: number,
+  projectId: string,
+  opts: { threadId?: string; beforeSeq?: number; limit?: number } = {}
+): PagedTurns | null {
+  const db = getDb();
+  const exists = db
+    .prepare('SELECT 1 FROM projects WHERE user_id = ? AND project_id = ?')
+    .get(userId, projectId);
+  if (!exists) return null;
+
+  const limit = Math.max(1, Math.min(opts.limit ?? 200, 500));
+  const before = typeof opts.beforeSeq === 'number' && Number.isFinite(opts.beforeSeq) ? opts.beforeSeq : null;
+
+  const rows = (
+    before === null
+      ? db
+          .prepare(
+            `SELECT doc_json, role, content, timestamp, meta_json, seq, thread_id
+             FROM turns WHERE user_id = ? AND project_id = ? ${opts.threadId ? 'AND thread_id = ?' : ''}
+             ORDER BY seq DESC LIMIT ?`
+          )
+      : db
+          .prepare(
+            `SELECT doc_json, role, content, timestamp, meta_json, seq, thread_id
+             FROM turns WHERE user_id = ? AND project_id = ? ${opts.threadId ? 'AND thread_id = ?' : ''} AND seq < ?
+             ORDER BY seq DESC LIMIT ?`
+          )
+  ).all(...(opts.threadId ? [userId, projectId, opts.threadId] : [userId, projectId]), ...(before !== null ? [before] : []), limit + 1) as Array<{
+    doc_json: string;
+    role: string;
+    content: string;
+    timestamp: number;
+    meta_json: string;
+    seq: number;
+    thread_id: string | null;
+  }>;
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const turns = page
+    .map((t) => {
+      const doc = parseJson<Turn | null>(t.doc_json, null);
+      if (doc && doc.id) return doc;
+      return {
+        id: '',
+        role: t.role as Turn['role'],
+        content: t.content,
+        timestamp: t.timestamp,
+        threadId: t.thread_id || undefined,
+        meta: parseJson(t.meta_json, undefined),
+      } as Turn;
+    })
+    .filter((t) => t.id);
+
+  return {
+    turns,
+    hasMore,
+    oldestSeq: page.length > 0 ? page[page.length - 1].seq : 0,
+  };
+}

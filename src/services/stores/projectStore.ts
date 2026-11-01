@@ -1,9 +1,8 @@
 /** Anticorruption port between `persistenceService` and the storage backends (`localStore`, later `vpsStore`). */
 import type { ProjectSnapshot } from '../../../shared/types/projectSnapshot';
-
-// The snapshot shape lives in the client/server contract layer; re-exported so
-// every existing client importer keeps working.
+import type { Turn } from '../../../shared/types/timeline';
 export type { ProjectSnapshot } from '../../../shared/types/projectSnapshot';
+export type { Turn } from '../../../shared/types/timeline';
 
 /**
  * Backend contract:

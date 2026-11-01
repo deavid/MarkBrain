@@ -412,6 +412,9 @@ export default function App() {
     handleManualArtifactEdit,
     handleRevertArtifact,
     handleRefreshLayers,
+    handleRenameArtifactCode,
+    handleSetArtifactCategory,
+    handleSetArtifactTags,
     handleTriageKeepBoth,
     handleTriageOverwrite,
     handleTriageDelete,
@@ -1043,6 +1046,19 @@ export default function App() {
               indexStatus={indexStatusFor(art, searchIndexMap, getModelForSlot('embed'))}
               onIndexArtifact={() => handleIndexArtifact(art.id)}
               indexArtifactProgress={indexArtifactProgress}
+              edges={domainEdges}
+              artifacts={domainArtifacts}
+              onAddEdge={(targetId, kind) => graph.addEdge(art.id, targetId, kind as never)}
+              onRemoveEdge={(edgeId) => graph.removeEdge(edgeId)}
+              onOpenArtifact={(id) => setSelectedArtifactId(id)}
+              onRenameCode={(code) => handleRenameArtifactCode(art.id, code)}
+              onSetCategory={(category) => handleSetArtifactCategory(art.id, category)}
+              onSetTags={(tags) => handleSetArtifactTags(art.id, tags)}
+              threads={threadRegistry.getThreads()}
+              chatAttachments={threadRegistry.getThreads().flatMap((t) => t.attachments.map((a) => ({ ...a, threadId: t.id })))}
+              onSetThreadAttachmentGranularity={(threadId, artifactId, g) =>
+                threadRegistry.setAttachmentGranularity(threadId, artifactId, g)
+              }
             />
           );
         })()

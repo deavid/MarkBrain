@@ -2,6 +2,7 @@ import type { DomainContextValue } from '../../domains/DomainRegistry';
 import type { Artifact } from '../../types';
 import type { Granularity } from '../../domains/granularity';
 import { serializeArtifactToYamlDoc } from '../../utils/yamlArtifactParser';
+import { normalizeSlug, uniqueSlug, slugTaken, normalizeCategory, categoryToType } from '../../utils/artifactTaxonomy';
 import { detectImportFlag, flagRelationship, ImportFlag } from '../../utils/importDetect';
 import { purgeArtifact } from '../../application/purgeArtifactEverywhere';
 import { queueServerMutation } from '../../application/serverMutationQueue';
@@ -112,14 +113,19 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
    */
   const handleManualArtifactEdit = (
     artifactId: string,
-    patch: { title: string; subtitle: string; body: string }
+    patch: { title: string; subtitle: string; body: string; description?: string; summary?: string }
   ) => {
     const art = artifactsDomain.getArtifact(artifactId);
     if (!art) return;
     const oldBody = art.current?.body || '';
     const oldSubtitle = art.current?.subtitle || '';
     const bodyChanged = patch.body !== oldBody;
-    const anythingChanged = bodyChanged || patch.subtitle !== oldSubtitle || patch.title !== art.title;
+    const anythingChanged =
+      bodyChanged ||
+      patch.subtitle !== oldSubtitle ||
+      patch.title !== art.title ||
+      (patch.description !== undefined && patch.description !== (art.current?.description || '')) ||
+      (patch.summary !== undefined && patch.summary !== (art.current?.summary || ''));
     if (!anythingChanged) return;
 
     versioning.recordSnapshot(artifactId, {
@@ -138,8 +144,10 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
       title: patch.title.trim() || art.title,
       current: {
         subtitle: patch.subtitle,
-        description: art.current?.description || '',
-        summary: art.current?.summary || '',
+        // BUG-006 §3 tab 2: the summary layers are hand-editable too — an
+        // absent field means "untouched", never "wipe it".
+        description: patch.description !== undefined ? patch.description : art.current?.description || '',
+        summary: patch.summary !== undefined ? patch.summary : art.current?.summary || '',
         body: patch.body,
       },
       updatedAt: Date.now(),
@@ -151,6 +159,67 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
         : {}),
     });
     logger.action('App', `Manual edit on artifact ${artifactId}${bodyChanged ? ' (body changed — summary layers marked stale)' : ''}`);
+    triggerReRender();
+  };
+
+  /** BUG-006 §1.3: the slug is the one visible identifier, so the user can
+   *  edit it. The internal id never moves; the old slug is remembered so
+   *  older chat references still resolve. */
+  const handleRenameArtifactCode = (artifactId: string, rawCode: string) => {
+    const art = artifactsDomain.getArtifact(artifactId);
+    if (!art) return;
+    const code = normalizeSlug(rawCode);
+    if (!code || code === art.code) return;
+    if (slugTaken(code, artifactsDomain.listArtifacts(), artifactId)) {
+      logger.warn('App', `Slug "${code}" is already taken — rename rejected`);
+      return;
+    }
+    artifactsDomain.upsertArtifact({
+      id: artifactId,
+      title: art.title,
+      code,
+      previousCodes: [...(art.previousCodes || []), ...(art.code ? [art.code] : [])],
+      updatedAt: Date.now(),
+      ...(art.yamlDocument !== undefined
+        ? { yamlDocument: serializeArtifactToYamlDoc({ ...art, code }) }
+        : {}),
+    });
+    logger.action('App', `Slug renamed: ${artifactId} ${art.code} → ${code}`);
+    triggerReRender();
+  };
+
+  /** BUG-006 §2: one Category concept; `type` stays synchronized. */
+  const handleSetArtifactCategory = (artifactId: string, category: string) => {
+    const art = artifactsDomain.getArtifact(artifactId);
+    if (!art) return;
+    const cat = normalizeCategory(category);
+    artifactsDomain.upsertArtifact({
+      id: artifactId,
+      title: art.title,
+      category: cat,
+      type: categoryToType(cat),
+      updatedAt: Date.now(),
+      ...(art.yamlDocument !== undefined
+        ? { yamlDocument: serializeArtifactToYamlDoc({ ...art, category: cat }) }
+        : {}),
+    });
+    logger.action('App', `Category: ${artifactId} → ${cat}`);
+    triggerReRender();
+  };
+
+  const handleSetArtifactTags = (artifactId: string, tags: string[]) => {
+    const art = artifactsDomain.getArtifact(artifactId);
+    if (!art) return;
+    artifactsDomain.upsertArtifact({
+      id: artifactId,
+      title: art.title,
+      tags,
+      updatedAt: Date.now(),
+      ...(art.yamlDocument !== undefined
+        ? { yamlDocument: serializeArtifactToYamlDoc({ ...art, tags }) }
+        : {}),
+    });
+    logger.action('App', `Tags: ${artifactId} → ${tags.join(', ') || '(none)'}`);
     triggerReRender();
   };
 
@@ -268,11 +337,19 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     const existing = !title
       ? undefined
       : artifactsDomain.listArtifacts().find((a) => (a.title || '').trim() === title);
+    // BUG-006 §1.2: a new note landing on a taken slug is suffixed, never
+    // silently duplicated. (The idempotent-by-title path keeps its code.)
+    const allCodes = new Set(artifactsDomain.listArtifacts().map((a) => a.code));
+    if (existing && existing.code) allCodes.delete(existing.code);
+    const code = uniqueSlug(
+      normalizeSlug(newArt.code || newArt.title || newArt.id),
+      allCodes
+    );
     artifactsDomain.upsertArtifact({
       id: existing?.id ?? newArt.id,
       title: newArt.title || 'Untitled',
       workspaceId: activeProjectId,
-      code: newArt.code || newArt.id,
+      code,
       type: newArt.type === 'chapter' ? 'chapter' : 'document',
       category: newArt.category || 'note',
       isHighConcept: Boolean(newArt.isHighConcept),
@@ -338,13 +415,17 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
         body: a.current?.body || '',
       }))
     );
+    // BUG-006 §1.2: an import landing on a taken slug is suffixed (-001…),
+    // never silently sharing a filename with another artifact.
+    const importCode = uniqueSlug(
+      normalizeSlug(newArt.code || newArt.title || id),
+      new Set(artifactsDomain.listArtifacts().map((a) => a.code))
+    );
     artifactsDomain.upsertArtifact({
       id,
       title: newArt.title || 'Untitled',
       workspaceId: activeProjectId,
-      code: newArt.code || id,
-      type: newArt.type === 'chapter' ? 'chapter' : 'document',
-      category: newArt.category || 'note',
+      code: importCode,      type: newArt.type === 'chapter' ? 'chapter' : 'document',      category: newArt.category || 'note',
       isHighConcept: Boolean(newArt.isHighConcept),
       color: newArt.color,
       current: newArt.current || {
@@ -483,8 +564,10 @@ export function createArtifactHandlers(params: ArtifactHandlerParams) {
     handleManualArtifactEdit,
     handleRevertArtifact,
     handleRefreshLayers,
-    handleAddArtifact,
-    handleImportArtifact,
+    handleRenameArtifactCode,
+    handleSetArtifactCategory,
+    handleSetArtifactTags,
+    handleAddArtifact,    handleImportArtifact,
     handleTriageKeepBoth,
     handleTriageOverwrite,
     handleTriageDelete,

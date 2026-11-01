@@ -23,6 +23,12 @@ export interface UniversalArtifactDocument {
   id: string;
   workspaceId: string;
   code: string;
+  /**
+   * Slugs this artifact used to carry (BUG-006 §1.3): when the user renames
+   * the slug, the old one is recorded so older chat references and `<link>`
+   * mentions still resolve. Never displayed.
+   */
+  previousCodes?: string[];
   title: string;
   type: 'document' | 'chapter';
   category: string;

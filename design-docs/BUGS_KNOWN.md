@@ -42,7 +42,7 @@ All screenshots from this session were extracted from the goose session DB and s
 | **BUG-006.2** | Import title mismatch: markdown `# H1` must be used verbatim as the artifact title | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` |
 | **BUG-006.5** | Wipe `High Concept` from UI & metadata | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` |
 | **BUG-006.10** | Remove fake bottom-left `Title · Description · Summary · Full` text in detail modal | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` |
-| **BUG-006 (rest)** | Detail modal redesign: IDs/slugs, Category, editing all fields, History visibility, Relationships tab + similarity search, Chats-using-this tab | **Needs Discussion** | Deep talk with David |
+| **BUG-006 (all)** | Detail modal full redesign: 6 tabs (`Body` dedicated tab, `Overview & Layers` non-collapsible & editable, `Relationships` + similarity search, `Chats`, `History` always visible, `Q&A Index`), 1 visible editable Slug (`code`), unified `Category` with 6 options + descriptions | **100% Clear** | `BUGS/BUG_006_ARTIFACT_MODAL_PLAN.md` |
 | **BUG-007** | Chat operations/chips (`<link>`, attachments, etc.) must render IN PLACE, not at the end | **Needs Coaching** | Deep talk with David |
 | **BUG-008** | Chat `<> Raw` view is processed ("well done meat"), not raw XML output | **Needs Coaching** (tied to BUG-007 pipeline, though intent is 100% clear) | Deep talk with David (or quick fix if raw text is already on `turn`) |
 | **BUG-009** | Composer `+` Attach button is too dark; make it bright | **100% Clear** | `BUGS/CLEAR_FIXES_PLAN.md` |
